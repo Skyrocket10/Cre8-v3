@@ -204,6 +204,25 @@ export const DOCUMENT_RESET = `
 [data-cre8-root] :focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
 `.trim();
 
+/**
+ * The reset a *published* document needs on top of `DOCUMENT_RESET`.
+ *
+ * In the editor the page root lives inside a frame element, which carries no
+ * user-agent margin. Published, that same root sits directly in `<body>` —
+ * which every browser gives `margin: 8px`. Without this a full-bleed section is
+ * inset by 8px on every side and the page overflows its own viewport
+ * horizontally, so the canvas and the published page disagree about where the
+ * page begins.
+ *
+ * Deliberately separate from `DOCUMENT_RESET`, because that one is also
+ * injected into the editor page, where `body` is the *editor's* body and must
+ * not be touched.
+ */
+export const PUBLISHED_DOCUMENT_RESET = `
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; padding: 0; }
+`.trim();
+
 /** Styles for the placeholder shown where an image has no source yet. */
 export const PLACEHOLDER_CSS = `
 [data-cre8-placeholder] {
@@ -225,13 +244,21 @@ export interface DocumentStylesheetOptions extends GenerateCssOptions {
   /** Emit `:root { --c-…: … }` from the theme. */
   themeVars?: string;
   rootSelector?: string;
+  /**
+   * The page root is the document body, not a frame inside one — so the
+   * document's own margins have to go. True for published files; false for the
+   * editor and preview, which render into a page that is not theirs.
+   */
+  standalone?: boolean;
 }
 
 export function generateStylesheet(
   doc: Cre8Document,
   options: DocumentStylesheetOptions
 ): string {
-  const parts = [DOCUMENT_RESET, PLACEHOLDER_CSS];
+  const parts = options.standalone
+    ? [PUBLISHED_DOCUMENT_RESET, DOCUMENT_RESET, PLACEHOLDER_CSS]
+    : [DOCUMENT_RESET, PLACEHOLDER_CSS];
   if (options.themeVars) {
     parts.unshift(`${options.rootSelector ?? ':root'} {\n${options.themeVars}\n}`);
   }

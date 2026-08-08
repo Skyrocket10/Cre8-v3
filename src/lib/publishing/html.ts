@@ -132,6 +132,8 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     themeVars: themeToCssVariables(doc.theme),
     rootSelector: ':root',
     includeStates: true,
+    // This file *is* the document, so its body belongs to the page.
+    standalone: true,
   });
 
   const body = renderNodeToHtml(doc, page.rootNodeId, { hrefResolver: hrefResolverFor(doc) });
