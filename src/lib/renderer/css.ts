@@ -209,11 +209,18 @@ export function generateNodeCss(
  * and to `medium` (3px) in production. So the universal baseline is stated
  * here rather than inherited from whatever stylesheet happens to be nearby,
  * and every surface loads this file.
+ *
+ * The root's own `font-size` and `line-height` are part of that. The canvas
+ * renders inside the editor's chrome, which runs at 12px because that is a
+ * sensible size for a tool; a published page inherits the browser's 16px. Left
+ * to inherit, every unstyled run of text and every `em` in the document — the
+ * `1.25em` list indent below included — resolved to a different number on each
+ * surface. Production is the truth, so both are pinned to it.
  */
 export const DOCUMENT_RESET = `
 *, *::before, *::after { box-sizing: border-box; }
 :where([data-cre8-root]), :where([data-cre8-root]) *, :where([data-cre8-root]) *::before, :where([data-cre8-root]) *::after { margin: 0; padding: 0; border: 0 solid; }
-:where([data-cre8-root]) { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+:where([data-cre8-root]) { font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 :where([data-cre8-root]) :is(ul, ol) { padding-left: 1.25em; }
 :where([data-cre8-root]) :is(img, video, svg) { max-width: 100%; }
 :where([data-cre8-root]) :is(img, video) { display: block; }
