@@ -39,6 +39,7 @@ import {
   unauthorised,
 } from './lib/http';
 import { handleMe, handleSignIn, handleSignOut, handleSignUp } from './routes/auth';
+import { handleFormSubmission, listSubmissions } from './routes/forms';
 import {
   contentTypeFor,
   handleDeleteProject,
@@ -72,6 +73,18 @@ export default {
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (url.pathname.startsWith('/s/')) return serveSite(url, env, ctx);
+
+    // Ahead of the CSRF check and the AUTH_PEPPER guard on purpose. A
+    // published page runs no script, so its form posts natively — no custom
+    // header, no session, no account. See routes/forms.ts for why that is
+    // safe here and what is defended instead.
+    if (url.pathname.startsWith('/api/f/')) {
+      try {
+        return await handleFormSubmission(request, env, url);
+      } catch (error) {
+        return errorResponse(error, {});
+      }
+    }
 
     // Not ours. The asset router already declined it, so this is a real 404 —
     // hand back the editor's own 404 page rather than a bare string.
@@ -196,12 +209,25 @@ function projectRoutes(
     return handlePublish(request, env, projectId, user, cors);
   } else if (section === 'subdomain' && method === 'PUT') {
     return handleSetSubdomain(request, env, projectId, user, cors);
+  } else if (section === 'submissions' && method === 'GET') {
+    return handleListSubmissions(env, projectId, user, cors);
   } else if (section === 'socket') {
     // A 101 upgrade carries no CORS headers, so this one skips them.
     return handleSocket(env, projectId, user);
   }
 
   throw notFound();
+}
+
+/** Reading a project's submissions needs the same access as editing it. */
+async function handleListSubmissions(
+  env: Env,
+  projectId: string,
+  user: SessionUser,
+  cors: Record<string, string>
+): Promise<Response> {
+  await requireProjectAccess(env, projectId, user, 'viewer');
+  return json({ submissions: await listSubmissions(env, projectId) }, 200, cors);
 }
 
 async function assetRoutes(

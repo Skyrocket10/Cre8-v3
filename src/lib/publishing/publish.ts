@@ -9,6 +9,7 @@
  * Worker in `workers/` stream them from cache — see docs/ARCHITECTURE.md.
  */
 
+import { apiOrigin } from '../api/client';
 import { getStorage, type PublishedSite } from '../api/storage';
 import { slugify } from '../document/id';
 import { routes } from '../routes';
@@ -28,7 +29,10 @@ export interface PublishResult {
 }
 
 export async function publishProject(doc: Cre8Document): Promise<PublishResult> {
-  const generated = generateSite(doc);
+  // Forms post to the API, not to the site's own Worker — that one has no
+  // database and would answer 404.
+  const formTarget = { apiOrigin: apiOrigin() ?? undefined, projectId: doc.id };
+  const generated = generateSite(doc, formTarget);
 
   const site: PublishedSite = {
     projectId: doc.id,
@@ -40,7 +44,7 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
       .map((page) => ({
         slug: page.isHome ? '' : page.slug,
         title: page.meta.title || page.name,
-        html: renderPage(doc, page),
+        html: renderPage(doc, page, formTarget),
       })),
   };
 
@@ -79,7 +83,11 @@ export interface ExportResult {
  * data URLs and travel inside the HTML.
  */
 export async function exportProject(doc: Cre8Document): Promise<ExportResult> {
-  const generated = generateSite(doc, { pretty: true });
+  const generated = generateSite(doc, {
+    pretty: true,
+    apiOrigin: apiOrigin() ?? undefined,
+    projectId: doc.id,
+  });
 
   const missing: string[] = [];
   const assetEntries = await Promise.all(

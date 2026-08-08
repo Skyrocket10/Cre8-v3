@@ -47,6 +47,8 @@ function renderAttrs(attrs: Record<string, AttrValue>): string {
 export interface RenderNodeOptions {
   /** Resolve `page:<id>` links to real paths. */
   hrefResolver?: (href: string) => string;
+  /** Give a form with no action of its own somewhere to post. */
+  formAction?: (formId: string) => string;
   /** Guard against a component that somehow contains itself. */
   depth?: number;
 }
@@ -71,6 +73,7 @@ export function renderNodeToHtml(
   const model = describeElement(node, doc, {
     mode: 'publish',
     hrefResolver: options.hrefResolver,
+    formAction: options.formAction,
   });
 
   const attrs = renderAttrs(model.attrs);
@@ -225,6 +228,18 @@ function hrefResolverFor(doc: Cre8Document, from: Page) {
 export interface RenderPageOptions {
   /** Emit readable HTML instead of the compact production form. */
   pretty?: boolean;
+  /**
+   * Absolute origin of the API, for form actions.
+   *
+   * A published site may be served from its own domain, so the action has to
+   * be absolute — a relative path would post to the site's own Worker, which
+   * has no database and would answer 404. Omitted, forms are published with
+   * no action, which is honest: they post nowhere rather than somewhere
+   * wrong.
+   */
+  apiOrigin?: string;
+  /** Which project the submissions belong to. Required with `apiOrigin`. */
+  projectId?: string;
 }
 
 export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOptions = {}): string {
@@ -242,7 +257,21 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     standalone: true,
   });
 
-  const body = renderNodeToHtml(doc, page.rootNodeId, { hrefResolver: hrefResolverFor(doc, page) });
+  const body = renderNodeToHtml(doc, page.rootNodeId, {
+    hrefResolver: hrefResolverFor(doc, page),
+    formAction:
+      options.apiOrigin && options.projectId
+        ? (formId) =>
+            // `r` is where to send the visitor afterwards. It travels in the
+            // action rather than as a hidden input because a form element has
+            // no children to inject one into — and it is needed at all because
+            // the same-origin `/s/` fallback is served under a sandbox CSP,
+            // which makes the page an opaque origin, so the browser sends no
+            // Referer and the endpoint would have nothing to go back to.
+            `${options.apiOrigin}/api/f/${encodeURIComponent(options.projectId!)}` +
+            `/${encodeURIComponent(formId)}?r=${encodeURIComponent(pagePath(page))}`
+        : undefined,
+  });
   // A page inherits a sensible <title> rather than repeating its internal
   // name: the home page is the site, everything else is "Page · Site".
   const title =

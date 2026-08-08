@@ -136,3 +136,31 @@ CREATE TABLE IF NOT EXISTS assets (
 );
 
 CREATE INDEX IF NOT EXISTS assets_project ON assets (project_id, created_at DESC);
+
+-- Form submissions from published sites.
+--
+-- Public and unauthenticated by necessity: the person filling in a contact
+-- form on someone's published site has no account here. That makes every
+-- column below untrusted input, so `payload` is stored as opaque JSON and is
+-- never interpolated into anything — the editor renders it as text.
+--
+-- `ip_hash` is a hash, not an address. Rate limiting and abuse triage need to
+-- tell submissions apart, not identify anyone, and a site owner should not be
+-- handed their visitors' IP addresses as a side effect of collecting an email.
+CREATE TABLE IF NOT EXISTS form_submissions (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+  form_id     TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  ip_hash     TEXT,
+  user_agent  TEXT,
+  created_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS submissions_project
+  ON form_submissions (project_id, created_at DESC);
+
+-- Rate limiting reads this on every submission, so it gets its own index
+-- rather than scanning the project's history.
+CREATE INDEX IF NOT EXISTS submissions_rate
+  ON form_submissions (ip_hash, created_at DESC);

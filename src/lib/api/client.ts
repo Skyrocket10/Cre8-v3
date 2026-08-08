@@ -314,6 +314,18 @@ export const api = {
 };
 
 /** WebSocket URL for a project's collaboration room. */
+/**
+ * Where published pages should send form submissions.
+ *
+ * Null in local mode: with no backend there is nowhere to post, and a form
+ * published with no action posts back to its own page and does nothing, which
+ * is better than an action pointing at a host that will never answer.
+ */
+export function apiOrigin(): string | null {
+  if (!backend) return null;
+  return API_URL || window.location.origin;
+}
+
 export function socketUrl(projectId: string): string {
   // Same origin by default, so the socket inherits the page's scheme — wss on
   // a real deployment, ws on a local one — with nothing to configure.

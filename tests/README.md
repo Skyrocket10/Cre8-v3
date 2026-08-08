@@ -52,6 +52,7 @@ preferring an installed copy over downloading one.
 | `blocks` | The same question of every block in the registry, alone, at 390 / 768 / 1440 |
 | `panel` | The Insert panel at library scale: grouping, search, live previews |
 | `nav` | Do page links work inside a published site |
+| `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
 | `assets` | Do images survive publish and ZIP export |
 | `bodyreset` | Does the published page start at the viewport edge |
 | `borders` | Per-side border widths, canvas to published |

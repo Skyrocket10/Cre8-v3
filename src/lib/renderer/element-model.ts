@@ -19,6 +19,15 @@ export interface RenderOptions {
   mode: RenderMode;
   /** Maps an internal page reference (`page:<id>`) to a real URL. */
   hrefResolver?: (href: string) => string;
+  /**
+   * Where a form with no action of its own should post.
+   *
+   * Only the publisher knows this — it is an absolute URL containing the
+   * project id — so the renderer asks rather than guesses. A form left
+   * unresolved keeps no action at all, which posts back to its own page and
+   * does nothing, rather than silently posting somewhere wrong.
+   */
+  formAction?: (formId: string) => string;
 }
 
 export type AttrValue = string | number | boolean | undefined;
@@ -236,12 +245,16 @@ export function describeElement(
         acceptsChildren: false,
       };
 
-    case 'form':
+    case 'form': {
+      // An action the designer typed always wins; otherwise the publisher
+      // supplies one so the form reaches this project's submissions.
+      const own = str(props.action);
+      const action = own || options.formAction?.(str(props.formId) || node.id) || undefined;
       return {
         tag: 'form',
         attrs: {
           ...base,
-          action: str(props.action) || undefined,
+          action,
           method: str(props.method, 'post'),
           // Submitting from the canvas would navigate away from the editor.
           onsubmit: mode === 'edit' ? 'return false' : undefined,
@@ -249,6 +262,7 @@ export function describeElement(
         void: false,
         acceptsChildren: true,
       };
+    }
 
     case 'divider':
     case 'spacer':
