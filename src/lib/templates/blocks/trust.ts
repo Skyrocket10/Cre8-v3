@@ -83,6 +83,47 @@ export function faqSpec(): NodeSpec {
 }
 
 /* --------------------------------------------------------------------------
+ * FAQ accordion
+ * ----------------------------------------------------------------------- */
+
+export function faqAccordionSpec(): NodeSpec {
+  return section('FAQ accordion', [
+    container(
+      [
+        sectionHeader(
+          'FAQ',
+          'Questions, answered',
+          'Open the ones you need. Everything else stays out of the way.'
+        ),
+        column(
+          'Questions',
+          FAQS.map((item, i) => ({
+            // A native <details>. No script, no state to manage, keyboard and
+            // screen-reader behaviour supplied by the browser — and it works
+            // identically on the canvas and in the published file because it
+            // is the same element in both.
+            type: 'details' as const,
+            name: item.q.slice(0, 28),
+            props: { summary: item.q, open: i === 0 },
+            styles: {
+              width: '100%',
+              ...pad('18px', '0px'),
+              ...borderSide('Bottom'),
+              display: 'block',
+            },
+            children: [
+              paragraph(item.a, { ...SMALL, lineHeight: '1.62', maxWidth: '62ch', marginTop: '10px' }),
+            ],
+          })),
+          { gap: '0px', width: '100%' }
+        ),
+      ],
+      { gap: '48px', maxWidth: 'var(--w-content)' }
+    ),
+  ]);
+}
+
+/* --------------------------------------------------------------------------
  * Team grid
  * ----------------------------------------------------------------------- */
 

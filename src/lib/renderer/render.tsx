@@ -210,7 +210,11 @@ function ElementView({
       ))
     : null;
 
-  return React.createElement(Tag, { ...attrs, ref: setRef }, children);
+  const lead = model.lead
+    ? React.createElement(model.lead.tag, { key: '__lead' }, model.lead.text)
+    : null;
+
+  return React.createElement(Tag, { ...attrs, ref: setRef }, lead, children);
 }
 
 /**

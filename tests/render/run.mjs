@@ -18,6 +18,7 @@ const SUITES = [
   ['blocks', 'every block, on its own, at three widths'],
   ['panel', 'the Insert panel at library scale'],
   ['nav', 'page navigation inside a published site'],
+  ['native', 'native primitives behave without a runtime'],
   ['forms', 'published forms reach the submissions endpoint'],
   ['assets', 'images survive publish and export'],
   ['bodyreset', 'the published page starts at the edge'],

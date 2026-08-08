@@ -2,6 +2,9 @@
 
 import {
   AlignLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  CircleDot,
   Component,
   FileText,
   Frame,
@@ -17,6 +20,7 @@ import {
   Rows3,
   Sparkles,
   Square,
+  SquareCheck,
   SquareMousePointer,
   StretchHorizontal,
   TextCursorInput,
@@ -49,6 +53,10 @@ const ICONS: Record<string, LucideIcon> = {
   form: TextCursorInput,
   input: RectangleEllipsis,
   textarea: AlignLeft,
+  select: ChevronsUpDown,
+  checkbox: SquareCheck,
+  radio: CircleDot,
+  details: ChevronRight,
   component: Component,
 };
 

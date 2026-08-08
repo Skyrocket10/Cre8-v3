@@ -217,10 +217,14 @@ export type ElementType =
   // Structure
   | 'divider'
   | 'spacer'
+  | 'details'
   // Forms
   | 'form'
   | 'input'
   | 'textarea'
+  | 'select'
+  | 'checkbox'
+  | 'radio'
   // Composition
   | 'instance';
 

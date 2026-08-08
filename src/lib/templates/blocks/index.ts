@@ -78,6 +78,7 @@ export {
   relatedPostsSpec,
 } from './editorial';
 export {
+  faqAccordionSpec,
   faqSpec,
   gallerySpec,
   masonrySpec,
@@ -154,6 +155,7 @@ import {
   testimonialsSpec,
 } from './proof';
 import {
+  faqAccordionSpec,
   faqSpec,
   gallerySpec,
   masonrySpec,
@@ -443,6 +445,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'trust',
     keywords: ['questions', 'answers', 'help', 'support'],
     build: faqSpec,
+  },
+  {
+    id: 'faq-accordion',
+    name: 'FAQ accordion',
+    description: 'Questions that open one at a time',
+    category: 'trust',
+    keywords: ['questions', 'answers', 'collapse', 'expand', 'disclosure', 'toggle'],
+    build: faqAccordionSpec,
   },
   {
     id: 'team',

@@ -32,6 +32,22 @@ export interface RenderOptions {
 
 export type AttrValue = string | number | boolean | undefined;
 
+/**
+ * Escape text that is about to become markup.
+ *
+ * `ElementModel.html` is documented as trusted, and for icon geometry it is.
+ * Option labels and checkbox text are not — they are whatever somebody typed
+ * into the inspector, and they reach both the canvas (via
+ * `dangerouslySetInnerHTML`) and the published file.
+ */
+function esc(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 export interface ElementModel {
   tag: string;
   attrs: Record<string, AttrValue>;
@@ -39,6 +55,16 @@ export interface ElementModel {
   text?: string;
   /** Trusted markup (rich text, icon geometry). */
   html?: string;
+  /**
+   * A first child the element owns rather than the document.
+   *
+   * `<details>` is meaningless without a `<summary>`, and it has to come
+   * before the panel content — but the panel content is the node's real
+   * children. Modelling the summary as data the element emits keeps it out of
+   * the layer tree, where it would be a node a designer could delete and
+   * break the disclosure.
+   */
+  lead?: { tag: string; text: string };
   /** Never receives children or a closing tag. */
   void: boolean;
   /** Whether child nodes should be rendered inside this element. */
@@ -261,6 +287,63 @@ export function describeElement(
         },
         void: false,
         acceptsChildren: true,
+      };
+    }
+
+    case 'details':
+      return {
+        tag: 'details',
+        attrs: {
+          ...base,
+          // Forced open on the canvas. A closed disclosure hides its own
+          // children, and children that cannot be seen cannot be edited —
+          // the design-time state and the published state are allowed to
+          // differ here precisely so the two stay editable.
+          open: mode === 'edit' ? true : Boolean(props.open) || undefined,
+        },
+        lead: { tag: 'summary', text: str(props.summary, 'Details') },
+        void: false,
+        acceptsChildren: true,
+      };
+
+    case 'select': {
+      const options = str(props.options)
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const placeholder = str(props.placeholder);
+      return {
+        tag: 'select',
+        attrs: { ...base, name: str(props.name) || undefined },
+        // Escaped here rather than trusted: unlike icon geometry, these are
+        // words somebody typed into the inspector.
+        html:
+          (placeholder ? `<option value="" disabled selected>${esc(placeholder)}</option>` : '') +
+          options.map((option) => `<option>${esc(option)}</option>`).join(''),
+        void: false,
+        acceptsChildren: false,
+      };
+    }
+
+    case 'checkbox':
+    case 'radio': {
+      // One insertable thing rather than a box the designer has to pair with a
+      // text node: wrapping both in the `<label>` is what makes the words a hit
+      // target, and getting that wrong is invisible until someone tries to tap
+      // it on a phone.
+      const inputType = node.type === 'checkbox' ? 'checkbox' : 'radio';
+      const attrsList = [
+        `type="${inputType}"`,
+        str(props.name) ? `name="${esc(str(props.name))}"` : '',
+        str(props.value) ? `value="${esc(str(props.value))}"` : '',
+        props.checked ? 'checked' : '',
+      ].filter(Boolean);
+      return {
+        tag: 'label',
+        attrs: base,
+        html: `<input ${attrsList.join(' ')}><span>${esc(str(props.label, ''))}</span>`,
+        void: false,
+        acceptsChildren: false,
       };
     }
 

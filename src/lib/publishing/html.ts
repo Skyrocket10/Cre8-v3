@@ -96,7 +96,11 @@ export function renderNodeToHtml(
         .join('')
     : '';
 
-  return `<${tag}${attrs}>${children}</${tag}>`;
+  const lead = model.lead
+    ? `<${model.lead.tag}>${escapeHtml(model.lead.text)}</${model.lead.tag}>`
+    : '';
+
+  return `<${tag}${attrs}>${lead}${children}</${tag}>`;
 }
 
 /* --------------------------------------------------------------------------
