@@ -99,20 +99,47 @@ export function renderNodeToHtml(
  * Whole pages
  * ----------------------------------------------------------------------- */
 
+/**
+ * A page's canonical path, always directory-style.
+ *
+ * The trailing slash is load-bearing rather than cosmetic: `/plans` and
+ * `/plans/` resolve relative links to different places, and every internal link
+ * below is relative. Both Workers redirect to this form.
+ */
 export function pagePath(page: Page): string {
-  return page.isHome || page.slug === '' ? '/' : `/${page.slug}`;
+  return page.isHome || page.slug === '' ? '/' : `/${page.slug}/`;
 }
 
 export function pageFilename(page: Page): string {
   return page.isHome || page.slug === '' ? 'index.html' : `${page.slug}/index.html`;
 }
 
-function hrefResolverFor(doc: Cre8Document) {
+/** How many directory levels down from the site root a page sits. */
+function depthOf(page: Page): number {
+  if (page.isHome || page.slug === '') return 0;
+  return page.slug.split('/').filter(Boolean).length;
+}
+
+/**
+ * A link from one page to another, written relative to the page it sits on.
+ *
+ * Published files are the same bytes wherever they end up: the root of a
+ * domain, `/s/<projectId>/` on the editor's origin, or a folder on someone's
+ * desktop after unzipping. A root-absolute `/plans` only works in the first of
+ * those — everywhere else it escapes the site and lands on whatever owns the
+ * origin root. Relative links work in all three.
+ */
+export function relativeHref(from: Page, to: Page): string {
+  const target = to.isHome || to.slug === '' ? '' : `${to.slug}/`;
+  return '../'.repeat(depthOf(from)) + target || './';
+}
+
+function hrefResolverFor(doc: Cre8Document, from: Page) {
   return (href: string): string => {
     if (!href) return '#';
     if (!href.startsWith('page:')) return href;
     const page = doc.pages.find((p) => p.id === href.slice(5));
-    return page ? pagePath(page) : '#';
+    return page ? relativeHref(from, page) : '#';
   };
 }
 
@@ -136,7 +163,7 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     standalone: true,
   });
 
-  const body = renderNodeToHtml(doc, page.rootNodeId, { hrefResolver: hrefResolverFor(doc) });
+  const body = renderNodeToHtml(doc, page.rootNodeId, { hrefResolver: hrefResolverFor(doc, page) });
   // A page inherits a sensible <title> rather than repeating its internal
   // name: the home page is the site, everything else is "Page · Site".
   const title =

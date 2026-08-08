@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getStorage, type PublishedSite } from '@/lib/api/storage';
 import { routes } from '@/lib/routes';
 
@@ -15,6 +16,36 @@ import { routes } from '@/lib/routes';
  */
 export function PublishedSiteView({ projectId, slug }: { projectId: string; slug: string }) {
   const [site, setSite] = useState<PublishedSite | null | 'missing'>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const router = useRouter();
+
+  /**
+   * Make internal links navigate.
+   *
+   * Published pages link to each other relatively, which is what lets the same
+   * files work at a domain root, under `/s/<id>/`, and unzipped on a desktop.
+   * A `srcDoc` iframe has no URL of its own, though, so the browser resolves
+   * those hrefs against *this* page instead and they land nowhere. Intercepting
+   * the click and mapping it back to a slug is what stands in for the address
+   * bar the real deployment has.
+   */
+  const wireNavigation = useCallback(() => {
+    const doc = frameRef.current?.contentDocument;
+    if (!doc) return;
+
+    doc.addEventListener('click', (event) => {
+      const link = (event.target as Element | null)?.closest?.('a');
+      const href = link?.getAttribute('href');
+      if (!href || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) return;
+
+      event.preventDefault();
+      // Resolve against where this page would sit in a real deployment; the
+      // host is a placeholder so only the path survives.
+      const base = new URL(slug ? `/${slug}/` : '/', 'https://site.invalid');
+      const target = new URL(href, base).pathname.replace(/^\/+|\/+$/g, '');
+      router.push(routes.publishedSite(projectId, target));
+    });
+  }, [projectId, slug, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,8 +88,10 @@ export function PublishedSiteView({ projectId, slug }: { projectId: string; slug
 
   return (
     <iframe
+      ref={frameRef}
       title={page.title}
       srcDoc={page.html}
+      onLoad={wireNavigation}
       className="h-dvh w-full border-0 bg-white"
       // The published page is our own generated output, but sandboxing keeps
       // any pasted embed from reaching back into the editor origin.

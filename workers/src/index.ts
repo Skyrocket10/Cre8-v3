@@ -287,6 +287,14 @@ async function assetRoutes(
 const SITE_SANDBOX = 'sandbox allow-scripts allow-forms allow-popups allow-top-navigation';
 
 async function serveSite(url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+  // Internal links in a published page are relative, so that the same bytes
+  // work here, on a site's own domain, and unzipped on a desktop. Relative
+  // resolution depends on the trailing slash — from `/s/x/plans` a link to
+  // `pricing/` lands on `/s/x/pricing/`'s parent — so the directory form is
+  // canonical and everything else redirects to it.
+  const canonical = canonicalSitePath(url.pathname);
+  if (canonical) return Response.redirect(new URL(canonical + url.search, url).toString(), 301);
+
   const cache = caches.default;
   const cached = await cache.match(url.toString());
   if (cached) return cached;
@@ -311,6 +319,19 @@ async function serveSite(url: URL, env: Env, ctx: ExecutionContext): Promise<Res
 
   ctx.waitUntil(cache.put(url.toString(), response.clone()));
   return response;
+}
+
+/**
+ * The directory form of a site path, or null if it is already canonical.
+ *
+ * A request for a file (anything with an extension) is left alone; a request
+ * for a page gets a trailing slash.
+ */
+export function canonicalSitePath(pathname: string): string | null {
+  if (pathname.endsWith('/')) return null;
+  const last = pathname.slice(pathname.lastIndexOf('/') + 1);
+  if (last.includes('.')) return null;
+  return `${pathname}/`;
 }
 
 /* --------------------------------------------------------------------------

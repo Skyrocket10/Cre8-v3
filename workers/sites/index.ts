@@ -52,6 +52,19 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // Internal links in a published page are relative, so the same bytes work
+    // here, at /s/<id>/ on the editor's origin, and unzipped on a desktop.
+    // Relative resolution depends on the trailing slash, so the directory form
+    // is canonical and everything else redirects to it.
+    if (!url.pathname.endsWith('/')) {
+      const last = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
+      if (!last.includes('.')) {
+        url.pathname = `${url.pathname}/`;
+        return Response.redirect(url.toString(), 301);
+      }
+    }
+
     const cache = caches.default;
     const cached = await cache.match(request);
     if (cached) return cached;
