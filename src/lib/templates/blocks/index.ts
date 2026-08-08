@@ -9,7 +9,15 @@
 import type { NodeSpec } from '../../document/factory';
 
 export * from './kit';
-export { navbarSpec, footerSpec } from './chrome';
+export {
+  announcementSpec,
+  breadcrumbsSpec,
+  docsLayoutSpec,
+  footerSpec,
+  minimalFooterSpec,
+  navbarSpec,
+  subNavSpec,
+} from './chrome';
 export {
   deviceHeroSpec,
   heroSectionSpec,
@@ -40,7 +48,15 @@ export {
 export { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
 export { faqSpec } from './trust';
 
-import { footerSpec, navbarSpec } from './chrome';
+import {
+  announcementSpec,
+  breadcrumbsSpec,
+  docsLayoutSpec,
+  footerSpec,
+  minimalFooterSpec,
+  navbarSpec,
+  subNavSpec,
+} from './chrome';
 import { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
 import {
   alternatingFeaturesSpec,
@@ -119,6 +135,46 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'chrome',
     keywords: ['sitemap', 'legal', 'bottom'],
     build: footerSpec,
+  },
+  {
+    id: 'announcement',
+    name: 'Announcement bar',
+    description: 'Thin strip above the header',
+    category: 'chrome',
+    keywords: ['banner', 'notice', 'promo', 'strip', 'news'],
+    build: announcementSpec,
+  },
+  {
+    id: 'breadcrumbs',
+    name: 'Breadcrumbs',
+    description: 'Trail showing where the page sits',
+    category: 'chrome',
+    keywords: ['trail', 'path', 'hierarchy', 'navigation'],
+    build: breadcrumbsSpec,
+  },
+  {
+    id: 'subnav',
+    name: 'Sub navigation',
+    description: 'Tab row under the header',
+    category: 'chrome',
+    keywords: ['tabs', 'sections', 'secondary', 'navigation'],
+    build: subNavSpec,
+  },
+  {
+    id: 'docs-layout',
+    name: 'Docs layout',
+    description: 'Sticky sidebar beside an article',
+    category: 'chrome',
+    keywords: ['documentation', 'sidebar', 'article', 'reference', 'guide'],
+    build: docsLayoutSpec,
+  },
+  {
+    id: 'footer-minimal',
+    name: 'Minimal footer',
+    description: 'One row of links, with back to top',
+    category: 'chrome',
+    keywords: ['simple', 'small', 'bottom', 'compact'],
+    build: minimalFooterSpec,
   },
   {
     id: 'hero',

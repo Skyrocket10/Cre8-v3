@@ -1,7 +1,23 @@
 
 import { APP, ARTIFACTS, launch } from './harness.mjs';
 
-const SITE = 'http://localhost:3001';
+/**
+ * The static export, served with no Worker behind it.
+ *
+ * This is the whole point of the suite — the same build has to work when there
+ * is no backend at all — so it needs its own origin, separate from the one the
+ * other suites use. Start it with `npx serve out -l 3001`.
+ */
+const SITE = process.env.CRE8_LOCAL_URL ?? 'http://localhost:3001';
+
+if (!(await fetch(SITE).catch(() => null))?.ok) {
+  console.error(
+    `Nothing serving the static build at ${SITE}.\n` +
+      'This suite needs the export served with no backend:\n' +
+      '  npx next build && npx serve out -l 3001'
+  );
+  process.exit(2);
+}
 const results = [];
 let failed = 0;
 const check = (n, ok, d = '') => {

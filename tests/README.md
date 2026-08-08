@@ -31,10 +31,16 @@ no extra dependency, nothing to install beyond what the app already needs.
 Needs a Worker and a browser. Start one in another terminal:
 
 ```
-npm run preview          # builds, then serves on :8787
-npm run test:render      # all ten suites
-npm run test:render nav borders   # or just some
+npm run preview                    # builds, then serves on :8787
+npx serve out -l 3001              # the `local` suite needs this too
+npm run test:render                # all eleven suites
+npm run test:render nav borders    # or just some
 ```
+
+The `local` suite is the odd one out: it checks that the same static export
+works with no backend at all, so it needs the build served on its own origin
+with nothing behind it. Override with `CRE8_LOCAL_URL`. It says so and exits
+rather than failing with a connection error if that origin is missing.
 
 Point it elsewhere with `CRE8_TEST_URL=https://…`. Chromium is discovered from
 `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers`) or `CRE8_CHROMIUM`,
@@ -44,6 +50,7 @@ preferring an installed copy over downloading one.
 |---|---|
 | `fidelity` | Does the canvas compute the same styles as the published file, on one template |
 | `blocks` | The same question of every block in the registry, alone, at 390 / 768 / 1440 |
+| `panel` | The Insert panel at library scale: grouping, search, live previews |
 | `nav` | Do page links work inside a published site |
 | `assets` | Do images survive publish and ZIP export |
 | `bodyreset` | Does the published page start at the viewport edge |
