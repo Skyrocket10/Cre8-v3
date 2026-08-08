@@ -337,6 +337,8 @@ rewrite of the editor. See the last section of
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 What the component library grows into from the current 22 primitives and 9
-blocks — the marketing and application sets, which capability gates each of
-them, and the order to build in — is planned in
-[docs/COMPONENT-LIBRARY.md](docs/COMPONENT-LIBRARY.md).
+blocks — the marketing and application sets, and which capability gates each of
+them — is planned in
+[docs/COMPONENT-LIBRARY.md](docs/COMPONENT-LIBRARY.md). The build order for the
+49 components that need no new capability is in
+[docs/COMPONENT-BUILD-PLAN.md](docs/COMPONENT-BUILD-PLAN.md).

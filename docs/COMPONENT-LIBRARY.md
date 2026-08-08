@@ -4,9 +4,12 @@ What to build, in what order, and — the part that actually decides the shape o
 this — which things cannot be built until a capability exists that does not
 exist yet.
 
-**108 components: 63 marketing, 45 application.** 13 ship today. 35 of the rest
-need nothing new at all; the other 60 are gated on three capabilities, listed
-in §3.
+**108 components: 63 marketing, 45 application.** 13 ship today. 49 of the rest
+need no new capability at all and can start immediately; 6 need only a form
+submit target; the remaining 40 are gated on the three capabilities in §3.
+
+The build order for those first 49 is in
+[COMPONENT-BUILD-PLAN.md](COMPONENT-BUILD-PLAN.md).
 
 Read `ARCHITECTURE.md` first. Section 1 ("One renderer") is the constraint every
 decision below is measured against.
@@ -224,9 +227,14 @@ private helper to a reusable piece rather than rebuilding it per hero.
 | Collection header + filters | B | | b |
 | Shipping / trust strip | B | | |
 
-**Marketing total: 63 blocks, of which 9 ship today.** Of the 54 remaining, 35
+**Marketing total: 63 blocks, of which 9 ship today.** Of the 54 remaining, 37
 are pure composition over primitives that already exist, 5 need only the form
-submit target, and 14 wait on a new capability.
+submit target, and 12 wait on a new capability.
+
+Two of those 37 — the post and product card grids — are marked **c** above
+because they get much better with a data layer. They do not wait for it: static
+cards are useful the day they land, and a designer laying out a blog index does
+not need real posts.
 
 ---
 
@@ -407,8 +415,8 @@ not after.**
 
 | Phase | Content | Capability needed | Why here |
 |---|---|---|---|
-| **A** | 35 marketing blocks; block categories + thumbnails; the block harness; the token lint | none | Largest visible gain, zero architectural risk. Proves the pipeline before it carries weight |
-| **A′** | Form submit target — Worker route + submissions table | small | Unblocks 5 conversion blocks already built in A |
+| **A** | 37 marketing + 12 application blocks; block categories + previews; the block harness; the token lint | none | Largest visible gain, zero architectural risk. Proves the pipeline before it carries weight. Broken down in [COMPONENT-BUILD-PLAN.md](COMPONENT-BUILD-PLAN.md) |
+| **A′** | Form submit target — Worker route + submissions table | small | Unblocks 6 blocks already built in A |
 | **B** | Native primitives: form controls, table family, `<details>`, `<dialog>`, popover, `tag` prop on container/section | a | All native. Each one is a schema row plus a renderer branch, and behaves identically on all three surfaces |
 | **B′** | The ~25 blocks those primitives unlock: accordion, overlays, form composition, comparison tables | a | Composition only, once B lands |
 | **C** | Behaviour runtime, design-time state, behavioural fidelity harness | b | The gated one. §6 |
