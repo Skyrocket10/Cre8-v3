@@ -12,3 +12,8 @@ next-env.d.ts
 .wrangler/
 .vercel/
 coverage/
+
+# Written by `@opennextjs/cloudflare migrate` if it ever runs. Cre8 deploys as
+# a static export and does not use OpenNext — see wrangler.jsonc.
+.open-next/
+.dev.vars

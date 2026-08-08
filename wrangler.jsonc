@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // Cre8's editor deployed as a Workers static-assets site.
+  //
+  // There is deliberately no `main`: the app has no server-side code, so this
+  // Worker has no handler at all. Cloudflare serves `out/` straight from the
+  // edge, which means asset requests cost no Worker invocations and the editor
+  // is as cheap to run as a bucket.
+  //
+  // This file also has to exist for a second reason. `wrangler deploy` on a
+  // repo with no config detects "Framework: Next.js" and auto-runs
+  // `@opennextjs/cloudflare migrate`, which rewrites next.config.ts and then
+  // fails, because OpenNext bundles a *server* build (.next/standalone) and a
+  // static export doesn't produce one. A committed config stops that guesswork.
+  //
+  // The API and published sites are a separate Worker — see workers/.
+
+  "name": "cre8-v3",
+  "compatibility_date": "2026-08-08",
+
+  "assets": {
+    "directory": "./out",
+    // Serves out/404.html for unknown paths, matching the Next export.
+    "not_found_handling": "404-page"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

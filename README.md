@@ -113,24 +113,41 @@ The full list is in the editor — the keyboard icon, bottom right.
 `npm run build` produces a fully static site in `out/` — no server, no runtime,
 nothing to pay for per request. It drops onto any CDN.
 
-### Cloudflare Pages
+### Cloudflare Workers (recommended)
 
-In the Pages project settings:
+`wrangler.jsonc` declares an assets-only Worker pointing at `out/`. There is no
+`main`, so there is no handler: Cloudflare serves the files from the edge and
+asset requests cost no Worker invocations.
+
+| | |
+|---|---|
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy` |
+
+Or from your own machine:
+
+```bash
+npm run build && npx wrangler deploy
+```
+
+> **Don't let wrangler auto-configure this project.** On a repo with no
+> `wrangler` config, `wrangler deploy` detects "Framework: Next.js" and runs
+> `@opennextjs/cloudflare migrate`, which rewrites `next.config.ts` and then
+> fails — OpenNext bundles a *server* build (`.next/standalone`) and a static
+> export doesn't produce one. The committed `wrangler.jsonc` prevents that. If
+> you ever do want the full Next server on Workers, remove `output: 'export'`
+> from `next.config.ts` first; nothing in Cre8 needs it.
+
+### Cloudflare Pages
 
 | | |
 |---|---|
 | Build command | `npm run build` |
 | Build output directory | `out` |
 
-That's it. **Do not** add `wrangler pages deploy` to the build command — Pages
-uploads the output directory itself, and running the CLI inside the build fails
-for want of a `CLOUDFLARE_API_TOKEN`.
-
-To deploy from your own machine or CI instead, set `CLOUDFLARE_API_TOKEN` and:
-
-```bash
-npm run build && npx wrangler pages deploy out
-```
+Pages uploads the output directory itself — do **not** add
+`wrangler pages deploy` to the build command, or it will fail asking for a
+`CLOUDFLARE_API_TOKEN` it doesn't have.
 
 ### API and published sites (optional)
 
