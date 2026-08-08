@@ -1,0 +1,365 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Cre8 — editor design system
+   --------------------------------------------------------------------------
+   The editor chrome is deliberately neutral. All personality belongs to the
+   website being designed, so every surface here is grayscale with a single
+   restrained accent. Both themes are defined from the same token names so a
+   component never needs to know which one is active.
+   ========================================================================== */
+
+@theme {
+  --font-sans:
+    ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'SFMono-Regular', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+
+  /* Control geometry — dense enough for professionals, never cramped. */
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --height-control: 26px;
+  --height-row: 28px;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, darkest to lightest */
+  --app: #0b0b0d;
+  --workspace: #16161a;
+  --panel: #111113;
+  --panel-raised: #18181b;
+  --field: #1e1e22;
+  --field-hover: #26262b;
+  --overlay: #1b1b1f;
+
+  /* Lines */
+  --border: #232327;
+  --border-soft: #1d1d21;
+  --border-strong: #303036;
+
+  /* Type */
+  --text: #ededef;
+  --text-secondary: #a1a1a8;
+  --text-muted: #74747c;
+  --text-faint: #55555c;
+
+  /* Single accent, used sparingly */
+  --accent: #4d8dff;
+  --accent-hover: #67a0ff;
+  --accent-subtle: rgba(77, 141, 255, 0.14);
+  --accent-line: rgba(77, 141, 255, 0.5);
+  --accent-contrast: #ffffff;
+
+  /* Semantic */
+  --danger: #f2555a;
+  --danger-subtle: rgba(242, 85, 90, 0.14);
+  --success: #3ecf8e;
+  --warning: #f5a623;
+
+  /* Canvas specifics */
+  --canvas-bg: #202024;
+  --canvas-grid: rgba(255, 255, 255, 0.028);
+  --selection: #4d8dff;
+  --hover-outline: rgba(77, 141, 255, 0.55);
+  --measure: #f2555a;
+  --padding-fill: rgba(62, 207, 142, 0.16);
+  --margin-fill: rgba(245, 166, 35, 0.14);
+
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop:
+    0 0 0 1px var(--border-strong), 0 8px 24px -6px rgba(0, 0, 0, 0.6),
+    0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  --shadow-float:
+    0 0 0 1px var(--border-strong), 0 12px 32px -8px rgba(0, 0, 0, 0.65),
+    0 4px 10px -4px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --app: #f4f4f5;
+  --workspace: #e9e9ec;
+  --panel: #ffffff;
+  --panel-raised: #fbfbfc;
+  --field: #f1f1f3;
+  --field-hover: #e8e8eb;
+  --overlay: #ffffff;
+
+  --border: #e2e2e6;
+  --border-soft: #ececef;
+  --border-strong: #d2d2d8;
+
+  --text: #17171a;
+  --text-secondary: #55555c;
+  --text-muted: #7d7d86;
+  --text-faint: #a1a1a8;
+
+  --accent: #2b7fff;
+  --accent-hover: #1a6ef0;
+  --accent-subtle: rgba(43, 127, 255, 0.1);
+  --accent-line: rgba(43, 127, 255, 0.45);
+  --accent-contrast: #ffffff;
+
+  --danger: #e0393e;
+  --danger-subtle: rgba(224, 57, 62, 0.1);
+  --success: #16a34a;
+  --warning: #d97706;
+
+  --canvas-bg: #e9e9ec;
+  --canvas-grid: rgba(0, 0, 0, 0.035);
+  --selection: #2b7fff;
+  --hover-outline: rgba(43, 127, 255, 0.55);
+  --measure: #e0393e;
+  --padding-fill: rgba(22, 163, 74, 0.14);
+  --margin-fill: rgba(217, 119, 6, 0.13);
+
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-pop:
+    0 0 0 1px rgba(0, 0, 0, 0.06), 0 8px 24px -6px rgba(0, 0, 0, 0.14),
+    0 2px 6px -2px rgba(0, 0, 0, 0.08);
+  --shadow-float:
+    0 0 0 1px rgba(0, 0, 0, 0.07), 0 12px 32px -8px rgba(0, 0, 0, 0.18),
+    0 4px 10px -4px rgba(0, 0, 0, 0.1);
+}
+
+/* Expose the tokens to Tailwind's utility namespaces so `bg-panel`,
+   `text-muted`, `border-border` etc. work directly. */
+@theme inline {
+  --color-app: var(--app);
+  --color-workspace: var(--workspace);
+  --color-panel: var(--panel);
+  --color-panel-raised: var(--panel-raised);
+  --color-field: var(--field);
+  --color-field-hover: var(--field-hover);
+  --color-overlay: var(--overlay);
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-canvas: var(--canvas-bg);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--app);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+  overscroll-behavior: none;
+}
+
+/* The editor is a fixed-viewport application, not a scrolling document. */
+body.cre8-editor {
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+::selection {
+  background: var(--accent-subtle);
+  color: var(--text);
+}
+
+/* --- Scrollbars ----------------------------------------------------------- */
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: content-box;
+}
+
+/* --- Focus ---------------------------------------------------------------- */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
+/* --- Shared primitives ---------------------------------------------------- */
+
+.panel-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.field-label {
+  font-size: 10.5px;
+  font-weight: 450;
+  color: var(--text-muted);
+  letter-spacing: 0.005em;
+}
+
+.num-input {
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Drag-to-change affordance on numeric labels. */
+.scrubbable {
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+/* --- Motion --------------------------------------------------------------- */
+
+@keyframes cre8-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes cre8-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes cre8-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes cre8-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes cre8-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.anim-fade {
+  animation: cre8-fade-in 120ms ease-out;
+}
+.anim-pop {
+  animation: cre8-pop-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.anim-slide-up {
+  animation: cre8-slide-up 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.anim-spin {
+  animation: cre8-spin 700ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- Canvas --------------------------------------------------------------- */
+
+.canvas-surface {
+  background-color: var(--canvas-bg);
+  background-image:
+    linear-gradient(var(--canvas-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px);
+  background-size: 8px 8px;
+}
+
+/* A rendered page frame. `container-type` is what lets the *editor* evaluate
+   responsive rules against the frame width instead of the browser window —
+   see lib/renderer/css.ts. */
+.cre8-frame {
+  container-type: inline-size;
+  container-name: cre8;
+}
+
+/* Inside the canvas the document must behave like a real web page again. */
+.cre8-doc,
+.cre8-doc * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cre8-doc [contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
+  outline: none;
+  cursor: text;
+}
+
+.cre8-empty-slot {
+  min-height: 64px;
+}
+
+/* Placeholder shown for empty containers, editor-only. */
+.cre8-editing .cre8-empty-slot:empty::after {
+  content: '';
+  display: block;
+  height: 64px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  opacity: 0.7;
+}
