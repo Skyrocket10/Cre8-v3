@@ -40,31 +40,60 @@ export function hasBackend(): boolean {
   return backend;
 }
 
-/**
- * Ask the API who we are, and learn from the shape of the answer whether there
- * is an API at all.
- *
- * A static export with nothing behind it answers `/api/auth/me` with the 404
- * page — HTML, not JSON — or with a network error. Either way: local mode, and
- * the editor carries on exactly as it does offline.
- */
-export async function probeBackend(): Promise<SessionResponse | null> {
+export type ProbeResult =
+  /** Nothing is listening. Browser-only mode, exactly as it works offline. */
+  | { kind: 'absent' }
+  /** An API answered and told us who we are. */
+  | { kind: 'ready'; session: SessionResponse }
+  /**
+   * An API answered, and answered with a complaint.
+   *
+   * Worth its own state: "the Worker is deployed but `AUTH_PEPPER` is unset" is
+   * a completely different problem from "there is no Worker", and the server
+   * has already said which. Collapsing the two sends people to look for a
+   * deployment that is sitting right in front of them.
+   */
+  | { kind: 'broken'; message: string; detail?: string };
+
+/** Ask the API who we are, and learn from the answer what kind of world this is. */
+export async function probeBackend(): Promise<ProbeResult> {
+  let response: Response;
   try {
-    const response = await fetch(`${API_URL}/api/auth/me`, {
+    response = await fetch(`${API_URL}/api/auth/me`, {
       credentials: 'include',
       headers: { 'x-cre8-csrf': '1' },
     });
-    if (!response.ok && response.status !== 401) {
-      backend = false;
-      return null;
-    }
-    const body = (await response.json()) as SessionResponse;
-    backend = true;
-    return { user: body.user ?? null, teams: body.teams ?? [] };
   } catch {
     backend = false;
-    return null;
+    return { kind: 'absent' };
   }
+
+  // A static host with nothing behind it answers with its own 404 page.
+  const isJson = (response.headers.get('content-type') ?? '').includes('json');
+  if (!isJson) {
+    backend = false;
+    return { kind: 'absent' };
+  }
+
+  const body = (await response.json().catch(() => null)) as
+    | (SessionResponse & { error?: string; detail?: string })
+    | null;
+  if (!body) {
+    backend = false;
+    return { kind: 'absent' };
+  }
+
+  if (!response.ok && response.status !== 401) {
+    backend = false;
+    return {
+      kind: 'broken',
+      message: body.error ?? `The workspace API returned ${response.status}`,
+      ...(body.detail ? { detail: body.detail } : {}),
+    };
+  }
+
+  backend = true;
+  return { kind: 'ready', session: { user: body.user ?? null, teams: body.teams ?? [] } };
 }
 
 export type Role = 'owner' | 'admin' | 'editor' | 'viewer';

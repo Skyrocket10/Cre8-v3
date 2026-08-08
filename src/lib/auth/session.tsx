@@ -50,6 +50,11 @@ interface SessionValue {
   teams: Team[];
   activeTeam: Team | null;
   setActiveTeam: (teamId: string) => void;
+  /**
+   * Set when an API answered but refused to work — a misconfigured deployment
+   * rather than an absent one. Carries the server's own words.
+   */
+  backendError: { message: string; detail?: string } | null;
   /** Re-read the session after signing in, accepting an invite, etc. */
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -71,6 +76,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
+  const [backendError, setBackendError] = useState<SessionValue['backendError']>(null);
   const activeTeamRef = useRef<string | null>(null);
 
   /**
@@ -113,13 +119,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // costs no extra round trip.
   useEffect(() => {
     let cancelled = false;
-    void probeBackend().then((session) => {
+    void probeBackend().then((result) => {
       if (cancelled) return;
-      if (!session) {
-        setStatus('local');
+      if (result.kind === 'ready') {
+        applySession(result.session.user, result.session.teams);
         return;
       }
-      applySession(session.user, session.teams);
+      // Both remaining cases fall back to browser storage so the editor still
+      // works; only the explanation differs.
+      if (result.kind === 'broken') {
+        setBackendError({
+          message: result.message,
+          ...(result.detail ? { detail: result.detail } : {}),
+        });
+      }
+      setStatus('local');
     });
     return () => {
       cancelled = true;
@@ -153,11 +167,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       teams,
       activeTeam,
       setActiveTeam,
+      backendError,
       refresh,
       signOut,
       applySession,
     }),
-    [status, user, teams, activeTeam, setActiveTeam, refresh, signOut, applySession]
+    [status, user, teams, activeTeam, setActiveTeam, backendError, refresh, signOut, applySession]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

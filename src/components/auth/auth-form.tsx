@@ -28,7 +28,7 @@ export function AuthForm({
   onDone?: () => void;
 }) {
   const router = useRouter();
-  const { applySession, setActiveTeam, status, mode: sessionMode } = useSession();
+  const { applySession, setActiveTeam, status, mode: sessionMode, backendError } = useSession();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -97,6 +97,21 @@ export function AuthForm({
   // turn out to lead nowhere is worse than a beat of nothing.
   if (status === 'loading') {
     return <div className="h-[200px]" />;
+  }
+
+  // The API answered, and answered with a complaint. Repeat it verbatim rather
+  // than reporting the absence of something that is plainly there.
+  if (backendError) {
+    return (
+      <Notice
+        tone="warning"
+        title={backendError.message}
+        body={
+          backendError.detail ??
+          'The workspace API is deployed but is not accepting requests. Projects are saved in this browser until it is.'
+        }
+      />
+    );
   }
 
   if (sessionMode === 'local') {
@@ -200,10 +215,32 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function Notice({ title, body }: { title: string; body: string }) {
+export function Notice({
+  title,
+  body,
+  tone = 'neutral',
+}: {
+  title: string;
+  body: string;
+  tone?: 'neutral' | 'warning';
+}) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-4 py-3">
-      <p className="text-[12.5px] font-medium text-[var(--text)]">{title}</p>
+    <div
+      className={cn(
+        'rounded-lg border px-4 py-3',
+        tone === 'warning'
+          ? 'border-[var(--warning)]/40 bg-[color-mix(in_srgb,var(--warning)_10%,transparent)]'
+          : 'border-[var(--border)] bg-[var(--field)]'
+      )}
+    >
+      <p
+        className={cn(
+          'text-[12.5px] font-medium',
+          tone === 'warning' ? 'text-[var(--warning)]' : 'text-[var(--text)]'
+        )}
+      >
+        {title}
+      </p>
       <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--text-muted)]">{body}</p>
     </div>
   );
