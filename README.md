@@ -335,3 +335,8 @@ The document model reserves typed, unused slots for the three axes those need �
 behaviour, data and logic — so they can be added without a migration or a
 rewrite of the editor. See the last section of
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+What the component library grows into from the current 22 primitives and 9
+blocks — the marketing and application sets, which capability gates each of
+them, and the order to build in — is planned in
+[docs/COMPONENT-LIBRARY.md](docs/COMPONENT-LIBRARY.md).
