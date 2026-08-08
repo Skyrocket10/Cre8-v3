@@ -419,10 +419,26 @@ export function BorderSection() {
     write(patch, { mergeKey });
   };
 
+  const [widthSplit, setWidthSplit] = useState(!widthLinked);
+
+  /**
+   * A width is invisible without a style — CSS defaults `border-style` to
+   * `none` — so every width write carries one. Setting a side and seeing
+   * nothing happen would read as the control being broken.
+   */
+  const withStyle = (patch: StyleDecl): StyleDecl => ({
+    borderStyle: bindings.borderStyle?.value ?? 'solid',
+    ...patch,
+  });
+
   const setAllWidth = (value: string | undefined, mergeKey?: string) => {
-    const patch: StyleDecl = { borderStyle: bindings.borderStyle?.value ?? 'solid' };
+    const patch: StyleDecl = {};
     for (const prop of WIDTH_PROPS) patch[prop as 'borderTopWidth'] = value as never;
-    write(patch, { mergeKey });
+    write(withStyle(patch), { mergeKey });
+  };
+
+  const setSideWidth = (prop: StyleProp, value: string | undefined, mergeKey?: string) => {
+    write(withStyle({ [prop]: value } as StyleDecl), { mergeKey });
   };
 
   return (
@@ -442,6 +458,7 @@ export function BorderSection() {
           <Tooltip content={radiusSplit ? 'Link corners' : 'Set corners individually'} side="top">
             <button
               type="button"
+              aria-label={radiusSplit ? 'Link corners' : 'Set corners individually'}
               onClick={() => setRadiusSplit((v) => !v)}
               className={cn(
                 'flex size-[26px] shrink-0 items-center justify-center rounded-md transition-colors',
@@ -465,6 +482,7 @@ export function BorderSection() {
                   overridden={bindings[prop]?.overridden}
                   min={0}
                   label={['↖', '↗', '↘', '↙'][i]}
+                  title={['Top left', 'Top right', 'Bottom right', 'Bottom left'][i]}
                   onChange={(value) => write({ [prop]: value } as StyleDecl)}
                 />
               ))}
@@ -476,12 +494,51 @@ export function BorderSection() {
           <NumberField
             value={widthLinked ? widthValues[0] : undefined}
             placeholder={widthLinked ? '0' : 'Mixed'}
-            mixed={!widthLinked}
+            mixed={!widthLinked && !widthSplit}
             min={0}
             onChange={(value, meta) => setAllWidth(value, meta.scrubbing ? 'borderWidth' : undefined)}
+            title="Border width"
           />
+          <Tooltip content={widthSplit ? 'Link sides' : 'Set sides individually'} side="top">
+            <button
+              type="button"
+              aria-label={widthSplit ? 'Link border sides' : 'Set border sides individually'}
+              onClick={() => setWidthSplit((v) => !v)}
+              className={cn(
+                'flex size-[26px] shrink-0 items-center justify-center rounded-md transition-colors',
+                widthSplit
+                  ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+                  : 'bg-[var(--field)] text-[var(--text-muted)] hover:text-[var(--text)]'
+              )}
+            >
+              {widthSplit ? <Link2Off size={12} /> : <Link2 size={12} />}
+            </button>
+          </Tooltip>
+        </StyleRow>
+
+        {widthSplit && (
+          <StyleRow label="">
+            <FieldPair>
+              {WIDTH_PROPS.map((prop, i) => (
+                <NumberField
+                  key={prop}
+                  value={bindings[prop]?.value}
+                  overridden={bindings[prop]?.overridden}
+                  min={0}
+                  label={['↑', '→', '↓', '←'][i]}
+                  title={['Top', 'Right', 'Bottom', 'Left'][i]}
+                  onChange={(value, meta) =>
+                    setSideWidth(prop, value, meta.scrubbing ? `borderWidth:${prop}` : undefined)
+                  }
+                />
+              ))}
+            </FieldPair>
+          </StyleRow>
+        )}
+
+        <StyleRow label="Style">
           <Select
-            className="w-[88px] shrink-0"
+            className="flex-1"
             value={bindings.borderStyle?.value ?? 'solid'}
             onChange={(value) => write({ borderStyle: value })}
             options={[

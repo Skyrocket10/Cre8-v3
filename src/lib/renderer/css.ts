@@ -196,21 +196,29 @@ export function generateNodeCss(
  * scores (0,1,1) and beats the per-node class at (0,1,0), so a reset line as
  * innocent as `a { color: inherit }` silently wins over the colour the designer
  * set — a primary button renders with the page's text colour instead of its
- * own. Worse, the canvas does not load this reset, so the editor looked right
- * and only the published page was wrong.
+ * own.
  *
  * With `:where()` these are type selectors at (0,0,1): they still establish the
  * baseline, and any node rule beats them.
+ *
+ * It also has to be *complete*. The canvas renders inside the editor app, whose
+ * Tailwind preflight already zeroes margin, padding and border on everything;
+ * a published page has no Tailwind at all. Anything the reset leaves to the
+ * user-agent therefore renders one way in the editor and another way once
+ * shipped — a border side with no explicit width computed to `0` on the canvas
+ * and to `medium` (3px) in production. So the universal baseline is stated
+ * here rather than inherited from whatever stylesheet happens to be nearby,
+ * and every surface loads this file.
  */
 export const DOCUMENT_RESET = `
 *, *::before, *::after { box-sizing: border-box; }
+:where([data-cre8-root]), :where([data-cre8-root]) *, :where([data-cre8-root]) *::before, :where([data-cre8-root]) *::after { margin: 0; padding: 0; border: 0 solid; }
 :where([data-cre8-root]) { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-:where([data-cre8-root]) :is(h1, h2, h3, h4, h5, h6, p, figure, blockquote) { margin: 0; }
-:where([data-cre8-root]) :is(ul, ol) { margin: 0; padding-left: 1.25em; }
+:where([data-cre8-root]) :is(ul, ol) { padding-left: 1.25em; }
 :where([data-cre8-root]) :is(img, video, svg) { max-width: 100%; }
 :where([data-cre8-root]) :is(img, video) { display: block; }
 :where([data-cre8-root]) a { color: inherit; text-decoration: none; }
-:where([data-cre8-root]) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+:where([data-cre8-root]) button { font: inherit; color: inherit; background: none; cursor: pointer; }
 :where([data-cre8-root]) :is(input, textarea, select) { font: inherit; color: inherit; }
 :where([data-cre8-root]) textarea { resize: vertical; }
 :where([data-cre8-root]) :focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }

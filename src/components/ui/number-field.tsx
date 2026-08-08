@@ -170,6 +170,10 @@ export function NumberField({
         placeholder={placeholder}
         spellCheck={false}
         disabled={disabled}
+        // The tooltip hangs off the scrub handle, so without this the input
+        // itself is nameless: assistive tech reads a row of blank number boxes
+        // and there is nothing to address the field by.
+        aria-label={title ?? label}
         onFocus={() => {
           setEditing(true);
           setDraft(value ?? '');

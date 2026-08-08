@@ -17,7 +17,7 @@ import { BREAKPOINT_DEFS } from '@/lib/document/types';
 import { getElement } from '@/lib/document/schema';
 import { collectSubtree, isEffectivelyLocked } from '@/lib/document/tree';
 import { themeToStyleObject } from '@/lib/document/theme';
-import { generateNodeCss } from '@/lib/renderer/css';
+import { DOCUMENT_RESET, PLACEHOLDER_CSS, generateNodeCss } from '@/lib/renderer/css';
 import { NodeView, RenderProvider } from '@/lib/renderer/render';
 import { hitTest } from '@/lib/editor/registry';
 import { activeRootId, useEditor } from '@/lib/editor/store';
@@ -63,8 +63,16 @@ export function Canvas() {
     return ids;
   }, [nodes, components, rootId]);
 
+  // The same reset the preview and the published file get. Without it the
+  // canvas would be styled by whatever the editor app's own stylesheet happens
+  // to reset, and the three surfaces would only agree by coincidence.
   const css = useMemo(
-    () => generateNodeCss(nodes, { mode: 'container', nodeIds: scopedIds, includeStates: false }),
+    () =>
+      [
+        DOCUMENT_RESET,
+        PLACEHOLDER_CSS,
+        generateNodeCss(nodes, { mode: 'container', nodeIds: scopedIds, includeStates: false }),
+      ].join('\n'),
     [nodes, scopedIds]
   );
 
