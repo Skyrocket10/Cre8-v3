@@ -188,20 +188,32 @@ export function generateNodeCss(
  * deliberately small: it normalises the handful of defaults that make visual
  * editing unpredictable and nothing else.
  */
+/**
+ * The reset, written so it can never outrank a node's own styles.
+ *
+ * Every scope goes through `:where()`, which contributes nothing to
+ * specificity. That matters more than it looks: a bare `[data-cre8-root] a`
+ * scores (0,1,1) and beats the per-node class at (0,1,0), so a reset line as
+ * innocent as `a { color: inherit }` silently wins over the colour the designer
+ * set — a primary button renders with the page's text colour instead of its
+ * own. Worse, the canvas does not load this reset, so the editor looked right
+ * and only the published page was wrong.
+ *
+ * With `:where()` these are type selectors at (0,0,1): they still establish the
+ * baseline, and any node rule beats them.
+ */
 export const DOCUMENT_RESET = `
 *, *::before, *::after { box-sizing: border-box; }
-[data-cre8-root] { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-[data-cre8-root] h1, [data-cre8-root] h2, [data-cre8-root] h3,
-[data-cre8-root] h4, [data-cre8-root] h5, [data-cre8-root] h6,
-[data-cre8-root] p, [data-cre8-root] figure, [data-cre8-root] blockquote { margin: 0; }
-[data-cre8-root] ul, [data-cre8-root] ol { margin: 0; padding-left: 1.25em; }
-[data-cre8-root] img, [data-cre8-root] video, [data-cre8-root] svg { max-width: 100%; }
-[data-cre8-root] img, [data-cre8-root] video { display: block; }
-[data-cre8-root] a { color: inherit; text-decoration: none; }
-[data-cre8-root] button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-[data-cre8-root] input, [data-cre8-root] textarea, [data-cre8-root] select { font: inherit; color: inherit; }
-[data-cre8-root] textarea { resize: vertical; }
-[data-cre8-root] :focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+:where([data-cre8-root]) { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+:where([data-cre8-root]) :is(h1, h2, h3, h4, h5, h6, p, figure, blockquote) { margin: 0; }
+:where([data-cre8-root]) :is(ul, ol) { margin: 0; padding-left: 1.25em; }
+:where([data-cre8-root]) :is(img, video, svg) { max-width: 100%; }
+:where([data-cre8-root]) :is(img, video) { display: block; }
+:where([data-cre8-root]) a { color: inherit; text-decoration: none; }
+:where([data-cre8-root]) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+:where([data-cre8-root]) :is(input, textarea, select) { font: inherit; color: inherit; }
+:where([data-cre8-root]) textarea { resize: vertical; }
+:where([data-cre8-root]) :focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
 `.trim();
 
 /**
@@ -268,11 +280,18 @@ export function generateStylesheet(
 
 /** Minify enough to matter for published output without needing a dependency. */
 export function minifyCss(css: string): string {
-  return css
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\s*\n\s*/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\s*([{};:,>])\s*/g, '$1')
-    .replace(/;}/g, '}')
-    .trim();
+  return (
+    css
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/\s*([{};>])\s*/g, '$1')
+      .replace(/\s*,\s*/g, ',')
+      // Colons are collapsed only *inside* a declaration block. In a selector a
+      // space before one is a descendant combinator, so squeezing it turns
+      // `.card :focus-visible` into `.card:focus-visible` — a different rule
+      // that matches the wrong element and fails silently.
+      .replace(/\{([^{}]*)\}/g, (_, body: string) => `{${body.replace(/\s*:\s*/g, ':')}}`)
+      .replace(/;}/g, '}')
+      .trim()
+  );
 }

@@ -76,12 +76,13 @@ export function renderNodeToHtml(
   const attrs = renderAttrs(model.attrs);
   const tag = model.tag;
 
-  if (model.void || VOID_TAGS.has(tag)) {
-    // `textarea` is void in our model (its value lives in props) but is not a
-    // void element in HTML, so it still needs a closing tag.
-    if (tag === 'textarea') return `<textarea${attrs}></textarea>`;
-    return `<${tag}${attrs}>`;
-  }
+  // `model.void` means the element has no children — `textarea` keeps its value
+  // in props, a divider has nothing inside it. That is not the same as being an
+  // HTML void element, and only real void tags may omit a closing tag. Emitting
+  // a bare `<div>` for a divider is invalid HTML, and the browser recovers by
+  // nesting the entire rest of the page inside it.
+  if (VOID_TAGS.has(tag)) return `<${tag}${attrs}>`;
+  if (model.void) return `<${tag}${attrs}></${tag}>`;
 
   if (model.html !== undefined) return `<${tag}${attrs}>${model.html}</${tag}>`;
   if (model.text !== undefined) return `<${tag}${attrs}>${escapeHtml(model.text)}</${tag}>`;
