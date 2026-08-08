@@ -354,12 +354,28 @@ select:focus {
   min-height: 64px;
 }
 
-/* Placeholder shown for empty containers, editor-only. */
-.cre8-editing .cre8-empty-slot:empty::after {
-  content: '';
-  display: block;
-  height: 64px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 6px;
-  opacity: 0.7;
+/* Empty containers need something to aim at. Kept to the smallest height that
+   is still a comfortable drop target, and applied only to containers with no
+   size of their own (see `render.tsx`), so the canvas never inflates an
+   element the published page would draw at its real size. */
+.cre8-editing [data-cre8-empty] {
+  min-height: 24px;
+  outline: 1px dashed rgba(120, 130, 150, 0.3);
+  outline-offset: -1px;
+}
+
+/* Hidden elements stay visible but obviously inert while editing. */
+.cre8-editing [data-cre8-hidden] {
+  opacity: 0.3;
+}
+
+/* "Outline all" — an x-ray of the layout, for spotting stray containers. */
+.cre8-outlines [data-cre8-id] {
+  outline: 1px solid rgba(77, 141, 255, 0.28);
+  outline-offset: -1px;
+}
+
+/* Elements drawn from a component master read as one unit. */
+.cre8-editing [data-cre8-instance] {
+  cursor: default;
 }

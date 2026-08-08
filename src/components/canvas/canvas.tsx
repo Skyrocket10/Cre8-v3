@@ -127,8 +127,10 @@ export function Canvas() {
     (e: React.PointerEvent) => {
       const store = useEditor.getState();
       const target = e.target as HTMLElement;
-      // Overlay handles manage their own gestures.
-      if (target.closest('[data-cre8-overlay-handle]')) return;
+      // Editor chrome drawn inside the viewport (the empty state, floating
+      // panels) owns its own pointer handling. Without this the canvas would
+      // capture the pointer here and those elements would never see a click.
+      if (target.closest('[data-cre8-chrome]')) return;
 
       if (store.spacePanning || e.button === 1) {
         e.preventDefault();

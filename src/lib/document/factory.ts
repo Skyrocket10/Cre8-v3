@@ -13,7 +13,6 @@ import { createDefaultTheme } from './theme';
 import {
   DOCUMENT_VERSION,
   type Asset,
-  type ComponentDefinition,
   type Cre8Document,
   type ElementType,
   type NodeId,
@@ -150,16 +149,14 @@ export function createPage(
     rootNodeId: root.id,
     order,
     isHome,
-    meta: { title: name },
+    // Left empty on purpose so the published <title> falls back to the
+    // page name and site name rather than freezing a copy of it here.
+    meta: {},
   };
 }
 
 export function createAsset(input: Omit<Asset, 'id' | 'createdAt'>): Asset {
   return { ...input, id: uid(), createdAt: Date.now() };
-}
-
-export function createComponentDefinition(name: string, rootNodeId: NodeId): ComponentDefinition {
-  return { id: uid(), name, rootNodeId, createdAt: Date.now() };
 }
 
 /* --------------------------------------------------------------------------

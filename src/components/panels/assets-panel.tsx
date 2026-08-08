@@ -3,7 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { ImagePlus, Trash2, Upload } from 'lucide-react';
 import { ACCEPTED_TYPES, ingestFile } from '@/lib/api/assets';
-import { removeAsset } from '@/lib/document/operations';
+import { removeAsset, renameAsset } from '@/lib/document/operations';
 import { useEditor } from '@/lib/editor/store';
 import { cn, formatBytes } from '@/lib/utils/cn';
 import { Button, EmptyState, Tooltip } from '../ui/primitives';
@@ -13,6 +13,7 @@ export function AssetsPanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dropping, setDropping] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   const upload = async (files: FileList | File[]) => {
     const list = [...files];
@@ -114,9 +115,32 @@ export function AssetsPanel() {
                   aria-label={asset.name}
                 />
                 <div className="flex items-center gap-1 px-1.5 py-1">
-                  <span className="min-w-0 flex-1 truncate text-[10px] text-[var(--text-secondary)]">
-                    {asset.name}
-                  </span>
+                  {renaming === asset.id ? (
+                    <input
+                      autoFocus
+                      defaultValue={asset.name}
+                      onBlur={(e) => {
+                        useEditor.getState().transact('Rename asset', (draft) => {
+                          renameAsset(draft, asset.id, e.target.value);
+                        });
+                        setRenaming(null);
+                      }}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                        if (e.key === 'Escape') setRenaming(null);
+                      }}
+                      className="min-w-0 flex-1 rounded-[3px] bg-[var(--panel-raised)] px-1 text-[10px] text-[var(--text)] ring-1 ring-[var(--accent)] outline-none"
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={() => setRenaming(asset.id)}
+                      title="Double-click to rename"
+                      className="min-w-0 flex-1 truncate text-[10px] text-[var(--text-secondary)]"
+                    >
+                      {asset.name}
+                    </span>
+                  )}
                   <Tooltip content="Delete" side="left">
                     <button
                       type="button"

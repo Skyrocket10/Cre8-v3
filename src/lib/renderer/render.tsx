@@ -164,7 +164,9 @@ function ElementView({
     }
     if (identityId !== undefined) attrs['data-cre8-instance'] = 'true';
     if (node.meta.hidden) attrs['data-cre8-hidden'] = 'true';
-    if (def.container && node.children.length === 0) attrs['data-cre8-empty'] = 'true';
+    if (def.container && node.children.length === 0 && !hasExplicitSize(node)) {
+      attrs['data-cre8-empty'] = 'true';
+    }
   }
 
   const Tag = model.tag as keyof React.JSX.IntrinsicElements;
@@ -217,6 +219,19 @@ function ElementView({
  * free of a document-shaped dependency that would defeat memoisation.
  */
 const EMPTY_DOC = { pages: [] } as unknown as Cre8Document;
+
+/**
+ * A container that sizes itself — a divider strip, a coloured dot, a chart
+ * placeholder — must not get the editor's empty-container minimum height, or
+ * the canvas would draw it at a size the published page never will.
+ */
+function hasExplicitSize(node: SceneNode): boolean {
+  for (const layer of Object.values(node.styles)) {
+    if (!layer) continue;
+    if (layer.height || layer.minHeight || layer.aspectRatio) return true;
+  }
+  return false;
+}
 
 /* --------------------------------------------------------------------------
  * Inline text editing

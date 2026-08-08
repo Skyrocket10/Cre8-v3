@@ -5,17 +5,6 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-/** `⌘K` on Apple platforms, `Ctrl K` elsewhere. */
-export function modKey(): string {
-  if (typeof navigator === 'undefined') return 'Ctrl';
-  return /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
-}
-
-export function isMac(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  return /Mac|iPhone|iPad/.test(navigator.platform);
-}
-
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`;

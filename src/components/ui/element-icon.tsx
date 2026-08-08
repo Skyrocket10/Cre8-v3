@@ -52,7 +52,7 @@ const ICONS: Record<string, LucideIcon> = {
   component: Component,
 };
 
-export function elementIconFor(type: ElementType): LucideIcon {
+function iconFor(type: ElementType): LucideIcon {
   return ICONS[getElement(type).icon] ?? Square;
 }
 
@@ -67,6 +67,6 @@ export function ElementIcon({
   className?: string;
   strokeWidth?: number;
 }) {
-  const Icon = elementIconFor(type);
+  const Icon = iconFor(type);
   return <Icon size={size} strokeWidth={strokeWidth} className={className} />;
 }

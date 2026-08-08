@@ -20,10 +20,6 @@ export const TOKEN_PREFIX = {
 
 export type TokenGroup = keyof typeof TOKEN_PREFIX;
 
-export function tokenVar(group: TokenGroup, id: string): string {
-  return `var(${TOKEN_PREFIX[group]}${id})`;
-}
-
 /** `var(--c-primary)` → `{ group: 'color', id: 'primary' }`, else null. */
 export function parseTokenRef(
   value: string | undefined
@@ -212,13 +208,6 @@ export function themeToStyleObject(theme: Theme): Record<string, string> {
   for (const t of theme.shadows) out[`${TOKEN_PREFIX.shadow}${t.id}`] = t.value;
   for (const t of theme.widths) out[`${TOKEN_PREFIX.width}${t.id}`] = t.value;
   return out;
-}
-
-/** Resolve a value that may be a token reference down to a literal colour. */
-export function resolveColor(theme: Theme, value: string | undefined): string | undefined {
-  const ref = parseTokenRef(value);
-  if (!ref || ref.group !== 'color') return value;
-  return theme.colors.find((c) => c.id === ref.id)?.value ?? value;
 }
 
 /** Google Fonts families referenced by the theme, for the published <head>. */

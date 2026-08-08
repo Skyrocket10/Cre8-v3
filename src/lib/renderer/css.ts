@@ -202,7 +202,6 @@ export const DOCUMENT_RESET = `
 [data-cre8-root] input, [data-cre8-root] textarea, [data-cre8-root] select { font: inherit; color: inherit; }
 [data-cre8-root] textarea { resize: vertical; }
 [data-cre8-root] :focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
-[data-cre8-empty] { min-height: 72px; }
 `.trim();
 
 /** Styles for the placeholder shown where an image has no source yet. */

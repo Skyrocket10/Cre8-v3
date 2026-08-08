@@ -6,12 +6,13 @@
  */
 
 import React from 'react';
-import { ChevronRight, Frame, Magnet, Minus, Plus, Ruler, SquareDashed } from 'lucide-react';
+import { ChevronRight, Frame, Keyboard, Magnet, Minus, Plus, Ruler, SquareDashed } from 'lucide-react';
 import { getAncestors } from '@/lib/document/tree';
+import { SHORTCUT_REFERENCE } from '@/lib/editor/shortcuts';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
-import { IconButton, Tooltip } from '../ui/primitives';
+import { IconButton, Popover, Tooltip } from '../ui/primitives';
 
 export function StatusBar() {
   const zoom = useEditor((s) => s.zoom);
@@ -90,7 +91,57 @@ export function StatusBar() {
       >
         <Frame size={12} />
       </IconButton>
+
+      <span className="mx-1 h-3.5 w-px bg-[var(--border)]" />
+      <ShortcutsButton />
     </footer>
+  );
+}
+
+function ShortcutsButton() {
+  return (
+    <Popover
+      width={300}
+      align="end"
+      side="top"
+      trigger={({ toggle, ref, open }) => (
+        <Tooltip content="Keyboard shortcuts" side="top">
+          <button
+            ref={ref}
+            type="button"
+            aria-label="Keyboard shortcuts"
+            onClick={toggle}
+            className={cn(
+              'flex size-5 items-center justify-center rounded transition-colors',
+              open
+                ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--field)] hover:text-[var(--text)]'
+            )}
+          >
+            <Keyboard size={12} />
+          </button>
+        </Tooltip>
+      )}
+    >
+      <div className="scroll-thin max-h-[440px] overflow-y-auto p-1">
+        {SHORTCUT_REFERENCE.map((group) => (
+          <section key={group.group} className="pb-1">
+            <h3 className="panel-title px-2 pt-2 pb-1">{group.group}</h3>
+            {group.items.map(([keys, description]) => (
+              <div
+                key={keys}
+                className="flex items-center gap-3 rounded-[5px] px-2 py-[3px] text-[11px]"
+              >
+                <span className="flex-1 text-[var(--text-secondary)]">{description}</span>
+                <span className="shrink-0 rounded border border-[var(--border)] bg-[var(--field)] px-1.5 py-px font-mono text-[9.5px] whitespace-nowrap text-[var(--text-muted)]">
+                  {keys}
+                </span>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+    </Popover>
   );
 }
 

@@ -335,7 +335,7 @@ export function addPage(doc: Cre8Document, name: string): Page {
     slug: uniqueSlug(doc, slugify(name) || 'page'),
     rootNodeId: root.id,
     order: doc.pages.length,
-    meta: { title: name },
+    meta: {},
   };
   doc.pages.push(page);
   return page;

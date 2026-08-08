@@ -13,13 +13,11 @@
  */
 
 import { create } from 'zustand';
-import { createEmptyDocument, structuredCloneCompat } from '../document/factory';
+import { createEmptyDocument } from '../document/factory';
 import { getElement } from '../document/schema';
 import * as ops from '../document/operations';
 import {
-  collectSubtree,
   getHomePage,
-  getNode,
   isEffectivelyLocked,
   topMostNodes,
   type NodeMap,
@@ -901,10 +899,6 @@ export function activeRootId(state: Pick<EditorState, 'doc' | 'activePageId' | '
   return state.doc.pages.find((p) => p.id === state.activePageId)?.rootNodeId ?? null;
 }
 
-export function useActiveRootId(): NodeId | null {
-  return useEditor((s) => activeRootId(s));
-}
-
 function isDeletable(doc: Cre8Document, id: NodeId): boolean {
   if (doc.pages.some((p) => p.rootNodeId === id)) return false;
   if (doc.components.some((c) => c.rootNodeId === id)) return false;
@@ -933,31 +927,3 @@ function resolveStyleValue(
   return value;
 }
 
-/** Snapshot of the document for saving, preview and publishing. */
-export function snapshotDocument(): Cre8Document {
-  const doc = useEditor.getState().doc;
-  return structuredCloneCompat({ ...doc, updatedAt: Date.now() });
-}
-
-/** Cheap subscription for components that only need "is anything selected". */
-export function useSelectionCount(): number {
-  return useEditor((s) => s.selection.length);
-}
-
-export function useSelectedNode() {
-  return useEditor((s) => (s.selection.length === 1 ? getNode(s.doc.nodes, s.selection[0]) : undefined));
-}
-
-export function useNodeById(id: NodeId | null | undefined) {
-  return useEditor((s) => (id ? s.doc.nodes[id] : undefined));
-}
-
-/** Ids affected by an operation on the current selection, ancestors removed. */
-export function effectiveSelection(): NodeId[] {
-  const { doc, selection } = useEditor.getState();
-  return topMostNodes(doc.nodes, selection);
-}
-
-export function subtreeSize(id: NodeId): number {
-  return collectSubtree(useEditor.getState().doc.nodes, id).length;
-}

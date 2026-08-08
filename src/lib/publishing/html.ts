@@ -135,7 +135,13 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
   });
 
   const body = renderNodeToHtml(doc, page.rootNodeId, { hrefResolver: hrefResolverFor(doc) });
-  const title = page.meta.title || `${page.name} · ${doc.settings.siteName}`;
+  // A page inherits a sensible <title> rather than repeating its internal
+  // name: the home page is the site, everything else is "Page · Site".
+  const title =
+    page.meta.title ||
+    (page.isHome || page.slug === ''
+      ? doc.settings.siteName
+      : `${page.name} · ${doc.settings.siteName}`);
   const description = page.meta.description ?? doc.settings.description ?? '';
 
   const fonts = usedWebFonts(doc.theme);

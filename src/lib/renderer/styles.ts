@@ -7,19 +7,12 @@
  * but *where it came from*, so it can show "inherited" vs "overridden".
  */
 
-import { BREAKPOINT_ORDER, type Breakpoint, type SceneNode, type StyleDecl, type StyleProp } from '../document/types';
+import { BREAKPOINT_ORDER, type Breakpoint, type SceneNode, type StyleProp } from '../document/types';
 
 /** Breakpoints that contribute to `target`, broadest first. */
 export function cascadeFor(target: Breakpoint): Breakpoint[] {
   const index = BREAKPOINT_ORDER.indexOf(target);
   return BREAKPOINT_ORDER.slice(0, index + 1) as Breakpoint[];
-}
-
-/** Flattened style for a breakpoint. */
-export function resolveStyles(node: SceneNode, breakpoint: Breakpoint): StyleDecl {
-  const out: StyleDecl = {};
-  for (const bp of cascadeFor(breakpoint)) Object.assign(out, node.styles[bp] ?? {});
-  return out;
 }
 
 export type ValueOrigin = 'own' | 'inherited' | 'default';
@@ -57,11 +50,6 @@ export function resolveValue(
 export function hasOverride(node: SceneNode, breakpoint: Breakpoint, prop: StyleProp): boolean {
   if (breakpoint === 'desktop') return false;
   return node.styles[breakpoint]?.[prop] !== undefined;
-}
-
-export function overriddenProps(node: SceneNode, breakpoint: Breakpoint): StyleProp[] {
-  if (breakpoint === 'desktop') return [];
-  return Object.keys(node.styles[breakpoint] ?? {}) as StyleProp[];
 }
 
 /** Any override at all on this node, for the layer-tree breakpoint badge. */
@@ -102,12 +90,6 @@ export function formatLength(number: number, unit: string): string {
   return `${rounded}${unit || ''}`;
 }
 
-/** Numeric part of a length, for scrubbing and arrow-key nudges. */
-export function numericValue(value: string | undefined, fallback = 0): number {
-  const parsed = parseLength(value);
-  return parsed.number ?? fallback;
-}
-
 /* --------------------------------------------------------------------------
  * Sizing model — Fill / Hug / Fixed
  * ----------------------------------------------------------------------- */
@@ -140,35 +122,3 @@ export function sizeValueFor(mode: SizeMode, current: string | undefined): strin
   }
 }
 
-/* --------------------------------------------------------------------------
- * Shorthand helpers used by the box model widget
- * ----------------------------------------------------------------------- */
-
-export const PADDING_PROPS = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'] as const;
-export const MARGIN_PROPS = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'] as const;
-export const RADIUS_PROPS = [
-  'borderTopLeftRadius',
-  'borderTopRightRadius',
-  'borderBottomRightRadius',
-  'borderBottomLeftRadius',
-] as const;
-export const BORDER_WIDTH_PROPS = [
-  'borderTopWidth',
-  'borderRightWidth',
-  'borderBottomWidth',
-  'borderLeftWidth',
-] as const;
-
-export type SideKey = 'top' | 'right' | 'bottom' | 'left';
-export const SIDES: SideKey[] = ['top', 'right', 'bottom', 'left'];
-
-export function sideProp(group: 'padding' | 'margin', side: SideKey): StyleProp {
-  const capital = (side.charAt(0).toUpperCase() + side.slice(1)) as 'Top' | 'Right' | 'Bottom' | 'Left';
-  return `${group}${capital}` as StyleProp;
-}
-
-/** All four sides equal? Drives the linked/unlinked toggle. */
-export function isUniform(values: (string | undefined)[]): boolean {
-  const first = values[0] ?? '0px';
-  return values.every((v) => (v ?? '0px') === first);
-}

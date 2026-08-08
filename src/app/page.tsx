@@ -15,7 +15,7 @@ import { getStorage } from '@/lib/api/storage';
 import type { ProjectSummary } from '@/lib/document/types';
 import { TEMPLATES } from '@/lib/templates';
 import { cn, relativeTime } from '@/lib/utils/cn';
-import { Button, EmptyState, Popover, Skeleton } from '@/components/ui/primitives';
+import { Button, Popover, Skeleton } from '@/components/ui/primitives';
 import { Modal } from '@/components/chrome/publish-dialog';
 import { MenuItem } from '@/components/panels/pages-panel';
 

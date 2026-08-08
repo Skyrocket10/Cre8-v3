@@ -13,7 +13,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Eye, EyeOff, Lock, LockOpen } from 'lucide-react';
 import { getElement } from '@/lib/document/schema';
 import * as ops from '@/lib/document/operations';
-import { canReparent, collectSubtree } from '@/lib/document/tree';
+import { canReparent } from '@/lib/document/tree';
 import { hasAnyOverride } from '@/lib/renderer/styles';
 import type { NodeId, SceneNode } from '@/lib/document/types';
 import { activeRootId, useEditor } from '@/lib/editor/store';
@@ -386,7 +386,3 @@ function RowAction({
   );
 }
 
-/** Exposed for the keyboard layer: everything under the current selection. */
-export function selectionSubtree(id: NodeId): NodeId[] {
-  return collectSubtree(useEditor.getState().doc.nodes, id);
-}

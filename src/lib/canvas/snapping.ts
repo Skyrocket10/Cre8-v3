@@ -116,7 +116,3 @@ export function snap(
   };
 }
 
-/** Round to the nearest multiple, used when snapping is switched off. */
-export function quantise(value: number, grid = 1): number {
-  return grid <= 1 ? Math.round(value) : Math.round(value / grid) * grid;
-}

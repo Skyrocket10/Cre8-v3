@@ -601,14 +601,6 @@ export function getElement(type: ElementType): ElementDefinition {
   return ELEMENTS[type] ?? ELEMENTS.frame;
 }
 
-export function isContainer(type: ElementType): boolean {
-  return getElement(type).container;
-}
-
-export function isTextual(type: ElementType): boolean {
-  return getElement(type).textual;
-}
-
 /** Elements offered in the insert panel, grouped by category. */
 export const INSERTABLE: ElementDefinition[] = Object.values(ELEMENTS).filter((e) => !e.internal);
 

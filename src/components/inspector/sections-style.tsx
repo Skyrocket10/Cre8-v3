@@ -142,12 +142,15 @@ export function TypographySection() {
           />
           <Select
             className="w-[92px] shrink-0"
-            placeholder="Weight"
+            // Templates use in-between weights like 550 or 620; showing the raw
+            // number is more honest than pretending the property is unset.
+            placeholder={bindings.fontWeight?.value ?? 'Weight'}
             value={bindings.fontWeight?.value}
             onChange={(value) => write({ fontWeight: value })}
             options={WEIGHTS.map((w) => ({
               value: w.value,
               label: w.label,
+              hint: w.value,
               preview: { fontWeight: Number(w.value) },
             }))}
           />

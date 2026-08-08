@@ -390,14 +390,6 @@ export function Divider({ className }: { className?: string }) {
   return <div className={cn('h-px w-full bg-[var(--border-soft)]', className)} />;
 }
 
-export function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="rounded border border-[var(--border)] bg-[var(--field)] px-1 py-px font-mono text-[9.5px] text-[var(--text-muted)]">
-      {children}
-    </kbd>
-  );
-}
-
 /* --------------------------------------------------------------------------
  * Panel section — collapsible, remembers its state
  * ----------------------------------------------------------------------- */

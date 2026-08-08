@@ -1,0 +1,30 @@
+name = "cre8-api"
+main = "src/index.ts"
+compatibility_date = "2026-01-15"
+
+# The editor itself is a static Next.js build on Cloudflare Pages. This Worker
+# is only the API and the published-site origin, so it stays small and its
+# invocations stay cheap — everything a visitor loads is served from cache.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cre8"
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "cre8-assets"
+
+[[r2_buckets]]
+binding = "SITES"
+bucket_name = "cre8-sites"
+
+[vars]
+# Comma-separated list of origins allowed to call the API.
+ALLOWED_ORIGINS = "http://localhost:3000"
+
+# Published sites are served from a wildcard route so every project gets a
+# subdomain without a per-project deploy.
+# [[routes]]
+# pattern = "*.cre8.site/*"
+# zone_name = "cre8.site"

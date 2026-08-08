@@ -170,7 +170,7 @@ const ICONS: Record<Breakpoint, React.ReactNode> = {
   mobile: <Smartphone size={13} />,
 };
 
-export function BreakpointSwitcher({ compact }: { compact?: boolean }) {
+function BreakpointSwitcher({ compact }: { compact?: boolean }) {
   const breakpoint = useEditor((s) => s.breakpoint);
 
   return (

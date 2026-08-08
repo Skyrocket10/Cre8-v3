@@ -37,10 +37,6 @@ export function getElementFor(id: NodeId): HTMLElement | undefined {
   return elements.get(id);
 }
 
-export function hasElement(id: NodeId): boolean {
-  return elements.has(id);
-}
-
 export function clearRegistry(): void {
   elements.clear();
 }
@@ -49,38 +45,6 @@ export function clearRegistry(): void {
 export function subscribeToRegistry(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
-}
-
-/** Force overlays to re-measure — used after layout-affecting changes. */
-export function invalidateMeasurements(): void {
-  notify();
-}
-
-export interface Rect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export const ZERO_RECT: Rect = { x: 0, y: 0, width: 0, height: 0 };
-
-/**
- * Rect of a node in *document space* — the untransformed coordinate system of
- * the page frame — so overlays can be positioned inside the same zoom/pan
- * transform as the canvas instead of fighting it.
- */
-export function measureInFrame(id: NodeId, frameEl: HTMLElement, zoom: number): Rect | null {
-  const el = elements.get(id);
-  if (!el || !frameEl.contains(el)) return null;
-  const a = el.getBoundingClientRect();
-  const b = frameEl.getBoundingClientRect();
-  return {
-    x: (a.left - b.left) / zoom,
-    y: (a.top - b.top) / zoom,
-    width: a.width / zoom,
-    height: a.height / zoom,
-  };
 }
 
 /** Computed box metrics used by the spacing overlay and the box-model widget. */
@@ -126,13 +90,3 @@ export function hitTest(clientX: number, clientY: number): NodeId | null {
   return null;
 }
 
-/** Every registered node under a point, innermost first. */
-export function hitTestAll(clientX: number, clientY: number): NodeId[] {
-  const out: NodeId[] = [];
-  for (const el of document.elementsFromPoint(clientX, clientY)) {
-    const owner = (el as HTMLElement).closest?.('[data-cre8-id]');
-    const id = owner?.getAttribute('data-cre8-id');
-    if (id && !out.includes(id)) out.push(id);
-  }
-  return out;
-}

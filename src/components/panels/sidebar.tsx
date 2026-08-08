@@ -11,7 +11,7 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { Component, Image, Layers, PanelLeftClose, Plus, Files, Palette } from 'lucide-react';
 import { useEditor, type LeftTab } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
-import { IconButton, Tooltip } from '../ui/primitives';
+import { IconButton } from '../ui/primitives';
 import { AssetsPanel } from './assets-panel';
 import { ComponentsPanel } from './components-panel';
 import { InsertPanel } from './insert-panel';
@@ -142,4 +142,3 @@ export function ResizeHandle({
   );
 }
 
-export { Tooltip };

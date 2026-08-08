@@ -89,7 +89,7 @@ function makeDocument(input: TemplateInput): Cre8Document {
   input.pages.forEach((spec, index) => {
     const nodes: NodeMap = {};
     const page = createPage(spec.name, spec.slug, nodes, index, spec.isHome ?? index === 0);
-    page.meta = { title: spec.title ?? spec.name, description: spec.description };
+    page.meta = { title: spec.title, description: spec.description };
     Object.assign(doc.nodes, nodes);
     doc.pages.push(page);
 

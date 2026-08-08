@@ -30,7 +30,10 @@ export function CanvasEmptyState() {
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-      <div className="anim-slide-up pointer-events-auto flex w-[330px] flex-col items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)]/95 px-6 py-7 text-center shadow-[var(--shadow-float)] backdrop-blur-md">
+      <div
+        data-cre8-chrome
+        className="anim-slide-up pointer-events-auto flex w-[330px] flex-col items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)]/95 px-6 py-7 text-center shadow-[var(--shadow-float)] backdrop-blur-md"
+      >
         <div className="flex size-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--field)] text-[var(--text-secondary)]">
           <Layers size={17} strokeWidth={1.6} />
         </div>

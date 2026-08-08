@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Copy, FileText, Home, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, FileText, Home, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import * as ops from '@/lib/document/operations';
 import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
-import { Button, IconButton, Popover, Tooltip } from '../ui/primitives';
+import { Button, IconButton, Popover } from '../ui/primitives';
 
 export function PagesPanel() {
   const pages = useEditor((s) => s.doc.pages);
@@ -37,7 +37,7 @@ export function PagesPanel() {
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-        {ordered.map((page) => {
+        {ordered.map((page, index) => {
           const active = page.id === activePageId && !editingComponentId;
           return (
             <div
@@ -108,6 +108,28 @@ export function PagesPanel() {
                       onClick={() => {
                         useEditor.getState().transact('Duplicate page', (draft) => {
                           ops.duplicatePage(draft, page.id);
+                        });
+                        close();
+                      }}
+                    />
+                    <MenuItem
+                      icon={<ArrowUp size={11} />}
+                      label="Move up"
+                      disabled={index === 0}
+                      onClick={() => {
+                        useEditor.getState().transact('Reorder pages', (draft) => {
+                          ops.reorderPages(draft, index, index - 1);
+                        });
+                        close();
+                      }}
+                    />
+                    <MenuItem
+                      icon={<ArrowDown size={11} />}
+                      label="Move down"
+                      disabled={index === ordered.length - 1}
+                      onClick={() => {
+                        useEditor.getState().transact('Reorder pages', (draft) => {
+                          ops.reorderPages(draft, index, index + 1);
                         });
                         close();
                       }}
@@ -190,5 +212,3 @@ export function MenuItem({
   );
 }
 
-/** Shared by the layer context menu and the components panel. */
-export { Tooltip };

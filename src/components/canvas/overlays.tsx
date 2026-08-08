@@ -9,7 +9,7 @@
  * the thing that separates a design tool from a scaled screenshot.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { getElement } from '@/lib/document/schema';
 import type { NodeId } from '@/lib/document/types';
 import { collectTargets, snap, type SnapTarget } from '@/lib/canvas/snapping';
@@ -49,7 +49,6 @@ export function CanvasOverlays({ viewport }: { viewport: HTMLElement | null }) {
             primary={index === 0}
             multiple={selection.length > 1}
             editing={editingTextId === id}
-            viewport={viewport}
           />
         ))}
 
@@ -89,14 +88,12 @@ function SelectionBox({
   primary,
   multiple,
   editing,
-  viewport,
 }: {
   id: NodeId;
   rect?: ViewRect;
   primary: boolean;
   multiple: boolean;
   editing: boolean;
-  viewport: HTMLElement | null;
 }) {
   const node = useEditor((s) => s.doc.nodes[id]);
   const zoom = useEditor((s) => s.zoom);
@@ -123,7 +120,7 @@ function SelectionBox({
       {primary && !editing && (
         <SizeBadge rect={rect} width={rect.width / zoom} height={rect.height / zoom} />
       )}
-      {canResize && <ResizeHandles id={id} rect={rect} def={def} viewport={viewport} />}
+      {canResize && <ResizeHandles id={id} rect={rect} def={def} />}
     </>
   );
 }
@@ -194,12 +191,10 @@ function ResizeHandles({
   id,
   rect,
   def,
-  viewport,
 }: {
   id: NodeId;
   rect: ViewRect;
   def: ReturnType<typeof getElement>;
-  viewport: HTMLElement | null;
 }) {
   const drag = useRef<{
     handle: HandleId;
@@ -408,21 +403,3 @@ function SnapGuides({ viewport }: { viewport: HTMLElement | null }) {
   );
 }
 
-/* --------------------------------------------------------------------------
- * Marquee selection
- * ----------------------------------------------------------------------- */
-
-export function MarqueeBox({ rect }: { rect: ViewRect | null }) {
-  if (!rect) return null;
-  return (
-    <div
-      className="pointer-events-none absolute z-30 border border-[var(--selection)] bg-[var(--accent-subtle)]"
-      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-    />
-  );
-}
-
-export function useMarquee() {
-  const [rect, setRect] = useState<ViewRect | null>(null);
-  return { rect, setRect };
-}

@@ -109,11 +109,6 @@ export function hsvaToRgba({ h, s, v, a }: Hsva): Rgba {
   };
 }
 
-/** Pick readable foreground text for a swatch. */
-export function isLight(rgba: Rgba): boolean {
-  return (rgba.r * 299 + rgba.g * 587 + rgba.b * 114) / 1000 > 150;
-}
-
 /** CSS that renders a colour over a checkerboard so alpha reads correctly. */
 export const CHECKERBOARD =
   'repeating-conic-gradient(rgba(140,140,150,0.28) 0% 25%, transparent 0% 50%) 50% / 8px 8px';
