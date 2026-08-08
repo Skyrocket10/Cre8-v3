@@ -39,6 +39,10 @@ const LITERAL_COLOURS = new Map([
   ['#28c840', 'macOS zoom button, depicted literally'],
   ['#f5a623', 'review star gold — a rating convention, not brand'],
   ['#22c55e', 'healthy-status green in the product mock'],
+  // `--c-danger` is in the default theme now, but a document created before it
+  // was added carries a theme without it, and an unset variable makes the
+  // declaration invalid — an error message would silently render as body text.
+  ['#dc2626', 'fallback for --c-danger in themes that predate the token'],
 ]);
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;

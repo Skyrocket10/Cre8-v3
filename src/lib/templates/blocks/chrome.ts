@@ -273,7 +273,7 @@ export function breadcrumbsSpec(): NodeSpec {
                     icon('chevron-right', {
                       width: '13px',
                       height: '13px',
-                      color: 'var(--c-text-faint, var(--c-muted))',
+                      color: 'var(--c-muted)',
                       flexShrink: '0',
                     }),
                   ]
@@ -417,7 +417,7 @@ export function docsLayoutSpec(): NodeSpec {
                     'Code',
                     [
                       label('$ northwind deploy --preview', {
-                        fontFamily: 'var(--f-mono, var(--f-body))',
+                        fontFamily: 'var(--f-mono)',
                         fontSize: '13px',
                         color: 'var(--c-text)',
                       }),

@@ -77,6 +77,7 @@ export function createDefaultTheme(): Theme {
       { id: 'text', name: 'Text', value: '#0b1220' },
       { id: 'muted', name: 'Muted', value: '#5b6478' },
       { id: 'border', name: 'Border', value: '#e5e9f0' },
+      { id: 'danger', name: 'Danger', value: '#dc2626' },
       { id: 'inverse', name: 'Inverse', value: '#0b1220' },
       { id: 'on-inverse', name: 'On Inverse', value: '#f8fafc' },
     ],
