@@ -207,19 +207,49 @@ all existing passwords.
 - `ALLOW_SIGNUP` — set to `"false"` once your team has accounts. Invites keep
   working; open registration stops.
 
-**4. Deploy and point the editor at it**
+**4. Deploy the API**
 
 ```bash
 npm run deploy:api
 ```
 
-Then set `NEXT_PUBLIC_CRE8_API_URL` in your Pages/Workers environment variables
-and rebuild. It is read at build time, so a redeploy is required — the
-dashboard badge flips from "This browser" to "Cloud" once it takes effect.
+**5. Point the editor at it**
 
 ```
 NEXT_PUBLIC_CRE8_API_URL = https://cre8-api.<subdomain>.workers.dev
 ```
+
+> **This is a *build* variable, not a runtime one.** Next inlines every
+> `NEXT_PUBLIC_*` value into the JavaScript bundle when it compiles, so it has
+> to exist wherever `npm run build` runs. It is never read at runtime.
+>
+> Setting it under the editor Worker's **Variables and Secrets** will fail with
+> *"Variables cannot be added to a Worker that only has static assets"* — and
+> correctly so. `wrangler.jsonc` has no `main`, so that Worker has no handler,
+> no runtime, and nothing that could read a variable. Even on a Worker that did
+> have one, a runtime variable would have no effect here.
+
+Set it in whichever place builds the app:
+
+| How you deploy | Where it goes |
+|---|---|
+| Workers Builds (git-connected) | Settings → **Build** → build variables |
+| Cloudflare Pages | Settings → **Environment variables** (applied to builds) |
+| From your own machine | `NEXT_PUBLIC_CRE8_API_URL=https://… npm run deploy` |
+
+The last row always works and needs no dashboard at all:
+
+```bash
+NEXT_PUBLIC_CRE8_API_URL=https://cre8-api.<subdomain>.workers.dev npm run deploy
+```
+
+Because the value is compiled in, changing it means a **rebuild**, not a
+restart. The dashboard badge flips from "This browser" to "Cloud" once the new
+build is live — that badge is the quickest way to tell whether it took.
+
+Finally, add the editor's origin to `ALLOWED_ORIGINS` in
+`workers/wrangler.toml` and redeploy the API. Without it the browser blocks
+every call and the editor looks signed-out no matter what.
 
 Nothing else changes: the editor talks to a `StorageAdapter` and has no idea
 which one is behind it. Uploads start going to R2 instead of being inlined in
