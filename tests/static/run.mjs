@@ -96,6 +96,30 @@ function checkResponsive(spec) {
   return bad;
 }
 
+/**
+ * A card that spans columns has to stop spanning when the grid stops having
+ * them.
+ *
+ * `grid-column: span 2` inside `grid-template-columns: 1fr` does not clamp —
+ * the browser invents an implicit second column and the section quietly goes
+ * back to two cramped columns on a phone. Releasing the template is not
+ * enough; the span itself has to be released too. Nothing overflows, so the
+ * width checks pass and only a screenshot shows it.
+ */
+function checkColumnSpans(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    const span = node.styles?.gridColumn;
+    if (!span || !/span\s+[2-9]/.test(span)) continue;
+    const released = ['mobile', 'tablet'].some((bp) => {
+      const value = node.responsive?.[bp]?.gridColumn;
+      return value === 'auto' || value === '1' || value === 'span 1';
+    });
+    if (!released) bad.push(`${path}: ${span} with no narrow reset`);
+  }
+  return bad;
+}
+
 /** Heading levels may descend, but not by more than one step at a time. */
 function checkHeadings(spec) {
   const bad = [];
@@ -146,6 +170,7 @@ function checkNames(spec) {
 const RULES = [
   ['every colour and font comes from a token', checkTokens],
   ['multi-column layouts have narrow-width behaviour', checkResponsive],
+  ['column spans are released when the grid narrows', checkColumnSpans],
   ['heading levels do not skip', checkHeadings],
   ['images carry alt text worth reading', checkAltText],
   ['buttons and links respond to hover', checkInteractiveStates],
@@ -232,6 +257,11 @@ const VIOLATIONS = [
     },
   ],
   [checkResponsive, 'a block with no narrow styles at all', { type: 'section', name: 'S' }],
+  [
+    checkColumnSpans,
+    'a card spanning two columns with no narrow reset',
+    { type: 'frame', name: 'F', styles: { gridColumn: 'span 2' }, responsive: { mobile: { gap: '8px' } } },
+  ],
   [
     checkHeadings,
     'a heading level that skips',

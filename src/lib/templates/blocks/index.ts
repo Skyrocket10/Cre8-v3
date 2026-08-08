@@ -12,13 +12,29 @@ export * from './kit';
 export { navbarSpec, footerSpec } from './chrome';
 export { heroSectionSpec, productShotSpec } from './hero';
 export { logoCloudSpec, testimonialsSpec } from './proof';
-export { featureSectionSpec } from './features';
+export {
+  alternatingFeaturesSpec,
+  bentoFeaturesSpec,
+  checklistSpec,
+  featureSectionSpec,
+  integrationsSpec,
+  processStepsSpec,
+  timelineSpec,
+} from './features';
 export { pricingSpec, ctaSpec } from './convert';
 export { faqSpec } from './trust';
 
 import { footerSpec, navbarSpec } from './chrome';
 import { ctaSpec, pricingSpec } from './convert';
-import { featureSectionSpec } from './features';
+import {
+  alternatingFeaturesSpec,
+  bentoFeaturesSpec,
+  checklistSpec,
+  featureSectionSpec,
+  integrationsSpec,
+  processStepsSpec,
+  timelineSpec,
+} from './features';
 import { heroSectionSpec } from './hero';
 import { logoCloudSpec, testimonialsSpec } from './proof';
 import { faqSpec } from './trust';
@@ -88,6 +104,54 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'features',
     keywords: ['benefits', 'cards', 'icons', 'grid'],
     build: featureSectionSpec,
+  },
+  {
+    id: 'features-alternating',
+    name: 'Alternating rows',
+    description: 'Copy and screenshot, zig-zagging down the page',
+    category: 'features',
+    keywords: ['zigzag', 'split', 'screenshot', 'side by side'],
+    build: alternatingFeaturesSpec,
+  },
+  {
+    id: 'features-bento',
+    name: 'Bento grid',
+    description: 'Mixed-width cards in an asymmetric grid',
+    category: 'features',
+    keywords: ['mosaic', 'asymmetric', 'cards', 'tiles'],
+    build: bentoFeaturesSpec,
+  },
+  {
+    id: 'features-checklist',
+    name: 'Checklist',
+    description: 'Two columns of ticked capabilities',
+    category: 'features',
+    keywords: ['list', 'included', 'ticks', 'capabilities'],
+    build: checklistSpec,
+  },
+  {
+    id: 'features-steps',
+    name: 'Process steps',
+    description: 'Numbered steps across four columns',
+    category: 'features',
+    keywords: ['how it works', 'onboarding', 'numbered', 'getting started'],
+    build: processStepsSpec,
+  },
+  {
+    id: 'features-timeline',
+    name: 'Timeline',
+    description: 'Milestones on a vertical rail',
+    category: 'features',
+    keywords: ['roadmap', 'changelog', 'history', 'milestones'],
+    build: timelineSpec,
+  },
+  {
+    id: 'features-integrations',
+    name: 'Integrations',
+    description: 'Directory grid of connected tools',
+    category: 'features',
+    keywords: ['apps', 'directory', 'partners', 'connect'],
+    build: integrationsSpec,
   },
   {
     id: 'logos',

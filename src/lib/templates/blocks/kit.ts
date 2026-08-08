@@ -310,12 +310,18 @@ export const card = (
 export const liftCard = (
   name: string,
   children: NodeSpec[],
-  styles: StyleDecl = {}
+  styles: StyleDecl = {},
+  responsive: ResponsiveStyles = {}
 ): NodeSpec => ({
-  ...card(name, children, {
-    transition: 'border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease',
-    ...styles,
-  }),
+  ...card(
+    name,
+    children,
+    {
+      transition: 'border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease',
+      ...styles,
+    },
+    responsive
+  ),
   states: {
     hover: {
       borderColor: `color-mix(in srgb, var(--c-primary) 40%, var(--c-border))`,
