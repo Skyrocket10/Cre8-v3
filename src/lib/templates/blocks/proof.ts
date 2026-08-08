@@ -2,18 +2,32 @@
 
 import type { NodeSpec } from '../../document/factory';
 import {
+  CAPTION,
   ONE_COLUMN,
+  SMALL,
+  TITLE,
+  TWO_TO_ONE,
   avatar,
+  border,
   card,
   column,
   container,
+  frame,
   grid,
+  heading,
   icon,
   label,
+  liftCard,
+  media,
+  pad,
   paragraph,
+  radius,
   section,
   sectionHeader,
+  splitGrid,
   stack,
+  textLink,
+  tint,
 } from './kit';
 
 export function logoCloudSpec(): NodeSpec {
@@ -140,5 +154,329 @@ export function testimonialsSpec(): NodeSpec {
       ),
     ],
     { backgroundColor: 'var(--c-surface)' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Bordered logo grid
+ * ----------------------------------------------------------------------- */
+
+export function logoGridSpec(): NodeSpec {
+  const names = ['Vercount', 'Lumen', 'Basewave', 'Orbital', 'Kettle', 'Halcyon', 'Northpoint', 'Ardent'];
+  return section(
+    'Logo grid',
+    [
+      container(
+        [
+          column(
+            'Intro',
+            [
+              heading('Trusted where uptime is the product', 2, { ...TITLE, fontSize: '30px', textWrap: 'balance' }, { mobile: { fontSize: '24px' } }),
+              paragraph('From seed-stage teams to companies serving nine figures of requests a month.', SMALL),
+            ],
+            { gap: '8px', alignItems: 'center', textAlign: 'center', width: '100%' }
+          ),
+          grid(
+            'Logo cells',
+            4,
+            names.map((name) =>
+              frame(
+                name,
+                [
+                  label(name, {
+                    fontSize: '17px',
+                    fontWeight: '600',
+                    letterSpacing: '-0.018em',
+                    color: 'var(--c-text)',
+                    opacity: '0.55',
+                  }),
+                ],
+                {
+                  ...pad('26px', '16px'),
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: 'var(--c-background)',
+                }
+              )
+            ),
+            // A hairline lattice: the 1px gap lets the container's colour show
+            // between opaque cells, so each interior rule is drawn once. Giving
+            // the cells their own border as well would double every one of them.
+            { gap: '1px', backgroundColor: 'var(--c-border)', ...border('1px', 'var(--c-border)') },
+            {
+              tablet: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' },
+              mobile: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+            }
+          ),
+        ],
+        { gap: '36px' }
+      ),
+    ],
+    { paddingTop: '72px', paddingBottom: '72px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Stats band
+ * ----------------------------------------------------------------------- */
+
+const STATS = [
+  { value: '99.99%', label: 'Uptime across all regions, measured externally' },
+  { value: '84ms', label: 'Median response time at the edge' },
+  { value: '12,400', label: 'Deploys shipped by customers last week' },
+  { value: '4.9/5', label: 'Average support rating over 2,000 tickets' },
+];
+
+export function statsSpec(): NodeSpec {
+  return section(
+    'Stats',
+    [
+      container(
+        [
+          grid(
+            'Stats',
+            4,
+            STATS.map((stat) =>
+              column(
+                stat.value,
+                [
+                  label(stat.value, {
+                    fontSize: '44px',
+                    fontWeight: '620',
+                    letterSpacing: '-0.032em',
+                    lineHeight: '1',
+                    color: 'var(--c-primary)',
+                  }),
+                  paragraph(stat.label, { ...SMALL, maxWidth: '26ch' }),
+                ],
+                { gap: '10px' }
+              )
+            ),
+            { gap: '32px' },
+            TWO_TO_ONE
+          ),
+        ],
+        { gap: '0px' }
+      ),
+    ],
+    { paddingTop: '72px', paddingBottom: '72px', backgroundColor: 'var(--c-surface)' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Single pull quote
+ * ----------------------------------------------------------------------- */
+
+export function pullQuoteSpec(): NodeSpec {
+  return section('Pull quote', [
+    container(
+      [
+        icon('quote', { width: '34px', height: '34px', color: tint('var(--c-primary)', 45) }),
+        paragraph(
+          'We had four vendors, three dashboards and a spreadsheet explaining which was authoritative. Now there is one place, and the spreadsheet is gone.',
+          {
+            fontSize: '30px',
+            lineHeight: '1.4',
+            letterSpacing: '-0.02em',
+            color: 'var(--c-text)',
+            textAlign: 'center',
+            textWrap: 'balance',
+            maxWidth: '30ch',
+          },
+          { mobile: { fontSize: '22px' } }
+        ),
+        stack(
+          'Attribution',
+          [
+            avatar('44px'),
+            column(
+              'Who',
+              [
+                label('Ana Ferreira', { fontSize: '15px', fontWeight: '600', color: 'var(--c-text)' }),
+                label('VP Engineering, Lumen', { ...CAPTION, color: 'var(--c-muted)' }),
+              ],
+              { gap: '2px' }
+            ),
+          ],
+          { gap: '12px', alignItems: 'center', marginTop: '8px' }
+        ),
+      ],
+      { gap: '20px', alignItems: 'center', maxWidth: 'var(--w-content)' }
+    ),
+  ]);
+}
+
+/* --------------------------------------------------------------------------
+ * Quote with portrait
+ * ----------------------------------------------------------------------- */
+
+export function portraitQuoteSpec(): NodeSpec {
+  return section(
+    'Portrait quote',
+    [
+      container(
+        [
+          splitGrid(
+            'Quote row',
+            [
+              media('Portrait of the person quoted', '4 / 5', {
+                ...radius('var(--r-lg)'),
+                maxWidth: '380px',
+              }),
+              column(
+                'Quote',
+                [
+                  stack(
+                    'Stars',
+                    Array.from({ length: 5 }, () =>
+                      icon('star', { width: '15px', height: '15px', color: '#f5a623' })
+                    ),
+                    { gap: '3px' }
+                  ),
+                  paragraph(
+                    'The migration took an afternoon. The part I still tell people about is that nothing broke — not the domains, not the certificates, not one redirect.',
+                    {
+                      fontSize: '22px',
+                      lineHeight: '1.5',
+                      letterSpacing: '-0.014em',
+                      color: 'var(--c-text)',
+                      maxWidth: '34ch',
+                    },
+                    { mobile: { fontSize: '18px' } }
+                  ),
+                  column(
+                    'Who',
+                    [
+                      label('Marcus Hall', { fontSize: '15px', fontWeight: '600', color: 'var(--c-text)' }),
+                      label('Head of Product, Basewave', { ...CAPTION, color: 'var(--c-muted)' }),
+                    ],
+                    { gap: '2px' }
+                  ),
+                  textLink('Read the case study →', '#', { fontSize: '14px', color: 'var(--c-primary)' }),
+                ],
+                { gap: '18px' }
+              ),
+            ],
+            { gap: '56px' },
+            [0.85, 1.15]
+          ),
+        ],
+        { maxWidth: 'var(--w-content)' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-surface)' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Case study cards
+ * ----------------------------------------------------------------------- */
+
+const CASES = [
+  { company: 'Lumen', metric: '4×', result: 'increase in deploy frequency', body: 'Consolidated four tools and cut release overhead to minutes.' },
+  { company: 'Basewave', metric: '−62%', result: 'time to first review', body: 'Preview URLs moved design review off screenshots.' },
+  { company: 'Orbital', metric: '2 days', result: 'to pass security review', body: 'SSO and audit logs were configured in an afternoon.' },
+];
+
+export function caseStudiesSpec(): NodeSpec {
+  return section('Case studies', [
+    container(
+      [
+        sectionHeader(
+          'Case studies',
+          'What changed, measured',
+          'Numbers customers published themselves, not ones we modelled.'
+        ),
+        grid(
+          'Cases',
+          3,
+          CASES.map((item) =>
+            liftCard(
+              item.company,
+              [
+                label(item.company, {
+                  fontSize: '13px',
+                  fontWeight: '640',
+                  letterSpacing: '0.03em',
+                  textTransform: 'uppercase',
+                  color: 'var(--c-muted)',
+                }),
+                label(item.metric, {
+                  fontSize: '46px',
+                  fontWeight: '620',
+                  letterSpacing: '-0.034em',
+                  lineHeight: '1',
+                  color: 'var(--c-primary)',
+                }),
+                heading(item.result, 3, { fontSize: '16px', fontWeight: '600', lineHeight: '1.35' }),
+                paragraph(item.body, SMALL),
+                textLink('Read the story →', '#', { fontSize: '13.5px', color: 'var(--c-primary)' }),
+              ],
+              { ...pad('28px'), gap: '10px' }
+            )
+          )
+        ),
+      ],
+      { gap: '56px' }
+    ),
+  ]);
+}
+
+/* --------------------------------------------------------------------------
+ * Rating badges
+ * ----------------------------------------------------------------------- */
+
+const RATINGS = [
+  { source: 'G2', score: '4.9', detail: '482 reviews', stars: true },
+  { source: 'Capterra', score: '4.8', detail: '310 reviews', stars: true },
+  { source: 'Product Hunt', score: '#1', detail: 'Product of the Day', stars: false },
+  { source: 'SOC 2', score: 'Type II', detail: 'Audited annually', stars: false },
+];
+
+export function ratingsSpec(): NodeSpec {
+  return section(
+    'Ratings',
+    [
+      container(
+        [
+          grid(
+            'Badges',
+            4,
+            RATINGS.map((item) =>
+              card(
+                item.source,
+                [
+                  label(item.source, { ...CAPTION, fontWeight: '620', color: 'var(--c-muted)' }),
+                  stack(
+                    'Score',
+                    [
+                      label(item.score, {
+                        fontSize: '26px',
+                        fontWeight: '620',
+                        letterSpacing: '-0.024em',
+                        lineHeight: '1',
+                        color: 'var(--c-text)',
+                      }),
+                      // Only where a star means something: beside "Type II" it
+                      // claims a rating that badge does not carry.
+                      ...(item.stars
+                        ? [icon('star', { width: '15px', height: '15px', color: '#f5a623' })]
+                        : []),
+                    ],
+                    { gap: '6px', alignItems: 'center' }
+                  ),
+                  label(item.detail, { ...CAPTION, color: 'var(--c-muted)' }),
+                ],
+                { ...pad('20px'), gap: '8px', alignItems: 'center', textAlign: 'center' }
+              )
+            ),
+            { gap: '12px' },
+            TWO_TO_ONE
+          ),
+        ],
+        { gap: '0px' }
+      ),
+    ],
+    { paddingTop: '64px', paddingBottom: '64px' }
   );
 }

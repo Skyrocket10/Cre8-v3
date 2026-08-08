@@ -183,7 +183,7 @@ const BENTO = [
   { icon: 'gauge', title: 'Sub-second builds', body: 'Incremental everywhere, so a one-line change ships in the time it takes to switch tabs.', span: 2 },
   { icon: 'globe', title: '310 edge locations', body: 'Served from wherever your users are.', span: 1 },
   { icon: 'lock', title: 'SOC 2 and HIPAA', body: 'Controls switched on by default.', span: 1 },
-  { icon: 'git-pull-request', title: 'Preview every branch', body: 'A real URL per pull request, torn down on merge.', span: 2 },
+  { icon: 'git-branch', title: 'Preview every branch', body: 'A real URL per pull request, torn down on merge.', span: 2 },
 ];
 
 export function bentoFeaturesSpec(): NodeSpec {
@@ -421,15 +421,15 @@ export function timelineSpec(): NodeSpec {
  * ----------------------------------------------------------------------- */
 
 const INTEGRATIONS = [
-  { icon: 'github', name: 'GitHub' },
-  { icon: 'slack', name: 'Slack' },
-  { icon: 'figma', name: 'Figma' },
+  { icon: 'code', name: 'GitHub' },
+  { icon: 'message-circle', name: 'Slack' },
+  { icon: 'palette', name: 'Figma' },
   { icon: 'database', name: 'Postgres' },
   { icon: 'bell', name: 'PagerDuty' },
   { icon: 'chart-column', name: 'Datadog' },
   { icon: 'credit-card', name: 'Stripe' },
   { icon: 'mail', name: 'Resend' },
-  { icon: 'shield', name: 'Okta' },
+  { icon: 'shield-check', name: 'Okta' },
   { icon: 'box', name: 'S3' },
   { icon: 'workflow', name: 'Linear' },
   { icon: 'terminal', name: 'CLI' },

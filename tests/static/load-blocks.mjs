@@ -26,6 +26,9 @@ export function loadBlocks() {
     [
       'tsc',
       'src/lib/templates/blocks/index.ts',
+      // The icon registry too, so a block can be checked against the names
+      // that actually exist. It has no imports of its own.
+      'src/lib/renderer/icons.ts',
       '--outDir',
       OUT,
       // Pinned so the emitted path is predictable no matter which files tsc
@@ -49,7 +52,10 @@ export function loadBlocks() {
   }
 
   const require = createRequire(import.meta.url);
-  return require(path.join(OUT, 'templates/blocks/index.js'));
+  return {
+    ...require(path.join(OUT, 'templates/blocks/index.js')),
+    ICON_NAMES: require(path.join(OUT, 'renderer/icons.js')).ICON_NAMES,
+  };
 }
 
 /** Every node in a spec tree, with the path taken to reach it. */

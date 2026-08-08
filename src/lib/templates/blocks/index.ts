@@ -18,7 +18,16 @@ export {
   splitHeroSpec,
   videoHeroSpec,
 } from './hero';
-export { logoCloudSpec, testimonialsSpec } from './proof';
+export {
+  caseStudiesSpec,
+  logoCloudSpec,
+  logoGridSpec,
+  portraitQuoteSpec,
+  pullQuoteSpec,
+  ratingsSpec,
+  statsSpec,
+  testimonialsSpec,
+} from './proof';
 export {
   alternatingFeaturesSpec,
   bentoFeaturesSpec,
@@ -49,7 +58,16 @@ import {
   splitHeroSpec,
   videoHeroSpec,
 } from './hero';
-import { logoCloudSpec, testimonialsSpec } from './proof';
+import {
+  caseStudiesSpec,
+  logoCloudSpec,
+  logoGridSpec,
+  portraitQuoteSpec,
+  pullQuoteSpec,
+  ratingsSpec,
+  statsSpec,
+  testimonialsSpec,
+} from './proof';
 import { faqSpec } from './trust';
 
 export type BlockCategory =
@@ -213,6 +231,54 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'proof',
     keywords: ['quotes', 'reviews', 'customers', 'social proof'],
     build: testimonialsSpec,
+  },
+  {
+    id: 'logos-grid',
+    name: 'Logo grid',
+    description: 'Bordered cells in a hairline lattice',
+    category: 'proof',
+    keywords: ['customers', 'brands', 'clients', 'lattice', 'cells'],
+    build: logoGridSpec,
+  },
+  {
+    id: 'stats',
+    name: 'Stats band',
+    description: 'Four headline numbers',
+    category: 'proof',
+    keywords: ['metrics', 'numbers', 'kpi', 'results', 'uptime'],
+    build: statsSpec,
+  },
+  {
+    id: 'quote-large',
+    name: 'Pull quote',
+    description: 'One large quote with attribution',
+    category: 'proof',
+    keywords: ['testimonial', 'quote', 'customer', 'single'],
+    build: pullQuoteSpec,
+  },
+  {
+    id: 'quote-portrait',
+    name: 'Quote with portrait',
+    description: 'A quote beside a photograph',
+    category: 'proof',
+    keywords: ['testimonial', 'photo', 'headshot', 'case study'],
+    build: portraitQuoteSpec,
+  },
+  {
+    id: 'case-studies',
+    name: 'Case studies',
+    description: 'Three cards, each led by a result',
+    category: 'proof',
+    keywords: ['results', 'customers', 'metrics', 'stories'],
+    build: caseStudiesSpec,
+  },
+  {
+    id: 'ratings',
+    name: 'Rating badges',
+    description: 'Review scores and certifications',
+    category: 'proof',
+    keywords: ['g2', 'reviews', 'stars', 'awards', 'soc 2'],
+    build: ratingsSpec,
   },
   {
     id: 'pricing',

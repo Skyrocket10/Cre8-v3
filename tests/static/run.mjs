@@ -16,7 +16,8 @@ import { createReport } from '../report.mjs';
 import { layers, loadBlocks, walk } from './load-blocks.mjs';
 
 const report = createReport();
-const { BLOCKS, BLOCK_CATEGORIES } = loadBlocks();
+const { BLOCKS, BLOCK_CATEGORIES, ICON_NAMES } = loadBlocks();
+const KNOWN_ICONS = new Set(ICON_NAMES);
 
 const CATEGORY_IDS = new Set(BLOCK_CATEGORIES.map((c) => c.id));
 
@@ -147,6 +148,24 @@ function checkShrinkableTracks(spec) {
   return bad;
 }
 
+/**
+ * An icon name has to be one the renderer actually has.
+ *
+ * `iconMarkup` falls back to `sparkles` for anything unknown, so a typo, or a
+ * plausible-sounding name the set does not carry, renders as a perfectly
+ * pleasant wrong glyph. A directory of twelve integrations came out with five
+ * identical sparkles and nothing anywhere reported a problem.
+ */
+function checkIconNames(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    if (node.type !== 'icon') continue;
+    const name = String(node.props?.name ?? '');
+    if (!KNOWN_ICONS.has(name)) bad.push(`${path}: no icon called "${name}"`);
+  }
+  return bad;
+}
+
 /** Heading levels may descend, but not by more than one step at a time. */
 function checkHeadings(spec) {
   const bad = [];
@@ -201,6 +220,7 @@ const RULES = [
   ['fr tracks can shrink below their content', checkShrinkableTracks],
   ['heading levels do not skip', checkHeadings],
   ['images carry alt text worth reading', checkAltText],
+  ['every icon name exists in the registry', checkIconNames],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['every node is named for the layer tree', checkNames],
 ];
@@ -309,6 +329,11 @@ const VIOLATIONS = [
     },
   ],
   [checkAltText, 'an image with no alt', { type: 'image', name: 'I', props: {} }],
+  [
+    checkIconNames,
+    'an icon name the renderer does not have',
+    { type: 'icon', name: 'I', props: { name: 'definitely-not-an-icon' } },
+  ],
   [checkAltText, 'an image whose alt is "photo"', { type: 'image', name: 'I', props: { alt: 'photo' } }],
   [checkInteractiveStates, 'a button with no hover', { type: 'button', name: 'B', props: {} }],
   [checkNames, 'a node with a blank name', { type: 'frame', name: '   ' }],
