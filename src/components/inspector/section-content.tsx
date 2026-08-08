@@ -11,6 +11,7 @@
 import React, { useMemo, useState } from 'react';
 import { Component, ExternalLink, ImageIcon, Scissors, SquarePen } from 'lucide-react';
 import { ICON_NAMES, ICON_PATHS } from '@/lib/renderer/icons';
+import { SEMANTIC_TAGS } from '@/lib/document/schema';
 import { detachInstance } from '@/lib/document/operations';
 import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
@@ -48,11 +49,159 @@ export function ContentSection() {
     case 'input':
     case 'textarea':
       return <FieldContent multiline={type === 'textarea'} />;
+    case 'select':
+      return <SelectContent />;
+    case 'checkbox':
+    case 'radio':
+      return <ChoiceContent kind={type} />;
+    case 'details':
+      return <DisclosureContent />;
+    case 'frame':
+    case 'section':
+    case 'container':
+    case 'stack':
+    case 'grid':
+      return <SemanticContent />;
     case 'instance':
       return <InstanceContent />;
     default:
       return null;
   }
+}
+
+/* --------------------------------------------------------------------------
+ * Semantics
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Which tag a layout box becomes.
+ *
+ * The only visible difference is in the markup, which is exactly why it is
+ * worth surfacing: a screen reader skips between landmarks, and a page built
+ * entirely from `div` gives it nothing to skip to.
+ */
+function SemanticContent() {
+  const tag = useNodeProp('tag');
+  return (
+    <Section title="Semantics" defaultOpen={false}>
+      <InspectorGroup>
+        <StyleRow label="Tag">
+          <Select
+            value={String(tag.value ?? 'div')}
+            onChange={(value) => tag.set(value === 'div' ? undefined : value)}
+            options={SEMANTIC_TAGS.map((name) => ({
+              value: name,
+              label: name === 'div' ? 'div (default)' : name,
+            }))}
+            className="flex-1"
+          />
+        </StyleRow>
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Native controls
+ * ----------------------------------------------------------------------- */
+
+function SelectContent() {
+  const name = useNodeProp('name');
+  const placeholder = useNodeProp('placeholder');
+  const options = useNodeProp('options');
+  return (
+    <Section title="Select" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Options">
+          <TextArea
+            value={String(options.value ?? '')}
+            onChange={(value) => options.set(value)}
+            rows={4}
+            placeholder={'One option per line'}
+          />
+        </StyleRow>
+        <StyleRow label="Placeholder">
+          <TextInput
+            value={String(placeholder.value ?? '')}
+            onValueChange={(value) => placeholder.set(value || undefined)}
+            placeholder="Choose one…"
+          />
+        </StyleRow>
+        <StyleRow label="Name">
+          <TextInput
+            value={String(name.value ?? '')}
+            onValueChange={(value) => name.set(value || undefined)}
+            placeholder="Field name in the submission"
+          />
+        </StyleRow>
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+function ChoiceContent({ kind }: { kind: 'checkbox' | 'radio' }) {
+  const label = useNodeProp('label');
+  const name = useNodeProp('name');
+  const value = useNodeProp('value');
+  const checked = useNodeProp('checked');
+  return (
+    <Section title={kind === 'checkbox' ? 'Checkbox' : 'Radio'} defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Label">
+          <TextInput
+            value={String(label.value ?? '')}
+            onValueChange={(next) => label.set(next)}
+            placeholder="What it says"
+          />
+        </StyleRow>
+        <StyleRow label="Name">
+          <TextInput
+            value={String(name.value ?? '')}
+            onValueChange={(next) => name.set(next || undefined)}
+            placeholder={kind === 'radio' ? 'Group these share' : 'Field name'}
+          />
+        </StyleRow>
+        {kind === 'radio' && (
+          <StyleRow label="Value">
+            <TextInput
+              value={String(value.value ?? '')}
+              onValueChange={(next) => value.set(next || undefined)}
+              placeholder="Submitted when chosen"
+            />
+          </StyleRow>
+        )}
+        <StyleRow label="Checked">
+          <Switch checked={Boolean(checked.value)} onChange={(on) => checked.set(on || undefined)} />
+        </StyleRow>
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+function DisclosureContent() {
+  const summary = useNodeProp('summary');
+  const open = useNodeProp('open');
+  return (
+    <Section title="Disclosure" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Summary">
+          <TextInput
+            value={String(summary.value ?? '')}
+            onValueChange={(value) => summary.set(value)}
+            placeholder="The line you click"
+          />
+        </StyleRow>
+        <StyleRow label="Open">
+          <Switch checked={Boolean(open.value)} onChange={(on) => open.set(on || undefined)} />
+        </StyleRow>
+      </InspectorGroup>
+      {/* Worth saying once, where someone will read it: the canvas is not
+          lying, it is showing the contents so they can be edited. */}
+      <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+        Always shown open while editing. “Open” is how it ships.
+      </p>
+    </Section>
+  );
 }
 
 /* --------------------------------------------------------------------------

@@ -165,6 +165,49 @@ try {
     `${onCanvas.inputs} wrapped inputs`
   );
 
+  /* ------------------------------------------------- 6. semantic landmarks */
+
+  // Retagging a box is invisible on screen, which is the whole reason to check
+  // it: the only evidence it worked is in the markup a screen reader reads.
+  await page.bringToFront();
+  await insert('Section');
+  await page.waitForTimeout(600);
+
+  // Same pattern the borders suite uses: the header is a button wrapping a
+  // `.panel-title`, and the section is collapsed by default, so its controls
+  // are not in the DOM until it is opened.
+  await page.locator('button:has(.panel-title:text-is("Semantics"))').first().click();
+  await page.waitForTimeout(500);
+  // The inspector's Select is a popover of buttons, not a native <select>, so
+  // this drives it the way a person would: open it, then pick the option.
+  const tagTrigger = page.locator('button:has(span:text-is("div (default)"))').first();
+  report.check(
+    'a layout box offers a tag choice',
+    (await tagTrigger.count()) === 1,
+    `${await tagTrigger.count()} triggers`
+  );
+  await tagTrigger.click();
+  await page.waitForTimeout(300);
+  await page.locator('button:has(span:text-is("aside")), button:text-is("aside")').first().click();
+  await page.waitForTimeout(700);
+
+  const retagged = await page.evaluate(
+    () => document.querySelectorAll('.cre8-frame.cre8-editing aside').length
+  );
+  report.check('the canvas re-renders it as that tag', retagged === 1, `${retagged} <aside>`);
+
+  await publish(page);
+  const withAside = await (await fetch(`${APP}/s/${id}/`)).text();
+  report.check(
+    'the published markup carries the landmark',
+    /<aside[\s>]/.test(withAside),
+    withAside.includes('<aside') ? 'present' : 'missing'
+  );
+  report.check(
+    'and a script still never appears',
+    !/<script/i.test(withAside)
+  );
+
   await site.close();
 } catch (error) {
   report.check('native suite completed', false, error.message);

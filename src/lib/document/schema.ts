@@ -719,6 +719,35 @@ export function getElement(type: ElementType): ElementDefinition {
 export const INSERTABLE: ElementDefinition[] = Object.values(ELEMENTS).filter((e) => !e.internal);
 
 /** Heading levels change the rendered tag; everything else uses `tag`. */
+/**
+ * Tags a layout box may take instead of `div`.
+ *
+ * Landmarks and list semantics are most of what a page needs to be navigable
+ * with a screen reader, and they are a tag name away — a `nav` is a `div` that
+ * announced itself. Allowlisted rather than free text: an arbitrary string here
+ * reaches the published markup, and `<script>` is also a tag name.
+ */
+export const SEMANTIC_TAGS = [
+  'div',
+  'section',
+  'article',
+  'aside',
+  'main',
+  'header',
+  'footer',
+  'nav',
+  'figure',
+  'figcaption',
+  'blockquote',
+  'ul',
+  'ol',
+  'li',
+  'address',
+] as const;
+
+/** Which element types offer the choice. */
+const RETAGGABLE = new Set<ElementType>(['frame', 'section', 'container', 'stack', 'grid']);
+
 export function resolveTag(type: ElementType, props: NodeProps): string {
   if (type === 'heading') {
     const level = Number(props.level ?? 2);
@@ -726,6 +755,10 @@ export function resolveTag(type: ElementType, props: NodeProps): string {
   }
   if (type === 'button' || type === 'link') {
     return props.href ? 'a' : 'button';
+  }
+  if (RETAGGABLE.has(type)) {
+    const requested = String(props.tag ?? '');
+    if ((SEMANTIC_TAGS as readonly string[]).includes(requested)) return requested;
   }
   return getElement(type).tag;
 }
