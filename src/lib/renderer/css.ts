@@ -250,6 +250,16 @@ html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; padding: 0; }
 `.trim();
 
+/**
+ * The floor an empty image slot is given so it stays visible and clickable.
+ *
+ * Exported because it is a trap as well as a feature: it beats an explicit
+ * `height` on the node, so an image deliberately sized smaller than this comes
+ * out the wrong shape until a real source is set. The static checks know the
+ * number so a block cannot fall into it silently.
+ */
+export const PLACEHOLDER_MIN_HEIGHT = 120;
+
 /** Styles for the placeholder shown where an image has no source yet. */
 export const PLACEHOLDER_CSS = `
 [data-cre8-placeholder] {
@@ -259,7 +269,7 @@ export const PLACEHOLDER_CSS = `
   color: rgba(90,100,120,0.75);
   font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 12px; letter-spacing: 0.02em;
-  min-height: 120px;
+  min-height: ${PLACEHOLDER_MIN_HEIGHT}px;
 }
 `.trim();
 

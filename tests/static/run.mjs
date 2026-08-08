@@ -16,7 +16,7 @@ import { createReport } from '../report.mjs';
 import { layers, loadBlocks, walk } from './load-blocks.mjs';
 
 const report = createReport();
-const { BLOCKS, BLOCK_CATEGORIES, ICON_NAMES, ELEMENTS } = loadBlocks();
+const { BLOCKS, BLOCK_CATEGORIES, ICON_NAMES, ELEMENTS, PLACEHOLDER_MIN_HEIGHT } = loadBlocks();
 const KNOWN_ICONS = new Set(ICON_NAMES);
 
 const CATEGORY_IDS = new Set(BLOCK_CATEGORIES.map((c) => c.id));
@@ -186,6 +186,29 @@ function checkContainerChildren(spec) {
   return bad;
 }
 
+/**
+ * A small image has to clear the empty-slot floor.
+ *
+ * An image with no source renders as a placeholder carrying
+ * `min-height: ${PLACEHOLDER_MIN_HEIGHT}px` so the slot stays visible and
+ * clickable. That is a different property from `height`, so specificity does
+ * not settle it — the floor simply wins, and an avatar sized 96px comes out
+ * 96 by 120. It is right in production once a photo is set and wrong for the
+ * whole time the designer is looking at it.
+ */
+function checkPlaceholderFloor(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    if (node.type !== 'image') continue;
+    const height = /^(\d+(?:\.\d+)?)px$/.exec(String(node.styles?.height ?? ''));
+    if (!height || Number(height[1]) >= PLACEHOLDER_MIN_HEIGHT) continue;
+    if (node.styles?.minHeight === undefined) {
+      bad.push(`${path}: height ${height[0]} under the ${PLACEHOLDER_MIN_HEIGHT}px placeholder floor`);
+    }
+  }
+  return bad;
+}
+
 /** Heading levels may descend, but not by more than one step at a time. */
 function checkHeadings(spec) {
   const bad = [];
@@ -242,6 +265,7 @@ const RULES = [
   ['images carry alt text worth reading', checkAltText],
   ['every icon name exists in the registry', checkIconNames],
   ['children are only where an element can render them', checkContainerChildren],
+  ['small images clear the empty-slot floor', checkPlaceholderFloor],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['every node is named for the layer tree', checkNames],
 ];
@@ -350,6 +374,11 @@ const VIOLATIONS = [
     },
   ],
   [checkAltText, 'an image with no alt', { type: 'image', name: 'I', props: {} }],
+  [
+    checkPlaceholderFloor,
+    'an avatar-sized image that the placeholder floor would stretch',
+    { type: 'image', name: 'I', props: { alt: 'A face' }, styles: { height: '96px' } },
+  ],
   [
     checkContainerChildren,
     'children nested inside a link, which renders none',

@@ -31,6 +31,7 @@ export function loadBlocks() {
       // can hold children. Both import types only.
       'src/lib/renderer/icons.ts',
       'src/lib/document/schema.ts',
+      'src/lib/renderer/css.ts',
       '--outDir',
       OUT,
       // Pinned so the emitted path is predictable no matter which files tsc
@@ -58,6 +59,7 @@ export function loadBlocks() {
     ...require(path.join(OUT, 'templates/blocks/index.js')),
     ICON_NAMES: require(path.join(OUT, 'renderer/icons.js')).ICON_NAMES,
     ELEMENTS: require(path.join(OUT, 'document/schema.js')).ELEMENTS,
+    PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
   };
 }
 

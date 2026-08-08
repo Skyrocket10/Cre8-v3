@@ -47,6 +47,15 @@ export {
 } from './features';
 export { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
 export {
+  articleSpec,
+  authorCardSpec,
+  blogHeaderSpec,
+  featuredPostSpec,
+  paginationSpec,
+  postGridSpec,
+  relatedPostsSpec,
+} from './editorial';
+export {
   faqSpec,
   gallerySpec,
   masonrySpec,
@@ -65,6 +74,15 @@ import {
   subNavSpec,
 } from './chrome';
 import { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
+import {
+  articleSpec,
+  authorCardSpec,
+  blogHeaderSpec,
+  featuredPostSpec,
+  paginationSpec,
+  postGridSpec,
+  relatedPostsSpec,
+} from './editorial';
 import {
   alternatingFeaturesSpec,
   bentoFeaturesSpec,
@@ -421,5 +439,61 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'trust',
     keywords: ['photos', 'images', 'pinterest', 'columns', 'mixed'],
     build: masonrySpec,
+  },
+  {
+    id: 'blog-header',
+    name: 'Blog header',
+    description: 'Index title with topic filters',
+    category: 'editorial',
+    keywords: ['writing', 'index', 'tags', 'topics', 'categories'],
+    build: blogHeaderSpec,
+  },
+  {
+    id: 'post-featured',
+    name: 'Featured post',
+    description: 'One lead article beside its cover',
+    category: 'editorial',
+    keywords: ['blog', 'lead', 'hero', 'article', 'highlight'],
+    build: featuredPostSpec,
+  },
+  {
+    id: 'post-grid',
+    name: 'Post grid',
+    description: 'Three columns of article cards',
+    category: 'editorial',
+    keywords: ['blog', 'articles', 'news', 'index', 'cards'],
+    build: postGridSpec,
+  },
+  {
+    id: 'article',
+    name: 'Article',
+    description: 'Long-form piece with a sticky contents list',
+    category: 'editorial',
+    keywords: ['blog', 'post', 'toc', 'contents', 'writing'],
+    build: articleSpec,
+  },
+  {
+    id: 'author-card',
+    name: 'Author card',
+    description: 'Portrait, bio and links',
+    category: 'editorial',
+    keywords: ['byline', 'writer', 'bio', 'about the author'],
+    build: authorCardSpec,
+  },
+  {
+    id: 'related-posts',
+    name: 'Related posts',
+    description: 'Three more articles to keep reading',
+    category: 'editorial',
+    keywords: ['more', 'next', 'blog', 'recommended'],
+    build: relatedPostsSpec,
+  },
+  {
+    id: 'pagination',
+    name: 'Pagination',
+    description: 'Previous, next and numbered pages',
+    category: 'editorial',
+    keywords: ['pages', 'paging', 'next', 'previous', 'index'],
+    build: paginationSpec,
   },
 ];
