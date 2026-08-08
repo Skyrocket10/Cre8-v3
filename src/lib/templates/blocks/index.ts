@@ -10,7 +10,14 @@ import type { NodeSpec } from '../../document/factory';
 
 export * from './kit';
 export { navbarSpec, footerSpec } from './chrome';
-export { heroSectionSpec, productShotSpec } from './hero';
+export {
+  deviceHeroSpec,
+  heroSectionSpec,
+  mediaHeroSpec,
+  productShotSpec,
+  splitHeroSpec,
+  videoHeroSpec,
+} from './hero';
 export { logoCloudSpec, testimonialsSpec } from './proof';
 export {
   alternatingFeaturesSpec,
@@ -21,11 +28,11 @@ export {
   processStepsSpec,
   timelineSpec,
 } from './features';
-export { pricingSpec, ctaSpec } from './convert';
+export { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
 export { faqSpec } from './trust';
 
 import { footerSpec, navbarSpec } from './chrome';
-import { ctaSpec, pricingSpec } from './convert';
+import { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
 import {
   alternatingFeaturesSpec,
   bentoFeaturesSpec,
@@ -35,7 +42,13 @@ import {
   processStepsSpec,
   timelineSpec,
 } from './features';
-import { heroSectionSpec } from './hero';
+import {
+  deviceHeroSpec,
+  heroSectionSpec,
+  mediaHeroSpec,
+  splitHeroSpec,
+  videoHeroSpec,
+} from './hero';
 import { logoCloudSpec, testimonialsSpec } from './proof';
 import { faqSpec } from './trust';
 
@@ -104,6 +117,38 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'features',
     keywords: ['benefits', 'cards', 'icons', 'grid'],
     build: featureSectionSpec,
+  },
+  {
+    id: 'hero-split',
+    name: 'Split hero',
+    description: 'Copy beside a product screenshot',
+    category: 'hero',
+    keywords: ['two column', 'screenshot', 'side by side', 'above the fold'],
+    build: splitHeroSpec,
+  },
+  {
+    id: 'hero-media',
+    name: 'Photo hero',
+    description: 'Full-bleed photograph behind centred copy',
+    category: 'hero',
+    keywords: ['background', 'image', 'full bleed', 'cover', 'banner'],
+    build: mediaHeroSpec,
+  },
+  {
+    id: 'hero-device',
+    name: 'Device hero',
+    description: 'Copy beside a phone mock-up',
+    category: 'hero',
+    keywords: ['mobile', 'app', 'phone', 'ios', 'android'],
+    build: deviceHeroSpec,
+  },
+  {
+    id: 'hero-video',
+    name: 'Video hero',
+    description: 'Headline above a wide video player',
+    category: 'hero',
+    keywords: ['film', 'demo', 'player', 'watch'],
+    build: videoHeroSpec,
   },
   {
     id: 'features-alternating',
@@ -184,6 +229,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'convert',
     keywords: ['signup', 'convert', 'banner', 'get started'],
     build: ctaSpec,
+  },
+  {
+    id: 'cta-split',
+    name: 'CTA with image',
+    description: 'Copy and a photo side by side in one panel',
+    category: 'convert',
+    keywords: ['migrate', 'signup', 'panel', 'photo', 'convert'],
+    build: ctaSplitSpec,
   },
   {
     id: 'faq',

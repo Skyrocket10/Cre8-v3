@@ -164,16 +164,34 @@ export const CAPTION: StyleDecl = { fontSize: '12.5px' };
  * Responsive column patterns
  * ----------------------------------------------------------------------- */
 
-export const ONE_COLUMN: ResponsiveStyles = { mobile: { gridTemplateColumns: '1fr' } };
+/**
+ * Weighted columns that can actually shrink.
+ *
+ * A bare `1fr` track is `minmax(auto, 1fr)`, and `auto` floors at the content's
+ * min-content width — so a track holding an image with an aspect ratio, or a
+ * long unbroken word, refuses to go below it and steals width from its
+ * neighbour. A 50/50 split silently renders as 35/65 and nothing overflows, so
+ * no width check notices.
+ *
+ * It bites hardest where it looks safest: even a *single* `1fr` column will
+ * grow past the viewport if one child demands it — an image with a min-height
+ * and a 16/9 ratio is asking for 600px of width whatever the screen says. So
+ * every column the kit emits is spelled `minmax(0, …)`, and the narrow-width
+ * resets below use this too.
+ */
+export const cols = (...weights: number[]): string =>
+  weights.map((w) => `minmax(0, ${w}fr)`).join(' ');
+
+export const ONE_COLUMN: ResponsiveStyles = { mobile: { gridTemplateColumns: cols(1) } };
 
 export const TWO_TO_ONE: ResponsiveStyles = {
   tablet: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
-  mobile: { gridTemplateColumns: '1fr' },
+  mobile: { gridTemplateColumns: cols(1) },
 };
 
 /** Side-by-side that becomes stacked. For split heroes and alternating rows. */
 export const SPLIT_TO_STACK: ResponsiveStyles = {
-  tablet: { gridTemplateColumns: '1fr' },
+  tablet: { gridTemplateColumns: cols(1) },
 };
 
 /* --------------------------------------------------------------------------
@@ -272,6 +290,17 @@ export const grid = (
   ...rsp(responsive),
   children,
 });
+
+/** A two-column split that stacks. The shape most sections want. */
+export const splitGrid = (
+  name: string,
+  children: NodeSpec[],
+  styles: StyleDecl = {},
+  weights: [number, number] = [1, 1]
+): NodeSpec =>
+  grid(name, cols(...weights), children, { gap: '56px', alignItems: 'center', ...styles }, {
+    tablet: { gridTemplateColumns: cols(1), gap: '36px' },
+  });
 
 export const divider = (styles: StyleDecl = {}): NodeSpec => ({
   type: 'divider',

@@ -5,11 +5,14 @@ import type { NodeSpec as Spec } from '../../document/factory';
 import {
   DISPLAY,
   DISPLAY_RESPONSIVE,
+  EYEBROW,
   LEAD,
   LEAD_RESPONSIVE,
   border,
   button,
+  column,
   container,
+  frame,
   grid,
   heading,
   icon,
@@ -18,6 +21,7 @@ import {
   paragraph,
   radius,
   section,
+  splitGrid,
   stack,
   tint,
 } from './kit';
@@ -317,4 +321,332 @@ export function productShotSpec(): NodeSpec {
       ),
     ],
   };
+}
+
+/* --------------------------------------------------------------------------
+ * Split hero
+ * ----------------------------------------------------------------------- */
+
+export function splitHeroSpec(): NodeSpec {
+  return section(
+    'Split hero',
+    [
+      container(
+        [
+          splitGrid(
+            'Hero row',
+            [
+              column(
+                'Hero copy',
+                [
+              stack(
+                'Eyebrow',
+                [
+                  label('v4.0', {
+                    fontSize: '11px',
+                    fontWeight: '650',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    color: 'var(--c-primary)',
+                    backgroundColor: tint('var(--c-primary)', 12),
+                    ...pad('3px', '8px'),
+                    ...radius('var(--r-full)'),
+                  }),
+                  label('Now with managed Postgres', {
+                    fontSize: '13.5px',
+                    color: 'var(--c-muted)',
+                  }),
+                ],
+                { gap: '8px', alignItems: 'center' }
+              ),
+              heading(
+                'The platform your roadmap already assumed you had.',
+                1,
+                { ...DISPLAY, fontSize: '56px', maxWidth: '16ch', textWrap: 'balance' },
+                { tablet: { fontSize: '44px' }, mobile: { fontSize: '33px' } }
+              ),
+              paragraph(
+                'Deploys, previews, analytics and on-call in one place — so the work between writing code and shipping it stops being a project of its own.',
+                { ...LEAD, maxWidth: '48ch' },
+                LEAD_RESPONSIVE
+              ),
+              stack(
+                'Hero actions',
+                [button('Start building free'), button('Book a demo', 'secondary')],
+                { gap: '12px', marginTop: '4px' },
+                { mobile: { flexDirection: 'column', alignItems: 'stretch', width: '100%' } }
+              ),
+              stack(
+                'Reassurance',
+                [
+                  icon('circle-check', { width: '15px', height: '15px', color: 'var(--c-primary)' }),
+                  label('Free for 14 days · No credit card', {
+                    fontSize: '13.5px',
+                    color: 'var(--c-muted)',
+                  }),
+                ],
+                { gap: '8px' }
+              ),
+                ],
+                { gap: '22px' }
+              ),
+              productShotSpec(),
+            ],
+            { gap: '56px' },
+            [1.05, 0.95]
+          ),
+        ],
+        { maxWidth: 'var(--w-wide)' }
+      ),
+    ],
+    { paddingTop: '88px', paddingBottom: '96px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Media-background hero
+ * ----------------------------------------------------------------------- */
+
+export function mediaHeroSpec(): NodeSpec {
+  return section(
+    'Media hero',
+    [
+      // Layer order matters: photo, then a scrim, then the copy. The scrim is
+      // not decoration — without it the headline's contrast depends on
+      // whatever image the designer drops in, which is not a promise the
+      // block can keep.
+      {
+        type: 'image',
+        name: 'Background photo',
+        props: { alt: 'Replace with a wide photograph of your product or team' },
+        styles: {
+          position: 'absolute',
+          inset: '0px',
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+        },
+      },
+      frame('Scrim', [], {
+        position: 'absolute',
+        inset: '0px',
+        ...pad('0px'),
+        // A scrim is a translucent wash of the theme's dark surface, which is
+        // exactly what `tint` produces. Hard-coding a near-black would stop the
+        // block themeing, and text contrast over an arbitrary photograph is the
+        // one thing this layer exists to guarantee.
+        backgroundImage: `linear-gradient(180deg, ${tint('var(--c-inverse)', 55)} 0%, ${tint('var(--c-inverse)', 80)} 100%)`,
+      }),
+      container(
+        [
+          heading(
+            'Built for the teams behind the thing people actually use.',
+            1,
+            { ...DISPLAY, color: 'var(--c-on-inverse)', maxWidth: '18ch', textWrap: 'balance' },
+            DISPLAY_RESPONSIVE
+          ),
+          paragraph(
+            'One platform for the parts of shipping that nobody puts on a roadmap.',
+            { ...LEAD, color: tint('var(--c-on-inverse)', 78), maxWidth: '46ch' },
+            LEAD_RESPONSIVE
+          ),
+          stack(
+            'Hero actions',
+            [
+              {
+                type: 'button',
+                name: 'Primary CTA',
+                props: { label: 'Start building free', href: '#' },
+                styles: { backgroundColor: 'var(--c-on-inverse)', color: 'var(--c-inverse)' },
+                states: { hover: { opacity: '0.9' } },
+              },
+              {
+                type: 'button',
+                name: 'Secondary CTA',
+                props: { label: 'Watch the tour', href: '#' },
+                styles: {
+                  backgroundColor: 'transparent',
+                  color: 'var(--c-on-inverse)',
+                  ...border('1px', tint('var(--c-on-inverse)', 34)),
+                },
+                states: { hover: { backgroundColor: tint('var(--c-on-inverse)', 12) } },
+              },
+            ],
+            { gap: '12px', marginTop: '8px' },
+            { mobile: { flexDirection: 'column', alignItems: 'stretch', width: '100%' } }
+          ),
+        ],
+        {
+          position: 'relative',
+          zIndex: '1',
+          gap: '20px',
+          alignItems: 'center',
+          textAlign: 'center',
+          maxWidth: 'var(--w-content)',
+        }
+      ),
+    ],
+    {
+      position: 'relative',
+      overflow: 'hidden',
+      paddingTop: '136px',
+      paddingBottom: '136px',
+      backgroundColor: 'var(--c-inverse)',
+    },
+    { mobile: { paddingTop: '88px', paddingBottom: '88px' } }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Device hero
+ * ----------------------------------------------------------------------- */
+
+/** A phone, built from primitives, so the mock themes with the project. */
+function phoneFrameSpec(): NodeSpec {
+  const row = (width: string, strong = false): NodeSpec =>
+    frame('Line', [], {
+      width,
+      height: '8px',
+      ...radius('var(--r-full)'),
+      backgroundColor: strong ? tint('var(--c-primary)', 55) : 'var(--c-border)',
+      ...pad('0px'),
+    });
+
+  return frame(
+    'Phone',
+    [
+      frame('Notch', [], {
+        width: '86px',
+        height: '18px',
+        ...radius('var(--r-full)'),
+        backgroundColor: 'var(--c-inverse)',
+        marginLeft: 'auto',
+        marginRight: 'auto',
+        ...pad('0px'),
+        flexShrink: '0',
+      }),
+      column(
+        'Screen',
+        [row('58%', true), row('86%'), row('72%'), row('90%'), row('44%')],
+        { gap: '12px', width: '100%', paddingTop: '22px' }
+      ),
+    ],
+    {
+      width: '272px',
+      height: '520px',
+      ...pad('12px', '16px'),
+      gap: '0px',
+      ...radius('34px'),
+      ...border('8px', 'var(--c-inverse)'),
+      backgroundColor: 'var(--c-background)',
+      boxShadow: 'var(--sh-xl)',
+      flexShrink: '0',
+      marginLeft: 'auto',
+      marginRight: 'auto',
+    },
+    { mobile: { width: '232px', height: '440px' } }
+  );
+}
+
+export function deviceHeroSpec(): NodeSpec {
+  return section(
+    'Device hero',
+    [
+      container(
+        [
+          splitGrid(
+            'Hero row',
+            [
+              column(
+                'Hero copy',
+                [
+              label('Mobile', EYEBROW),
+              heading(
+                'Your dashboard, in a pocket.',
+                1,
+                { ...DISPLAY, fontSize: '54px', maxWidth: '14ch', textWrap: 'balance' },
+                { tablet: { fontSize: '42px' }, mobile: { fontSize: '32px' } }
+              ),
+              paragraph(
+                'Approve a deploy from the queue at the station. Acknowledge an alert without opening a laptop.',
+                { ...LEAD, maxWidth: '42ch' },
+                LEAD_RESPONSIVE
+              ),
+              stack(
+                'Store links',
+                [button('App Store'), button('Google Play', 'secondary')],
+                { gap: '12px', marginTop: '4px' },
+                { mobile: { flexDirection: 'column', alignItems: 'stretch', width: '100%' } }
+              ),
+                ],
+                { gap: '20px' }
+              ),
+              phoneFrameSpec(),
+            ],
+            { gap: '64px' },
+            [1.1, 0.9]
+          ),
+        ],
+        { maxWidth: 'var(--w-wide)' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-surface)', paddingTop: '88px', paddingBottom: '88px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Video hero
+ * ----------------------------------------------------------------------- */
+
+export function videoHeroSpec(): NodeSpec {
+  return section(
+    'Video hero',
+    [
+      container(
+        [
+          column(
+            'Hero copy',
+            [
+              heading(
+                'See it deploy in ninety seconds.',
+                1,
+                { ...DISPLAY, fontSize: '54px', maxWidth: '16ch', textWrap: 'balance' },
+                { tablet: { fontSize: '42px' }, mobile: { fontSize: '32px' } }
+              ),
+              paragraph(
+                'No slides, no staged demo — a real repository going from commit to production.',
+                { ...LEAD, maxWidth: '48ch' },
+                LEAD_RESPONSIVE
+              ),
+            ],
+            { gap: '18px', alignItems: 'center', textAlign: 'center', width: '100%' }
+          ),
+          frame(
+            'Video frame',
+            [
+              {
+                type: 'video',
+                name: 'Product video',
+                props: { controls: true, poster: '' },
+                styles: { width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', ...pad('0px') },
+              },
+            ],
+            {
+              width: '100%',
+              maxWidth: '940px',
+              ...pad('0px'),
+              ...radius('var(--r-lg)'),
+              ...border('1px', 'var(--c-border)'),
+              overflow: 'hidden',
+              boxShadow: 'var(--sh-xl)',
+              marginLeft: 'auto',
+              marginRight: 'auto',
+            }
+          ),
+        ],
+        { gap: '44px', alignItems: 'center', maxWidth: 'var(--w-wide)' }
+      ),
+    ],
+    { paddingTop: '88px', paddingBottom: '96px' }
+  );
 }

@@ -54,7 +54,10 @@ try {
 
   await page.locator('button[aria-label="Insert"]').first().click();
   await page.waitForTimeout(400);
-  const imageCard = page.locator('button:has-text("Image")').first();
+  // Exact match on the label: `has-text` is a substring, and the library now
+  // contains blocks whose names mention an image ("CTA with image"), which sort
+  // above the element cards and would be clicked instead.
+  const imageCard = page.locator('button:has(span:text-is("Image"))').first();
   await imageCard.scrollIntoViewIfNeeded().catch(() => {});
   await imageCard.click();
   await page.waitForTimeout(1000);

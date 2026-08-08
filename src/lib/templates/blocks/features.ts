@@ -16,6 +16,7 @@ import {
   button,
   card,
   chip,
+  cols,
   column,
   container,
   frame,
@@ -161,10 +162,10 @@ export function alternatingFeaturesSpec(): NodeSpec {
 
           return grid(
             `Row ${i + 1}`,
-            '1fr 1fr',
+            cols(1, 1),
             [copy, shot],
             { gap: '64px', alignItems: 'center', width: '100%' },
-            { tablet: { gridTemplateColumns: '1fr', gap: '32px' } }
+            { tablet: { gridTemplateColumns: cols(1), gap: '32px' } }
           );
         }),
         { gap: '96px' },
@@ -225,7 +226,7 @@ export function bentoFeaturesSpec(): NodeSpec {
             {
               // Two columns still reads as a bento: one wide card, two narrow.
               tablet: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
-              mobile: { gridTemplateColumns: '1fr' },
+              mobile: { gridTemplateColumns: cols(1) },
             }
           ),
         ],

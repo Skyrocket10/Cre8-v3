@@ -120,6 +120,33 @@ function checkColumnSpans(spec) {
   return bad;
 }
 
+/**
+ * Multi-track `fr` columns have to be able to shrink.
+ *
+ * A bare `1fr` is `minmax(auto, 1fr)`, and `auto` floors at min-content — so a
+ * track holding an image with an aspect ratio, or one long word, refuses to go
+ * below that and takes the width from its neighbour. A 50/50 split renders as
+ * 35/65. Nothing overflows and nothing warns; the section is just wrong. Use
+ * `cols()`, which spells the tracks `minmax(0, Nfr)`.
+ */
+function checkShrinkableTracks(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    for (const { where, styles } of layers(node)) {
+      const tracks = styles.gridTemplateColumns;
+      if (!tracks) continue;
+      // A single track cannot steal width from a sibling, and `1fr` alone is
+      // the ordinary way to say "one column".
+      const parts = tracks.trim().split(/\s+(?![^(]*\))/);
+      if (parts.length < 2) continue;
+      if (/(^|[\s(])[\d.]+fr/.test(tracks) && !tracks.includes('minmax(')) {
+        bad.push(`${path} ${where}: ${tracks}`);
+      }
+    }
+  }
+  return bad;
+}
+
 /** Heading levels may descend, but not by more than one step at a time. */
 function checkHeadings(spec) {
   const bad = [];
@@ -171,6 +198,7 @@ const RULES = [
   ['every colour and font comes from a token', checkTokens],
   ['multi-column layouts have narrow-width behaviour', checkResponsive],
   ['column spans are released when the grid narrows', checkColumnSpans],
+  ['fr tracks can shrink below their content', checkShrinkableTracks],
   ['heading levels do not skip', checkHeadings],
   ['images carry alt text worth reading', checkAltText],
   ['buttons and links respond to hover', checkInteractiveStates],
@@ -257,6 +285,11 @@ const VIOLATIONS = [
     },
   ],
   [checkResponsive, 'a block with no narrow styles at all', { type: 'section', name: 'S' }],
+  [
+    checkShrinkableTracks,
+    'a two-track fr split that cannot shrink',
+    { type: 'grid', name: 'G', styles: { gridTemplateColumns: '1.05fr 0.95fr' } },
+  ],
   [
     checkColumnSpans,
     'a card spanning two columns with no narrow reset',

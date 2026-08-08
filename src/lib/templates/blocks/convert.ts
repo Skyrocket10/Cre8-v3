@@ -2,19 +2,25 @@
 
 import type { NodeSpec } from '../../document/factory';
 import {
+  BODY,
+  BODY_RESPONSIVE,
+  EYEBROW,
   ONE_COLUMN,
   TITLE,
   TITLE_RESPONSIVE,
   badge,
   border,
   bullets,
+  button,
   card,
+  cols,
   column,
   container,
   divider,
   grid,
   heading,
   label,
+  media,
   pad,
   paragraph,
   radius,
@@ -223,6 +229,85 @@ export function ctaSpec(): NodeSpec {
               ],
               { gap: '12px', marginTop: '6px' },
               { mobile: { flexDirection: 'column', width: '100%', alignItems: 'stretch' } }
+            ),
+          ],
+        },
+      ],
+      { gap: '0px' }
+    ),
+  ]);
+}
+
+/* --------------------------------------------------------------------------
+ * Split call to action
+ * ----------------------------------------------------------------------- */
+
+export function ctaSplitSpec(): NodeSpec {
+  return section('Split CTA', [
+    container(
+      [
+        {
+          type: 'grid',
+          name: 'CTA panel',
+          styles: {
+            gridTemplateColumns: cols(1.05, 0.95),
+            gap: '0px',
+            width: '100%',
+            ...radius('var(--r-xl)'),
+            ...border('1px', 'var(--c-border)'),
+            backgroundColor: 'var(--c-surface)',
+            overflow: 'hidden',
+            alignItems: 'stretch',
+          },
+          responsive: { tablet: { gridTemplateColumns: cols(1) } },
+          children: [
+            column(
+              'CTA copy',
+              [
+                label('Get started', EYEBROW),
+                heading(
+                  'Move your first project across this week',
+                  2,
+                  { ...TITLE, fontSize: '34px', maxWidth: '18ch', textWrap: 'balance' },
+                  { mobile: { fontSize: '26px' } }
+                ),
+                paragraph(
+                  'Import from GitHub, keep your domains, and roll back to the old host at any point. Migrations take an afternoon, not a quarter.',
+                  { ...BODY, maxWidth: '44ch' },
+                  BODY_RESPONSIVE
+                ),
+                bullets(
+                  ['Guided import', 'DNS handled for you', 'No contract until you are live'],
+                  'check',
+                  'Assurances'
+                ),
+                stack(
+                  'CTA actions',
+                  [button('Start a migration'), button('Talk to an engineer', 'secondary')],
+                  { gap: '12px', marginTop: '6px', flexWrap: 'wrap' },
+                  { mobile: { flexDirection: 'column', alignItems: 'stretch', width: '100%' } }
+                ),
+              ],
+              { ...pad('56px', '48px'), gap: '18px', justifyContent: 'center' },
+              { mobile: { paddingTop: '36px', paddingBottom: '36px', paddingLeft: '24px', paddingRight: '24px' } }
+            ),
+            media(
+              'Replace with a photo of your team or product in use',
+              // No ratio at desktop: the panel's height comes from the copy,
+              // and a ratio here would fight it for width.
+              'auto',
+              {
+                height: '100%',
+                minHeight: '340px',
+                borderTopLeftRadius: '0px',
+                borderTopRightRadius: '0px',
+                borderBottomRightRadius: '0px',
+                borderBottomLeftRadius: '0px',
+              },
+              // Releasing the min-height matters more than the ratio: stacked, a
+              // 340px-tall 16/9 box demands 600px of width and drags the panel
+              // past the viewport with it.
+              { tablet: { aspectRatio: '16 / 9', minHeight: '0px' } }
             ),
           ],
         },
