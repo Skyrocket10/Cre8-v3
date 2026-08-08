@@ -133,6 +133,35 @@ export { structuredCloneCompat };
  * Pages, assets, components
  * ----------------------------------------------------------------------- */
 
+/**
+ * A link target that names a page by slug instead of by id.
+ *
+ * The inspector writes `page:<id>`, which templates cannot: they describe a
+ * whole site in one expression, so the pages they link to do not have ids yet.
+ * This is the deferred form — `resolvePageRefs` turns it into a real reference
+ * once the document is assembled.
+ */
+const PAGE_REF = 'page@';
+
+export const pageRef = (slug: string): string => `${PAGE_REF}${slug}`;
+
+/**
+ * Turn every deferred page reference into a real one.
+ *
+ * A slug that matches no page becomes `#` rather than shipping a href nothing
+ * can resolve — a template that names a page it does not have should produce an
+ * inert link, not a broken one.
+ */
+export function resolvePageRefs(doc: Cre8Document): void {
+  const bySlug = new Map(doc.pages.map((page) => [page.slug, page.id]));
+  for (const node of Object.values(doc.nodes)) {
+    const href = node.props.href;
+    if (typeof href !== 'string' || !href.startsWith(PAGE_REF)) continue;
+    const id = bySlug.get(href.slice(PAGE_REF.length));
+    node.props.href = id ? `page:${id}` : '#';
+  }
+}
+
 export function createPage(
   name: string,
   slug: string,

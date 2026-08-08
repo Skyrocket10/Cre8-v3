@@ -212,6 +212,9 @@ function rewriteAssetUrls(html: string, from: Page): string {
 function hrefResolverFor(doc: Cre8Document, from: Page) {
   return (href: string): string => {
     if (!href) return '#';
+    // A deferred template reference that never got resolved. Inert beats
+    // shipping `page@pricing` as a literal href.
+    if (href.startsWith('page@')) return '#';
     if (!href.startsWith('page:')) return href;
     const page = doc.pages.find((p) => p.id === href.slice(5));
     return page ? relativeHref(from, page) : '#';

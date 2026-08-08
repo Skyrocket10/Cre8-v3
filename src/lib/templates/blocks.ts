@@ -12,6 +12,22 @@
 import type { NodeSpec } from '../document/factory';
 import type { ResponsiveStyles, StyleDecl } from '../document/types';
 
+/**
+ * A navigation or footer link.
+ *
+ * `href` is optional because most of these labels are section names with
+ * nowhere to go — a one-page template's "Features" link has no destination.
+ * A template that *does* have the page passes `pageRef('pricing')`, which is
+ * resolved to a real reference once the document exists.
+ */
+export interface BlockLink {
+  label: string;
+  href?: string;
+}
+
+const asLink = (link: string | BlockLink): BlockLink =>
+  typeof link === 'string' ? { label: link } : link;
+
 /* --------------------------------------------------------------------------
  * Small helpers
  * ----------------------------------------------------------------------- */
@@ -183,7 +199,9 @@ const TWO_TO_ONE: ResponsiveStyles = {
  * Navbar
  * ----------------------------------------------------------------------- */
 
-export function navbarSpec(): NodeSpec {
+const DEFAULT_NAV_LINKS: (string | BlockLink)[] = ['Product', 'Features', 'Pricing', 'Docs'];
+
+export function navbarSpec(links: (string | BlockLink)[] = DEFAULT_NAV_LINKS): NodeSpec {
   return {
     type: 'section',
     name: 'Navbar',
@@ -221,10 +239,10 @@ export function navbarSpec(): NodeSpec {
             name: 'Nav links',
             styles: { gap: '30px' },
             responsive: { mobile: { display: 'none' } },
-            children: ['Product', 'Features', 'Pricing', 'Docs'].map((text) => ({
+            children: links.map(asLink).map(({ label, href }) => ({
               type: 'link' as const,
-              name: text,
-              props: { text, href: '#' },
+              name: label,
+              props: { text: label, href: href ?? '#' },
               styles: { fontSize: '14.5px', color: 'var(--c-muted)' },
               states: { hover: { color: 'var(--c-text)' } },
             })),
@@ -1156,14 +1174,16 @@ export function ctaSpec(): NodeSpec {
  * Footer
  * ----------------------------------------------------------------------- */
 
-const FOOTER_COLUMNS: { title: string; links: string[] }[] = [
+const FOOTER_COLUMNS: { title: string; links: (string | BlockLink)[] }[] = [
   { title: 'Product', links: ['Features', 'Pricing', 'Changelog', 'Status'] },
   { title: 'Developers', links: ['Documentation', 'API reference', 'Examples', 'Community'] },
   { title: 'Company', links: ['About', 'Careers', 'Blog', 'Contact'] },
   { title: 'Legal', links: ['Privacy', 'Terms', 'Security', 'DPA'] },
 ];
 
-export function footerSpec(): NodeSpec {
+export function footerSpec(
+  columns: { title: string; links: (string | BlockLink)[] }[] = FOOTER_COLUMNS
+): NodeSpec {
   return section(
     'Footer',
     [
@@ -1173,7 +1193,7 @@ export function footerSpec(): NodeSpec {
             type: 'grid',
             name: 'Footer columns',
             styles: {
-              gridTemplateColumns: '1.6fr repeat(4, minmax(0, 1fr))',
+              gridTemplateColumns: `1.6fr repeat(${columns.length}, minmax(0, 1fr))`,
               gap: '40px',
               width: '100%',
             },
@@ -1202,7 +1222,7 @@ export function footerSpec(): NodeSpec {
                   }),
                 ],
               },
-              ...FOOTER_COLUMNS.map((column) => ({
+              ...columns.map((column) => ({
                 type: 'frame' as const,
                 name: column.title,
                 styles: { ...pad('0px'), gap: '11px' },
@@ -1214,10 +1234,10 @@ export function footerSpec(): NodeSpec {
                     textTransform: 'uppercase',
                     color: 'var(--c-text)',
                   }),
-                  ...column.links.map((text) => ({
+                  ...column.links.map(asLink).map(({ label: text, href }) => ({
                     type: 'link' as const,
                     name: text,
-                    props: { text, href: '#' },
+                    props: { text, href: href ?? '#' },
                     styles: { fontSize: '13.5px', color: 'var(--c-muted)' },
                     states: { hover: { color: 'var(--c-text)' } },
                   })),

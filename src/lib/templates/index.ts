@@ -7,7 +7,14 @@
  * also what will let a generator produce one later.
  */
 
-import { buildTree, createEmptyDocument, createPage, type NodeSpec } from '../document/factory';
+import {
+  buildTree,
+  createEmptyDocument,
+  createPage,
+  pageRef,
+  resolvePageRefs,
+  type NodeSpec,
+} from '../document/factory';
 import { attachChild } from '../document/operations';
 import { FONT_LIBRARY } from '../document/theme';
 import type { NodeMap } from '../document/tree';
@@ -101,6 +108,10 @@ function makeDocument(input: TemplateInput): Cre8Document {
     }
   });
 
+  // Only now do the pages have ids, so this is the earliest the templates'
+  // `pageRef` links can become real ones.
+  resolvePageRefs(doc);
+
   return doc;
 }
 
@@ -139,6 +150,42 @@ const blank: TemplateDefinition = {
  * SaaS — the flagship, multi-page
  * ----------------------------------------------------------------------- */
 
+/**
+ * Northwind's own navigation.
+ *
+ * Every entry names a page this template creates, so the nav works the moment
+ * the project opens — and, once published, works as a website rather than a
+ * row of dead `#` links.
+ */
+const NORTHWIND_NAV = [
+  // The brand mark cannot be a link — the element model has no container
+  // anchor — so the nav carries the way home explicitly.
+  { label: 'Home', href: pageRef('') },
+  { label: 'Pricing', href: pageRef('pricing') },
+  { label: 'About', href: pageRef('about') },
+  { label: 'Contact', href: pageRef('contact') },
+];
+
+const NORTHWIND_FOOTER = [
+  {
+    title: 'Product',
+    links: ['Features', { label: 'Pricing', href: pageRef('pricing') }, 'Changelog'],
+  },
+  { title: 'Developers', links: ['Documentation', 'API reference', 'Examples'] },
+  {
+    title: 'Company',
+    links: [
+      { label: 'About', href: pageRef('about') },
+      { label: 'Contact', href: pageRef('contact') },
+      'Careers',
+    ],
+  },
+  { title: 'Legal', links: ['Privacy', 'Terms', 'Security'] },
+];
+
+const northwindNav = () => navbarSpec(NORTHWIND_NAV);
+const northwindFooter = () => footerSpec(NORTHWIND_FOOTER);
+
 const saas: TemplateDefinition = {
   id: 'saas',
   name: 'SaaS landing page',
@@ -169,13 +216,13 @@ const saas: TemplateDefinition = {
           description:
             'Plan, build and launch in one place, with deploys, analytics and on-call already wired up.',
           sections: [
-            navbarSpec(),
+            northwindNav(),
             heroSectionSpec(),
             logoCloudSpec(),
             featureSectionSpec(),
             testimonialsSpec(),
             ctaSpec(),
-            footerSpec(),
+            northwindFooter(),
           ],
         },
         {
@@ -183,14 +230,14 @@ const saas: TemplateDefinition = {
           slug: 'pricing',
           title: 'Pricing — Northwind',
           description: 'Simple pricing that scales with your team.',
-          sections: [navbarSpec(), pricingSpec(), faqSpec(), ctaSpec(), footerSpec()],
+          sections: [northwindNav(), pricingSpec(), faqSpec(), ctaSpec(), northwindFooter()],
         },
         {
           name: 'About',
           slug: 'about',
           title: 'About — Northwind',
           sections: [
-            navbarSpec(),
+            northwindNav(),
             heroBlock({
               eyebrow: 'About us',
               title: 'We build the layer under the product',
@@ -216,7 +263,7 @@ const saas: TemplateDefinition = {
               media: gradientPanel('linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)', '4 / 3'),
             }),
             ctaSpec(),
-            footerSpec(),
+            northwindFooter(),
           ],
         },
         {
@@ -224,12 +271,12 @@ const saas: TemplateDefinition = {
           slug: 'contact',
           title: 'Contact — Northwind',
           sections: [
-            navbarSpec(),
+            northwindNav(),
             contactBlock(
               'Talk to the team',
               'Tell us what you are building and we will get back to you within one working day.'
             ),
-            footerSpec(),
+            northwindFooter(),
           ],
         },
       ],
