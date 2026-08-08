@@ -30,8 +30,10 @@
 
   "observability": { "enabled": true },
 
-  // Written by the API on publish, read-only here.
-  "kv_namespaces": [{ "binding": "SITE_ROUTES", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  // Written by the API on publish, read-only here. Must be the *same*
+  // namespace id as in the root wrangler.jsonc — that shared map is the only
+  // thing connecting the two Workers.
+  "kv_namespaces": [{ "binding": "SITE_ROUTES", "id": "b02740d6a32f489dbdbe28d07c0302ec" }],
 
   "r2_buckets": [{ "binding": "SITES", "bucket_name": "cre8-sites" }]
 
