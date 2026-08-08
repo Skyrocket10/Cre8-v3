@@ -18,6 +18,16 @@ const JPEG_QUALITY = 0.86;
 
 export const ACCEPTED_TYPES = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml,video/mp4';
 
+/**
+ * Turn a processed asset's data URL back into bytes.
+ *
+ * Used only on the hosted path, to hand the already-downscaled image to R2
+ * instead of leaving it inlined in the document.
+ */
+export async function assetBytes(dataUrl: string): Promise<Blob> {
+  return (await fetch(dataUrl)).blob();
+}
+
 export async function ingestFile(file: File): Promise<Asset> {
   const type = classify(file);
 

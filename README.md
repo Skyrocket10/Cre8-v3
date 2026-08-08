@@ -149,19 +149,68 @@ Pages uploads the output directory itself — do **not** add
 `wrangler pages deploy` to the build command, or it will fail asking for a
 `CLOUDFLARE_API_TOKEN` it doesn't have.
 
-### API and published sites (optional)
+### API worker (optional)
 
-Only needed if you want hosted projects and published sites on your own domain;
-the editor works with no backend at all.
+**You do not need this.** With no backend the editor stores projects in the
+browser, works offline, and costs nothing. Add the Worker when you want
+projects to follow you between machines, or published sites on your own domain.
+
+There are two wrangler configs in this repo — the site at the root and the API
+in `workers/`. Use the scripts rather than bare `wrangler deploy`, which from
+`workers/` picks up the *root* config and would deploy the site under the API
+Worker's name:
 
 ```bash
-cd workers
-wrangler d1 create cre8                       # put the id in wrangler.toml
-wrangler d1 execute cre8 --file=./schema.sql
-wrangler r2 bucket create cre8-assets
-wrangler r2 bucket create cre8-sites
-wrangler deploy
+npm run deploy       # the editor  (root wrangler.jsonc → out/)
+npm run deploy:api   # the API     (workers/wrangler.toml)
 ```
+
+**1. Create the resources**
+
+```bash
+npx wrangler d1 create cre8        # put the id in workers/wrangler.toml
+npx wrangler r2 bucket create cre8-assets
+npx wrangler r2 bucket create cre8-sites
+npm run db:init                    # applies workers/schema.sql
+```
+
+**2. Configure it** — in `workers/wrangler.toml`:
+
+- `ALLOWED_ORIGINS` must include your editor's origin, or the browser blocks
+  every request. This is the most common reason a correctly-deployed Worker
+  appears dead.
+- `ALLOW_ANONYMOUS` — read the warning below before setting this.
+
+**3. Deploy and point the editor at it**
+
+```bash
+npm run deploy:api
+```
+
+Then set `NEXT_PUBLIC_CRE8_API_URL` in your Pages/Workers environment variables
+and rebuild. It is read at build time, so a redeploy is required — the
+dashboard badge flips from "This browser" to "Cloud" once it takes effect.
+
+```
+NEXT_PUBLIC_CRE8_API_URL = https://cre8-api.<subdomain>.workers.dev
+```
+
+Nothing else changes: the editor talks to a `StorageAdapter` and has no idea
+which one is behind it. Uploads start going to R2 instead of being inlined in
+the document, which is what keeps hosted projects small.
+
+> ### ⚠️ There is no authentication yet
+>
+> `ownerFrom()` in `workers/src/index.ts` is the seam an auth provider plugs
+> into, and nothing is plugged in. With `ALLOW_ANONYMOUS = "true"` every
+> request is the same owner, so **anyone who can reach the API can read, edit
+> and delete every project on it.**
+>
+> That is fine for a personal instance on a URL you don't share. It is a data
+> leak on anything public. The Worker refuses requests without an identity
+> unless you switch that flag on deliberately, so this can't happen by
+> accident — but the flag is the whole protection. Wire in Cloudflare Access,
+> Supabase or Auth.js before putting real users on it.
 
 Then point the editor at it by swapping the storage adapter at boot:
 

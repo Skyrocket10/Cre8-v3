@@ -11,7 +11,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Ellipsis, Plus, Rocket, Trash2 } from 'lucide-react';
-import { getStorage } from '@/lib/api/storage';
+import { getStorage, storageMode } from '@/lib/api/storage';
 import type { ProjectSummary } from '@/lib/document/types';
 import { routes } from '@/lib/routes';
 import { TEMPLATES } from '@/lib/templates';
@@ -78,6 +78,7 @@ export default function DashboardPage() {
         <span className="rounded-full border border-[var(--border)] px-1.5 py-px text-[9.5px] tracking-[0.06em] text-[var(--text-faint)] uppercase">
           Beta
         </span>
+        <StorageBadge />
         <div className="flex-1" />
         {!firstRun && (
           <Button size="md" variant="primary" onClick={() => setPicking(true)}>
@@ -153,6 +154,32 @@ export default function DashboardPage() {
         </div>
       </Modal>
     </main>
+  );
+}
+
+/**
+ * Where projects are being stored.
+ *
+ * Worth a permanent line of chrome: "my projects vanished" almost always means
+ * the storage backend changed, and browser-local storage is invisible unless
+ * something says so.
+ */
+function StorageBadge() {
+  const [mode, setMode] = useState<'local' | 'hosted' | null>(null);
+  useEffect(() => setMode(storageMode()), []);
+  if (!mode) return null;
+
+  return (
+    <span
+      title={
+        mode === 'hosted'
+          ? 'Projects are stored on your Cloudflare Worker'
+          : 'Projects are stored in this browser only'
+      }
+      className="rounded-full border border-[var(--border)] px-1.5 py-px text-[9.5px] tracking-[0.06em] text-[var(--text-faint)] uppercase"
+    >
+      {mode === 'hosted' ? 'Cloud' : 'This browser'}
+    </span>
   );
 }
 

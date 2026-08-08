@@ -21,6 +21,12 @@ export interface Env {
   ASSETS: R2Bucket;
   SITES: R2Bucket;
   ALLOWED_ORIGINS: string;
+  /**
+   * Set to "true" to run single-tenant: every request is treated as the same
+   * owner. Fine for a personal instance, never for a shared one — see
+   * `ownerFrom` below.
+   */
+  ALLOW_ANONYMOUS?: string;
 }
 
 interface ProjectRow {
@@ -67,8 +73,17 @@ export default {
 
 async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
   const parts = url.pathname.replace(/^\/api\//, '').split('/').filter(Boolean);
-  const owner = ownerFrom(request);
-  if (!owner) return json({ error: 'Unauthorised' }, 401);
+  const owner = ownerFrom(request, env);
+  if (!owner) {
+    return json(
+      {
+        error: 'Unauthorised',
+        detail:
+          'No owner identity on the request. Send an x-cre8-owner header, or set ALLOW_ANONYMOUS="true" to run this instance single-tenant.',
+      },
+      401
+    );
+  }
 
   /* /api/projects */
   if (parts[0] === 'projects' && parts.length === 1) {
@@ -246,14 +261,21 @@ async function serveSite(url: URL, env: Env, ctx: ExecutionContext): Promise<Res
  * ----------------------------------------------------------------------- */
 
 /**
- * Placeholder for real authentication.
+ * Turn a request into a stable owner id.
  *
- * The interface an auth provider has to satisfy is exactly this: turn a request
- * into a stable owner id. Dropping in Cloudflare Access, Supabase or Auth.js
- * means replacing this function and nothing else.
+ * This is the single seam a real auth provider plugs into — Cloudflare Access,
+ * Supabase, Auth.js — and replacing this function is the whole integration.
+ *
+ * Until then it fails closed. There is no identity here, so anyone who can
+ * reach the API is the same "owner": they would see, edit and delete each
+ * other's projects. That is acceptable for a personal instance and a data leak
+ * for a shared one, so it has to be switched on deliberately with
+ * `ALLOW_ANONYMOUS = "true"` rather than being the accidental default.
  */
-function ownerFrom(request: Request): string | null {
-  return request.headers.get('x-cre8-owner') ?? 'local';
+function ownerFrom(request: Request, env: Env): string | null {
+  const header = request.headers.get('x-cre8-owner')?.trim();
+  if (header) return header.slice(0, 128);
+  return env.ALLOW_ANONYMOUS === 'true' ? 'local' : null;
 }
 
 function corsHeaders(request: Request, env: Env): Record<string, string> {

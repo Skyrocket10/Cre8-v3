@@ -20,8 +20,17 @@ binding = "SITES"
 bucket_name = "cre8-sites"
 
 [vars]
-# Comma-separated list of origins allowed to call the API.
+# Comma-separated list of origins allowed to call the API. The editor's own
+# origin MUST be in here or the browser blocks every request — add your Pages
+# domain before pointing the editor at this Worker.
 ALLOWED_ORIGINS = "http://localhost:3000"
+
+# There is no authentication yet (see `ownerFrom` in src/index.ts). With this
+# set to "true" every request is treated as the same owner, which is fine for a
+# personal instance and a data leak on a shared one: any visitor would see and
+# be able to delete every project. Leave it off until real auth is wired in,
+# or accept that the API is single-user.
+ALLOW_ANONYMOUS = "false"
 
 # Published sites are served from a wildcard route so every project gets a
 # subdomain without a per-project deploy.

@@ -2,7 +2,8 @@
 
 import React, { useRef, useState } from 'react';
 import { ImagePlus, Trash2, Upload } from 'lucide-react';
-import { ACCEPTED_TYPES, ingestFile } from '@/lib/api/assets';
+import { ACCEPTED_TYPES, assetBytes, ingestFile } from '@/lib/api/assets';
+import { getStorage } from '@/lib/api/storage';
 import { removeAsset, renameAsset } from '@/lib/document/operations';
 import { useEditor } from '@/lib/editor/store';
 import { cn, formatBytes } from '@/lib/utils/cn';
@@ -20,9 +21,22 @@ export function AssetsPanel() {
     if (!list.length) return;
     setBusy(true);
     const store = useEditor.getState();
+    const storage = getStorage();
     try {
       for (const file of list) {
-        const asset = await ingestFile(file);
+        let asset = await ingestFile(file);
+
+        // Hosted deployments push the bytes to R2 and keep only a URL in the
+        // document; local ones have nowhere to put them, so the data URL stays.
+        if (storage.uploadAsset) {
+          const url = await storage.uploadAsset(
+            store.doc.id,
+            await assetBytes(asset.url),
+            file.name
+          );
+          asset = { ...asset, url };
+        }
+
         store.transact('Upload asset', (draft) => {
           draft.assets.unshift(asset);
         });

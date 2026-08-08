@@ -93,16 +93,21 @@ export class CloudflareAdapter implements StorageAdapter {
     return null;
   }
 
-  /** Upload an asset and get back a CDN-backed URL. */
-  async uploadAsset(projectId: string, file: File): Promise<{ id: string; url: string }> {
+  /**
+   * Store asset bytes in R2 and return a CDN-backed URL.
+   *
+   * This is what keeps hosted documents small: without it every image would
+   * stay inlined as a data URL inside the document row.
+   */
+  async uploadAsset(projectId: string, file: Blob, filename: string): Promise<string> {
     const form = new FormData();
     form.set('projectId', projectId);
-    form.set('file', file);
-    const result = await this.request<{ id: string; url: string }>('/api/assets', {
+    form.set('file', file, filename);
+    const result = await this.request<{ url: string }>('/api/assets', {
       method: 'POST',
       body: form,
     });
-    return { id: result.id, url: `${this.base}${result.url}` };
+    return `${this.base}${result.url}`;
   }
 }
 

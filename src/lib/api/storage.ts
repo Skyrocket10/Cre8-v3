@@ -10,6 +10,7 @@
 
 import { hydrateDocument } from '../document/factory';
 import type { Cre8Document, ProjectSummary } from '../document/types';
+import { CloudflareAdapter } from './cloudflare';
 
 export interface StorageAdapter {
   readonly name: string;
@@ -20,6 +21,14 @@ export interface StorageAdapter {
   /** Published output, addressed by project id. */
   savePublished(projectId: string, site: PublishedSite): Promise<void>;
   loadPublished(projectId: string): Promise<PublishedSite | null>;
+  /**
+   * Store asset bytes somewhere durable and return a URL.
+   *
+   * Optional: the local adapter has nowhere to put them, so it leaves images
+   * inlined in the document. A hosted adapter implements this and keeps
+   * documents small.
+   */
+  uploadAsset?(projectId: string, file: Blob, filename: string): Promise<string>;
 }
 
 export interface PublishedPage {
@@ -159,14 +168,39 @@ export class MemoryAdapter implements StorageAdapter {
 
 let adapter: StorageAdapter | null = null;
 
+/**
+ * The active adapter.
+ *
+ * Hosted mode is opt-in through one build-time variable: set
+ * `NEXT_PUBLIC_CRE8_API_URL` to a deployed Worker and every project lives in D1
+ * and R2 instead of the browser. Leave it unset and Cre8 runs with no backend
+ * at all, which is the default because it needs no infrastructure and works
+ * offline.
+ *
+ * Nothing else in the editor knows which one is in use.
+ */
 export function getStorage(): StorageAdapter {
   if (adapter) return adapter;
-  const supported = typeof indexedDB !== 'undefined';
-  adapter = supported ? new IndexedDbAdapter() : new MemoryAdapter();
+
+  const apiUrl = process.env.NEXT_PUBLIC_CRE8_API_URL?.trim();
+  if (apiUrl) {
+    adapter = new CloudflareAdapter({
+      baseUrl: apiUrl,
+      ownerId: process.env.NEXT_PUBLIC_CRE8_OWNER_ID?.trim() || undefined,
+    });
+    return adapter;
+  }
+
+  adapter = typeof indexedDB !== 'undefined' ? new IndexedDbAdapter() : new MemoryAdapter();
   return adapter;
 }
 
-/** Used by tests and by the Cloudflare adapter swap. */
+/** Which backend is in play — surfaced in the dashboard so it is never a mystery. */
+export function storageMode(): 'local' | 'hosted' {
+  return getStorage().name === 'cloudflare' ? 'hosted' : 'local';
+}
+
+/** Override the adapter, for tests or a bespoke deployment. */
 export function setStorage(next: StorageAdapter): void {
   adapter = next;
 }

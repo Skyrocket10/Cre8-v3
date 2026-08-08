@@ -2,13 +2,16 @@
   "name": "cre8",
   "version": "0.1.0",
   "private": true,
-  "description": "Cre8 — a visual website builder for designers.",
+  "description": "Cre8 \u2014 a visual website builder for designers.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "npx serve out",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p workers/tsconfig.json",
+    "deploy": "next build && wrangler deploy",
+    "deploy:api": "wrangler deploy --config workers/wrangler.toml",
+    "db:init": "wrangler d1 execute cre8 --config workers/wrangler.toml --remote --file=./workers/schema.sql"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -21,6 +24,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260808.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
