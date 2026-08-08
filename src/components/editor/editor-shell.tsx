@@ -98,14 +98,21 @@ export function EditorShell({ projectId }: { projectId: string }) {
     try {
       await saveNow();
       const result = await publishProject(store.doc);
-      store.transact('Publish', (draft) => {
-        draft.lastPublished = {
-          publishedAt: result.site.publishedAt,
-          pageCount: result.pageCount,
-          nodeCount: Object.keys(draft.nodes).length,
-          bytes: result.bytes,
-        };
-      });
+      // Not an edit the user made, so not something undo should walk back:
+      // recorded, the first Ctrl+Z after publishing reverts this stamp and
+      // looks like it did nothing at all.
+      store.transact(
+        'Publish',
+        (draft) => {
+          draft.lastPublished = {
+            publishedAt: result.site.publishedAt,
+            pageCount: result.pageCount,
+            nodeCount: Object.keys(draft.nodes).length,
+            bytes: result.bytes,
+          };
+        },
+        { record: false, quiet: true }
+      );
       setPublishResult(result);
     } catch (publishError) {
       console.error('[cre8] publish failed', publishError);

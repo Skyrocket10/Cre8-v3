@@ -16,6 +16,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUITES = [
   ['fidelity', 'editor and published render the same'],
   ['blocks', 'every block, on its own, at three widths'],
+  ['panel', 'the Insert panel at library scale'],
   ['nav', 'page navigation inside a published site'],
   ['assets', 'images survive publish and export'],
   ['bodyreset', 'the published page starts at the edge'],

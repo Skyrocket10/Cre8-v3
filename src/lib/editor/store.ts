@@ -169,6 +169,11 @@ interface TransactOptions {
   select?: NodeId[];
   /** Skip the automatic overlay re-measure (pure metadata changes). */
   quiet?: boolean;
+  /**
+   * Set false for writes the system makes on the user's behalf, so they never
+   * become something Ctrl+Z walks back. See `CommitInput.record`.
+   */
+  record?: boolean;
 }
 
 interface EditorActions {
@@ -388,6 +393,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
         pageBefore: state.activePageId,
         pageAfter: state.activePageId,
         mergeKey: options?.mergeKey,
+        record: options?.record,
       }
     );
 

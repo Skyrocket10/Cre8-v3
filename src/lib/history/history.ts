@@ -54,6 +54,21 @@ export interface CommitInput {
   pageBefore: string;
   pageAfter: string;
   mergeKey?: string;
+  /**
+   * Change the document without claiming a slot in the undo stack.
+   *
+   * For writes the system makes on the user's behalf rather than edits the
+   * user made — stamping when a project was last published, say. Those still
+   * have to reach collaborators, so the patches are produced and returned as
+   * usual; they simply are not something Ctrl+Z should walk back. Recording
+   * them means the first undo after publishing silently reverts a timestamp
+   * and looks like it did nothing, and leaves the document disagreeing with
+   * what is actually live.
+   *
+   * The redo stack is left alone too: a metadata stamp should not throw away
+   * a redo the user still had available.
+   */
+  record?: boolean;
 }
 
 export interface CommitResult {
@@ -79,6 +94,10 @@ export function commit(
   });
 
   if (patches.length === 0) return { doc, history, changed: false, patches: [] };
+
+  if (input.record === false) {
+    return { doc: next, history, changed: true, patches };
+  }
 
   const now = Date.now();
   const last = history.past[history.past.length - 1];

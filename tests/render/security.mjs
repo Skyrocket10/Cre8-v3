@@ -1,8 +1,8 @@
 
 import { APP, ARTIFACTS, launch } from './harness.mjs';
 
-const SITE = 'http://localhost:8787';
-const API = 'http://localhost:8787';
+const SITE = APP;
+const API = APP;
 const results = [];
 let failed = 0;
 const check = (n, ok, d = '') => {
