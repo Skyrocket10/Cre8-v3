@@ -134,6 +134,75 @@ export function relativeHref(from: Page, to: Page): string {
   return '../'.repeat(depthOf(from)) + target || './';
 }
 
+/* --------------------------------------------------------------------------
+ * Uploaded assets
+ * ----------------------------------------------------------------------- */
+
+/** Where the API puts an uploaded file: `/api/assets/<url-encoded R2 key>`. */
+const ASSET_URL = /\/api\/assets\/([A-Za-z0-9%._~-]+)/g;
+
+/** Directory published assets live in, inside the site. */
+export const ASSET_DIR = '_assets';
+
+export interface PublishedAsset {
+  /** R2 object key under the uploads bucket. */
+  key: string;
+  /** Path inside the published site. */
+  path: string;
+}
+
+/**
+ * Every uploaded asset the document references.
+ *
+ * Found by scanning the serialised document rather than walking known fields.
+ * An asset URL can sit in `props.src`, in a `backgroundImage` style, in
+ * `settings.favicon`, in a page's `ogImage` — and in whatever field gets added
+ * next. The document is JSON, so one pass over it cannot miss a surface the way
+ * a list of field names silently would.
+ */
+export function collectPublishedAssets(doc: Cre8Document): PublishedAsset[] {
+  const found = new Map<string, PublishedAsset>();
+  for (const [, encoded] of JSON.stringify(doc).matchAll(ASSET_URL)) {
+    const key = safeDecode(encoded ?? '');
+    if (!key || found.has(key)) continue;
+    found.set(key, { key, path: `${ASSET_DIR}/${assetFileName(key)}` });
+  }
+  return [...found.values()];
+}
+
+/** The R2 key's last segment, already sanitised and made unique at upload. */
+function assetFileName(key: string): string {
+  return key.slice(key.lastIndexOf('/') + 1) || key;
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Point every asset reference at the copy inside the published site.
+ *
+ * Applied to the finished page rather than threaded through the renderer and
+ * the CSS generator separately: the same URL turns up as an `src` attribute, a
+ * `url()` in a generated rule, and a `<link rel="icon">`, and one pass over the
+ * output covers all of them at once.
+ *
+ * The path is relative for the same reason page links are — the same bytes are
+ * served from a domain root, from `/s/<projectId>/`, and from a folder on a
+ * desktop.
+ */
+function rewriteAssetUrls(html: string, from: Page): string {
+  const prefix = '../'.repeat(depthOf(from));
+  return html.replace(ASSET_URL, (whole, encoded: string) => {
+    const key = safeDecode(encoded);
+    return key ? `${prefix}${ASSET_DIR}/${assetFileName(key)}` : whole;
+  });
+}
+
 function hrefResolverFor(doc: Cre8Document, from: Page) {
   return (href: string): string => {
     if (!href) return '#';
@@ -201,9 +270,10 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     .filter(Boolean)
     .join(options.pretty ? '\n    ' : '');
 
-  if (options.pretty) {
-    return `<!doctype html>
-<html lang="${escapeAttr(doc.settings.language || 'en')}">
+  const lang = escapeAttr(doc.settings.language || 'en');
+  const html = options.pretty
+    ? `<!doctype html>
+<html lang="${lang}">
   <head>
     ${head}
   </head>
@@ -211,10 +281,10 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     ${body}
   </body>
 </html>
-`;
-  }
+`
+    : `<!doctype html><html lang="${lang}"><head>${head}</head><body>${body}</body></html>`;
 
-  return `<!doctype html><html lang="${escapeAttr(doc.settings.language || 'en')}"><head>${head}</head><body>${body}</body></html>`;
+  return rewriteAssetUrls(html, page);
 }
 
 /* --------------------------------------------------------------------------
@@ -229,6 +299,11 @@ export interface GeneratedFile {
 
 export interface GeneratedSite {
   files: GeneratedFile[];
+  /**
+   * Uploaded files the site needs, which the host copies from where they
+   * already live rather than the browser re-uploading bytes it does not have.
+   */
+  assets: PublishedAsset[];
   totalBytes: number;
   pageCount: number;
 }
@@ -246,6 +321,7 @@ export function generateSite(doc: Cre8Document, options: RenderPageOptions = {})
 
   return {
     files,
+    assets: collectPublishedAssets(doc),
     totalBytes: files.reduce((sum, f) => sum + f.bytes, 0),
     pageCount: doc.pages.length,
   };

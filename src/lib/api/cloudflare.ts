@@ -11,7 +11,13 @@
 import { hydrateDocument } from '../document/factory';
 import type { Cre8Document, ProjectSummary } from '../document/types';
 import { api, ApiError } from './client';
-import type { PublishedFile, PublishedInfo, PublishedSite, StorageAdapter } from './storage';
+import type {
+  PublishedAssetRef,
+  PublishedFile,
+  PublishedInfo,
+  PublishedSite,
+  StorageAdapter,
+} from './storage';
 
 /**
  * Which team new projects belong to.
@@ -71,9 +77,10 @@ export class CloudflareAdapter implements StorageAdapter {
   async savePublished(
     projectId: string,
     _site: PublishedSite,
-    files: PublishedFile[]
+    files: PublishedFile[],
+    assets: PublishedAssetRef[]
   ): Promise<PublishedInfo> {
-    const result = await api.publish(projectId, files);
+    const result = await api.publish(projectId, files, assets);
     return {
       url: result.url,
       subdomain: result.subdomain,

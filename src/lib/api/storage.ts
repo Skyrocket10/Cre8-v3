@@ -31,7 +31,8 @@ export interface StorageAdapter {
   savePublished(
     projectId: string,
     site: PublishedSite,
-    files: PublishedFile[]
+    files: PublishedFile[],
+    assets: PublishedAssetRef[]
   ): Promise<PublishedInfo | void>;
   loadPublished(projectId: string): Promise<PublishedSite | null>;
   /**
@@ -61,6 +62,18 @@ export interface PublishedSite {
 export interface PublishedFile {
   path: string;
   contents: string;
+}
+
+/**
+ * An uploaded file the published site needs.
+ *
+ * Sent as a reference rather than bytes: the browser never had the bytes —
+ * it uploaded them once and kept a URL — so re-sending them would mean
+ * downloading and re-uploading megabytes on every publish.
+ */
+export interface PublishedAssetRef {
+  key: string;
+  path: string;
 }
 
 /** Where a published site ended up, once the host has decided. */

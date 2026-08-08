@@ -8,7 +8,7 @@
 
 import { newId } from '../lib/crypto';
 import { requireProjectAccess, requireTeamRole } from '../lib/db';
-import { badRequest, conflict, json, notFound, readJson } from '../lib/http';
+import { badRequest, conflict, forbidden, json, notFound, readJson } from '../lib/http';
 import type { Env, SessionUser } from '../types';
 
 /** Anything the client sends is untrusted; only the shape we rely on is checked. */
@@ -313,7 +313,10 @@ export async function handlePublish(
 ): Promise<Response> {
   await requireProjectAccess(env, projectId, user, 'editor');
 
-  const body = await readJson<{ files?: { path: string; contents: string }[] }>(request);
+  const body = await readJson<{
+    files?: { path: string; contents: string }[];
+    assets?: { key: string; path: string }[];
+  }>(request);
   if (!Array.isArray(body.files) || body.files.length === 0) throw badRequest('Nothing to publish');
 
   const prefix = `${projectId}/`;
@@ -335,6 +338,36 @@ export async function handlePublish(
       });
     })
   );
+
+  /* --- Uploaded assets ---------------------------------------------------
+     Copied bucket-to-bucket rather than re-uploaded: the browser only ever
+     held a URL for these. The copy is what makes a published site readable
+     without a session — `/api/assets/*` is authenticated by design, and a
+     visitor has no account. */
+  for (const asset of body.assets ?? []) {
+    if (asset.path.includes('..') || asset.path.startsWith('/')) {
+      throw badRequest(`Unsafe asset path: ${asset.path}`);
+    }
+    // The key names an object in someone's uploads bucket, and it arrives from
+    // the client. Without this, publishing a project would be a way to read any
+    // other project's files.
+    if (!asset.key.startsWith(prefix)) {
+      throw forbidden('That asset belongs to another project');
+    }
+
+    const object = await env.UPLOADS.get(asset.key);
+    if (!object) continue; // Referenced but deleted; the page degrades, publish does not fail.
+
+    bytes += object.size;
+    await env.SITES.put(prefix + asset.path, object.body, {
+      httpMetadata: {
+        contentType: object.httpMetadata?.contentType ?? contentTypeFor(asset.path),
+        // Asset filenames carry an upload id, so the bytes at a given path
+        // never change and a long cache is safe.
+        cacheControl: 'public, max-age=31536000, immutable',
+      },
+    });
+  }
 
   // Publishing is a mutation of something already cached at the edge. Without
   // this, hitting Publish and reloading shows the previous version.

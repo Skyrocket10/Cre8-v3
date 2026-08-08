@@ -47,7 +47,8 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
   const info = await getStorage().savePublished(
     doc.id,
     site,
-    generated.files.map((f) => ({ path: f.path, contents: f.contents }))
+    generated.files.map((f) => ({ path: f.path, contents: f.contents })),
+    generated.assets
   );
 
   return {

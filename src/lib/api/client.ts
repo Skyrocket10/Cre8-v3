@@ -277,7 +277,11 @@ export const api = {
 
   deleteProject: (id: string) => call<{ ok: true }>(`/api/projects/${id}`, { method: 'DELETE' }),
 
-  publish: (id: string, files: { path: string; contents: string }[]) =>
+  publish: (
+    id: string,
+    files: { path: string; contents: string }[],
+    assets: { key: string; path: string }[] = []
+  ) =>
     call<{
       ok: true;
       publishedAt: number;
@@ -285,7 +289,10 @@ export const api = {
       url: string;
       subdomain: string;
       siteDomain: string;
-    }>(`/api/projects/${id}/publish`, { method: 'POST', body: JSON.stringify({ files }) }),
+    }>(`/api/projects/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ files, assets }),
+    }),
 
   /** Rename a published site's address. Frees the old hostname immediately. */
   setSubdomain: (id: string, subdomain: string) =>
