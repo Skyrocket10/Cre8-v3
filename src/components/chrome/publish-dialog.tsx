@@ -77,6 +77,30 @@ export function PublishDialog({
 }) {
   const doc = useEditor((s) => s.doc);
   const [address, setAddress] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  /**
+   * Building the archive now reads every uploaded image over the network, so it
+   * is no longer instant — and it can come up short if one has gone missing.
+   */
+  const downloadZip = async () => {
+    setExporting(true);
+    try {
+      const { missing } = await exportProject(doc);
+      if (missing.length) {
+        useEditor
+          .getState()
+          .toast(
+            `Exported without ${missing.length} image${missing.length > 1 ? 's' : ''} that could not be read`,
+            'error'
+          );
+      }
+    } catch {
+      useEditor.getState().toast('Could not build the archive', 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // The dialog outlives one publish, so the address has to reset with it.
   useEffect(() => setAddress(result?.subdomain ?? null), [result?.subdomain]);
@@ -138,7 +162,12 @@ export function PublishDialog({
           </div>
 
           <div className="flex items-center gap-2 border-t border-[var(--border-soft)] px-4 py-3">
-            <Button size="md" variant="secondary" onClick={() => exportProject(doc)}>
+            <Button
+              size="md"
+              variant="secondary"
+              loading={exporting}
+              onClick={() => void downloadZip()}
+            >
               <Download size={12} />
               Download ZIP
             </Button>

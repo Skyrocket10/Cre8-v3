@@ -1,8 +1,10 @@
 /**
  * Minimal ZIP writer (stored, no compression).
  *
- * Export shouldn't need a dependency: the generated site is a handful of small
- * text files, and stored entries are perfectly valid ZIPs that every OS opens.
+ * Export shouldn't need a dependency: a generated site is a handful of small
+ * files, and stored entries are perfectly valid ZIPs that every OS opens. No
+ * compression is a fair trade — the HTML is tiny and the images are already
+ * compressed formats that would not shrink further anyway.
  */
 
 const CRC_TABLE = (() => {
@@ -25,7 +27,8 @@ function crc32(bytes: Uint8Array): number {
 
 export interface ZipEntry {
   path: string;
-  contents: string;
+  /** Text for generated files; bytes for images and anything else binary. */
+  contents: string | Uint8Array;
 }
 
 /** DOS date/time. Fixed so the same input always produces the same archive. */
@@ -40,7 +43,8 @@ export function createZip(entries: ZipEntry[]): Blob {
 
   for (const entry of entries) {
     const nameBytes = encoder.encode(entry.path);
-    const data = encoder.encode(entry.contents);
+    const data =
+      typeof entry.contents === 'string' ? encoder.encode(entry.contents) : entry.contents;
     const crc = crc32(data);
 
     const local = new Uint8Array(30 + nameBytes.length);

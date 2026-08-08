@@ -31,8 +31,8 @@ every instance, everywhere. Design tokens for colour, type, spacing, radius,
 shadow and width that compile to CSS custom properties.
 
 **Ship**  Chrome-free preview at any device size, one-click publish to static
-HTML with sitemap and robots.txt, a site address of its own, and a ZIP export
-you can drop on any host.
+HTML with sitemap and robots.txt, a site address of its own, and a ZIP export —
+images and all — that works dropped on any host or opened straight from disk.
 
 **Together** *(optional backend)*  Accounts, shared workspaces with roles, link
 invites, and realtime co-editing with live cursors and selections.

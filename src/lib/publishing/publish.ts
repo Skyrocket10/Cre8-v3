@@ -63,9 +63,38 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
   };
 }
 
-/** Download the whole static site as a ZIP, ready to drop on any host. */
-export function exportProject(doc: Cre8Document): void {
+export interface ExportResult {
+  /** Assets that could not be read, so the archive is short of them. */
+  missing: string[];
+}
+
+/**
+ * Download the whole static site as a ZIP, ready to drop on any host.
+ *
+ * Uploaded images have to be fetched: the document holds a URL, not bytes, so
+ * an archive built from the document alone would reference `_assets/` files it
+ * does not carry. That fetch is why this is async and why the button waits.
+ *
+ * Locally there is nothing to fetch — images are inlined in the document as
+ * data URLs and travel inside the HTML.
+ */
+export async function exportProject(doc: Cre8Document): Promise<ExportResult> {
   const generated = generateSite(doc, { pretty: true });
+
+  const missing: string[] = [];
+  const assetEntries = await Promise.all(
+    generated.assets.map(async (asset) => {
+      try {
+        const response = await fetch(asset.url, { credentials: 'include' });
+        if (!response.ok) throw new Error(String(response.status));
+        return { path: asset.path, contents: new Uint8Array(await response.arrayBuffer()) };
+      } catch {
+        // One unreadable image should not cost you the export; say which.
+        missing.push(asset.path);
+        return null;
+      }
+    })
+  );
   const readme = `# ${doc.settings.siteName || doc.name}
 
 Static site exported from Cre8.
@@ -77,7 +106,7 @@ directory can be served as-is from any static host or CDN:
   • Netlify / Vercel — drag the folder onto the dashboard
   • S3 / R2 / nginx  — copy the files across
 
-Pages
+${generated.assets.length ? `Images are in ${'_assets'}/ and referenced relatively, so this folder\nworks opened straight from disk as well as served.\n\n` : ''}Pages
 ${doc.pages
   .slice()
   .sort((a, b) => a.order - b.order)
@@ -87,8 +116,10 @@ ${doc.pages
 
   const blob = createZip([
     ...generated.files.map((f) => ({ path: f.path, contents: f.contents })),
+    ...assetEntries.filter((entry) => entry !== null),
     { path: 'README.md', contents: readme },
   ]);
 
   downloadBlob(blob, `${slugify(doc.settings.siteName || doc.name) || 'cre8-site'}.zip`);
+  return { missing };
 }

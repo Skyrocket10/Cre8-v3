@@ -149,6 +149,8 @@ export interface PublishedAsset {
   key: string;
   /** Path inside the published site. */
   path: string;
+  /** Where the bytes can be read from right now, by a signed-in editor. */
+  url: string;
 }
 
 /**
@@ -165,7 +167,11 @@ export function collectPublishedAssets(doc: Cre8Document): PublishedAsset[] {
   for (const [, encoded] of JSON.stringify(doc).matchAll(ASSET_URL)) {
     const key = safeDecode(encoded ?? '');
     if (!key || found.has(key)) continue;
-    found.set(key, { key, path: `${ASSET_DIR}/${assetFileName(key)}` });
+    found.set(key, {
+      key,
+      path: `${ASSET_DIR}/${assetFileName(key)}`,
+      url: `/api/assets/${encoded}`,
+    });
   }
   return [...found.values()];
 }
