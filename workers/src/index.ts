@@ -1,17 +1,28 @@
 /**
- * Cre8 API Worker.
+ * Cre8 — one Worker, one origin.
  *
- * Accounts and teams in D1, assets and published sites in R2, and one Durable
- * Object per project for live collaboration.
+ * Serves three things:
  *
- * Published pages are the highest-volume path and are matched before anything
- * else: they are finished HTML written at publish time, so serving one is a
- * cache hit or an R2 read with no rendering and no database work.
+ *   /api/*   accounts and teams in D1, uploads in R2, one Durable Object per
+ *            project for live collaboration
+ *   /s/*     published sites, as finished HTML read straight from R2
+ *   /*       the editor itself, a static Next export
+ *
+ * The editor is not served by this code. Cloudflare's asset router answers any
+ * request that matches a file in `out/` before the Worker is invoked at all, so
+ * loading the app costs nothing; the handler below only runs for the two API
+ * prefixes and for paths that match no asset.
+ *
+ * Sharing an origin is what lets the editor call the API with no CORS
+ * allowlist, no build-time URL and a `SameSite=Lax` cookie. It also means
+ * published pages — which can contain author-supplied `<script>` — would
+ * otherwise run on the editor's origin with the reader's session attached.
+ * `serveSite` sandboxes them into an opaque origin so they cannot.
  *
  * Deploy:
  *   npm run db:init
- *   npx wrangler secret put AUTH_PEPPER --config workers/wrangler.toml
- *   npm run deploy:api
+ *   npx wrangler secret put AUTH_PEPPER
+ *   npm run deploy
  */
 
 import { newId } from './lib/crypto';
@@ -36,6 +47,7 @@ import {
   handlePublish,
   handleSaveProject,
   handleSocket,
+  SITE_CACHE_CONTROL,
 } from './routes/projects';
 import {
   handleAcceptInvite,
@@ -60,13 +72,15 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (url.pathname.startsWith('/s/')) return serveSite(url, env, ctx);
 
-    if (!url.pathname.startsWith('/api/')) return json({ error: 'Not found' }, 404, cors);
+    // Not ours. The asset router already declined it, so this is a real 404 —
+    // hand back the editor's own 404 page rather than a bare string.
+    if (!url.pathname.startsWith('/api/')) return notFoundPage(request, env);
 
     try {
       if (!env.AUTH_PEPPER) {
         throw badRequest(
           'Server not configured',
-          'AUTH_PEPPER is unset. Run: wrangler secret put AUTH_PEPPER --config workers/wrangler.toml'
+          'AUTH_PEPPER is unset. Run: npx wrangler secret put AUTH_PEPPER'
         );
       }
 
@@ -205,7 +219,7 @@ async function assetRoutes(
 
     const id = newId();
     const key = `${projectId}/${id}-${sanitise(file.name)}`;
-    await env.ASSETS.put(key, file.stream(), {
+    await env.UPLOADS.put(key, file.stream(), {
       httpMetadata: {
         contentType: file.type || 'application/octet-stream',
         cacheControl: 'public, max-age=31536000, immutable',
@@ -227,7 +241,7 @@ async function assetRoutes(
     const projectId = key.split('/')[0] ?? '';
     await requireProjectAccess(env, projectId, user, 'viewer');
 
-    const object = await env.ASSETS.get(key);
+    const object = await env.UPLOADS.get(key);
     if (!object) throw notFound();
     return new Response(object.body, {
       headers: {
@@ -247,6 +261,28 @@ async function assetRoutes(
  * Published sites
  * ----------------------------------------------------------------------- */
 
+/**
+ * Sandbox for published pages.
+ *
+ * A published page is author-supplied HTML — `settings.customHead` and the
+ * rich-text block both pass through verbatim — and it is served from the same
+ * origin as the editor. Without this header, a script on someone's published
+ * page would run *as the editor origin* in the browser of any signed-in Cre8
+ * user who visited it, and could call /api/* with their session cookie
+ * attached. Publishing a site would be equivalent to account takeover.
+ *
+ * `sandbox` without `allow-same-origin` forces the document into an opaque
+ * origin: no access to the editor's cookies, localStorage or IndexedDB, and
+ * requests it makes are cross-site, so the `SameSite=Lax` session cookie is not
+ * attached either. The three `allow-` tokens are what an ordinary marketing
+ * page still needs — analytics snippets, form posts, and links that navigate.
+ *
+ * Serving published sites from their own hostname is stronger still, and the
+ * commented-out route in wrangler.jsonc is how. This is the defence that holds
+ * when they share one.
+ */
+const SITE_SANDBOX = 'sandbox allow-scripts allow-forms allow-popups allow-top-navigation';
+
 async function serveSite(url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
   const cache = caches.default;
   const cached = await cache.match(url.toString());
@@ -264,13 +300,35 @@ async function serveSite(url: URL, env: Env, ctx: ExecutionContext): Promise<Res
   const response = new Response(object.body, {
     headers: {
       'content-type': object.httpMetadata?.contentType ?? contentTypeFor(file),
-      'cache-control': 'public, max-age=60, s-maxage=31536000',
+      'cache-control': SITE_CACHE_CONTROL,
       'x-content-type-options': 'nosniff',
+      'content-security-policy': SITE_SANDBOX,
     },
   });
 
   ctx.waitUntil(cache.put(url.toString(), response.clone()));
   return response;
+}
+
+/* --------------------------------------------------------------------------
+ * Editor
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The editor's 404 page.
+ *
+ * Assets are configured with `not_found_handling: "none"` so that unmatched
+ * paths reach this Worker instead of being answered by the asset router — which
+ * would otherwise intercept /api/* too. The cost is that the 404 page is ours
+ * to serve, which is this.
+ */
+async function notFoundPage(request: Request, env: Env): Promise<Response> {
+  const page = await env.ASSETS.fetch(new URL('/404.html', request.url));
+  if (!page.ok) return new Response('Not found', { status: 404 });
+  return new Response(page.body, {
+    status: 404,
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  });
 }
 
 function sanitise(name: string): string {

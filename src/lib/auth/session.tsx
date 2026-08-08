@@ -3,10 +3,15 @@
 /**
  * Session and active-team context.
  *
- * Local mode is a first-class state, not a degraded one: with no
- * `NEXT_PUBLIC_CRE8_API_URL` the provider reports `mode: 'local'`, never calls
- * the API, and the whole editor works exactly as it did before accounts
- * existed. Everything auth-related in the UI keys off that.
+ * Also the place that decides whether this build has a backend at all, because
+ * that is no longer a build-time fact: the same static export is served by a
+ * Worker that also answers `/api/*`, or dropped on a CDN with nothing behind
+ * it. One probe on boot settles it, and `RequireSession` holds the routes back
+ * until it has — so `getStorage()` is never asked before the answer is known.
+ *
+ * Local mode is a first-class state, not a degraded one. With no backend the
+ * provider reports `mode: 'local'` and the whole editor works exactly as it did
+ * before accounts existed. Everything auth-related in the UI keys off that.
  */
 
 import React, {
@@ -18,7 +23,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { api, isHosted, type AccountUser, type Team } from '../api/client';
+import { api, hasBackend, probeBackend, type AccountUser, type Team } from '../api/client';
 import { setActiveTeamId as setStorageTeam } from '../api/cloudflare';
 
 const ACTIVE_TEAM_KEY = 'cre8:team';
@@ -60,7 +65,9 @@ export function useSession(): SessionValue {
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<SessionStatus>(isHosted ? 'loading' : 'local');
+  // Always 'loading' first: whether there is a backend is now discovered, not
+  // compiled in, so nothing may assume either answer before the probe lands.
+  const [status, setStatus] = useState<SessionStatus>('loading');
   const [user, setUser] = useState<AccountUser | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
@@ -91,7 +98,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const refresh = useCallback(async () => {
-    if (!isHosted) return;
+    if (!hasBackend()) return;
     try {
       const session = await api.me();
       applySession(session.user, session.teams);
@@ -102,9 +109,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [applySession]);
 
+  // The boot probe. Doubles as the first `me` call, so discovering the backend
+  // costs no extra round trip.
   useEffect(() => {
-    if (isHosted) void refresh();
-  }, [refresh]);
+    let cancelled = false;
+    void probeBackend().then((session) => {
+      if (cancelled) return;
+      if (!session) {
+        setStatus('local');
+        return;
+      }
+      applySession(session.user, session.teams);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [applySession]);
 
   const setActiveTeam = useCallback(
     (teamId: string) => {
@@ -128,7 +148,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<SessionValue>(
     () => ({
       status,
-      mode: isHosted ? 'hosted' : 'local',
+      mode: status === 'local' ? 'local' : 'hosted',
       user,
       teams,
       activeTeam,

@@ -49,9 +49,13 @@ export function allowedOrigins(env: Env): string[] {
 }
 
 /**
- * Credentialed CORS, so the allowlist has to be exact — `*` is not permitted
- * alongside `allow-credentials`, and that strictness is doing real work here
- * (see the CSRF note below).
+ * Credentialed CORS, for split deployments only.
+ *
+ * The normal shape is one Worker serving the editor and the API together, so
+ * calls are same-origin and none of this applies — the allowlist is empty and
+ * this returns nothing. It stays because serving the editor from elsewhere is
+ * still supported, and then the allowlist has to be exact: `*` is not permitted
+ * alongside `allow-credentials`.
  */
 export function corsHeaders(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get('origin');
@@ -67,18 +71,18 @@ export function corsHeaders(request: Request, env: Env): Record<string, string> 
 }
 
 /**
- * CSRF defence.
+ * CSRF defence, second layer.
  *
- * Session cookies must be `SameSite=None` because the editor and the API are on
- * different origins, which removes the browser's built-in cross-site
- * protection. The replacement: every state-changing request must carry
- * `x-cre8-csrf`. A custom header is not CORS-safelisted, so the browser sends a
- * preflight, and the preflight only succeeds for origins on the allowlist. An
- * attacker's page therefore cannot forge a mutating request, even though the
- * cookie would be attached.
+ * `SameSite=Lax` is the first: on one origin the browser simply will not attach
+ * the session to a cross-site POST, which is the whole attack. This header is
+ * kept anyway because it costs nothing and it is what protects a split
+ * deployment, where `SameSite=None` is unavoidable and the browser's own
+ * protection is gone.
  *
- * This is why `multipart/form-data` uploads need the header too — that content
- * type is safelisted and would otherwise skip the preflight entirely.
+ * A custom header is not CORS-safelisted, so the browser sends a preflight, and
+ * the preflight only succeeds for an allowlisted origin. `multipart/form-data`
+ * uploads need the header too — that content type *is* safelisted and would
+ * otherwise skip the preflight entirely.
  */
 export function requireCsrfHeader(request: Request): void {
   if (request.method === 'GET' || request.method === 'HEAD') return;
@@ -108,22 +112,33 @@ export function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
-export function sessionCookie(token: string, maxAgeSeconds: number): string {
-  // SameSite=None is required for the cross-origin editor; Secure is mandatory
-  // with it, and HttpOnly keeps the token away from the rich-text renderer's
-  // dangerouslySetInnerHTML surface.
+/**
+ * `SameSite` follows the deployment, because it has to.
+ *
+ * One Worker serving the editor and the API means every call is same-site, and
+ * `Lax` gets the browser to refuse the cookie on cross-site requests for us —
+ * CSRF handled by the platform. A split deployment cannot use `Lax` at all: the
+ * editor's calls would arrive cookie-less and nobody could stay signed in. So
+ * configuring `ALLOWED_ORIGINS` is what widens this, and nothing else does.
+ *
+ * `HttpOnly` throughout keeps the token away from the rich-text renderer's
+ * `dangerouslySetInnerHTML` surface. `Secure` throughout because production is
+ * HTTPS and browsers treat localhost as trustworthy regardless.
+ */
+export function sessionCookie(env: Env, token: string, maxAgeSeconds: number): string {
+  const crossOrigin = allowedOrigins(env).length > 0;
   return [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     'Path=/',
     'HttpOnly',
     'Secure',
-    'SameSite=None',
+    crossOrigin ? 'SameSite=None' : 'SameSite=Lax',
     `Max-Age=${maxAgeSeconds}`,
   ].join('; ');
 }
 
-export function clearedSessionCookie(): string {
-  return sessionCookie('', 0);
+export function clearedSessionCookie(env: Env): string {
+  return sessionCookie(env, '', 0);
 }
 
 /* --------------------------------------------------------------------------

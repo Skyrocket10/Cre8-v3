@@ -1,12 +1,22 @@
 export interface Env {
   DB: D1Database;
-  ASSETS: R2Bucket;
+  /** The editor's static build. Bound so the handler can serve out/404.html. */
+  ASSETS: Fetcher;
+  /** Images and files people upload into a project. */
+  UPLOADS: R2Bucket;
+  /** Generated HTML for published sites. */
   SITES: R2Bucket;
   /** One instance per project; holds the live document and the peer list. */
   ROOMS: DurableObjectNamespace;
 
-  /** Comma-separated exact origins allowed to call the API with credentials. */
-  ALLOWED_ORIGINS: string;
+  /**
+   * Comma-separated exact origins allowed to call the API with credentials.
+   *
+   * Empty is the normal case: the editor is served by this same Worker, so its
+   * calls are same-origin and CORS never enters into it. Only a split
+   * deployment needs entries here.
+   */
+  ALLOWED_ORIGINS?: string;
   /** Server-side secret mixed into every stored password verifier. */
   AUTH_PEPPER: string;
   /** Set to "false" to close signups once your team is in. */

@@ -12,7 +12,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, TriangleAlert } from 'lucide-react';
-import { api, ApiError, isHosted } from '@/lib/api/client';
+import { api, ApiError } from '@/lib/api/client';
 import { deriveKey, passwordProblem } from '@/lib/auth/derive';
 import { useSession } from '@/lib/auth/session';
 import { cn } from '@/lib/utils/cn';
@@ -28,7 +28,7 @@ export function AuthForm({
   onDone?: () => void;
 }) {
   const router = useRouter();
-  const { applySession, setActiveTeam } = useSession();
+  const { applySession, setActiveTeam, status, mode: sessionMode } = useSession();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -93,11 +93,17 @@ export function AuthForm({
     }
   };
 
-  if (!isHosted) {
+  // Still finding out whether there is a backend. Offering a form that might
+  // turn out to lead nowhere is worse than a beat of nothing.
+  if (status === 'loading') {
+    return <div className="h-[200px]" />;
+  }
+
+  if (sessionMode === 'local') {
     return (
       <Notice
         title="No workspace connected"
-        body="This build stores projects in your browser. Accounts need NEXT_PUBLIC_CRE8_API_URL pointing at a deployed Cre8 API."
+        body="This build stores projects in your browser. Accounts need the Cre8 Worker deployed — it serves the editor and the API together, so there is nothing to point at once it is up."
       />
     );
   }

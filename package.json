@@ -10,8 +10,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit && tsc -p workers/tsconfig.json",
     "deploy": "next build && wrangler deploy",
-    "deploy:api": "wrangler deploy --config workers/wrangler.toml",
-    "db:init": "wrangler d1 execute cre8 --config workers/wrangler.toml --remote --file=./workers/schema.sql"
+    "preview": "next build && wrangler dev",
+    "db:init": "wrangler d1 execute cre8 --remote --file=./workers/schema.sql",
+    "db:init:local": "wrangler d1 execute cre8 --local --file=./workers/schema.sql"
   },
   "dependencies": {
     "clsx": "^2.1.1",

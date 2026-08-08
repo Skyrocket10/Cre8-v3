@@ -10,7 +10,7 @@
 
 import { hydrateDocument } from '../document/factory';
 import type { Cre8Document, ProjectSummary } from '../document/types';
-import { isHosted } from './client';
+import { hasBackend } from './client';
 import { CloudflareAdapter } from './cloudflare';
 
 export interface StorageAdapter {
@@ -172,17 +172,20 @@ let adapter: StorageAdapter | null = null;
 /**
  * The active adapter.
  *
- * Hosted mode is opt-in through one build-time variable: set
- * `NEXT_PUBLIC_CRE8_API_URL` to a deployed Worker and projects live in D1 and
- * R2, behind accounts and teams. Leave it unset and Cre8 runs with no backend
- * at all — no sign-in, no network, works offline.
+ * Chosen by whether a backend answered on boot. Deployed as one Worker, the API
+ * is at `/api/*` on this same origin and projects live in D1 and R2 behind
+ * accounts and teams. Served as plain static files with nothing behind them,
+ * Cre8 runs with no backend at all — no sign-in, no network, works offline.
+ *
+ * Must not be called before `SessionProvider` has probed; `RequireSession`
+ * guarantees that for every route that reads projects.
  *
  * Nothing else in the editor knows which one is in use.
  */
 export function getStorage(): StorageAdapter {
   if (adapter) return adapter;
 
-  if (isHosted) {
+  if (hasBackend()) {
     adapter = new CloudflareAdapter();
     return adapter;
   }

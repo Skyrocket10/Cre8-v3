@@ -4,8 +4,8 @@
  * Cloudflare storage adapter.
  *
  * Implements the same `StorageAdapter` as the local IndexedDB one, so the
- * editor cannot tell which is behind it. Selected automatically when
- * `NEXT_PUBLIC_CRE8_API_URL` is set — see `getStorage()`.
+ * editor cannot tell which is behind it. Selected automatically when the boot
+ * probe finds an API answering — see `getStorage()`.
  */
 
 import { hydrateDocument } from '../document/factory';

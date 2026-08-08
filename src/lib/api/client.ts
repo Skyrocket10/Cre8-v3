@@ -1,24 +1,71 @@
 'use client';
 
 /**
- * Typed client for the Cre8 API Worker.
+ * Typed client for the Cre8 API.
  *
- * Two things every request needs and neither is optional:
+ * The API lives at `/api/*` on whatever origin the editor was loaded from,
+ * because one Worker serves both. That is why there is no URL to configure:
+ * there is nothing to point at.
  *
- *   • `credentials: 'include'` — the session is an HttpOnly cookie, and the
- *     editor is on a different origin to the API, so the browser only attaches
- *     it when asked.
- *   • `x-cre8-csrf` — a non-safelisted header forces a CORS preflight, which
- *     only an allowlisted origin can pass. That is the CSRF defence, since
- *     `SameSite=None` gives up the browser's built-in one.
+ * `NEXT_PUBLIC_CRE8_API_URL` remains as an override for a split deployment —
+ * editor on one host, API on another — and setting it is what switches the
+ * server to `SameSite=None` cookies and turns the CORS allowlist on.
+ *
+ * Two things every request carries:
+ *
+ *   • `credentials: 'include'` — the session is an HttpOnly cookie.
+ *   • `x-cre8-csrf` — not CORS-safelisted, so a cross-site form cannot forge
+ *     it and a cross-origin caller must survive a preflight to send it.
  */
 
 import type { Cre8Document } from '../document/types';
 
-export const API_URL = process.env.NEXT_PUBLIC_CRE8_API_URL?.trim() ?? '';
+/** Empty means same-origin, which is the normal deployment. */
+export const API_URL = (process.env.NEXT_PUBLIC_CRE8_API_URL?.trim() ?? '').replace(/\/+$/, '');
 
-/** True when this build is wired to a backend at all. */
-export const isHosted = API_URL.length > 0;
+/**
+ * Whether a backend is reachable.
+ *
+ * Not knowable at build time any more: the same static export runs against a
+ * Worker that serves it *and* the API, or gets dropped on a dumb CDN with no
+ * backend behind it at all. `SessionProvider` settles this once on boot, before
+ * anything that depends on it renders — see `probeBackend`.
+ *
+ * An explicit `NEXT_PUBLIC_CRE8_API_URL` is a promise that a backend exists, so
+ * it short-circuits the probe.
+ */
+let backend: boolean = API_URL.length > 0;
+
+export function hasBackend(): boolean {
+  return backend;
+}
+
+/**
+ * Ask the API who we are, and learn from the shape of the answer whether there
+ * is an API at all.
+ *
+ * A static export with nothing behind it answers `/api/auth/me` with the 404
+ * page — HTML, not JSON — or with a network error. Either way: local mode, and
+ * the editor carries on exactly as it does offline.
+ */
+export async function probeBackend(): Promise<SessionResponse | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/auth/me`, {
+      credentials: 'include',
+      headers: { 'x-cre8-csrf': '1' },
+    });
+    if (!response.ok && response.status !== 401) {
+      backend = false;
+      return null;
+    }
+    const body = (await response.json()) as SessionResponse;
+    backend = true;
+    return { user: body.user ?? null, teams: body.teams ?? [] };
+  } catch {
+    backend = false;
+    return null;
+  }
+}
 
 export type Role = 'owner' | 'admin' | 'editor' | 'viewer';
 
@@ -66,7 +113,7 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  if (!isHosted) throw new ApiError(0, 'No workspace connected');
+  if (!backend) throw new ApiError(0, 'No workspace connected');
 
   let response: Response;
   try {
@@ -82,12 +129,15 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
       },
     });
   } catch {
-    // A network-level failure here is usually CORS, and the browser hides the
-    // real reason. Saying so beats "Failed to fetch".
+    // The browser hides the real reason for a network-level failure. On one
+    // origin it is almost always "the Worker is down"; on a split deployment it
+    // is almost always CORS. Say both rather than "Failed to fetch".
     throw new ApiError(
       0,
       'Could not reach the workspace',
-      'Check the API is deployed and that this origin is in ALLOWED_ORIGINS.'
+      API_URL
+        ? 'Check the API is deployed and that this origin is in ALLOWED_ORIGINS.'
+        : 'The API is served from this same origin — check the Worker is deployed.'
     );
   }
 
@@ -212,5 +262,8 @@ export const api = {
 
 /** WebSocket URL for a project's collaboration room. */
 export function socketUrl(projectId: string): string {
-  return `${API_URL.replace(/^http/, 'ws')}/api/projects/${projectId}/socket`;
+  // Same origin by default, so the socket inherits the page's scheme — wss on
+  // a real deployment, ws on a local one — with nothing to configure.
+  const base = API_URL || window.location.origin;
+  return `${base.replace(/^http/, 'ws')}/api/projects/${projectId}/socket`;
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { isHosted } from '../api/client';
+import { hasBackend } from '../api/client';
 import { useEditor } from '../editor/store';
 import { CollabClient, type CollabSnapshot, type RemotePeer } from './client';
 
@@ -15,7 +15,7 @@ const IDLE: CollabSnapshot = { status: 'idle', peers: [], version: 0, canEdit: t
  */
 export function useCollaboration(projectId: string | null, enabled: boolean): CollabSnapshot {
   const client = useMemo(
-    () => (enabled && isHosted && projectId ? new CollabClient(projectId) : null),
+    () => (enabled && hasBackend() && projectId ? new CollabClient(projectId) : null),
     [projectId, enabled]
   );
 

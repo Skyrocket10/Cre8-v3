@@ -179,11 +179,15 @@ export async function handlePublish(
       return env.SITES.put(prefix + file.path, file.contents, {
         httpMetadata: {
           contentType: contentTypeFor(file.path),
-          cacheControl: 'public, max-age=0, s-maxage=31536000, must-revalidate',
+          cacheControl: SITE_CACHE_CONTROL,
         },
       });
     })
   );
+
+  // Publishing is a mutation of something already cached at the edge. Without
+  // this, hitting Publish and reloading shows the previous version.
+  await purgePublished(request, projectId, body.files.map((f) => f.path));
 
   const now = Date.now();
   await env.DB.prepare(
@@ -194,6 +198,46 @@ export async function handlePublish(
     .run();
 
   return json({ ok: true, publishedAt: now, bytes, url: `/s/${projectId}/` }, 200, cors);
+}
+
+/**
+ * How long a published page may sit in the edge cache.
+ *
+ * Short on purpose. `caches.default` is per-colo, so a publish can only purge
+ * the colo that served it — every other one has to expire on its own. A long
+ * TTL would mean a republished site staying stale in most of the world, which
+ * is a far worse failure than an occasional R2 read. `max-age=0` keeps browsers
+ * revalidating so a reload is always current.
+ */
+export const SITE_CACHE_CONTROL = 'public, max-age=0, s-maxage=60, must-revalidate';
+
+/**
+ * Every URL that resolves to a published file, so all of them can be purged.
+ *
+ * Mirrors the path handling in `serveSite`: `about/index.html` is reachable as
+ * `/about`, `/about/` and `/about/index.html`, and any of those could be the
+ * one sitting in the cache.
+ */
+function publishedUrls(origin: string, projectId: string, filePath: string): string[] {
+  const base = `${origin}/s/${projectId}/`;
+  const urls = [base + filePath];
+  if (filePath === 'index.html') {
+    urls.push(base);
+  } else if (filePath.endsWith('/index.html')) {
+    const dir = filePath.slice(0, -'/index.html'.length);
+    urls.push(`${base}${dir}`, `${base}${dir}/`);
+  }
+  return urls;
+}
+
+async function purgePublished(request: Request, projectId: string, paths: string[]): Promise<void> {
+  const origin = new URL(request.url).origin;
+  const cache = caches.default;
+  await Promise.all(
+    paths
+      .flatMap((path) => publishedUrls(origin, projectId, path))
+      .map((url) => cache.delete(url).catch(() => false))
+  );
 }
 
 export function contentTypeFor(path: string): string {

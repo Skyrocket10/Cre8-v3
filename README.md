@@ -120,35 +120,85 @@ The full list is in the editor — the keyboard icon, bottom right.
 
 ## Deploying
 
-`npm run build` produces a fully static site in `out/` — no server, no runtime,
-nothing to pay for per request. It drops onto any CDN.
+Two shapes, and the difference is whether you want accounts.
 
-### Cloudflare Workers (recommended)
+### Static only — no backend
 
-`wrangler.jsonc` declares an assets-only Worker pointing at `out/`. There is no
-`main`, so there is no handler: Cloudflare serves the files from the edge and
-asset requests cost no Worker invocations.
+`npm run build` produces a fully static site in `out/`. Drop it on any CDN.
+Projects live in the visitor's browser, there is no sign-in, and it costs
+nothing to run. Nothing to configure.
+
+### One Worker — the whole product
+
+```bash
+npx wrangler deploy        # or: npm run deploy, which builds first
+```
+
+`wrangler.jsonc` declares a single Worker that serves the editor, the API and
+published sites on one origin. The editor is still static: Cloudflare's asset
+router answers anything matching a file in `out/` without invoking the Worker,
+so loading the app costs no invocations. The handler runs only for `/api/*`,
+`/s/*` and genuine 404s.
+
+One origin is deliberate, and it is what removes the configuration that used to
+go wrong:
+
+- **No API URL to set.** The API is at `/api/*` on whatever host served the
+  page. There is no `NEXT_PUBLIC_CRE8_API_URL` to bake into the build, and so
+  no "Variables cannot be added to a Worker that only has static assets" —
+  that error came from trying to set a build-time value as a runtime one.
+- **No CORS allowlist.** Same-origin requests never touch CORS.
+- **`SameSite=Lax` cookies**, so the browser itself blocks cross-site
+  request forgery instead of us having to.
+
+Whether a backend exists is discovered at boot rather than compiled in: the
+editor asks `/api/auth/me` once, and if nothing answers it runs in local mode.
+The *same build* works both ways.
 
 | | |
 |---|---|
 | Build command | `npm run build` |
 | Deploy command | `npx wrangler deploy` |
 
-Or from your own machine:
-
-```bash
-npm run build && npx wrangler deploy
-```
-
 > **Don't let wrangler auto-configure this project.** On a repo with no
 > `wrangler` config, `wrangler deploy` detects "Framework: Next.js" and runs
 > `@opennextjs/cloudflare migrate`, which rewrites `next.config.ts` and then
 > fails — OpenNext bundles a *server* build (`.next/standalone`) and a static
-> export doesn't produce one. The committed `wrangler.jsonc` prevents that. If
-> you ever do want the full Next server on Workers, remove `output: 'export'`
-> from `next.config.ts` first; nothing in Cre8 needs it.
+> export doesn't produce one. The committed `wrangler.jsonc` prevents that.
 
-### Cloudflare Pages
+**Set it up once:**
+
+```bash
+npx wrangler d1 create cre8            # put the id in wrangler.jsonc
+npx wrangler r2 bucket create cre8-assets
+npx wrangler r2 bucket create cre8-sites
+npm run db:init                        # applies workers/schema.sql
+npx wrangler secret put AUTH_PEPPER    # required; see below
+npm run deploy
+```
+
+`AUTH_PEPPER` is not optional — the Worker refuses every API request until it
+is set, rather than storing weaker credentials. Use a long random string and
+never rotate it casually: it is mixed into every stored verifier, so changing
+it invalidates all existing passwords.
+
+`ALLOW_SIGNUP` in `wrangler.jsonc` closes open registration when set to
+`"false"`. Invites keep working.
+
+**Run the real thing locally**, Worker and all, with D1 and Durable Objects in
+process:
+
+```bash
+echo 'AUTH_PEPPER = "local-dev-pepper"' > .dev.vars
+npm run db:init:local
+npm run preview                        # builds, then serves on :8787
+```
+
+### Cloudflare Pages, or any other host
+
+Pages cannot run the API — it has no Durable Objects. Deploying `out/` there
+gives you the static, browser-only editor, which is a perfectly good way to use
+Cre8 and needs no configuration at all.
 
 | | |
 |---|---|
@@ -159,104 +209,18 @@ Pages uploads the output directory itself — do **not** add
 `wrangler pages deploy` to the build command, or it will fail asking for a
 `CLOUDFLARE_API_TOKEN` it doesn't have.
 
-### API Worker — accounts, teams and collaboration (optional)
+### Split deployment (editor and API on different hosts)
 
-**You do not need this.** With no backend the editor stores projects in the
-browser, works offline, requires no sign-in, and costs nothing. Deploy the
-Worker when you want accounts, shared workspaces, live co-editing, or published
-sites on your own domain.
-
-Adding it turns on, in one step: sign-up and sign-in, workspaces with roles,
-link invites, projects in D1, assets in R2, and realtime collaboration.
-
-There are two wrangler configs in this repo — the site at the root and the API
-in `workers/`. Use the scripts rather than bare `wrangler deploy`, which from
-`workers/` picks up the *root* config and would deploy the site under the API
-Worker's name:
+Still supported, and the only case that needs configuration. Set
+`NEXT_PUBLIC_CRE8_API_URL` where the build runs — it is compiled into the
+bundle, so it belongs in build variables, never in a Worker's runtime
+Variables and Secrets — and list the editor's origin in `ALLOWED_ORIGINS`.
+Setting `ALLOWED_ORIGINS` is also what switches the session cookie to
+`SameSite=None`, which a cross-origin editor requires.
 
 ```bash
-npm run deploy       # the editor  (root wrangler.jsonc → out/)
-npm run deploy:api   # the API     (workers/wrangler.toml)
+NEXT_PUBLIC_CRE8_API_URL=https://cre8-api.example.workers.dev npm run build
 ```
-
-**1. Create the resources**
-
-```bash
-npx wrangler d1 create cre8        # put the id in workers/wrangler.toml
-npx wrangler r2 bucket create cre8-assets
-npx wrangler r2 bucket create cre8-sites
-npm run db:init                    # applies workers/schema.sql
-```
-
-**2. Set the password pepper**
-
-```bash
-npx wrangler secret put AUTH_PEPPER --config workers/wrangler.toml
-```
-
-Required — the Worker refuses every API request until it is set, rather than
-storing weaker credentials. Use a long random string and never rotate it
-casually: it is mixed into every stored verifier, so changing it invalidates
-all existing passwords.
-
-**3. Configure it** — in `workers/wrangler.toml`:
-
-- `ALLOWED_ORIGINS` must include your editor's origin, or the browser blocks
-  every request. This is the most common reason a correctly-deployed Worker
-  appears dead.
-- `ALLOW_SIGNUP` — set to `"false"` once your team has accounts. Invites keep
-  working; open registration stops.
-
-**4. Deploy the API**
-
-```bash
-npm run deploy:api
-```
-
-**5. Point the editor at it**
-
-```
-NEXT_PUBLIC_CRE8_API_URL = https://cre8-api.<subdomain>.workers.dev
-```
-
-> **This is a *build* variable, not a runtime one.** Next inlines every
-> `NEXT_PUBLIC_*` value into the JavaScript bundle when it compiles, so it has
-> to exist wherever `npm run build` runs. It is never read at runtime.
->
-> Setting it under the editor Worker's **Variables and Secrets** will fail with
-> *"Variables cannot be added to a Worker that only has static assets"* — and
-> correctly so. `wrangler.jsonc` has no `main`, so that Worker has no handler,
-> no runtime, and nothing that could read a variable. Even on a Worker that did
-> have one, a runtime variable would have no effect here.
-
-Set it in whichever place builds the app:
-
-| How you deploy | Where it goes |
-|---|---|
-| Workers Builds (git-connected) | Settings → **Build** → build variables |
-| Cloudflare Pages | Settings → **Environment variables** (applied to builds) |
-| From your own machine | `NEXT_PUBLIC_CRE8_API_URL=https://… npm run deploy` |
-
-The last row always works and needs no dashboard at all:
-
-```bash
-NEXT_PUBLIC_CRE8_API_URL=https://cre8-api.<subdomain>.workers.dev npm run deploy
-```
-
-Because the value is compiled in, changing it means a **rebuild**, not a
-restart. The dashboard badge flips from "This browser" to "Cloud" once the new
-build is live — that badge is the quickest way to tell whether it took.
-
-Finally, add the editor's origin to `ALLOWED_ORIGINS` in
-`workers/wrangler.toml` and redeploy the API. Without it the browser blocks
-every call and the editor looks signed-out no matter what.
-
-Nothing else changes: the editor talks to a `StorageAdapter` and has no idea
-which one is behind it. Uploads start going to R2 instead of being inlined in
-the document, which is what keeps hosted projects small.
-
-Published pages are finished HTML written to R2 at publish time, so serving one
-is a cache hit or an object read. No rendering happens on the request path.
 
 ---
 
@@ -269,8 +233,9 @@ stretched with 600k rounds of PBKDF2-SHA256 client-side and only the derived key
 crosses the wire, where the Worker HMACs it with `AUTH_PEPPER` before storing.
 That split exists because a Worker gets 10ms of CPU — a server-side KDF strong
 enough to matter would not fit. Sessions are opaque tokens in `HttpOnly; Secure;
-SameSite=None` cookies; every mutating call must carry `x-cre8-csrf`, which
-forces a CORS preflight that only an allowlisted origin can pass.
+SameSite=Lax` cookies — one origin means the browser blocks cross-site use
+itself. Every mutating call also carries `x-cre8-csrf`, which a cross-site form
+cannot forge.
 
 **Workspaces**  Every account gets a personal one at signup. Projects belong to
 a workspace, and everyone in it can open them. Roles are `owner`, `admin`,
@@ -297,18 +262,25 @@ editor instead of edits that vanish.
 While a room is live the top bar reads **Live** — the room persists every patch,
 so the debounced HTTP autosave stands down entirely.
 
+**Published sites** live at `/s/<projectId>/` on the same origin, and are served
+with a sandbox CSP. A published page can contain author-supplied `<script>`;
+without the sandbox that script would run on the editor's origin with a
+visitor's session attached. Sandboxed, it still runs — analytics keeps working —
+but in an opaque origin with no access to cookies, storage or the API.
+
 ---
 
 ## Scripts
 
 | | |
 |---|---|
-| `npm run dev` | Development server |
-| `npm run build` | Production build |
+| `npm run dev` | Next dev server, editor only (no API) |
+| `npm run build` | Static build into `out/` |
+| `npm run preview` | Build, then run the real Worker locally on `:8787` |
 | `npm run typecheck` | App and Worker |
-| `npm run deploy` | Build and deploy the editor |
-| `npm run deploy:api` | Deploy the API Worker |
+| `npm run deploy` | Build and deploy the whole thing |
 | `npm run db:init` | Apply `workers/schema.sql` to D1 |
+| `npm run db:init:local` | Same, against the local dev database |
 | `node scripts/gen-icons.mjs` | Regenerate the icon set from Lucide |
 
 ---

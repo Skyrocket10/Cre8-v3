@@ -130,7 +130,7 @@ export async function handleSignOut(
 ): Promise<Response> {
   const token = readCookie(request, SESSION_COOKIE);
   if (token) await deleteSession(env, await hashToken(token));
-  return json({ ok: true }, 200, { ...cors, 'set-cookie': clearedSessionCookie() });
+  return json({ ok: true }, 200, { ...cors, 'set-cookie': clearedSessionCookie(env) });
 }
 
 export async function handleMe(
@@ -162,6 +162,6 @@ async function startSession(
 
   return json({ user, teams: await teamsForUser(env, user.id) }, 200, {
     ...cors,
-    'set-cookie': sessionCookie(token, SESSION_TTL_MS / 1000),
+    'set-cookie': sessionCookie(env, token, SESSION_TTL_MS / 1000),
   });
 }

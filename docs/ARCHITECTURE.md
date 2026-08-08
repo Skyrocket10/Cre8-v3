@@ -186,8 +186,8 @@ interface StorageAdapter {
 Two implementations ship: `IndexedDbAdapter` (default — zero infrastructure,
 works offline, no account) and `CloudflareAdapter` (D1 for documents, R2 for
 assets and published files, behind accounts and teams). Which one is active is
-decided by a single build-time variable, `NEXT_PUBLIC_CRE8_API_URL`, read once
-in `getStorage()`. The editor has no idea which is behind it.
+decided by whether an API answered the boot probe, read once in `getStorage()`.
+The editor has no idea which is behind it.
 
 The one thing the interface deliberately does not model is teams, because
 nothing in the editor should have to care. The Cloudflare adapter keeps the
@@ -206,18 +206,68 @@ only ever sees a URL.
 ## 7. Cloudflare shape
 
 ```
-Cloudflare Pages   →  the editor (static)
-Cloudflare Worker  →  API + published-site origin
-Durable Objects    →  one live room per project
-D1                 →  accounts, teams, project documents, deployments, assets
-R2                 →  uploaded assets, generated site files
-Cache              →  everything a visitor loads
+One Worker
+  ├── /*        the editor, static assets, served without invoking the Worker
+  ├── /api/*    accounts, teams, documents, uploads, collaboration
+  └── /s/*      published sites, read from R2
+Durable Objects  →  one live room per project
+D1               →  accounts, teams, project documents, deployments, assets
+R2               →  uploaded assets, generated site files
+Cache            →  published pages
 ```
 
 Publishing uploads finished HTML. Serving a published page is a cache hit or an
 R2 read — the Worker never renders. That is the whole cost argument: a site on
 Cre8 should cost approximately nothing to run, and Worker invocations should
 scale with editing, not with traffic.
+
+### Why one Worker, and what it cost
+
+It started as two — a static-assets Worker for the editor and a script Worker
+for the API — which meant a build-time API URL, a CORS allowlist that had to
+track the deployment, and `SameSite=None` cookies. Three pieces of
+configuration, each with its own way of being silently wrong. Collapsing them
+onto one origin deletes all three: the API is at `/api/*` on whatever host
+served the page.
+
+Two things had to be got right in exchange.
+
+**`not_found_handling: "none"`.** With assets and a handler in the same Worker,
+the asset router decides what happens to a path that matches no file. The
+`404-page` and `single-page-application` modes let it answer by itself, which
+would swallow `/api/*` before the handler ever ran. `"none"` falls through, and
+the Worker serves `out/404.html` itself.
+
+**Published pages had to be quarantined.** They are author-supplied HTML —
+`settings.customHead` and the rich-text block both pass through verbatim — and
+they now sit on the editor's origin. A script on a published page would
+otherwise run *as the editor* in the browser of any signed-in Cre8 user who
+visited it, and could call `/api/*` with their cookie attached: publishing a
+site would amount to account takeover. So `/s/*` is served with
+
+```
+Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-top-navigation
+```
+
+`sandbox` without `allow-same-origin` puts the document in an opaque origin. Its
+scripts still run — analytics snippets keep working — but `document.cookie`
+throws, storage throws, and its requests are cross-site, so the `SameSite=Lax`
+session is never attached. Verified by publishing a page that tries all three
+and confirming a signed-in visitor leaks nothing.
+
+Serving published sites from their own hostname is stronger still; the
+commented-out wildcard route in `wrangler.jsonc` is how. The sandbox is what
+holds while they share one.
+
+### Whether there is a backend is a runtime question
+
+The same static build is served by the Worker (backend present) or dropped on a
+CDN (no backend). It can't be a compile-time constant any more, so
+`SessionProvider` asks `/api/auth/me` once on boot: JSON means hosted, anything
+else means local. `RequireSession` holds the routes back until that lands, which
+is what keeps `getStorage()` from being asked before the answer exists — the
+same ordering trap as the active team, and the reason both are set
+synchronously rather than from an effect.
 
 ---
 
@@ -244,11 +294,13 @@ pepper is what makes the stored verifier useless on its own, since it lives in a
 secret rather than in D1. Unknown emails are compared against a dummy verifier
 so a wrong address costs the same as a wrong password.
 
-Sessions are opaque random tokens, stored hashed, in `HttpOnly; Secure;
-SameSite=None` cookies. `SameSite=None` is forced by the editor and API being on
-different origins, which gives up the browser's built-in CSRF protection — the
-replacement is `x-cre8-csrf`, a non-safelisted header that forces a preflight
-only an allowlisted origin can pass.
+Sessions are opaque random tokens, stored hashed, in `HttpOnly; Secure` cookies.
+`SameSite` follows the deployment: `Lax` on one Worker, where the browser's own
+cross-site rule is the CSRF defence, and `None` when `ALLOWED_ORIGINS` is set,
+because a cross-origin editor's calls would otherwise arrive cookie-less. The
+`x-cre8-csrf` header is kept in both cases — it costs nothing, and it is the
+whole defence in the `None` case, being non-safelisted and so only sendable
+after a preflight an allowlisted origin can pass.
 
 Invites are links rather than emails because there is no mail provider wired in.
 The token is returned exactly once, from the call that creates it; only its hash

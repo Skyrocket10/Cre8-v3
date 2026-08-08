@@ -34,7 +34,7 @@ interface InviteDetails {
 function InviteInner() {
   const token = useSearchParams().get('token') ?? '';
   const router = useRouter();
-  const { status, user, applySession, setActiveTeam } = useSession();
+  const { status, mode, user, applySession, setActiveTeam } = useSession();
 
   const [invite, setInvite] = useState<InviteDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,13 +45,21 @@ function InviteInner() {
       setError('This link is missing its invite code.');
       return;
     }
+    // This page is deliberately outside the auth guard — you should be able to
+    // read an invite before you have an account — so it has to wait for the
+    // backend probe itself. Peeking any earlier fails as "no workspace".
+    if (status === 'loading') return;
+    if (mode === 'local') {
+      setError('This build has no workspace connected.');
+      return;
+    }
     api
       .peekInvite(token)
       .then(setInvite)
       .catch((caught) =>
         setError(caught instanceof ApiError ? caught.message : 'Could not load this invite.')
       );
-  }, [token]);
+  }, [token, status, mode]);
 
   const accept = useCallback(async () => {
     setBusy(true);

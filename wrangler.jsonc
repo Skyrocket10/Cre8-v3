@@ -1,31 +1,71 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
 
-  // Cre8's editor deployed as a Workers static-assets site.
+  // One Worker: the editor, the API and published sites, all on one origin.
   //
-  // There is deliberately no `main`: the app has no server-side code, so this
-  // Worker has no handler at all. Cloudflare serves `out/` straight from the
-  // edge, which means asset requests cost no Worker invocations and the editor
-  // is as cheap to run as a bucket.
+  // The editor is a static Next export in `out/`. Cloudflare's asset router
+  // serves anything that matches a file straight from the edge *without
+  // invoking this Worker*, so the app itself still costs no invocations — the
+  // handler only runs for /api/*, /s/* and genuine 404s.
   //
-  // This file also has to exist for a second reason. `wrangler deploy` on a
-  // repo with no config detects "Framework: Next.js" and auto-runs
-  // `@opennextjs/cloudflare migrate`, which rewrites next.config.ts and then
-  // fails, because OpenNext bundles a *server* build (.next/standalone) and a
-  // static export doesn't produce one. A committed config stops that guesswork.
+  // One origin is what removes three separate pieces of configuration: no
+  // build-time API URL to bake in, no CORS allowlist to keep in step with the
+  // deployment, and no SameSite=None cookies. See src/index.ts.
   //
-  // The API and published sites are a separate Worker — see workers/.
+  // `not_found_handling: "none"` is load-bearing. The other modes let the asset
+  // router answer unmatched paths itself, which would swallow /api/* before the
+  // handler ever saw it. "none" falls through to the Worker, which serves
+  // out/404.html for anything it does not recognise.
 
-  "name": "cre8-v3",
+  "name": "cre8",
+  "main": "workers/src/index.ts",
   "compatibility_date": "2026-08-08",
 
   "assets": {
     "directory": "./out",
-    // Serves out/404.html for unknown paths, matching the Next export.
-    "not_found_handling": "404-page"
+    "binding": "ASSETS",
+    "not_found_handling": "none"
   },
 
   "observability": {
     "enabled": true
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cre8",
+      "database_id": "0375dbbf-261d-40a6-9000-28e24a1d6d4e"
+    }
+  ],
+
+  "r2_buckets": [
+    { "binding": "UPLOADS", "bucket_name": "cre8-assets" },
+    { "binding": "SITES", "bucket_name": "cre8-sites" }
+  ],
+
+  // One instance per project: holds the live document, serialises edits and
+  // fans out presence. See workers/src/room.ts.
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "ProjectRoom" }]
+  },
+
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] }],
+
+  "vars": {
+    // Only needed if you serve the editor from somewhere other than this
+    // Worker. Same-origin requests need no entry here, and an empty list means
+    // the API answers same-origin callers only.
+    "ALLOWED_ORIGINS": "",
+
+    // Set to "false" to close signups once your team has accounts.
+    "ALLOW_SIGNUP": "true"
   }
+
+  // Published sites are served from /s/<projectId>/ on this origin, sandboxed
+  // so their JavaScript cannot reach the editor session (see serveSite).
+  // To put them on their own hostname instead — stronger isolation, and nicer
+  // URLs — add a wildcard route and switch routes.publishedSite():
+  //
+  // "routes": [{ "pattern": "*.cre8.site/*", "zone_name": "cre8.site" }]
 }

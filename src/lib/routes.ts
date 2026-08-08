@@ -10,14 +10,28 @@
  * is one file rather than a hunt through components.
  */
 
+import { hasBackend } from './api/client';
+
 export const routes = {
   dashboard: () => '/',
 
   editor: (projectId: string) => `/editor?p=${encodeURIComponent(projectId)}`,
 
-  /** Local preview of published output. Real published sites are served by the Worker. */
-  publishedSite: (projectId: string, slug = '') =>
-    slug
+  /**
+   * Where a published site actually lives.
+   *
+   * With the Worker deployed this is the real thing, served from R2 on this
+   * same origin — so the link in the publish dialog is the link you can send
+   * someone. With no backend there is nowhere to publish *to*, so it falls back
+   * to the in-browser preview that renders from IndexedDB.
+   */
+  publishedSite: (projectId: string, slug = '') => {
+    if (hasBackend()) {
+      const base = `/s/${encodeURIComponent(projectId)}/`;
+      return slug ? `${base}${slug.split('/').map(encodeURIComponent).join('/')}` : base;
+    }
+    return slug
       ? `/site?p=${encodeURIComponent(projectId)}&page=${encodeURIComponent(slug)}`
-      : `/site?p=${encodeURIComponent(projectId)}`,
+      : `/site?p=${encodeURIComponent(projectId)}`;
+  },
 };
