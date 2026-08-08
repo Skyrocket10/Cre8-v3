@@ -1,0 +1,9 @@
+# Cloudflare Pages redirects.
+#
+# Cre8 exports to static files, so project ids travel in the query string
+# (see src/lib/routes.ts). These rules keep path-shaped links working for
+# anyone who bookmarked or shared one.
+
+/editor/:id      /editor?p=:id          302
+/site/:id        /site?p=:id            302
+/site/:id/:slug  /site?p=:id&page=:slug 302

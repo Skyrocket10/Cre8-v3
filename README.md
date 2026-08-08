@@ -57,6 +57,10 @@ breakpoints — which is why a 390px frame in the canvas behaves exactly like a
 
 ## Layout
 
+Routes carry the project id in the query string (`/editor?p=…`) rather than the
+path, because a static export can't enumerate project ids at build time. All URL
+construction goes through `src/lib/routes.ts`.
+
 ```
 src/
   app/                      routes: dashboard, editor, published site
@@ -106,14 +110,34 @@ The full list is in the editor — the keyboard icon, bottom right.
 
 ## Deploying
 
-The editor is a static Next.js app; the API and published sites are a
-Cloudflare Worker over D1 and R2.
+`npm run build` produces a fully static site in `out/` — no server, no runtime,
+nothing to pay for per request. It drops onto any CDN.
+
+### Cloudflare Pages
+
+In the Pages project settings:
+
+| | |
+|---|---|
+| Build command | `npm run build` |
+| Build output directory | `out` |
+
+That's it. **Do not** add `wrangler pages deploy` to the build command — Pages
+uploads the output directory itself, and running the CLI inside the build fails
+for want of a `CLOUDFLARE_API_TOKEN`.
+
+To deploy from your own machine or CI instead, set `CLOUDFLARE_API_TOKEN` and:
 
 ```bash
-# editor
-npm run build && npx wrangler pages deploy .next
+npm run build && npx wrangler pages deploy out
+```
 
-# api + published sites
+### API and published sites (optional)
+
+Only needed if you want hosted projects and published sites on your own domain;
+the editor works with no backend at all.
+
+```bash
 cd workers
 wrangler d1 create cre8                       # put the id in wrangler.toml
 wrangler d1 execute cre8 --file=./schema.sql

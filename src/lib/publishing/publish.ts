@@ -11,6 +11,7 @@
 
 import { getStorage, type PublishedSite } from '../api/storage';
 import { slugify } from '../document/id';
+import { routes } from '../routes';
 import type { Cre8Document } from '../document/types';
 import { generateSite, pagePath, renderPage } from './html';
 import { createZip, downloadBlob } from './zip';
@@ -46,7 +47,7 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
     site,
     bytes: generated.totalBytes,
     pageCount: generated.pageCount,
-    url: `/site/${doc.id}`,
+    url: routes.publishedSite(doc.id),
   };
 }
 

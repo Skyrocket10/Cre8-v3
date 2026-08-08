@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, Ellipsis, Plus, Rocket, Trash2 } from 'lucide-react';
 import { getStorage } from '@/lib/api/storage';
 import type { ProjectSummary } from '@/lib/document/types';
+import { routes } from '@/lib/routes';
 import { TEMPLATES } from '@/lib/templates';
 import { cn, relativeTime } from '@/lib/utils/cn';
 import { Button, Popover, Skeleton } from '@/components/ui/primitives';
@@ -46,7 +47,7 @@ export default function DashboardPage() {
         if (!template) return;
         const doc = template.build();
         await getStorage().saveProject(doc);
-        router.push(`/editor/${doc.id}`);
+        router.push(routes.editor(doc.id));
       } catch (error) {
         console.error('[cre8] could not create project', error);
         setCreating(null);
@@ -119,7 +120,7 @@ export default function DashboardPage() {
                 <ProjectCard
                   key={project.id}
                   project={project}
-                  onOpen={() => router.push(`/editor/${project.id}`)}
+                  onOpen={() => router.push(routes.editor(project.id))}
                   onDelete={() => void remove(project.id)}
                 />
               ))}

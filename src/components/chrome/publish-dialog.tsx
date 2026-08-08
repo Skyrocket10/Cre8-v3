@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowUpRight, Check, Download, FileCode2, X } from 'lucide-react';
 import { exportProject, type PublishResult } from '@/lib/publishing/publish';
+import { routes } from '@/lib/routes';
 import { useEditor } from '@/lib/editor/store';
 import { formatBytes } from '@/lib/utils/cn';
 import { Button } from '../ui/primitives';
@@ -97,7 +98,7 @@ export function PublishDialog({
             {result.site.pages.map((page) => (
               <a
                 key={page.slug}
-                href={`${result.url}${page.slug ? `/${page.slug}` : ''}`}
+                href={routes.publishedSite(result.site.projectId, page.slug)}
                 target="_blank"
                 rel="noreferrer"
                 className="group flex items-center gap-2 border-b border-[var(--border-soft)] px-3 py-2 text-[11.5px] transition-colors last:border-b-0 hover:bg-[var(--field)]"

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getStorage, type PublishedSite } from '@/lib/api/storage';
+import { routes } from '@/lib/routes';
 
 /**
  * Mounts a published page.
@@ -80,7 +81,7 @@ function Notice({
       <p className="text-[15px] font-medium text-[var(--text)]">{title}</p>
       <p className="max-w-[320px] text-[12.5px] leading-relaxed text-[var(--text-muted)]">{body}</p>
       <Link
-        href={`/editor/${projectId}`}
+        href={routes.editor(projectId)}
         className="mt-1 rounded-md bg-[var(--field)] px-3 py-1.5 text-[11.5px] text-[var(--text)] transition-colors hover:bg-[var(--field-hover)]"
       >
         Open in the editor
