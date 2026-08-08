@@ -44,6 +44,11 @@
     { "binding": "SITES", "bucket_name": "cre8-sites" }
   ],
 
+  // hostname → project id, written here on publish and read by the sites
+  // Worker. KV rather than D1 because it is read on the highest-volume path in
+  // the system, and it keeps the sites Worker off the database entirely.
+  "kv_namespaces": [{ "binding": "SITE_ROUTES", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+
   // One instance per project: holds the live document, serialises edits and
   // fans out presence. See workers/src/room.ts.
   "durable_objects": {
@@ -59,13 +64,20 @@
     "ALLOWED_ORIGINS": "",
 
     // Set to "false" to close signups once your team has accounts.
-    "ALLOW_SIGNUP": "true"
+    "ALLOW_SIGNUP": "true",
+
+    // ── CHANGE THIS ───────────────────────────────────────────────────────
+    // Apex for published sites. Must match the wildcard route in
+    // workers/sites/wrangler.jsonc — these are the only two places it appears.
+    //
+    // Projects publish to <subdomain>.<PUBLIC_SITE_DOMAIN>. Leave it empty and
+    // the whole mechanism switches off: no second Worker, and sites stay on
+    // this one at /s/<projectId>/, sandboxed.
+    "PUBLIC_SITE_DOMAIN": "cre8.app"
   }
 
-  // Published sites are served from /s/<projectId>/ on this origin, sandboxed
-  // so their JavaScript cannot reach the editor session (see serveSite).
-  // To put them on their own hostname instead — stronger isolation, and nicer
-  // URLs — add a wildcard route and switch routes.publishedSite():
-  //
-  // "routes": [{ "pattern": "*.cre8.site/*", "zone_name": "cre8.site" }]
+  // `/s/<projectId>/` still works on this Worker whatever PUBLIC_SITE_DOMAIN
+  // says. It is the fallback for a one-Worker deploy and for local dev, and it
+  // is served with a sandbox CSP because on this origin it shares a domain with
+  // the session. The sites Worker needs no such thing.
 }

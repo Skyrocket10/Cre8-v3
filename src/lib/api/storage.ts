@@ -19,8 +19,20 @@ export interface StorageAdapter {
   loadProject(id: string): Promise<Cre8Document | null>;
   saveProject(doc: Cre8Document): Promise<void>;
   deleteProject(id: string): Promise<void>;
-  /** Published output, addressed by project id. */
-  savePublished(projectId: string, site: PublishedSite): Promise<void>;
+  /**
+   * Published output, addressed by project id.
+   *
+   * `files` is the complete generated site — pages plus sitemap.xml and
+   * robots.txt — because a host serves files, not pages. `site` is the same
+   * content in the shape the in-browser preview reads. A hosted adapter uploads
+   * the former and returns where it landed; the local one keeps the latter and
+   * returns nothing.
+   */
+  savePublished(
+    projectId: string,
+    site: PublishedSite,
+    files: PublishedFile[]
+  ): Promise<PublishedInfo | void>;
   loadPublished(projectId: string): Promise<PublishedSite | null>;
   /**
    * Store asset bytes somewhere durable and return a URL.
@@ -44,6 +56,21 @@ export interface PublishedSite {
   publishedAt: number;
   pages: PublishedPage[];
   bytes: number;
+}
+
+export interface PublishedFile {
+  path: string;
+  contents: string;
+}
+
+/** Where a published site ended up, once the host has decided. */
+export interface PublishedInfo {
+  /** Absolute when the site has its own domain; a same-origin path otherwise. */
+  url: string;
+  /** Hostname label, when the deployment gives sites their own domain. */
+  subdomain?: string;
+  /** Apex those subdomains hang off, e.g. `cre8.app`. */
+  siteDomain?: string;
 }
 
 const DB_NAME = 'cre8';

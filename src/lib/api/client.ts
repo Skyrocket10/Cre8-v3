@@ -232,7 +232,13 @@ export const api = {
     }>(`/api/projects${teamId ? `?team=${encodeURIComponent(teamId)}` : ''}`),
 
   getProject: (id: string) =>
-    call<{ document: Cre8Document; version: number; role: Role }>(`/api/projects/${id}`),
+    call<{
+      document: Cre8Document;
+      version: number;
+      role: Role;
+      subdomain: string | null;
+      siteDomain: string;
+    }>(`/api/projects/${id}`),
 
   saveProject: (doc: Cre8Document & { teamId?: string }) =>
     call<{ ok: true; version: number }>('/api/projects', {
@@ -243,10 +249,21 @@ export const api = {
   deleteProject: (id: string) => call<{ ok: true }>(`/api/projects/${id}`, { method: 'DELETE' }),
 
   publish: (id: string, files: { path: string; contents: string }[]) =>
-    call<{ ok: true; publishedAt: number; bytes: number; url: string }>(
-      `/api/projects/${id}/publish`,
-      { method: 'POST', body: JSON.stringify({ files }) }
-    ),
+    call<{
+      ok: true;
+      publishedAt: number;
+      bytes: number;
+      url: string;
+      subdomain: string;
+      siteDomain: string;
+    }>(`/api/projects/${id}/publish`, { method: 'POST', body: JSON.stringify({ files }) }),
+
+  /** Rename a published site's address. Frees the old hostname immediately. */
+  setSubdomain: (id: string, subdomain: string) =>
+    call<{ subdomain: string }>(`/api/projects/${id}/subdomain`, {
+      method: 'PUT',
+      body: JSON.stringify({ subdomain }),
+    }),
 
   uploadAsset: async (projectId: string, blob: Blob, filename: string) => {
     const form = new FormData();

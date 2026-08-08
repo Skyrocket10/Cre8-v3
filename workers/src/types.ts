@@ -6,8 +6,23 @@ export interface Env {
   UPLOADS: R2Bucket;
   /** Generated HTML for published sites. */
   SITES: R2Bucket;
+  /**
+   * hostname → project id, for the published-sites Worker.
+   *
+   * KV rather than D1 because this is read on the highest-volume path in the
+   * system — every request to every published page — and it keeps the sites
+   * Worker off the database entirely. Written here, at publish time.
+   */
+  SITE_ROUTES: KVNamespace;
   /** One instance per project; holds the live document and the peer list. */
   ROOMS: DurableObjectNamespace;
+
+  /**
+   * Apex for published sites, e.g. `cre8.app`. A project publishes to
+   * `<subdomain>.<PUBLIC_SITE_DOMAIN>`. Empty disables the whole mechanism and
+   * sites stay on this Worker's `/s/<projectId>/` path.
+   */
+  PUBLIC_SITE_DOMAIN?: string;
 
   /**
    * Comma-separated exact origins allowed to call the API with credentials.
@@ -67,6 +82,7 @@ export interface ProjectRow {
   document: string;
   page_count: number;
   version: number;
+  subdomain: string | null;
   created_at: number;
   updated_at: number;
 }

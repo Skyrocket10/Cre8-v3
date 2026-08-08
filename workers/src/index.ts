@@ -46,6 +46,7 @@ import {
   handleListProjects,
   handlePublish,
   handleSaveProject,
+  handleSetSubdomain,
   handleSocket,
   SITE_CACHE_CONTROL,
 } from './routes/projects';
@@ -193,6 +194,8 @@ function projectRoutes(
     if (method === 'DELETE') return handleDeleteProject(env, projectId, user, cors);
   } else if (section === 'publish' && method === 'POST') {
     return handlePublish(request, env, projectId, user, cors);
+  } else if (section === 'subdomain' && method === 'PUT') {
+    return handleSetSubdomain(request, env, projectId, user, cors);
   } else if (section === 'socket') {
     // A 101 upgrade carries no CORS headers, so this one skips them.
     return handleSocket(env, projectId, user);

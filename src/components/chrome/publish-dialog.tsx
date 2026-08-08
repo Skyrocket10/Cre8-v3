@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpRight, Check, Download, FileCode2, X } from 'lucide-react';
+import { ArrowUpRight, Check, Copy, Download, FileCode2, Globe, Pencil, X } from 'lucide-react';
+import { api, ApiError } from '@/lib/api/client';
 import { exportProject, type PublishResult } from '@/lib/publishing/publish';
 import { routes } from '@/lib/routes';
 import { useEditor } from '@/lib/editor/store';
-import { formatBytes } from '@/lib/utils/cn';
+import { cn, formatBytes } from '@/lib/utils/cn';
 import { Button } from '../ui/primitives';
 
 export function Modal({
@@ -75,6 +76,13 @@ export function PublishDialog({
   onClose: () => void;
 }) {
   const doc = useEditor((s) => s.doc);
+  const [address, setAddress] = useState<string | null>(null);
+
+  // The dialog outlives one publish, so the address has to reset with it.
+  useEffect(() => setAddress(result?.subdomain ?? null), [result?.subdomain]);
+
+  const siteUrl =
+    address && result?.siteDomain ? `https://${address}.${result.siteDomain}/` : result?.url;
 
   return (
     <Modal open={Boolean(result)} onClose={onClose} title="Published" width={440}>
@@ -94,11 +102,24 @@ export function PublishDialog({
             </div>
           </div>
 
+          {result.siteDomain && address && (
+            <SiteAddress
+              projectId={result.site.projectId}
+              subdomain={address}
+              domain={result.siteDomain}
+              onChange={setAddress}
+            />
+          )}
+
           <div className="mx-4 mb-3 rounded-lg border border-[var(--border)] bg-[var(--panel)]">
             {result.site.pages.map((page) => (
               <a
                 key={page.slug}
-                href={routes.publishedSite(result.site.projectId, page.slug)}
+                href={
+                  address && result.siteDomain
+                    ? `https://${address}.${result.siteDomain}/${page.slug}`
+                    : routes.publishedSite(result.site.projectId, page.slug)
+                }
                 target="_blank"
                 rel="noreferrer"
                 className="group flex items-center gap-2 border-b border-[var(--border-soft)] px-3 py-2 text-[11.5px] transition-colors last:border-b-0 hover:bg-[var(--field)]"
@@ -128,7 +149,7 @@ export function PublishDialog({
             <Button
               size="md"
               variant="primary"
-              onClick={() => window.open(result.url, '_blank', 'noreferrer')}
+              onClick={() => window.open(siteUrl, '_blank', 'noreferrer')}
             >
               View site
               <ArrowUpRight size={12} />
@@ -137,5 +158,134 @@ export function PublishDialog({
         </div>
       )}
     </Modal>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Site address
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The site's own hostname, shown the moment it exists.
+ *
+ * A project earns an address on its first publish rather than at creation —
+ * most projects are never published, and reserving names for them would just
+ * be squatting. So this is the first time anyone sees it, which makes it the
+ * right place to let them change it.
+ *
+ * Renaming frees the old hostname immediately: leaving it resolving would mean
+ * a site still answering at an address its owner believes they gave up.
+ */
+function SiteAddress({
+  projectId,
+  subdomain,
+  domain,
+  onChange,
+}: {
+  projectId: string;
+  subdomain: string;
+  domain: string;
+  onChange: (next: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(subdomain);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const url = `https://${subdomain}.${domain}/`;
+
+  const save = async () => {
+    const next = draft.trim().toLowerCase();
+    if (next === subdomain) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.setSubdomain(projectId, next);
+      onChange(result.subdomain);
+      setEditing(false);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not change the address');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(url).catch(() => undefined);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  if (editing) {
+    return (
+      <div className="mx-4 mb-3 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3">
+        <div className="flex items-center gap-1.5">
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void save();
+              if (e.key === 'Escape') {
+                setDraft(subdomain);
+                setEditing(false);
+              }
+            }}
+            className={cn(
+              'h-8 min-w-0 flex-1 rounded-md bg-[var(--field)] px-2.5 text-right font-mono',
+              'text-[12px] text-[var(--text)] outline-none focus:ring-1 focus:ring-[var(--accent)] focus:ring-inset'
+            )}
+          />
+          <span className="shrink-0 font-mono text-[12px] text-[var(--text-faint)]">.{domain}</span>
+          <Button size="md" variant="primary" loading={busy} onClick={() => void save()}>
+            Save
+          </Button>
+        </div>
+        {error ? (
+          <p className="mt-2 text-[11px] text-[var(--danger)]">{error}</p>
+        ) : (
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+            Lowercase letters, numbers and hyphens. The old address stops working straight away.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-4 mb-3 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5">
+      <Globe size={13} className="shrink-0 text-[var(--success)]" />
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--text)] transition-opacity hover:opacity-75"
+      >
+        {subdomain}.{domain}
+      </a>
+      <button
+        type="button"
+        aria-label="Copy site address"
+        onClick={() => void copy()}
+        className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-faint)] transition-colors hover:bg-[var(--field)] hover:text-[var(--text)]"
+      >
+        {copied ? <Check size={11} className="text-[var(--success)]" /> : <Copy size={11} />}
+      </button>
+      <button
+        type="button"
+        aria-label="Change site address"
+        onClick={() => {
+          setDraft(subdomain);
+          setEditing(true);
+        }}
+        className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-faint)] transition-colors hover:bg-[var(--field)] hover:text-[var(--text)]"
+      >
+        <Pencil size={11} />
+      </button>
+    </div>
   );
 }

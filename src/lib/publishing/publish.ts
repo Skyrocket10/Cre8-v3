@@ -22,6 +22,9 @@ export interface PublishResult {
   pageCount: number;
   /** Where the published home page can be viewed. */
   url: string;
+  /** Present when the deployment gives published sites their own domain. */
+  subdomain?: string;
+  siteDomain?: string;
 }
 
 export async function publishProject(doc: Cre8Document): Promise<PublishResult> {
@@ -41,13 +44,21 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
       })),
   };
 
-  await getStorage().savePublished(doc.id, site);
+  const info = await getStorage().savePublished(
+    doc.id,
+    site,
+    generated.files.map((f) => ({ path: f.path, contents: f.contents }))
+  );
 
   return {
     site,
     bytes: generated.totalBytes,
     pageCount: generated.pageCount,
-    url: routes.publishedSite(doc.id),
+    // The host is the authority on where a site lives — it may have given the
+    // project a domain of its own. Only fall back to a local route if not.
+    url: info?.url ?? routes.publishedSite(doc.id),
+    ...(info?.subdomain ? { subdomain: info.subdomain } : {}),
+    ...(info?.siteDomain ? { siteDomain: info.siteDomain } : {}),
   };
 }
 

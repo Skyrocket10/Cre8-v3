@@ -17,3 +17,4 @@ coverage/
 # a static export and does not use OpenNext — see wrangler.jsonc.
 .open-next/
 .dev.vars
+workers/sites/wrangler.local.jsonc

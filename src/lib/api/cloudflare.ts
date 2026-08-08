@@ -10,9 +10,8 @@
 
 import { hydrateDocument } from '../document/factory';
 import type { Cre8Document, ProjectSummary } from '../document/types';
-import { generateSite } from '../publishing/html';
 import { api, ApiError } from './client';
-import type { PublishedSite, StorageAdapter } from './storage';
+import type { PublishedFile, PublishedInfo, PublishedSite, StorageAdapter } from './storage';
 
 /**
  * Which team new projects belong to.
@@ -64,15 +63,22 @@ export class CloudflareAdapter implements StorageAdapter {
   /**
    * Publishing uploads finished files. The Worker writes them to R2 and never
    * renders, so serving a published page costs a cache lookup rather than CPU.
+   *
+   * The whole generated tree goes up, not just the pages — sitemap.xml and
+   * robots.txt are part of a published site, and a host that only receives
+   * pages silently drops them.
    */
-  async savePublished(projectId: string, site: PublishedSite): Promise<void> {
-    await api.publish(
-      projectId,
-      site.pages.map((page) => ({
-        path: page.slug === '' ? 'index.html' : `${page.slug}/index.html`,
-        contents: page.html,
-      }))
-    );
+  async savePublished(
+    projectId: string,
+    _site: PublishedSite,
+    files: PublishedFile[]
+  ): Promise<PublishedInfo> {
+    const result = await api.publish(projectId, files);
+    return {
+      url: result.url,
+      subdomain: result.subdomain,
+      siteDomain: result.siteDomain,
+    };
   }
 
   /** Published sites are served by the Worker, not read back through the API. */
@@ -83,13 +89,4 @@ export class CloudflareAdapter implements StorageAdapter {
   async uploadAsset(projectId: string, file: Blob, filename: string): Promise<string> {
     return api.uploadAsset(projectId, file, filename);
   }
-}
-
-/** Publish including sitemap.xml and robots.txt, not just the pages. */
-export async function publishToCloudflare(doc: Cre8Document): Promise<void> {
-  const generated = generateSite(doc);
-  await api.publish(
-    doc.id,
-    generated.files.map((f) => ({ path: f.path, contents: f.contents }))
-  );
 }

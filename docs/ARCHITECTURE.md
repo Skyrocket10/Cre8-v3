@@ -206,29 +206,43 @@ only ever sees a URL.
 ## 7. Cloudflare shape
 
 ```
-One Worker
-  ├── /*        the editor, static assets, served without invoking the Worker
-  ├── /api/*    accounts, teams, documents, uploads, collaboration
-  └── /s/*      published sites, read from R2
+cre8              app origin
+  ├── /*          the editor, static assets, served without invoking the Worker
+  ├── /api/*      accounts, teams, documents, uploads, collaboration
+  └── /s/*        published sites — fallback only, sandboxed
+
+cre8-sites        *.cre8.app
+  └── /*          published sites, hostname → KV → R2
+
 Durable Objects  →  one live room per project
-D1               →  accounts, teams, project documents, deployments, assets
+D1               →  accounts, teams, project documents, deployments
+KV               →  hostname → project id
 R2               →  uploaded assets, generated site files
 Cache            →  published pages
 ```
+
+Two Workers, split along the one seam that is a trust boundary rather than a
+naming convention. Everything the editor needs is on one origin; everything a
+stranger's browser executes is on another.
 
 Publishing uploads finished HTML. Serving a published page is a cache hit or an
 R2 read — the Worker never renders. That is the whole cost argument: a site on
 Cre8 should cost approximately nothing to run, and Worker invocations should
 scale with editing, not with traffic.
 
-### Why one Worker, and what it cost
+### Why the editor and the API share an origin
 
-It started as two — a static-assets Worker for the editor and a script Worker
-for the API — which meant a build-time API URL, a CORS allowlist that had to
-track the deployment, and `SameSite=None` cookies. Three pieces of
-configuration, each with its own way of being silently wrong. Collapsing them
-onto one origin deletes all three: the API is at `/api/*` on whatever host
-served the page.
+They started apart — a static-assets Worker for the editor, a script Worker for
+the API — which meant a build-time API URL, a CORS allowlist that had to track
+the deployment, and `SameSite=None` cookies. Three pieces of configuration, each
+with its own way of being silently wrong. Putting them on one origin deletes all
+three: the API is at `/api/*` on whatever host served the page.
+
+That is the opposite of the split below, and deliberately so. Splitting a
+service costs configuration and buys isolation; it is worth paying only where
+there is a trust boundary to enforce. Between the editor and its own API there
+is none — they are the same product, serving the same signed-in person.
+Between the editor and a stranger's published JavaScript there very much is.
 
 Two things had to be got right in exchange.
 
@@ -239,11 +253,14 @@ would swallow `/api/*` before the handler ever ran. `"none"` falls through, and
 the Worker serves `out/404.html` itself.
 
 **Published pages had to be quarantined.** They are author-supplied HTML —
-`settings.customHead` and the rich-text block both pass through verbatim — and
-they now sit on the editor's origin. A script on a published page would
-otherwise run *as the editor* in the browser of any signed-in Cre8 user who
-visited it, and could call `/api/*` with their cookie attached: publishing a
-site would amount to account takeover. So `/s/*` is served with
+`settings.customHead` and the rich-text block both pass through verbatim. A
+script on a published page served from the editor's origin would run *as the
+editor* in the browser of any signed-in Cre8 user who visited it, and could call
+`/api/*` with their cookie attached: publishing a site would amount to account
+takeover.
+
+The answer is the second Worker (below). While a deployment has no site domain
+configured, `/s/*` on the main Worker is the fallback, and there the defence is
 
 ```
 Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-top-navigation
@@ -255,9 +272,32 @@ throws, storage throws, and its requests are cross-site, so the `SameSite=Lax`
 session is never attached. Verified by publishing a page that tries all three
 and confirming a signed-in visitor leaks nothing.
 
-Serving published sites from their own hostname is stronger still; the
-commented-out wildcard route in `wrangler.jsonc` is how. The sandbox is what
-holds while they share one.
+### The second Worker
+
+`workers/sites/` serves published sites on `*.cre8.app`. It has no D1, no
+Durable Objects, no secrets and no write path. The only two things it can reach
+are a KV map of hostname → project id and the bucket the API wrote the files
+into, both read-only.
+
+A sandbox is a mitigation; a different registrable domain is the boundary. And
+it costs the sites nothing — the sandbox took away storage, service workers and
+any future per-site auth, and on their own origin they get all of it back.
+
+**KV, not D1, for the hostname map.** This is the highest-volume lookup in the
+system — every request to every published page — and routing it through the
+database would put the busiest path on the scarcest resource. KV is
+edge-cached, and the API writes the mapping at publish time. It also keeps the
+D1-behind-the-API boundary intact: the sites Worker cannot reach the database
+even if it wanted to.
+
+The map is keyed on **hostname**, not on subdomain, so pointing a customer's own
+domain at a project is one more KV entry and no code change.
+
+A project earns its address on first publish, not at creation — most projects
+are never published, and reserving names for them would be squatting. The
+unique index on `projects.subdomain` is the real arbiter of collisions rather
+than a `SELECT` check, because two people publishing similarly named projects
+in the same moment both pass the check and only the write can settle it.
 
 ### Whether there is a backend is a runtime question
 

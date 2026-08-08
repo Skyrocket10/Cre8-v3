@@ -8,9 +8,11 @@
     "build": "next build",
     "start": "npx serve out",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit && tsc -p workers/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc -p workers/tsconfig.json && tsc -p workers/sites/tsconfig.json",
     "deploy": "next build && wrangler deploy",
-    "preview": "next build && wrangler dev",
+    "deploy:sites": "wrangler deploy --config workers/sites/wrangler.jsonc",
+    "preview": "next build && wrangler dev --persist-to .wrangler/state",
+    "preview:sites": "wrangler dev --config workers/sites/wrangler.jsonc --port 8788 --persist-to ../../.wrangler/state",
     "db:init": "wrangler d1 execute cre8 --remote --file=./workers/schema.sql",
     "db:init:local": "wrangler d1 execute cre8 --local --file=./workers/schema.sql"
   },

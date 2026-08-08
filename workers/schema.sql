@@ -94,11 +94,24 @@ CREATE TABLE IF NOT EXISTS projects (
   -- Bumped by the collaboration room on every accepted change. Clients fence
   -- their writes against it so a stale write can never silently win.
   version     INTEGER NOT NULL DEFAULT 0,
+  -- Label of the published site's hostname: <subdomain>.<PUBLIC_SITE_DOMAIN>.
+  -- Assigned on first publish, editable after. NULL until then, and the unique
+  -- index below ignores NULLs, so unpublished projects don't collide.
+  subdomain   TEXT,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS projects_team_updated ON projects (team_id, updated_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS projects_subdomain ON projects (subdomain);
+
+-- Upgrading a database created before subdomains existed? `ALTER TABLE` has no
+-- IF NOT EXISTS in SQLite, so it cannot live above. Run it once, by hand:
+--
+--   npx wrangler d1 execute cre8 --remote \
+--     --command "ALTER TABLE projects ADD COLUMN subdomain TEXT"
+--
+-- then re-run this file to pick up the index.
 
 CREATE TABLE IF NOT EXISTS deployments (
   id            TEXT PRIMARY KEY,

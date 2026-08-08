@@ -1,0 +1,40 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+
+  // Published sites, on their own domain.
+  //
+  // Deliberately separate from the editor Worker: published pages contain
+  // author-supplied HTML, and on the editor's origin their scripts would run
+  // with a signed-in visitor's session. See index.ts for the full reasoning.
+  //
+  // Deploy:  npm run deploy:sites
+  // Locally: npm run preview:sites  (alongside `npm run preview`)
+  //
+  // Both dev servers must share one local state directory or this Worker reads
+  // an empty KV and serves 404s for everything. `--persist-to` resolves
+  // relative to *this file*, not the working directory, which is why the
+  // script passes `../../.wrangler/state`.
+  //
+  // ── CHANGE THIS ─────────────────────────────────────────────────────────
+  // `cre8.app` below (both places) must be a zone on your Cloudflare account,
+  // and it must match PUBLIC_SITE_DOMAIN in the root wrangler.jsonc. Those are
+  // the only two places the domain appears.
+  //
+  // A wildcard route needs a zone — this cannot run on workers.dev.
+
+  "name": "cre8-sites",
+  "main": "index.ts",
+  "compatibility_date": "2026-08-08",
+
+  "routes": [{ "pattern": "*.cre8.app/*", "zone_name": "cre8.app" }],
+
+  "observability": { "enabled": true },
+
+  // Written by the API on publish, read-only here.
+  "kv_namespaces": [{ "binding": "SITE_ROUTES", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+
+  "r2_buckets": [{ "binding": "SITES", "bucket_name": "cre8-sites" }]
+
+  // Note what is *not* bound: no D1, no Durable Objects, no secrets, no write
+  // path. The blast radius of this Worker is the files it can already serve.
+}
