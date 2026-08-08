@@ -1,36 +1,116 @@
 -- Cre8 — D1 schema.
 --
--- Deliberately thin. The editor's document is a single JSON blob because the
--- server never needs to reason about its contents: all structure lives in the
--- client-side document model, and querying inside a design would buy nothing.
--- When the CMS layer arrives it gets its own tables alongside these; the
--- document format does not change.
+-- Safe to re-run: every statement is guarded. If you applied the pre-accounts
+-- version of this file, run migrations/0002_accounts_and_teams.sql instead of
+-- editing tables by hand — `CREATE TABLE IF NOT EXISTS` will not add the new
+-- columns to a table that already exists.
+--
+-- Design notes
+--
+--  • A project document is a single JSON blob. The server never reasons about
+--    its contents; all structure lives in the client-side document model, and
+--    querying inside a design would buy nothing.
+--  • Everything is owned by a team, never directly by a user. A solo account
+--    still gets a team of one, so sharing later is a membership row rather than
+--    a data migration.
+
+/* ---------------------------------------------------------------- accounts */
+
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  email         TEXT NOT NULL UNIQUE,       -- always stored lowercased
+  name          TEXT NOT NULL,
+  -- HMAC(PEPPER, client-derived key). The expensive KDF runs in the browser;
+  -- see workers/src/lib/crypto.ts for why.
+  verifier      TEXT NOT NULL,
+  -- Identifies the hashing scheme so it can be rotated without a flag day.
+  auth_version  INTEGER NOT NULL DEFAULT 1,
+  avatar_hue    INTEGER NOT NULL DEFAULT 220,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  -- SHA-256 of the cookie token. A database leak must not yield live sessions.
+  token_hash  TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  user_agent  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id, expires_at DESC);
+
+/* ------------------------------------------------------------------- teams */
+
+CREATE TABLE IF NOT EXISTS teams (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  created_by  TEXT NOT NULL REFERENCES users (id),
+  created_at  INTEGER NOT NULL,
+  -- Set on the team created automatically at signup, so the UI can label it.
+  personal    INTEGER NOT NULL DEFAULT 0
+);
+
+-- owner  — billing and deletion, cannot be removed by others
+-- admin  — manage members and projects
+-- editor — edit projects
+-- viewer — read and preview only
+CREATE TABLE IF NOT EXISTS team_members (
+  team_id    TEXT NOT NULL REFERENCES teams (id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  role       TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (team_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS team_members_user ON team_members (user_id);
+
+CREATE TABLE IF NOT EXISTS invites (
+  id          TEXT PRIMARY KEY,
+  team_id     TEXT NOT NULL REFERENCES teams (id) ON DELETE CASCADE,
+  email       TEXT NOT NULL,               -- lowercased
+  role        TEXT NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+  -- SHA-256 of the invite token, same reasoning as sessions.
+  token_hash  TEXT NOT NULL UNIQUE,
+  invited_by  TEXT NOT NULL REFERENCES users (id),
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  accepted_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS invites_team ON invites (team_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS invites_email ON invites (email) WHERE accepted_at IS NULL;
+
+/* ---------------------------------------------------------------- projects */
 
 CREATE TABLE IF NOT EXISTS projects (
   id          TEXT PRIMARY KEY,
-  owner_id    TEXT NOT NULL,
+  team_id     TEXT NOT NULL REFERENCES teams (id) ON DELETE CASCADE,
+  created_by  TEXT REFERENCES users (id),
   name        TEXT NOT NULL,
-  document    TEXT NOT NULL,          -- serialised Cre8Document
+  document    TEXT NOT NULL,               -- serialised Cre8Document
   page_count  INTEGER NOT NULL DEFAULT 1,
+  -- Bumped by the collaboration room on every accepted change. Clients fence
+  -- their writes against it so a stale write can never silently win.
+  version     INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS projects_owner_updated
-  ON projects (owner_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS projects_team_updated ON projects (team_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS deployments (
   id            TEXT PRIMARY KEY,
   project_id    TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+  published_by  TEXT REFERENCES users (id),
   published_at  INTEGER NOT NULL,
   page_count    INTEGER NOT NULL,
   bytes         INTEGER NOT NULL,
-  -- R2 key prefix the generated files were written under.
   r2_prefix     TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS deployments_project
-  ON deployments (project_id, published_at DESC);
+CREATE INDEX IF NOT EXISTS deployments_project ON deployments (project_id, published_at DESC);
 
 CREATE TABLE IF NOT EXISTS assets (
   id          TEXT PRIMARY KEY,
@@ -38,8 +118,6 @@ CREATE TABLE IF NOT EXISTS assets (
   name        TEXT NOT NULL,
   type        TEXT NOT NULL,
   r2_key      TEXT NOT NULL,
-  width       INTEGER,
-  height      INTEGER,
   bytes       INTEGER,
   created_at  INTEGER NOT NULL
 );

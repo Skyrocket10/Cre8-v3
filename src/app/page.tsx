@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Ellipsis, Plus, Rocket, Trash2 } from 'lucide-react';
 import { getStorage, storageMode } from '@/lib/api/storage';
+import { useSession } from '@/lib/auth/session';
 import type { ProjectSummary } from '@/lib/document/types';
 import { routes } from '@/lib/routes';
 import { TEMPLATES } from '@/lib/templates';
@@ -19,14 +20,30 @@ import { cn, relativeTime } from '@/lib/utils/cn';
 import { Button, Popover, Skeleton } from '@/components/ui/primitives';
 import { Modal } from '@/components/chrome/publish-dialog';
 import { MenuItem } from '@/components/panels/pages-panel';
+import { AccountControls } from '@/components/auth/account-menu';
+import { RequireSession } from '@/components/auth/require-session';
 
 export default function DashboardPage() {
+  return (
+    <RequireSession>
+      <Dashboard />
+    </RequireSession>
+  );
+}
+
+function Dashboard() {
   const router = useRouter();
+  const { activeTeam } = useSession();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [picking, setPicking] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
 
+  // Keyed on the workspace: switching teams shows a different set of projects,
+  // and showing the previous team's list while the new one loads is a lie.
+  const teamId = activeTeam?.id ?? null;
+
   const refresh = useCallback(async () => {
+    setProjects(null);
     try {
       setProjects(await getStorage().listProjects());
     } catch (error) {
@@ -37,7 +54,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, teamId]);
 
   const create = useCallback(
     async (templateId: string) => {
@@ -86,6 +103,7 @@ export default function DashboardPage() {
             New project
           </Button>
         )}
+        <AccountControls />
       </header>
 
       <div className="mx-auto max-w-[1120px] px-6 py-10">

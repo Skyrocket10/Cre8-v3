@@ -3,6 +3,7 @@
 import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { RequireSession } from '@/components/auth/require-session';
 import { EditorShell } from '@/components/editor/editor-shell';
 import { EditorSkeleton } from '@/components/editor/editor-skeleton';
 
@@ -15,7 +16,9 @@ import { EditorSkeleton } from '@/components/editor/editor-skeleton';
 export default function EditorRoute() {
   return (
     <Suspense fallback={<EditorSkeleton />}>
-      <EditorRouteInner />
+      <RequireSession>
+        <EditorRouteInner />
+      </RequireSession>
     </Suspense>
   );
 }

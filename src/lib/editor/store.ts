@@ -12,6 +12,7 @@
  * `transact`, which produces immer patches and records them for undo.
  */
 
+import { applyPatches, type Patch } from 'immer';
 import { create } from 'zustand';
 import { createEmptyDocument } from '../document/factory';
 import { getElement } from '../document/schema';
@@ -42,7 +43,13 @@ import { uid } from '../document/id';
 
 export type LeftTab = 'layers' | 'insert' | 'pages' | 'assets' | 'components' | 'theme';
 export type InspectorTab = 'design' | 'page';
-export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error' | 'offline';
+/**
+ * `live` means a collaboration room is persisting for us.
+ *
+ * There is no debounced HTTP save in that mode — every patch is already on the
+ * server before the indicator could have finished spinning.
+ */
+export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error' | 'offline' | 'live';
 
 export interface DropIndicator {
   parentId: NodeId;
@@ -144,6 +151,16 @@ interface EditorState {
   saveStatus: SaveStatus;
   lastSavedAt: number | null;
   toasts: Toast[];
+
+  /**
+   * Set when the server says this person may look but not touch.
+   *
+   * Gating `transact` rather than disabling controls one by one means a new
+   * panel is read-only the day it is written, without anyone remembering to
+   * make it so. The server refuses the patches regardless — this exists so a
+   * viewer sees an honest editor instead of edits that silently vanish.
+   */
+  readOnly: boolean;
 }
 
 interface TransactOptions {
@@ -167,6 +184,11 @@ interface EditorActions {
   ): void;
   undo(): void;
   redo(): void;
+
+  /* Collaboration — applied from the room, never recorded in local history */
+  applyRemotePatches(patches: Patch[]): void;
+  replaceDocument(doc: Cre8Document): void;
+  setReadOnly(readOnly: boolean): void;
 
   /* Selection */
   select(ids: NodeId[] | NodeId | null, mode?: 'replace' | 'add' | 'toggle'): void;
@@ -248,6 +270,32 @@ export type EditorStore = EditorState & EditorActions;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 
+/* --------------------------------------------------------------------------
+ * Collaboration hooks
+ *
+ * Kept as a module-level listener set rather than store state: the
+ * collaboration layer is optional, and the store must not grow a dependency on
+ * it. When nothing is listening these are a no-op and the editor behaves
+ * exactly as it does offline.
+ * ----------------------------------------------------------------------- */
+
+type PatchListener = (patches: Patch[], label: string) => void;
+
+const patchListeners = new Set<PatchListener>();
+
+/** Called by the collaboration client to receive locally produced patches. */
+export function onLocalPatches(listener: PatchListener): () => void {
+  patchListeners.add(listener);
+  return () => patchListeners.delete(listener);
+}
+
+/**
+ * True while remote patches are being applied.
+ *
+ * Guards against echoing someone else's change straight back to the room.
+ */
+let applyingRemote = false;
+
 function initialState(): EditorState {
   const doc = createEmptyDocument();
   return {
@@ -286,6 +334,7 @@ function initialState(): EditorState {
     saveStatus: 'idle',
     lastSavedAt: null,
     toasts: [],
+    readOnly: false,
   };
 }
 
@@ -319,6 +368,10 @@ export const useEditor = create<EditorStore>()((set, get) => ({
 
   transact(label, recipe, options) {
     const state = get();
+    if (state.readOnly) {
+      get().toast('You have view-only access to this project', 'error');
+      return;
+    }
     let selectAfter: NodeId[] | null = options?.select ?? null;
 
     const result = commit(
@@ -350,11 +403,25 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       saveStatus: 'dirty',
       measureToken: options?.quiet ? state.measureToken : state.measureToken + 1,
     });
+
+    if (!applyingRemote && patchListeners.size) {
+      for (const listener of patchListeners) listener(result.patches, label);
+    }
   },
 
   undo() {
     const { doc, history, measureToken } = get();
-    const result = undoHistory(doc, history);
+    let result;
+    try {
+      result = undoHistory(doc, history);
+    } catch (error) {
+      // A collaborator can remove the very node an inverse patch targets. The
+      // stack is no longer meaningful, so drop it rather than half-apply it.
+      console.warn('[cre8] undo no longer applies after a remote change', error);
+      set({ history: emptyHistory() });
+      get().toast('Undo history reset after a change from someone else', 'info');
+      return;
+    }
     if (!result.transaction) return;
     set({
       doc: result.doc,
@@ -371,7 +438,14 @@ export const useEditor = create<EditorStore>()((set, get) => ({
 
   redo() {
     const { doc, history, measureToken } = get();
-    const result = redoHistory(doc, history);
+    let result;
+    try {
+      result = redoHistory(doc, history);
+    } catch (error) {
+      console.warn('[cre8] redo no longer applies after a remote change', error);
+      set({ history: emptyHistory() });
+      return;
+    }
     if (!result.transaction) return;
     set({
       doc: result.doc,
@@ -384,6 +458,55 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       editingTextId: null,
       measureToken: measureToken + 1,
     });
+  },
+
+  /* ------------------------------------------------------ collaboration -- */
+
+  /**
+   * Apply someone else's change.
+   *
+   * Deliberately not recorded in local history: undo should walk back through
+   * *your* edits, not silently revert a colleague's. The flag stops the patch
+   * being echoed back to the room as if it were ours.
+   */
+  applyRemotePatches(patches) {
+    const state = get();
+    applyingRemote = true;
+    try {
+      const doc = applyPatches(state.doc, patches);
+      set({
+        doc,
+        // A remote delete can strip nodes out from under the local selection.
+        selection: state.selection.filter((id) => doc.nodes[id]),
+        measureToken: state.measureToken + 1,
+      });
+    } catch (error) {
+      console.error('[cre8] could not apply remote patches', error);
+    } finally {
+      applyingRemote = false;
+    }
+  },
+
+  setReadOnly(readOnly) {
+    if (get().readOnly === readOnly) return;
+    set({ readOnly, editingTextId: null });
+  },
+
+  /** Wholesale replacement after a resync. Local history no longer applies. */
+  replaceDocument(doc) {
+    const state = get();
+    applyingRemote = true;
+    try {
+      set({
+        doc,
+        history: emptyHistory(),
+        selection: state.selection.filter((id) => doc.nodes[id]),
+        editingTextId: null,
+        measureToken: state.measureToken + 1,
+      });
+    } finally {
+      applyingRemote = false;
+    }
   },
 
   /* ---------------------------------------------------------- selection -- */

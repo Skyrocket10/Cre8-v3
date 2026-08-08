@@ -60,6 +60,12 @@ export interface CommitResult {
   doc: Cre8Document;
   history: HistoryState;
   changed: boolean;
+  /**
+   * Just this call's forward patches, before any merging into the previous
+   * entry. Collaboration broadcasts these — the merged entry would re-send
+   * changes the room already has.
+   */
+  patches: Patch[];
 }
 
 export function commit(
@@ -72,7 +78,7 @@ export function commit(
     recipe(draft);
   });
 
-  if (patches.length === 0) return { doc, history, changed: false };
+  if (patches.length === 0) return { doc, history, changed: false, patches: [] };
 
   const now = Date.now();
   const last = history.past[history.past.length - 1];
@@ -116,7 +122,7 @@ export function commit(
 
   if (past.length > MAX_HISTORY) past = past.slice(past.length - MAX_HISTORY);
 
-  return { doc: next, history: { past, future: [] }, changed: true };
+  return { doc: next, history: { past, future: [] }, changed: true, patches };
 }
 
 export interface TravelResult {

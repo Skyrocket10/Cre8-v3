@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getStorage } from '@/lib/api/storage';
+import { useCollaboration } from '@/lib/collab/use-collab';
 import { hydrateDocument } from '@/lib/document/factory';
 import type { Cre8Document } from '@/lib/document/types';
 import { useAutosave } from '@/lib/editor/autosave';
@@ -18,9 +19,11 @@ import { useKeyboardShortcuts } from '@/lib/editor/shortcuts';
 import { clearRegistry } from '@/lib/editor/registry';
 import { useEditor } from '@/lib/editor/store';
 import { publishProject, type PublishResult } from '@/lib/publishing/publish';
+import type { RemotePeer } from '@/lib/collab/client';
 import { Canvas } from '../canvas/canvas';
 import { ContextToolbar } from '../canvas/context-toolbar';
 import { DragController, DragGhost } from '../canvas/drag-controller';
+import { PresenceOverlay } from '../canvas/presence-overlay';
 import { PublishDialog } from '../chrome/publish-dialog';
 import { StatusBar } from '../chrome/status-bar';
 import { Toasts } from '../chrome/toasts';
@@ -39,7 +42,12 @@ export function EditorShell({ projectId }: { projectId: string }) {
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
 
-  const { saveNow } = useAutosave();
+  // Only join a room once the document is in memory: the welcome message can
+  // replace it, and replacing something that isn't there yet loses the race.
+  const collab = useCollaboration(projectId, loaded);
+  const live = collab.status === 'live';
+
+  const { saveNow } = useAutosave({ suspended: live });
 
   /* --- Load ------------------------------------------------------------- */
 
@@ -130,11 +138,16 @@ export function EditorShell({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[var(--app)]">
-      <TopBar onPublish={() => void onPublish()} publishing={publishing} />
+      <TopBar
+        onPublish={() => void onPublish()}
+        publishing={publishing}
+        peers={collab.peers}
+        canEdit={collab.canEdit || !live}
+      />
 
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <CanvasArea />
+        <CanvasArea peers={collab.peers} />
         {rightOpen && (
           <div
             className="relative min-h-0 shrink-0 border-l border-[var(--border)]"
@@ -161,12 +174,13 @@ export function EditorShell({ projectId }: { projectId: string }) {
  * The canvas plus the overlays that need its coordinate space. Kept separate so
  * the toolbar can measure against the same element the canvas transforms in.
  */
-function CanvasArea() {
+function CanvasArea({ peers }: { peers: RemotePeer[] }) {
   const [viewport, setViewport] = useState<HTMLElement | null>(null);
 
   return (
     <div ref={setViewport} className="relative flex min-w-0 flex-1">
       <Canvas />
+      <PresenceOverlay peers={peers} viewport={viewport} />
       <ContextToolbar viewport={viewport} />
     </div>
   );

@@ -25,15 +25,21 @@ bucket_name = "cre8-sites"
 # domain before pointing the editor at this Worker.
 ALLOWED_ORIGINS = "http://localhost:3000"
 
-# There is no authentication yet (see `ownerFrom` in src/index.ts). With this
-# set to "true" every request is treated as the same owner, which is fine for a
-# personal instance and a data leak on a shared one: any visitor would see and
-# be able to delete every project. Leave it off until real auth is wired in,
-# or accept that the API is single-user.
-ALLOW_ANONYMOUS = "false"
+# Set to "false" to close signups once your team has accounts.
+ALLOW_SIGNUP = "true"
 
 # Published sites are served from a wildcard route so every project gets a
 # subdomain without a per-project deploy.
 # [[routes]]
 # pattern = "*.cre8.site/*"
 # zone_name = "cre8.site"
+
+# One instance per project: holds the live document, serialises edits and fans
+# out presence. See src/room.ts.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "ProjectRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ProjectRoom"]

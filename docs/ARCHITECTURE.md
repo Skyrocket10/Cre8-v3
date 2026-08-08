@@ -184,9 +184,16 @@ interface StorageAdapter {
 ```
 
 Two implementations ship: `IndexedDbAdapter` (default — zero infrastructure,
-works offline) and `CloudflareAdapter` (D1 for documents, R2 for assets and
-published files). Switching is one `setStorage()` call at boot. The editor has
-no idea which is active.
+works offline, no account) and `CloudflareAdapter` (D1 for documents, R2 for
+assets and published files, behind accounts and teams). Which one is active is
+decided by a single build-time variable, `NEXT_PUBLIC_CRE8_API_URL`, read once
+in `getStorage()`. The editor has no idea which is behind it.
+
+The one thing the interface deliberately does not model is teams, because
+nothing in the editor should have to care. The Cloudflare adapter keeps the
+active team in module state, pushed by `SessionProvider` — **synchronously**,
+not from an effect, because a route's own mount effect flushes before its
+parent's and would otherwise list projects against a stale team.
 
 Uploaded images are downscaled to 2200px and re-encoded in the browser before
 they enter the document, which keeps projects small enough to live in IndexedDB
@@ -201,7 +208,8 @@ only ever sees a URL.
 ```
 Cloudflare Pages   →  the editor (static)
 Cloudflare Worker  →  API + published-site origin
-D1                 →  project documents, deployments, asset records
+Durable Objects    →  one live room per project
+D1                 →  accounts, teams, project documents, deployments, assets
 R2                 →  uploaded assets, generated site files
 Cache              →  everything a visitor loads
 ```
@@ -211,16 +219,91 @@ R2 read — the Worker never renders. That is the whole cost argument: a site on
 Cre8 should cost approximately nothing to run, and Worker invocations should
 scale with editing, not with traffic.
 
-`ownerFrom(request)` in `workers/src/index.ts` is the single seam an auth
-provider plugs into. It has one job: turn a request into a stable owner id.
+---
+
+## 8. Accounts
+
+`requireProjectAccess()` in `workers/src/lib/db.ts` is the single authorization
+gate. Every project route goes through it, and it returns 404 for both "does not
+exist" and "you cannot see it" — a 403 would confirm the id is real.
+
+### Where the password hashing happens
+
+A Worker on the free tier gets 10ms of CPU per request. A server-side KDF strong
+enough to be worth having does not fit in that, and a weak one is worse than
+none. So the work moves to the browser:
+
+```
+browser   PBKDF2-SHA256, 600k rounds, salt = SHA-256("cre8-auth:" + email)
+             ↓  derived key (the password itself never leaves the device)
+worker    HMAC-SHA256(derivedKey, AUTH_PEPPER) → stored verifier
+```
+
+The client-side stretch is what defends a stolen database; the server-side
+pepper is what makes the stored verifier useless on its own, since it lives in a
+secret rather than in D1. Unknown emails are compared against a dummy verifier
+so a wrong address costs the same as a wrong password.
+
+Sessions are opaque random tokens, stored hashed, in `HttpOnly; Secure;
+SameSite=None` cookies. `SameSite=None` is forced by the editor and API being on
+different origins, which gives up the browser's built-in CSRF protection — the
+replacement is `x-cre8-csrf`, a non-safelisted header that forces a preflight
+only an allowlisted origin can pass.
+
+Invites are links rather than emails because there is no mail provider wired in.
+The token is returned exactly once, from the call that creates it; only its hash
+is stored.
 
 ---
 
-## 8. Extension points for what comes next
+## 9. Collaboration
 
-The current release implements **presentation** and **structure** only. The
-remaining axes are modelled as separate concerns so they can be added without
-touching the renderer or migrating documents.
+One Durable Object per project (`workers/src/room.ts`). The room is the single
+writer for its document and holds a monotonic version. A client sends the
+patches it produced *and the version it produced them against*:
+
+- base version matches → apply, bump, broadcast to everyone
+- base version is stale → refuse, and send that client a full resync
+
+Two people editing different elements interleave cleanly, because each change
+lands against a version that already includes the other's. Two people editing
+the same property within one round trip resolve last-writer-wins, and the loser
+is told immediately.
+
+**This is deliberately not a CRDT.** A CRDT would let both edits survive without
+a round trip, at the cost of a much larger document model and merge semantics
+that are hard to reason about for structural operations like "move this section
+into that container". Version fencing is small, obviously correct, and its
+failure mode is a visible resync rather than corruption.
+
+Three consequences worth knowing:
+
+- **Remote patches skip local history.** Undo should walk back through *your*
+  edits, not silently revert a colleague's. But a colleague can delete the very
+  node an inverse patch targets, so `undo()` catches the failure, drops the
+  stack and says so, rather than half-applying it.
+- **Autosave stands down.** The room persists every patch, so the debounced HTTP
+  save is suspended while a socket is live — a whole-document PUT on top of the
+  patch stream would bump the version and resync everyone every 900ms. The
+  status indicator reads **Live** instead of **Saved**.
+- **Read-only is a store gate, not disabled buttons.** `transact` refuses when
+  `readOnly` is set, so a panel written tomorrow is read-only on the day it is
+  written. The server refuses the patches regardless; the gate exists so a
+  viewer sees an honest editor rather than edits that vanish.
+
+Cursors travel in **document space** — `(clientX - frameLeft) / zoom` — so a
+pointer lands on the same element for every peer regardless of their zoom and
+pan. Sockets use hibernation, so an idle room costs nothing; nothing may live
+only in memory, which is why per-connection identity rides on the socket via
+`serializeAttachment` and the document reloads from D1 on demand.
+
+---
+
+## 10. Extension points for what comes next
+
+The editor implements **presentation** and **structure**. The remaining axes are
+modelled as separate concerns so they can be added without touching the renderer
+or migrating documents.
 
 | Axis | Question | Where it lands |
 |---|---|---|
@@ -255,7 +338,7 @@ nothing but functions that return documents.
 
 ---
 
-## 9. Things deliberately not done
+## 11. Things deliberately not done
 
 - **Marquee selection on canvas.** In flow layout it selects sets that rarely
   correspond to anything meaningful. Shift-click and the layer tree cover it.

@@ -6,10 +6,12 @@ import {
   Check,
   ChevronDown,
   CloudOff,
+  Eye,
   Home,
   Monitor,
   Moon,
   Play,
+  Radio,
   Redo2,
   Rocket,
   Smartphone,
@@ -18,14 +20,26 @@ import {
   TriangleAlert,
   Undo2,
 } from 'lucide-react';
+import type { RemotePeer } from '@/lib/collab/client';
 import { BREAKPOINT_DEFS, type Breakpoint } from '@/lib/document/types';
 import { describeNext } from '@/lib/history/history';
 import { useEditor } from '@/lib/editor/store';
+import { initials } from '@/lib/auth/session';
 import { cn, relativeTime } from '@/lib/utils/cn';
 import { Button, IconButton, Popover, Tooltip } from '../ui/primitives';
 import { MenuItem } from '../panels/pages-panel';
 
-export function TopBar({ onPublish, publishing }: { onPublish: () => void; publishing: boolean }) {
+export function TopBar({
+  onPublish,
+  publishing,
+  peers = [],
+  canEdit = true,
+}: {
+  onPublish: () => void;
+  publishing: boolean;
+  peers?: RemotePeer[];
+  canEdit?: boolean;
+}) {
   const projectName = useEditor((s) => s.doc.name);
   const canUndo = useEditor((s) => s.history.past.length > 0);
   const canRedo = useEditor((s) => s.history.future.length > 0);
@@ -73,6 +87,8 @@ export function TopBar({ onPublish, publishing }: { onPublish: () => void; publi
         <BreakpointSwitcher />
       </div>
 
+      <PresenceStack peers={peers} />
+      {!canEdit && <ViewOnlyBadge />}
       <SaveIndicator />
 
       <IconButton
@@ -87,11 +103,68 @@ export function TopBar({ onPublish, publishing }: { onPublish: () => void; publi
         Preview
       </Button>
 
-      <Button size="sm" variant="primary" loading={publishing} onClick={onPublish}>
+      <Button
+        size="sm"
+        variant="primary"
+        loading={publishing}
+        disabled={!canEdit}
+        onClick={onPublish}
+      >
         <Rocket size={11} />
         Publish
       </Button>
     </header>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Collaboration
+ * ----------------------------------------------------------------------- */
+
+const MAX_AVATARS = 4;
+
+/** Who else is in here. Overlapped, because the count matters more than the faces. */
+function PresenceStack({ peers }: { peers: RemotePeer[] }) {
+  if (!peers.length) return null;
+  const shown = peers.slice(0, MAX_AVATARS);
+  const overflow = peers.length - shown.length;
+
+  return (
+    <div className="mr-0.5 flex items-center pl-1">
+      {shown.map((peer, index) => (
+        <Tooltip key={peer.connectionId} content={peer.canEdit ? peer.name : `${peer.name} · viewing`}>
+          <span
+            className="flex size-[22px] items-center justify-center rounded-full text-[9.5px] font-semibold text-white ring-2 ring-[var(--app)]"
+            style={{
+              backgroundColor: `hsl(${peer.hue} 62% 52%)`,
+              marginLeft: index === 0 ? 0 : -6,
+              zIndex: MAX_AVATARS - index,
+            }}
+          >
+            {initials(peer.name)}
+          </span>
+        </Tooltip>
+      ))}
+      {overflow > 0 && (
+        <span
+          className="flex size-[22px] items-center justify-center rounded-full bg-[var(--field)] text-[9.5px] font-medium text-[var(--text-secondary)] ring-2 ring-[var(--app)]"
+          style={{ marginLeft: -6 }}
+        >
+          +{overflow}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ViewOnlyBadge() {
+  return (
+    <Tooltip content="Ask an admin for editor access to make changes">
+      <span className="flex h-6 items-center gap-1.5 rounded-md bg-[var(--field)] px-2 text-[10.5px] text-[var(--text-secondary)]">
+        <Eye size={11} />
+        View only
+      </span>
+    </Tooltip>
   );
 }
 
@@ -233,6 +306,11 @@ function SaveIndicator() {
       icon: <CloudOff size={11} />,
       label: 'Offline',
       tone: 'text-[var(--warning)]',
+    },
+    live: {
+      icon: <Radio size={11} />,
+      label: 'Live',
+      tone: 'text-[var(--success)]',
     },
     error: {
       icon: <TriangleAlert size={11} />,
