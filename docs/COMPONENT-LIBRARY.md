@@ -4,6 +4,10 @@ What to build, in what order, and — the part that actually decides the shape o
 this — which things cannot be built until a capability exists that does not
 exist yet.
 
+**108 components: 63 marketing, 45 application.** 13 ship today. 35 of the rest
+need nothing new at all; the other 60 are gated on three capabilities, listed
+in §3.
+
 Read `ARCHITECTURE.md` first. Section 1 ("One renderer") is the constraint every
 decision below is measured against.
 
@@ -220,8 +224,9 @@ private helper to a reusable piece rather than rebuilding it per hero.
 | Collection header + filters | B | | b |
 | Shipping / trust strip | B | | |
 
-**Marketing total: 64 blocks, of which 9 ship today.** 46 of the remaining 55
-need no new capability at all.
+**Marketing total: 63 blocks, of which 9 ship today.** Of the 54 remaining, 35
+are pure composition over primitives that already exist, 5 need only the form
+submit target, and 14 wait on a new capability.
 
 ---
 
@@ -313,7 +318,8 @@ backgrounds all come from the browser, correct on the first try.
 | Progress bar | B | | a |
 | Notification list | B | | |
 
-**Application total: 43 components — 17 primitives (4 shipping) and 26 blocks.**
+**Application total: 45 components — 18 primitives, of which 4 ship today, and
+27 blocks.**
 
 ---
 
@@ -401,10 +407,10 @@ not after.**
 
 | Phase | Content | Capability needed | Why here |
 |---|---|---|---|
-| **A** | 46 marketing blocks; block categories + thumbnails; the block harness; the token lint | none | Largest visible gain, zero architectural risk. Proves the pipeline before it carries weight |
-| **A′** | Form submit target — Worker route + submissions table | small | Unblocks 6 conversion blocks already built in A |
+| **A** | 35 marketing blocks; block categories + thumbnails; the block harness; the token lint | none | Largest visible gain, zero architectural risk. Proves the pipeline before it carries weight |
+| **A′** | Form submit target — Worker route + submissions table | small | Unblocks 5 conversion blocks already built in A |
 | **B** | Native primitives: form controls, table family, `<details>`, `<dialog>`, popover, `tag` prop on container/section | a | All native. Each one is a schema row plus a renderer branch, and behaves identically on all three surfaces |
-| **B′** | The ~30 blocks those primitives unlock: accordion, overlays, form composition, comparison tables | a | Composition only, once B lands |
+| **B′** | The ~25 blocks those primitives unlock: accordion, overlays, form composition, comparison tables | a | Composition only, once B lands |
 | **C** | Behaviour runtime, design-time state, behavioural fidelity harness | b | The gated one. §6 |
 | **C′** | Tabs, carousel, toast, pricing toggle, stepper, command palette | b | |
 | **D** | Data bindings + repeater | c | Unlocks real tables, blog indexes, product grids, CMS |
