@@ -9,7 +9,7 @@ compatibility_date = "2026-01-15"
 [[d1_databases]]
 binding = "DB"
 database_name = "cre8"
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+database_id = "0375dbbf-261d-40a6-9000-28e24a1d6d4e"
 
 [[r2_buckets]]
 binding = "ASSETS"
