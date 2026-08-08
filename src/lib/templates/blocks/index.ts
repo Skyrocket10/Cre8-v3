@@ -46,7 +46,14 @@ export {
   timelineSpec,
 } from './features';
 export { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
-export { faqSpec } from './trust';
+export {
+  faqSpec,
+  gallerySpec,
+  masonrySpec,
+  proseSpec,
+  rolesSpec,
+  teamSpec,
+} from './trust';
 
 import {
   announcementSpec,
@@ -84,7 +91,14 @@ import {
   statsSpec,
   testimonialsSpec,
 } from './proof';
-import { faqSpec } from './trust';
+import {
+  faqSpec,
+  gallerySpec,
+  masonrySpec,
+  proseSpec,
+  rolesSpec,
+  teamSpec,
+} from './trust';
 
 export type BlockCategory =
   | 'chrome'
@@ -367,5 +381,45 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'trust',
     keywords: ['questions', 'answers', 'help', 'support'],
     build: faqSpec,
+  },
+  {
+    id: 'team',
+    name: 'Team grid',
+    description: 'Portraits, names and roles',
+    category: 'trust',
+    keywords: ['people', 'about', 'staff', 'founders', 'leadership'],
+    build: teamSpec,
+  },
+  {
+    id: 'roles',
+    name: 'Open roles',
+    description: 'Job listings as a linked list',
+    category: 'trust',
+    keywords: ['careers', 'jobs', 'hiring', 'vacancies'],
+    build: rolesSpec,
+  },
+  {
+    id: 'prose',
+    name: 'Prose page',
+    description: 'Long-form document at a reading measure',
+    category: 'trust',
+    keywords: ['legal', 'privacy', 'terms', 'policy', 'article', 'text'],
+    build: proseSpec,
+  },
+  {
+    id: 'gallery',
+    name: 'Gallery',
+    description: 'Even grid of photographs',
+    category: 'trust',
+    keywords: ['photos', 'images', 'pictures', 'grid'],
+    build: gallerySpec,
+  },
+  {
+    id: 'gallery-masonry',
+    name: 'Masonry gallery',
+    description: 'Mixed shapes flowing down columns',
+    category: 'trust',
+    keywords: ['photos', 'images', 'pinterest', 'columns', 'mixed'],
+    build: masonrySpec,
   },
 ];

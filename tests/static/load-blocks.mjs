@@ -27,8 +27,10 @@ export function loadBlocks() {
       'tsc',
       'src/lib/templates/blocks/index.ts',
       // The icon registry too, so a block can be checked against the names
-      // that actually exist. It has no imports of its own.
+      // that actually exist, and the element table, which knows which types
+      // can hold children. Both import types only.
       'src/lib/renderer/icons.ts',
+      'src/lib/document/schema.ts',
       '--outDir',
       OUT,
       // Pinned so the emitted path is predictable no matter which files tsc
@@ -55,6 +57,7 @@ export function loadBlocks() {
   return {
     ...require(path.join(OUT, 'templates/blocks/index.js')),
     ICON_NAMES: require(path.join(OUT, 'renderer/icons.js')).ICON_NAMES,
+    ELEMENTS: require(path.join(OUT, 'document/schema.js')).ELEMENTS,
   };
 }
 

@@ -16,7 +16,7 @@ import { createReport } from '../report.mjs';
 import { layers, loadBlocks, walk } from './load-blocks.mjs';
 
 const report = createReport();
-const { BLOCKS, BLOCK_CATEGORIES, ICON_NAMES } = loadBlocks();
+const { BLOCKS, BLOCK_CATEGORIES, ICON_NAMES, ELEMENTS } = loadBlocks();
 const KNOWN_ICONS = new Set(ICON_NAMES);
 
 const CATEGORY_IDS = new Set(BLOCK_CATEGORIES.map((c) => c.id));
@@ -166,6 +166,26 @@ function checkIconNames(spec) {
   return bad;
 }
 
+/**
+ * Children only where the element can hold them.
+ *
+ * A `link` is `container: false` — it renders its `text` prop and ignores
+ * anything nested inside it. Building a row out of one does not error, does not
+ * warn, and does not overflow; the row simply comes out empty, and every
+ * structural check passes on a section with nothing in it.
+ */
+function checkContainerChildren(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    if (!node.children?.length) continue;
+    const element = ELEMENTS[node.type];
+    if (element && !element.container) {
+      bad.push(`${path}: <${node.type}> holds ${node.children.length} children but renders none`);
+    }
+  }
+  return bad;
+}
+
 /** Heading levels may descend, but not by more than one step at a time. */
 function checkHeadings(spec) {
   const bad = [];
@@ -221,6 +241,7 @@ const RULES = [
   ['heading levels do not skip', checkHeadings],
   ['images carry alt text worth reading', checkAltText],
   ['every icon name exists in the registry', checkIconNames],
+  ['children are only where an element can render them', checkContainerChildren],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['every node is named for the layer tree', checkNames],
 ];
@@ -329,6 +350,11 @@ const VIOLATIONS = [
     },
   ],
   [checkAltText, 'an image with no alt', { type: 'image', name: 'I', props: {} }],
+  [
+    checkContainerChildren,
+    'children nested inside a link, which renders none',
+    { type: 'link', name: 'L', props: { text: '' }, children: [{ type: 'text', name: 'T' }] },
+  ],
   [
     checkIconNames,
     'an icon name the renderer does not have',

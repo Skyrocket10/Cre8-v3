@@ -67,6 +67,18 @@ export interface StyleDecl {
   gap?: string;
   rowGap?: string;
   columnGap?: string;
+  /**
+   * Multi-column flow, for masonry.
+   *
+   * CSS grid still has no masonry anywhere near universal support, and the
+   * usual substitutes — row spans guessed from image ratios, or a script that
+   * measures and repositions — are either wrong or a runtime. Multi-column is
+   * neither: it is one property, it reflows on its own, and it works
+   * everywhere. `breakInside: avoid` is what stops a card being split across
+   * the column boundary.
+   */
+  columnCount?: string;
+  breakInside?: string;
   gridTemplateColumns?: string;
   gridTemplateRows?: string;
   gridAutoFlow?: string;
