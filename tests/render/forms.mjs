@@ -167,7 +167,63 @@ try {
     Object.keys(rows[0] ?? {}).join(' ')
   );
 
-  /* ------------------------------------- 5. someone else's project is closed */
+  /* ------------------------------------------------ 5. the Submissions panel */
+
+  // A payload that would be a formula if a spreadsheet took it literally, and
+  // markup if anything built HTML from it.
+  await post(
+    id,
+    { name: '=cmd|calc!A1', message: '<img src=x onerror=alert(1)>' },
+    { referer: `${APP}/s/${id}/` }
+  );
+
+  await page.bringToFront();
+  await page.locator('button[aria-label="Submissions"]').first().click();
+  await page.waitForTimeout(1200);
+
+  const panel = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('article')];
+    return {
+      count: cards.length,
+      // textContent, so an injected tag would show as text if it were escaped
+      // and be missing if it had been parsed as markup.
+      text: cards.map((c) => c.textContent ?? '').join(' | '),
+      injected: document.querySelectorAll('img[src="x"]').length,
+    };
+  });
+
+  report.check('the panel lists the submissions', panel.count > 0, `${panel.count} cards`);
+  report.check(
+    'a visitor’s field value is shown',
+    panel.text.includes('Real Visitor'),
+    panel.text.slice(0, 70)
+  );
+  report.check(
+    'markup in a payload is rendered as text, not as markup',
+    panel.injected === 0 && panel.text.includes('<img src=x'),
+    `${panel.injected} injected elements`
+  );
+
+  const csv = await page.evaluate(async (projectId) => {
+    const res = await fetch(`/api/projects/${projectId}/submissions`, {
+      headers: { 'x-cre8-csrf': '1' },
+      credentials: 'include',
+    });
+    const { submissions } = await res.json();
+    // Same shaping the panel's download does, asserted on the value that
+    // matters: a cell starting with `=` is a formula to a spreadsheet.
+    const risky = submissions.flatMap((row) =>
+      Object.values(row.payload ?? {}).filter((v) => /^[=+\-@]/.test(String(v)))
+    );
+    return risky;
+  }, id);
+  report.check(
+    'a formula-shaped value is present to be defended against',
+    csv.length > 0,
+    csv.join(' ')
+  );
+
+  /* ------------------------------------- 6. someone else's project is closed */
 
   const stranger = await ctx.newPage();
   await stranger.goto(`${APP}/signup`, { waitUntil: 'domcontentloaded' });

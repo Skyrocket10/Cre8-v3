@@ -41,7 +41,14 @@ import { uid } from '../document/id';
  * UI types
  * ----------------------------------------------------------------------- */
 
-export type LeftTab = 'layers' | 'insert' | 'pages' | 'assets' | 'components' | 'theme';
+export type LeftTab =
+  | 'layers'
+  | 'insert'
+  | 'pages'
+  | 'assets'
+  | 'components'
+  | 'theme'
+  | 'submissions';
 export type InspectorTab = 'design' | 'page';
 /**
  * `live` means a collaboration room is persisting for us.

@@ -187,6 +187,15 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
  * Accounts
  * ----------------------------------------------------------------------- */
 
+/** One form submission from a published site. */
+export interface FormSubmission {
+  id: string;
+  formId: string;
+  /** Whatever the visitor typed. Field names come from the form, so untrusted. */
+  payload: Record<string, string>;
+  createdAt: number;
+}
+
 export interface SessionResponse {
   user: AccountUser | null;
   teams: Team[];
@@ -295,6 +304,9 @@ export const api = {
     }),
 
   /** Rename a published site's address. Frees the old hostname immediately. */
+  submissions: (id: string) =>
+    call<{ submissions: FormSubmission[] }>(`/api/projects/${id}/submissions`),
+
   setSubdomain: (id: string, subdomain: string) =>
     call<{ subdomain: string }>(`/api/projects/${id}/subdomain`, {
       method: 'PUT',
