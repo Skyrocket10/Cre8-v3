@@ -19,7 +19,7 @@
  * exactly that.
  */
 
-import { APP, WIDTHS, launch, openProject, publish, unbalanced } from './harness.mjs';
+import { APP, launch, openProject, publish, READY_TIMEOUT, toCanvasKeys, unbalanced, WIDTHS } from './harness.mjs';
 import { createReport } from '../report.mjs';
 import { loadBlocks } from '../static/load-blocks.mjs';
 
@@ -42,11 +42,23 @@ page.on('pageerror', (e) => console.log('  [pageerror]', e.message));
  */
 const COLLECT = () => {
   const out = {};
+  const boxed = {};
   const root = document.querySelector('.cre8-frame.cre8-editing') ?? document.body;
   for (const el of root.querySelectorAll('[class]')) {
     const cls = [...el.classList].find((c) => c.startsWith('c-'));
-    if (!cls || out[cls]) continue;
+    if (!cls) continue;
     if (el.closest('[popover]:not(:popover-open)')) continue;
+    // A node whose content varies renders as one element per alternative,
+    // sharing the node's class, and only one of them is on screen. Which one
+    // is a question the two surfaces are *allowed* to answer differently: the
+    // canvas shows the value being designed against, the published page shows
+    // the visitor's. Comparing the copy that is up on each is the like-for-
+    // like reading; taking whichever came first in the DOM would report a
+    // difference in `display` at nine in the evening and not at nine in the
+    // morning.
+    const has = el.getBoundingClientRect().height > 0;
+    if (out[cls] && !(has && !boxed[cls])) continue;
+    boxed[cls] = has;
     const cs = getComputedStyle(el);
     out[cls] = [
       cs.display, cs.color, cs.backgroundColor, cs.flexDirection,
@@ -84,7 +96,7 @@ try {
   await page.fill('input[type="email"]', `sweep${Date.now()}@cre8.test`);
   await page.fill('input[type="password"]', 'correct-horse-battery');
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${APP}/`, { timeout: 30000 });
+  await page.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
 
   // Driven from the registry, not from whatever the panel happens to render:
   // a block that exists but never reaches the Insert panel is itself a bug,
@@ -143,14 +155,15 @@ try {
     await site.waitForTimeout(600);
     const published = await site.evaluate(COLLECT);
 
-    const shared = Object.keys(published).filter((c) => c in canvas);
-    const diffs = shared.filter((c) => canvas[c] !== published[c]);
+    const matched = toCanvasKeys(published, canvas);
+    const shared = Object.keys(matched);
+    const diffs = shared.filter((c) => canvas[c] !== matched[c]);
     report.check(
       `${name}: canvas and published agree`,
       shared.length > 0 && diffs.length === 0,
       `${shared.length} shared, ${diffs.length} differ` +
         (diffs.length
-          ? ` — <${tags[diffs[0]] ?? '?'}> ${diffs[0]}:\n      canvas    ${canvas[diffs[0]]}\n      published ${published[diffs[0]]}`
+          ? ` — <${tags[diffs[0]] ?? '?'}> ${diffs[0]}:\n      canvas    ${canvas[diffs[0]]}\n      published ${matched[diffs[0]]}`
           : '')
     );
 

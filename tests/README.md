@@ -21,6 +21,11 @@ width will never show you:
 - content varies on one state, exclusively, so the expansion stays linear
 - every node is named for the layer tree
 
+The output-size transforms are checked the same way, and both are checked for
+the case they must *refuse* as well as the saving they make: a conditional rule
+is never merged into the base layer, and three sides of padding never collapse
+into a shorthand that would invent the fourth.
+
 It also compiles real conditions through the generator and asserts on the CSS
 that comes out — that a condition on the visit lands on the same anchor a state
 does, at the same weight, and drives the same expansion into elements. That is

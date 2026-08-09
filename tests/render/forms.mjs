@@ -8,7 +8,7 @@
  * thing that actually has to work.
  */
 
-import { APP, launch, openProject, publish } from './harness.mjs';
+import { APP, launch, openProject, publish, READY_TIMEOUT } from './harness.mjs';
 import { createReport } from '../report.mjs';
 
 const report = createReport();
@@ -32,7 +32,7 @@ try {
   await page.fill('input[type="email"]', `form${Date.now()}@cre8.test`);
   await page.fill('input[type="password"]', 'correct-horse-battery');
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${APP}/`, { timeout: 30000 });
+  await page.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
 
   const id = await openProject(page, 'Blank');
 
@@ -231,7 +231,7 @@ try {
   await stranger.fill('input[type="email"]', `nosy${Date.now()}@cre8.test`);
   await stranger.fill('input[type="password"]', 'correct-horse-battery');
   await stranger.click('button[type="submit"]');
-  await stranger.waitForURL(`${APP}/`, { timeout: 30000 });
+  await stranger.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
 
   const denied = await stranger.evaluate(async (projectId) => {
     const res = await fetch(`/api/projects/${projectId}/submissions`, {

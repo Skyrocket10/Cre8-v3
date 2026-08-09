@@ -6,7 +6,7 @@
  * published root sits in <body>, which has 8px. Measure both.
  */
 
-import { APP, launch } from './harness.mjs';
+import { APP, launch, PUBLISH_TIMEOUT, READY_TIMEOUT } from './harness.mjs';
 
 const results = [];
 let failed = 0;
@@ -30,13 +30,13 @@ try {
   await page.fill('input[type="email"]', U.email);
   await page.fill('input[type="password"]', U.pw);
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${APP}/`, { timeout: 30000 });
+  await page.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
 
   await page.locator('button:has-text("SaaS landing page")').first().click();
-  await page.waitForURL(/\/editor\?p=/, { timeout: 30000 });
+  await page.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
   const projectId = new URL(page.url()).searchParams.get('p');
-  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
-  await page.waitForSelector('header >> text=Live', { timeout: 20000 });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
   await page.waitForTimeout(1500);
 
   // Where does the page root sit inside the canvas frame?
@@ -51,7 +51,7 @@ try {
   check('the canvas root is flush with its frame', inCanvas?.left === 0, JSON.stringify(inCanvas));
 
   await page.click('button:has-text("Publish")');
-  await page.waitForSelector('text=/pages? published/', { timeout: 60000 });
+  await page.waitForSelector('text=/pages? published/', { timeout: PUBLISH_TIMEOUT });
   await page.waitForTimeout(1000);
 
   /* ------------------------------------------------------ the published page */

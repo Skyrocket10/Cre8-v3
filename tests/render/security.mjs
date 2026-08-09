@@ -1,5 +1,5 @@
 
-import { APP, ARTIFACTS, launch } from './harness.mjs';
+import { APP, ARTIFACTS, launch, PUBLISH_TIMEOUT, READY_TIMEOUT } from './harness.mjs';
 
 const SITE = APP;
 const API = APP;
@@ -21,7 +21,7 @@ async function signUp(page, who) {
   await page.fill('input[type="email"]', who.email);
   await page.fill('input[type="password"]', who.pw);
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${SITE}/`, { timeout: 30000 });
+  await page.waitForURL(`${SITE}/`, { timeout: READY_TIMEOUT });
 }
 
 const browser = await launch();
@@ -40,11 +40,11 @@ try {
   /* ---------------------------------------------- 1. project in A's own team */
 
   await a.locator('button:has-text("Blank")').first().click();
-  await a.waitForURL(/\/editor\?p=/, { timeout: 30000 });
+  await a.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
   const projectUrl = a.url();
   const projectId = new URL(projectUrl).searchParams.get('p');
-  await a.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
-  await a.waitForSelector('header >> text=Live', { timeout: 20000 });
+  await a.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await a.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
 
   const insert = a.locator('[data-cre8-insert="section"], button:has-text("Section")').first();
   await insert.scrollIntoViewIfNeeded().catch(() => {});
@@ -118,7 +118,7 @@ try {
   /* --------------------------------------------------------- 4. publishing */
 
   await a.click('button:has-text("Publish")');
-  await a.waitForSelector('text=/Published|is live|Live at/i', { timeout: 60000 });
+  await a.waitForSelector('text=/Published|is live|Live at/i', { timeout: PUBLISH_TIMEOUT });
   check('publish completes in hosted mode', true);
 
   const published = await fetch(`${API}/s/${projectId}/`);
@@ -154,7 +154,7 @@ try {
 
   await b.goto(inviteUrl, { waitUntil: 'networkidle' });
   await b.click('button:has-text("Join")');
-  await b.waitForURL(`${SITE}/`, { timeout: 20000 });
+  await b.waitForURL(`${SITE}/`, { timeout: READY_TIMEOUT });
   await b.waitForSelector('header button:has-text("Studio")', { timeout: 15000 });
   check('an existing account can accept an invite with one click', true);
 
@@ -168,14 +168,14 @@ try {
   check('a new workspace does not list another workspace\'s projects', bleed === 0);
 
   await a.locator('button:has-text("Blank")').first().click();
-  await a.waitForURL(/\/editor\?p=/, { timeout: 30000 });
+  await a.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
   const sharedUrl = a.url();
-  await a.waitForSelector('header >> text=Live', { timeout: 20000 });
+  await a.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
   await a.waitForTimeout(1500);
 
   await b.goto(sharedUrl, { waitUntil: 'networkidle' });
-  await b.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
-  await b.waitForSelector('text=View only', { timeout: 20000 });
+  await b.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await b.waitForSelector('text=View only', { timeout: READY_TIMEOUT });
 
   const before = await b.locator('.cre8-frame.cre8-editing > *').count();
   const bInsert = b.locator('[data-cre8-insert="section"], button:has-text("Section")').first();

@@ -1109,6 +1109,108 @@ report.group('a condition on the visit compiles like one on a state');
   );
 }
 
+/* --------------------------------------------------------------------------
+ * Output size
+ *
+ * Two transforms make the published stylesheet about half the size it was, and
+ * both are the kind that work until the day they quietly do not: one merges
+ * rules, which is only safe where nothing can be reordered relative to
+ * something it overlaps, and the other rewrites declarations, which is only
+ * safe where all four sides are present. So both are checked for the saving
+ * *and* for the case they must refuse.
+ * ----------------------------------------------------------------------- */
+
+report.group('the published stylesheet earns its size');
+
+{
+  const compile = (spec) => {
+    const { nodes } = buildTree(spec);
+    return generateNodeCss(nodes, { mode: 'media' });
+  };
+  const twins = (n, styles) => ({
+    type: 'frame',
+    name: 'Root',
+    children: Array.from({ length: n }, (_, i) => ({ type: 'frame', name: `C${i}`, styles })),
+  });
+
+  const identical = compile(twins(6, { color: 'var(--c-text)', fontSize: '14px' }));
+  report.check(
+    'nodes styled identically share one rule instead of six',
+    (identical.match(/color: var\(--c-text\)/g) ?? []).length === 1,
+    `${(identical.match(/color: var\(--c-text\)/g) ?? []).length} copies of the declarations`
+  );
+  const merged = identical.split('\n').find((line) => line.includes('color'))
+    ? (identical.match(/^([^{\n]*)\{[^}]*color: var\(--c-text\)/m) ?? [])[1]
+    : '';
+  report.check(
+    'and every one of them is still named by it',
+    (merged?.match(/\.c-[a-z0-9]+/g) ?? []).length === 6,
+    `${(merged?.match(/\.c-[a-z0-9]+/g) ?? []).length} selectors on the shared rule`
+  );
+
+  // The rule that keeps merging honest. Two nodes share a body in the base
+  // layer *and* one of them has a conditional rule with that same body. The
+  // conditional one must not be hoisted up to join them: it sits after the
+  // base layer because that is what decides which of them wins.
+  const withRule = compile({
+    type: 'frame',
+    name: 'Root',
+    children: [
+      { type: 'frame', name: 'A', styles: { color: 'red' } },
+      {
+        type: 'frame',
+        name: 'B',
+        styles: { color: 'red' },
+        rules: [{ id: 'h', when: [{ kind: 'pointer', pseudo: 'hover' }], apply: { color: 'red' } }],
+      },
+    ],
+  });
+  const baseBlock = withRule.split('\n\n')[0] ?? '';
+  report.check(
+    'a conditional rule is never merged into the base layer, whatever it says',
+    !baseBlock.includes(':hover') && withRule.includes(':hover'),
+    baseBlock.includes(':hover') ? 'hoisted' : 'left where it was'
+  );
+
+  const sides = compile(
+    twins(1, {
+      paddingTop: '10px',
+      paddingRight: '20px',
+      paddingBottom: '10px',
+      paddingLeft: '20px',
+    })
+  );
+  report.check(
+    'four sides of padding come out as one declaration',
+    sides.includes('padding: 10px 20px') && !sides.includes('padding-top'),
+    /padding[^;]*/.exec(sides)?.[0] ?? 'none'
+  );
+
+  // Margin rather than padding: a frame ships with padding on all four sides,
+  // so a fixture that set three of them would still have four and would prove
+  // the opposite of what it claims.
+  const three = compile(twins(1, { marginTop: '10px', marginRight: '20px', marginBottom: '10px' }));
+  report.check(
+    'three of them do not, because a shorthand would invent the fourth',
+    three.includes('margin-top') && !/margin: /.test(three),
+    /margin: /.test(three) ? 'collapsed anyway' : 'left as longhands'
+  );
+
+  const elliptical = compile(
+    twins(1, {
+      borderTopLeftRadius: '10px 20px',
+      borderTopRightRadius: '10px 20px',
+      borderBottomRightRadius: '10px 20px',
+      borderBottomLeftRadius: '10px 20px',
+    })
+  );
+  report.check(
+    'and an elliptical corner is left alone, since folding four would reshape it',
+    elliptical.includes('border-top-left-radius') && !/border-radius: /.test(elliptical),
+    /border-radius: /.test(elliptical) ? 'collapsed a two-value corner' : 'left as longhands'
+  );
+}
+
 {
   // The shape check, stated on its own: a document that lies about its
   // version must still be converted, or the field's history becomes a bug.

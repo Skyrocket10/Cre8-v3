@@ -1,5 +1,5 @@
 
-import { APP, ARTIFACTS, launch } from './harness.mjs';
+import { APP, ARTIFACTS, launch, READY_TIMEOUT } from './harness.mjs';
 
 const SITE = APP;
 const results = [];
@@ -21,7 +21,7 @@ async function signUp(page, who) {
   await page.fill('input[type="email"]', who.email);
   await page.fill('input[type="password"]', who.pw);
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${SITE}/`, { timeout: 30000 });
+  await page.waitForURL(`${SITE}/`, { timeout: READY_TIMEOUT });
 }
 
 const browser = await launch();
@@ -110,7 +110,7 @@ try {
   await mate.fill('input[type="email"]', MATE.email);
   await mate.fill('input[type="password"]', MATE.pw);
   await mate.click('button[type="submit"]');
-  await mate.waitForURL(`${SITE}/`, { timeout: 30000 });
+  await mate.waitForURL(`${SITE}/`, { timeout: READY_TIMEOUT });
   await mate.waitForSelector('header button:has-text("Field & Frame")', { timeout: 15000 });
   check('accepting the invite joins the workspace', true);
 
@@ -119,24 +119,24 @@ try {
   await owner.reload({ waitUntil: 'networkidle' });
   await owner.waitForSelector('header button:has-text("Field & Frame")', { timeout: 15000 });
   await owner.locator('button:has-text("Blank")').first().click();
-  await owner.waitForURL(/\/editor\?p=/, { timeout: 30000 });
+  await owner.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
   const projectUrl = owner.url();
-  await owner.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
+  await owner.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
   check('project opens in the editor', true, projectUrl.slice(SITE.length));
 
   // Live means the socket is up and the room owns persistence.
-  await owner.waitForSelector('text=Live', { timeout: 20000 });
+  await owner.waitForSelector('text=Live', { timeout: READY_TIMEOUT });
   check('owner sees the Live indicator (room connected)', true);
 
   /* ---------------------------------------------------- 6. co-edit + presence */
 
   await mate.goto(projectUrl, { waitUntil: 'networkidle' });
-  await mate.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
-  await mate.waitForSelector('text=Live', { timeout: 20000 });
+  await mate.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await mate.waitForSelector('text=Live', { timeout: READY_TIMEOUT });
   check('second editor joins the same room', true);
 
   // Presence avatars: each should see exactly one other person.
-  await owner.waitForSelector('header span[class*="ring-2"]', { timeout: 20000 });
+  await owner.waitForSelector('header span[class*="ring-2"]', { timeout: READY_TIMEOUT });
   const ownerSeesPeers = await owner.locator('header span[class*="ring-2"]').count();
   const mateSeesPeers = await mate.locator('header span[class*="ring-2"]').count();
   check('presence avatars show the other person', ownerSeesPeers === 1 && mateSeesPeers === 1,
@@ -184,8 +184,8 @@ try {
   check('member role can be changed to viewer', /viewer/i.test(rowText));
 
   await mate.goto(projectUrl, { waitUntil: 'networkidle' });
-  await mate.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
-  await mate.waitForSelector('text=View only', { timeout: 20000 });
+  await mate.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await mate.waitForSelector('text=View only', { timeout: READY_TIMEOUT });
   check('a viewer sees the View only badge', true);
 
   const publishDisabled = await mate.locator('button:has-text("Publish")').isDisabled();
@@ -196,7 +196,7 @@ try {
   await owner.goto(`${SITE}/`, { waitUntil: 'networkidle' });
   await owner.click('button[aria-label="Account"]');
   await owner.click('text=Sign out');
-  await owner.waitForURL(`${SITE}/signin`, { timeout: 20000 });
+  await owner.waitForURL(`${SITE}/signin`, { timeout: READY_TIMEOUT });
   check('sign out returns to /signin', true);
 } catch (error) {
   check(`harness completed`, false, error.message);

@@ -154,6 +154,42 @@ parallel geometry model without eventually disagreeing with the browser.
 **Debounced persistence.** 900ms after the last change, plus a flush on
 page-hide.
 
+### What a published page weighs
+
+The editor's performance is about the document; a visitor's is about the file.
+The SaaS template — four pages, every block type — publishes at **105 KB**,
+down from 163 KB, and its home page is **44 KB** with a **24 KB** stylesheet.
+Three changes, in descending order of what they are worth *after compression*,
+because Cloudflare gzips on the way out and raw bytes are not what a visitor
+waits for:
+
+**Node ids cut to four characters, at publish only.** Ten random characters of
+`[a-z0-9]` are the highest-entropy bytes on the page and the only ones that
+barely compress; they are also paid twice, in the stylesheet and on every
+element. Four characters is ample for one page's few hundred nodes, and an id
+whose prefix collides keeps its full length. The canvas keeps the full id: its
+caches are keyed on node identity, and renumbering on every insert would cost
+more than the bytes are worth. A prefix — rather than a rename to `a`, `b`,
+`c` — keeps the `c-` namespace that stops a generated class colliding with
+`customHead`, and stays reproducible from the id alone, which is how the render
+suite maps one surface's class to the other's.
+
+**Rules that say the same thing share a selector.** Only within a phase: in
+the base layer and in each breakpoint layer, every node contributes at most one
+rule and every selector is a different node's class, so nothing can be
+reordered relative to anything it overlaps. The conditional phase has neither
+property and is printed as it stands — since §1's rule ordering *is* the
+cascade, merging there would change what wins.
+
+**Four-sided longhands collapse.** `padding`, `margin` and `border-radius`,
+when all four sides are present and none is multi-valued. Done in
+`declarationsToCss`, so every surface emits it and there is no publish-only
+transform for the canvas to disagree with.
+
+Two things were measured and dropped: shortening numbers and hex colours won
+96 bytes, and pruning unreferenced classes won none — every generated class is
+used. Both would have been regex passes over values for no return.
+
 ---
 
 ## 5. Components

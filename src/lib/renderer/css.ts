@@ -52,15 +52,84 @@ function expand(prop: string, value: string): [string, string][] {
   return [[cssProp(prop), value]];
 }
 
+/**
+ * Four-sided properties, and the order a shorthand writes them in.
+ *
+ * The document stores longhands because that is what the inspector edits —
+ * four fields, four patches, four undo steps. CSS has a shorthand for the same
+ * thing that is a third of the bytes, and on a real page these are the single
+ * largest group of declarations: a card with padding and a radius spends eight
+ * declarations and about 200 characters saying two things.
+ *
+ * Collapsed here rather than at publish so every surface emits the same
+ * stylesheet. A transform that only ran for the published file would be one
+ * more way the canvas and the site could quietly disagree.
+ */
+const FOUR_SIDED: [shorthand: string, longhands: [string, string, string, string]][] = [
+  ['padding', ['padding-top', 'padding-right', 'padding-bottom', 'padding-left']],
+  ['margin', ['margin-top', 'margin-right', 'margin-bottom', 'margin-left']],
+  [
+    'border-radius',
+    [
+      'border-top-left-radius',
+      'border-top-right-radius',
+      'border-bottom-right-radius',
+      'border-bottom-left-radius',
+    ],
+  ],
+];
+
+/**
+ * Rewrite complete four-sided sets as their shorthand.
+ *
+ * Only when **all four** are present, because a shorthand sets all four
+ * whatever the author wrote — collapsing three would invent a fourth. And only
+ * when no value contains a space: `10px 20px` is a legal elliptical corner
+ * radius, and folding four of those into one declaration produces a different
+ * shape rather than a shorter way of saying the same one.
+ *
+ * Order is preserved by putting the shorthand where the first of its longhands
+ * was. Anything after it that touches the same box still wins, which is what
+ * the caller wrote and what the longhands did.
+ */
+function collapseFourSided(pairs: [string, string][]): [string, string][] {
+  const byProp = new Map(pairs);
+  const replaced = new Map<string, string>();
+  const dropped = new Set<string>();
+
+  for (const [shorthand, longhands] of FOUR_SIDED) {
+    const values = longhands.map((prop) => byProp.get(prop));
+    if (values.some((value) => value === undefined || /\s/.test(value))) continue;
+    const [top, right, bottom, left] = values as [string, string, string, string];
+    const value =
+      top === right && right === bottom && bottom === left
+        ? top
+        : top === bottom && right === left
+          ? `${top} ${right}`
+          : `${top} ${right} ${bottom} ${left}`;
+    replaced.set(longhands[0], `${shorthand}:${value}`);
+    for (const prop of longhands.slice(1)) dropped.add(prop);
+  }
+
+  if (!replaced.size) return pairs;
+  const out: [string, string][] = [];
+  for (const [prop, value] of pairs) {
+    const swap = replaced.get(prop);
+    if (swap) out.push([swap.slice(0, swap.indexOf(':')), swap.slice(swap.indexOf(':') + 1)]);
+    else if (!dropped.has(prop)) out.push([prop, value]);
+  }
+  return out;
+}
+
 export function declarationsToCss(styles: StyleDecl, indent = '  '): string {
-  const out: string[] = [];
+  const pairs: [string, string][] = [];
   for (const [prop, value] of Object.entries(styles)) {
     if (value === undefined || value === null || value === '') continue;
-    for (const [name, resolved] of expand(prop, String(value))) {
-      out.push(`${indent}${name}: ${resolved};`);
-    }
+    for (const [name, resolved] of expand(prop, String(value))) pairs.push([name, resolved]);
   }
-  return out.join('\n');
+  return collapseFourSided(pairs)
+    .map(([name, value]) => `${indent}${name}: ${value};`)
+    .join('\n');
 }
 
 /** Inline-style object, used for the page frame's token variables. */
@@ -85,10 +154,16 @@ function atRule(mode: QueryMode, breakpoint: Breakpoint): string | null {
  * Per-node rules, memoised
  * ----------------------------------------------------------------------- */
 
+/** A rule the generator has not yet decided how to print. */
+interface Emitted {
+  selector: string;
+  body: string;
+}
+
 interface NodeRules {
-  base: string;
+  base: Emitted | null;
   /** Keyed by breakpoint, base excluded. */
-  responsive: Partial<Record<Breakpoint, string>>;
+  responsive: Partial<Record<Breakpoint, Emitted>>;
 }
 
 /**
@@ -103,24 +178,66 @@ function rulesFor(node: SceneNode, selectorPrefix: string): NodeRules {
   if (cached) return cached;
 
   const selector = `${selectorPrefix}.${nodeClass(node.id)}`;
-  const base = node.styles.desktop ?? {};
-  const baseBody = declarationsToCss(base);
+  const baseBody = declarationsToCss(node.styles.desktop ?? {});
 
-  const responsive: Partial<Record<Breakpoint, string>> = {};
+  const responsive: Partial<Record<Breakpoint, Emitted>> = {};
   for (const bp of BREAKPOINT_ORDER) {
     if (bp === 'desktop') continue;
     const layer = node.styles[bp];
     if (!layer || Object.keys(layer).length === 0) continue;
     const body = declarationsToCss(layer, '    ');
-    if (body) responsive[bp] = `  ${selector} {\n${body}\n  }`;
+    if (body) responsive[bp] = { selector, body };
   }
 
   const rules: NodeRules = {
-    base: baseBody ? `${selector} {\n${baseBody}\n}` : '',
+    base: baseBody ? { selector, body: baseBody } : null,
     responsive,
   };
   ruleCache.set(node, rules);
   return rules;
+}
+
+/**
+ * Print a phase, merging rules that say exactly the same thing.
+ *
+ * A library page is mostly repetition — twelve links styled identically, six
+ * cards with the same padding — and each one currently gets its own copy of
+ * the declarations. Sharing a selector cuts about a third off the stylesheet.
+ *
+ * **Only safe within a phase, and that is the whole subtlety.** Merging moves
+ * the later rule up to where the first one sits, and since stage 1 made source
+ * order the entire cascade, moving a rule is changing what wins. Inside the
+ * base layer, and inside each breakpoint layer, every node contributes at most
+ * one rule and every selector is a different node's class — disjoint sets, so
+ * nothing can be reordered relative to anything that matches the same element.
+ * The conditional phase has neither property: a node can carry several rules,
+ * and a variant's class matches an element that its node's class matches too.
+ * So that phase is printed as it stands. See `generateNodeCss`.
+ */
+function printInOrder(rules: Emitted[], indent: string): string {
+  return rules
+    .map(({ selector, body }) => `${indent}${selector} {\n${body}\n${indent}}`)
+    .join('\n');
+}
+
+function printPhase(rules: Emitted[], indent: string): string {
+  const order: { selectors: string[]; body: string }[] = [];
+  const byBody = new Map<string, { selectors: string[]; body: string }>();
+
+  for (const { selector, body } of rules) {
+    const found = byBody.get(body);
+    if (found) {
+      found.selectors.push(selector);
+      continue;
+    }
+    const entry = { selectors: [selector], body };
+    byBody.set(body, entry);
+    order.push(entry);
+  }
+
+  return order
+    .map(({ selectors, body }) => `${indent}${selectors.join(',')} {\n${body}\n${indent}}`)
+    .join('\n');
 }
 
 /* --------------------------------------------------------------------------
@@ -248,19 +365,29 @@ export function generateNodeCss(
   const prefix = options.scope ? `${options.scope} ` : '';
   const ids = options.nodeIds ? [...options.nodeIds] : Object.keys(nodes);
 
-  const baseChunks: string[] = [];
+  const baseRules: Emitted[] = [];
   const ruleChunks: string[] = [];
-  const responsiveChunks: Partial<Record<Breakpoint, string[]>> = {};
+  const responsiveRules: Partial<Record<Breakpoint, Emitted[]>> = {};
+  /**
+   * Breakpoints that received a *conditional* rule as well as base overrides.
+   *
+   * That phase then has the same two problems the conditional phase has — more
+   * than one rule per node, and selectors that overlap — so it loses the
+   * property that makes merging safe and is printed in order instead. Rare
+   * enough in practice that the saving is unaffected, and cheap enough to
+   * track that guessing would be the wrong trade.
+   */
+  const mixed = new Set<Breakpoint>();
 
   for (const id of ids) {
     const node = nodes[id];
     if (!node) continue;
     const cached = rulesFor(node, prefix);
-    if (cached.base) baseChunks.push(cached.base);
+    if (cached.base) baseRules.push(cached.base);
     for (const bp of BREAKPOINT_ORDER) {
       const chunk = cached.responsive[bp];
       if (!chunk) continue;
-      (responsiveChunks[bp] ??= []).push(chunk);
+      (responsiveRules[bp] ??= []).push(chunk);
     }
 
     /*
@@ -305,7 +432,10 @@ export function generateNodeCss(
 
       if (rule.breakpoint && rule.breakpoint !== 'desktop') {
         const body = declarationsToCss(rule.apply, '    ');
-        if (body) (responsiveChunks[rule.breakpoint] ??= []).push(`  ${selector} {\n${body}\n  }`);
+        if (body) {
+          (responsiveRules[rule.breakpoint] ??= []).push({ selector, body });
+          mixed.add(rule.breakpoint);
+        }
         continue;
       }
       const body = declarationsToCss(rule.apply);
@@ -314,18 +444,22 @@ export function generateNodeCss(
   }
 
   const out: string[] = [];
-  if (baseChunks.length) out.push(baseChunks.join('\n'));
+  if (baseRules.length) out.push(printPhase(baseRules, ''));
 
   // Narrow breakpoints emitted before the rules and after the base, so that
   // at equal specificity the cascade reads: what it is, then what it is when
   // narrow, then what it is when something is true.
   for (const bp of BREAKPOINT_ORDER) {
-    const chunks = responsiveChunks[bp];
-    if (!chunks?.length) continue;
+    const rules = responsiveRules[bp];
+    if (!rules?.length) continue;
+    const body = mixed.has(bp) ? printInOrder(rules, '  ') : printPhase(rules, '  ');
     const rule = atRule(options.mode, bp);
-    out.push(rule ? `${rule} {\n${chunks.join('\n')}\n}` : chunks.join('\n'));
+    out.push(rule ? `${rule} {\n${body}\n}` : body);
   }
 
+  // Printed as it stands, not merged: a node can carry several of these and a
+  // variant class matches an element its node class matches too, so moving one
+  // up to join another would change which of them wins.
   if (ruleChunks.length) out.push(ruleChunks.join('\n'));
   return out.join('\n\n');
 }

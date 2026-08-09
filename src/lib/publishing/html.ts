@@ -290,17 +290,24 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
 
   const dataSources = collectDataSources(doc.nodes, nodeIds);
 
-  const css = generateStylesheet(doc, {
-    mode: 'media',
-    nodeIds,
-    themeVars: themeToCssVariables(doc.theme),
-    rootSelector: ':root',
-    includeStates: true,
-    // This file *is* the document, so its body belongs to the page.
-    standalone: true,
-  });
+  // Cut the node ids down before either the stylesheet or the markup is
+  // assembled, so the two can only ever agree — one map, applied twice.
+  const shortClasses = shortClassMap(nodeIds);
 
-  const body = renderNodeToHtml(doc, page.rootNodeId, {
+  const css = applyShortClasses(
+    generateStylesheet(doc, {
+      mode: 'media',
+      nodeIds,
+      themeVars: themeToCssVariables(doc.theme),
+      rootSelector: ':root',
+      includeStates: true,
+      // This file *is* the document, so its body belongs to the page.
+      standalone: true,
+    }),
+    shortClasses
+  );
+
+  const body = applyShortClasses(renderNodeToHtml(doc, page.rootNodeId, {
     hrefResolver: hrefResolverFor(doc, page),
     formAction:
       options.apiOrigin && options.projectId
@@ -314,7 +321,7 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
             `${options.apiOrigin}/api/f/${encodeURIComponent(options.projectId!)}` +
             `/${encodeURIComponent(formId)}?r=${encodeURIComponent(pagePath(page))}`
         : undefined,
-  });
+  }), shortClasses);
   // A page inherits a sensible <title> rather than repeating its internal
   // name: the home page is the site, everything else is "Page · Site".
   const title =
@@ -351,7 +358,9 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     // flash: a classic script here blocks parsing, so the attribute every data
     // condition keys on is correct before a single element of the body exists.
     dataSources.size ? `<script>${dataRuntimeSource()}</script>` : '',
-    doc.settings.customHead ?? '',
+    // Rewritten too: a designer who did reach for a generated class in here
+    // should not be the one who finds out it changed.
+    applyShortClasses(doc.settings.customHead ?? '', shortClasses),
   ]
     .filter(Boolean)
     .join(options.pretty ? '\n    ' : '');
@@ -443,6 +452,70 @@ function robots(doc: Cre8Document): GeneratedFile {
   const contents = `User-agent: *\nAllow: /\nSitemap: /sitemap.xml\n`;
   void doc;
   return { path: 'robots.txt', contents, bytes: byteLength(contents) };
+}
+
+/* --------------------------------------------------------------------------
+ * Shorter class names
+ * ----------------------------------------------------------------------- */
+
+/**
+ * How much of a node id survives into a published class.
+ *
+ * Ids are ten characters of `[a-z0-9]` so that they never collide inside one
+ * document. A single *page* holds a few hundred nodes, where four characters —
+ * 1.7 million of them — is ample, and the six characters saved are paid twice:
+ * once in the stylesheet and once on every element that carries the class.
+ * They are also the highest-entropy bytes on the page, so unlike the rest of
+ * the markup they barely compress. Cutting them is most of what the whole
+ * exercise wins after gzip.
+ */
+const SHORT_ID = 4;
+
+/**
+ * Which ids can be cut, given everything else on this page.
+ *
+ * Deliberately *not* a rename to `a`, `b`, `c`, which would be shorter still.
+ * Two reasons. The `c-` prefix is what guarantees a generated class can never
+ * collide with something a designer wrote into `customHead`, and a bare `.a`
+ * throws that away. And a sequential rename depends on the order nodes are
+ * walked, which nothing outside the generator can reproduce — a prefix is a
+ * property of the id alone, so the render suite can map a canvas class to its
+ * published form without knowing anything about how the page was built.
+ *
+ * An id whose prefix is shared with another on the same page keeps its full
+ * length. That costs a few bytes on the rare page where it happens and keeps
+ * the rule to one sentence.
+ */
+function shortClassMap(nodeIds: Iterable<NodeId>): Map<string, string> {
+  const unique = new Set(nodeIds);
+  const heads = new Map<string, number>();
+  for (const id of unique) {
+    const head = id.slice(0, SHORT_ID);
+    heads.set(head, (heads.get(head) ?? 0) + 1);
+  }
+
+  const map = new Map<string, string>();
+  for (const id of unique) {
+    const head = id.slice(0, SHORT_ID);
+    if (id.length > SHORT_ID && heads.get(head) === 1) map.set(id, head);
+  }
+  return map;
+}
+
+/**
+ * Applied to the stylesheet and the markup, never to prose.
+ *
+ * `title`, the meta description and the page's own text are assembled
+ * separately and left alone: a class token is only ever written by the
+ * generator, and rewriting arbitrary copy on the off-chance it contains one
+ * would be trading a certainty for a coincidence.
+ */
+function applyShortClasses(text: string, map: Map<string, string>): string {
+  if (!map.size) return text;
+  return text.replace(/\bc-([a-z0-9]{5,})\b/g, (whole, id: string) => {
+    const short = map.get(id);
+    return short ? `c-${short}` : whole;
+  });
 }
 
 export function byteLength(value: string): number {

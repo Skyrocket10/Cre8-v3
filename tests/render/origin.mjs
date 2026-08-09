@@ -7,7 +7,7 @@
  * Cre8 account — visits it. The script tries to read the session three ways.
  */
 
-import { APP, ARTIFACTS, launch } from './harness.mjs';
+import { APP, ARTIFACTS, launch, READY_TIMEOUT } from './harness.mjs';
 
 const SITE = APP;
 const results = [];
@@ -43,7 +43,7 @@ async function signUp(page, who) {
   await page.fill('input[type="email"]', who.email);
   await page.fill('input[type="password"]', who.pw);
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${SITE}/`, { timeout: 30000 });
+  await page.waitForURL(`${SITE}/`, { timeout: READY_TIMEOUT });
 }
 
 const browser = await launch();
@@ -83,9 +83,9 @@ try {
   /* ---------------------------------------------- 3. attacker publishes a page */
 
   await atk.locator('button:has-text("Blank")').first().click();
-  await atk.waitForURL(/\/editor\?p=/, { timeout: 30000 });
+  await atk.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
   const projectId = new URL(atk.url()).searchParams.get('p');
-  await atk.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
+  await atk.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
   await atk.waitForTimeout(2000);
 
   const publish = await atk.evaluate(

@@ -1,5 +1,5 @@
 
-import { APP, ARTIFACTS, launch } from './harness.mjs';
+import { APP, ARTIFACTS, launch, READY_TIMEOUT } from './harness.mjs';
 
 /**
  * The static export, served with no Worker behind it.
@@ -48,8 +48,8 @@ try {
   check('storage badge says This browser', (await page.locator('text=This browser').count()) > 0);
 
   await page.locator('button:has-text("Blank")').first().click();
-  await page.waitForURL(/\/editor\?p=/, { timeout: 30000 });
-  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
+  await page.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
   check('project opens in the editor', true);
 
   check('no Live indicator without a backend', (await page.locator('header >> text=Live').count()) === 0);
@@ -59,13 +59,13 @@ try {
   const insert = page.locator('[data-cre8-insert="section"], button:has-text("Section")').first();
   await insert.scrollIntoViewIfNeeded().catch(() => {});
   await insert.click();
-  await page.waitForSelector('header >> text=/Saved|Unsaved/', { timeout: 20000 });
-  await page.waitForSelector('header >> text=/Saved/', { timeout: 20000 });
+  await page.waitForSelector('header >> text=/Saved|Unsaved/', { timeout: READY_TIMEOUT });
+  await page.waitForSelector('header >> text=/Saved/', { timeout: READY_TIMEOUT });
   check('autosave still reaches "Saved" in local mode', true);
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1500);
-  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
   const survived = await page.locator('.cre8-frame.cre8-editing section, .cre8-frame.cre8-editing > *').count();
   check('the edit survives a reload (IndexedDB)', survived > 0, `${survived} root children`);
 

@@ -77,25 +77,82 @@ export async function signUp(page, name, tag) {
   await page.fill('input[type="email"]', `${tag}${Date.now()}@cre8.test`);
   await page.fill('input[type="password"]', 'correct-horse-battery');
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${APP}/`, { timeout: 30000 });
+  await page.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
 }
 
 /** Open a template or blank project and wait for the canvas to settle. */
 export async function openProject(page, templateLabel) {
   await page.locator(`button:has-text("${templateLabel}")`).first().click();
-  await page.waitForURL(/\/editor\?p=/, { timeout: 30000 });
+  await page.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
   const id = new URL(page.url()).searchParams.get('p');
-  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
-  await page.waitForSelector('header >> text=Live', { timeout: 20000 });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
   await page.waitForTimeout(1500);
   return id;
 }
 
+/**
+ * Publish, and wait long enough that a slow write is not read as a failure.
+ *
+ * Three minutes, which is absurd for a request that normally takes two
+ * seconds — and that is the point. A local `wrangler dev` writes D1 and R2 to
+ * disk on one thread, and by the sixtieth block of a sweep a publish
+ * occasionally takes over a minute. At 60s that surfaced as a suite failing on
+ * whichever block happened to be unlucky, which is the worst possible signal:
+ * it looks exactly like a regression in that block. A generous ceiling costs
+ * nothing when things are healthy and turns a flake back into what it is.
+ *
+ * Override with `CRE8_PUBLISH_TIMEOUT` when running against a deployment,
+ * where a slow publish really is worth failing on.
+ */
+export const PUBLISH_TIMEOUT = Number(process.env.CRE8_PUBLISH_TIMEOUT ?? 180000);
+
+/**
+ * Waiting for the editor to come up — signing in, opening a project, the
+ * collaboration socket reporting Live.
+ *
+ * Same reasoning as `PUBLISH_TIMEOUT` and the same trade. These were twenty
+ * and thirty seconds, which is many times what any of them takes when the
+ * machine is idle and occasionally not enough when it is on its fifteenth
+ * suite. A suite that fails here has told you nothing about the thing it
+ * exists to check.
+ */
+export const READY_TIMEOUT = Number(process.env.CRE8_READY_TIMEOUT ?? 60000);
+
 export async function publish(page) {
   await page.click('button:has-text("Publish")');
-  await page.waitForSelector('text=/pages? published/', { timeout: 60000 });
+  await page.waitForSelector('text=/pages? published/', { timeout: PUBLISH_TIMEOUT });
   await page.keyboard.press('Escape');
   await page.waitForTimeout(800);
+}
+
+/**
+ * Re-key a published page's measurements into the canvas's class names.
+ *
+ * Published pages cut each node id to four characters — the ids are the
+ * highest-entropy bytes on the page and barely compress, so shortening them is
+ * most of what the output optimisation wins. The canvas keeps the full id,
+ * because its per-node caches are keyed on identity and renumbering on every
+ * insert would cost more than the bytes are worth.
+ *
+ * So the two surfaces name the same element differently, and something has to
+ * bridge them. A prefix can be: it is a property of the id alone, needing no
+ * knowledge of how the page was assembled. An id whose prefix collides with
+ * another on the same page is published in full, which is why the full name is
+ * tried as well.
+ *
+ * Anything with no counterpart is simply left out, exactly as before — the
+ * comparison has always been over the intersection, because the canvas renders
+ * a few elements a visitor never sees.
+ */
+export function toCanvasKeys(published, canvas) {
+  const out = {};
+  for (const cls of Object.keys(canvas)) {
+    const short = `c-${cls.slice(2, 2 + 4)}`;
+    const value = published[cls] ?? published[short];
+    if (value !== undefined) out[cls] = value;
+  }
+  return out;
 }
 
 /* --------------------------------------------------------------------------

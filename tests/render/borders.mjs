@@ -1,7 +1,7 @@
 
 /** Per-side border widths: set in the inspector, honoured on canvas and in the published file. */
 
-import { APP, ARTIFACTS, launch } from './harness.mjs';
+import { APP, ARTIFACTS, launch, PUBLISH_TIMEOUT, READY_TIMEOUT } from './harness.mjs';
 
 const results = [];
 let failed = 0;
@@ -35,13 +35,13 @@ try {
   await page.fill('input[type="email"]', `bord${stamp}@cre8.test`);
   await page.fill('input[type="password"]', 'correct-horse-battery');
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${APP}/`, { timeout: 30000 });
+  await page.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
 
   await page.locator('button:has-text("Blank")').first().click();
-  await page.waitForURL(/\/editor\?p=/, { timeout: 30000 });
+  await page.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
   const id = new URL(page.url()).searchParams.get('p');
-  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
-  await page.waitForSelector('header >> text=Live', { timeout: 20000 });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
   await page.waitForTimeout(1500);
 
   // Insert a section to style.
@@ -86,7 +86,7 @@ try {
   /* --------------------------------------------------------------- published */
 
   await page.click('button:has-text("Publish")');
-  await page.waitForSelector('text=/pages? published/', { timeout: 60000 });
+  await page.waitForSelector('text=/pages? published/', { timeout: PUBLISH_TIMEOUT });
   await page.keyboard.press('Escape');
   await page.waitForTimeout(800);
 

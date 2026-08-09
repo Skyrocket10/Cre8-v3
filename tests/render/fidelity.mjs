@@ -13,7 +13,7 @@
  * every primary button.
  */
 
-import { APP, launch, unbalanced } from './harness.mjs';
+import { APP, launch, PUBLISH_TIMEOUT, READY_TIMEOUT, toCanvasKeys, unbalanced } from './harness.mjs';
 
 const results = [];
 let failed = 0;
@@ -51,17 +51,17 @@ try {
   await page.fill('input[type="email"]', `fid${stamp}@cre8.test`);
   await page.fill('input[type="password"]', 'correct-horse-battery');
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${APP}/`, { timeout: 30000 });
+  await page.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
 
   await page.locator('button:has-text("SaaS landing page")').first().click();
-  await page.waitForURL(/\/editor\?p=/, { timeout: 30000 });
+  await page.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
   const id = new URL(page.url()).searchParams.get('p');
-  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 30000 });
-  await page.waitForSelector('header >> text=Live', { timeout: 20000 });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
   await page.waitForTimeout(2000);
 
   await page.click('button:has-text("Publish")');
-  await page.waitForSelector('text=/pages? published/', { timeout: 60000 });
+  await page.waitForSelector('text=/pages? published/', { timeout: PUBLISH_TIMEOUT });
   await page.keyboard.press('Escape');
   await page.waitForTimeout(1000);
 
@@ -73,6 +73,45 @@ try {
     check(`/${path || ''} has balanced markup`, bad.length === 0,
       bad.map(([t, n]) => `${t}:${n > 0 ? '+' : ''}${n}`).join(' ') || 'all closed');
   }
+
+  /* ------------------------------------------ 1b. and it is not wasteful */
+
+  /*
+   * A budget rather than a snapshot. Snapshotting the exact byte count would
+   * fail on every copy edit, which trains people to update the number without
+   * reading it; a ceiling only moves when something structural regresses.
+   *
+   * The numbers below are roughly a third above what the SaaS template
+   * currently produces, and the template is the largest thing the library can
+   * build — four pages, every block type, the whole theme. If a page of it
+   * ever needs 60 KB of stylesheet again, something stopped being shared.
+   */
+  const home = await (await fetch(`${APP}/s/${id}/`)).text();
+  const stylesheet = /<style>([\s\S]*?)<\/style>/.exec(home)?.[1] ?? '';
+  const bytes = (s) => new TextEncoder().encode(s).length;
+
+  check('the stylesheet stays under its budget', bytes(stylesheet) < 34000,
+    `${bytes(stylesheet)} bytes of css`);
+  check('and the whole page does', bytes(home) < 60000, `${bytes(home)} bytes`);
+
+  // The shortening is what most of that budget rests on, so it is asserted
+  // directly: a published class is the `c-` prefix and four characters, not
+  // the ten-character id the editor uses.
+  const classes = [...new Set(
+    [...home.matchAll(/class="([^"]*)"/g)].flatMap((m) => m[1].split(/\s+/))
+  )].filter(Boolean);
+  const long = classes.filter((c) => /^c-[a-z0-9]{5,}$/.test(c));
+  // Ids are random, so on a page of two hundred nodes a few will share their
+  // first four characters — and those keep their full length by design. So the
+  // check is not "none are long" but "every long one had to be": each must
+  // share a prefix with something else here. That fails if the shortening
+  // silently stops working, and passes however the dice land.
+  const heads = classes.map((c) => c.slice(0, 6));
+  const justified = long.every((c) => heads.filter((h) => h === c.slice(0, 6)).length > 1);
+  check('published class names are cut down from the editor’s ids',
+    classes.length > 50 && long.length < classes.length / 10 && justified,
+    `${classes.length} classes, ${long.length} kept full length` +
+      (long.length ? ` — ${justified ? 'all collide on a prefix' : `unexplained: ${long[0]}`}` : ''));
 
   /* ------------------------------ 2. the same nodes compute the same styles */
 
@@ -115,14 +154,15 @@ try {
     return out;
   });
 
-  const shared = Object.keys(published).filter((c) => c in canvas);
+  const matched = toCanvasKeys(published, canvas);
+  const shared = Object.keys(matched);
   // gridTemplateColumns resolves to used pixel values, which legitimately
   // differ with width; compare everything else exactly.
   const drop = (v) => v.split('|').filter((_, i) => i !== 1).join('|');
-  const diffs = shared.filter((c) => drop(canvas[c]) !== drop(published[c]));
+  const diffs = shared.filter((c) => drop(canvas[c]) !== drop(matched[c]));
   check('canvas and published agree on computed styles', diffs.length === 0,
     `${shared.length} shared nodes, ${diffs.length} differ` +
-      (diffs.length ? ` — e.g. ${diffs[0]}: ${drop(canvas[diffs[0]])} vs ${drop(published[diffs[0]])}` : ''));
+      (diffs.length ? ` — e.g. ${diffs[0]}: ${drop(canvas[diffs[0]])} vs ${drop(matched[diffs[0]])}` : ''));
   check('the comparison actually covered the page', shared.length > 40, `${shared.length} nodes`);
 
   /* ----------------------------------------- 3. the two bugs, named directly */

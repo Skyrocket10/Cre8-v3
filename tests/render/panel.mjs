@@ -10,7 +10,7 @@
  * exactly the failure mode a hand-drawn thumbnail has.
  */
 
-import { APP, launch, openProject, publish } from './harness.mjs';
+import { APP, launch, openProject, publish, READY_TIMEOUT } from './harness.mjs';
 import { createReport } from '../report.mjs';
 import { loadBlocks } from '../static/load-blocks.mjs';
 
@@ -35,7 +35,7 @@ try {
   await page.fill('input[type="email"]', `panel${Date.now()}@cre8.test`);
   await page.fill('input[type="password"]', 'correct-horse-battery');
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${APP}/`, { timeout: 30000 });
+  await page.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
   await openProject(page, 'Blank');
   await openInsert();
 

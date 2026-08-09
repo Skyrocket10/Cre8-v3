@@ -15,7 +15,7 @@
  * published deliberately differ, so it is checked in both directions.
  */
 
-import { APP, launch, openProject, publish } from './harness.mjs';
+import { APP, launch, openProject, publish, READY_TIMEOUT } from './harness.mjs';
 import { createReport } from '../report.mjs';
 
 const report = createReport();
@@ -40,7 +40,7 @@ try {
   await page.fill('input[type="email"]', `native${Date.now()}@cre8.test`);
   await page.fill('input[type="password"]', 'correct-horse-battery');
   await page.click('button[type="submit"]');
-  await page.waitForURL(`${APP}/`, { timeout: 30000 });
+  await page.waitForURL(`${APP}/`, { timeout: READY_TIMEOUT });
 
   const id = await openProject(page, 'Blank');
 
@@ -589,13 +589,18 @@ try {
     /<dialog[^>]*aria-label="[^"]+"/.test(dialogHtml),
     /aria-label/.test(dialogHtml) ? 'labelled' : 'unlabelled'
   );
+  // The class and the id both come from the node id, but only the class is
+  // shortened at publish — a DOM id is referenced by `popovertarget` and has
+  // to keep matching it. So the class is the prefix, and the full form is
+  // tried too for the rare id whose prefix collides with another on the page.
+  const dialogClass = [
+    `.c-${dialogId.slice(2, 2 + 4)}::backdrop`,
+    `.c-${dialogId.slice(2)}::backdrop`,
+  ].find((selector) => dialogHtml.includes(selector));
   report.check(
     'the backdrop is a rule on the node’s own class',
-    // The class and the id share a node id, so one names the other. A plain
-    // string is enough — the selector has no whitespace for minification to
-    // move around.
-    dialogHtml.includes(`.c-${dialogId.slice(2)}::backdrop`),
-    `.c-${dialogId.slice(2)}::backdrop`
+    Boolean(dialogClass),
+    dialogClass ?? `neither .c-${dialogId.slice(2, 2 + 4)}::backdrop nor the full form`
   );
 
   const modal = await ctx.newPage();
