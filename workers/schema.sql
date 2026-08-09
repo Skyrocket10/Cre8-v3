@@ -114,19 +114,44 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE INDEX IF NOT EXISTS projects_team_updated ON projects (team_id, updated_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS projects_subdomain ON projects (subdomain);
 
--- Upgrading a database created before subdomains or the site manifest existed?
--- `ALTER TABLE` has no IF NOT EXISTS in SQLite, so neither can live above. Run
--- them once, by hand, ignoring "duplicate column name" for any you already have:
+-- Upgrading a database created before subdomains, the site manifest or the
+-- publish history existed? `ALTER TABLE` has no IF NOT EXISTS in SQLite, so
+-- none of them can live above. Run them once, by hand, ignoring "duplicate
+-- column name" for any you already have:
 --
 --   npx wrangler d1 execute cre8 --remote \
 --     --command "ALTER TABLE projects ADD COLUMN subdomain TEXT"
 --   npx wrangler d1 execute cre8 --remote \
 --     --command "ALTER TABLE projects ADD COLUMN site_manifest TEXT"
+--   npx wrangler d1 execute cre8 --remote \
+--     --command "ALTER TABLE deployments ADD COLUMN document TEXT"
+--   npx wrangler d1 execute cre8 --remote \
+--     --command "ALTER TABLE deployments ADD COLUMN changed TEXT"
 --
 -- then re-run this file to pick up the index. A missing manifest is safe on its
 -- own terms — the next publish writes every file and starts one — so this is
--- about not losing the deletions, not about the site breaking.
+-- about not losing the deletions, not about the site breaking. A missing
+-- `document` column is not: publishing writes it, so the route fails until the
+-- ALTER is run.
 
+/*
+ * The publish log, and the thing that makes it a history rather than a list.
+ *
+ * `published_by` is NULL when nobody pressed anything — a record edit tripped
+ * the room's timer and the site republished itself. That distinction does more
+ * work than it looks: an automatic republish is the *same design* carrying
+ * newer content, so it is worth logging and there is nothing to restore it to.
+ *
+ * `document` therefore holds the serialised design only on the publishes a
+ * person asked for. Restoring one re-publishes that document against whatever
+ * records exist now, which is the only sensible reading in a builder with a
+ * CMS attached: putting back last week's layout must not un-publish this
+ * week's posts. Design is versioned, content is live — the same seam the rest
+ * of the data layer is built on.
+ *
+ * Both are pruned. See `lib/history.ts` for the two ceilings and why the log
+ * outlives the documents in it.
+ */
 CREATE TABLE IF NOT EXISTS deployments (
   id            TEXT PRIMARY KEY,
   project_id    TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
@@ -134,7 +159,13 @@ CREATE TABLE IF NOT EXISTS deployments (
   published_at  INTEGER NOT NULL,
   page_count    INTEGER NOT NULL,
   bytes         INTEGER NOT NULL,
-  r2_prefix     TEXT NOT NULL
+  r2_prefix     TEXT NOT NULL,
+  -- The design this publish shipped, serialised. NULL for an automatic
+  -- republish, and NULL again once it falls out of the restorable window.
+  document      TEXT,
+  -- What it did to the bucket: {"written":n,"removed":n,"unchanged":n}. Small
+  -- and separate so listing the history never reads a document.
+  changed       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS deployments_project ON deployments (project_id, published_at DESC);

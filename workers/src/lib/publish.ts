@@ -38,11 +38,11 @@
  * being behind is only ever expensive.
  */
 
-import { newId } from './crypto';
 import { room, roomUrl } from './db';
+import { recordDeployment } from './history';
 import { claimSubdomain, mapHostname } from './hostnames';
 import { forbidden } from './http';
-import { renderSite } from './site';
+import { liveDocument, renderSite } from './site';
 import type { Cre8Document, GeneratedSite, Output } from './render';
 import type { Env } from '../types';
 
@@ -203,8 +203,9 @@ export async function publishSite(
   projectId: string,
   options: PublishOptions
 ): Promise<PublishOutcome | null> {
-  const site = await renderSite(env, projectId, options.apiOrigin, options.document);
-  if (!site) return null;
+  const document = options.document ?? (await liveDocument(env, projectId));
+  if (!document) return null;
+  const site = await renderSite(env, projectId, options.apiOrigin, document);
 
   const prefix = `${projectId}/`;
   const previous = await currentManifest(env, projectId, prefix);
@@ -318,12 +319,22 @@ export async function publishSite(
   // deployment, and filling the history with them would make the history
   // useless for the thing it is for.
   if (written.length || removed.length || options.publishedBy) {
-    await env.DB.prepare(
-      `INSERT INTO deployments (id, project_id, published_by, published_at, page_count, bytes, r2_prefix)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
-    )
-      .bind(newId(), projectId, options.publishedBy, publishedAt, site.pageCount, bytes, prefix)
-      .run();
+    await recordDeployment(env, projectId, {
+      publishedBy: options.publishedBy,
+      publishedAt,
+      pageCount: site.pageCount,
+      bytes,
+      prefix,
+      written: written.length,
+      removed: removed.length,
+      unchanged: Object.keys(next).length - written.length,
+      // What makes a version: a design somebody published. An automatic
+      // republish is the same design carrying newer rows, and storing a copy
+      // of it per record edit would fill the history with duplicates of the
+      // thing you already have. Because a design change never republishes on
+      // its own, this still captures every design the site has ever served.
+      document: options.publishedBy ? document : null,
+    });
   }
 
   // Publishing mutates something already cached at the edge. Without this,

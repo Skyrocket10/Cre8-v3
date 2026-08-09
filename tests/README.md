@@ -86,6 +86,7 @@ preferring an installed copy over downloading one.
 | `routes` | Does a collection become one page per record plus a paginated index — walked link by link, and matched against the sitemap |
 | `collections` | Can somebody make a collection, write a record and see it on the canvas — every step a click, no fixtures |
 | `republish` | Does the live site follow its records with nobody pressing Publish, does a second publish write nothing, and do the two things that must *not* republish stay put |
+| `history` | Is every publish kept and honestly labelled, can a design be put back on the canvas and the site, and does the content written since survive it |
 | `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
 | `assets` | Do images survive publish and ZIP export — re-encoded, carrying their intrinsic size, offered at four widths, and eager where it matters |
 | `bodyreset` | Does the published page start at the viewport edge |

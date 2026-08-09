@@ -118,22 +118,20 @@ function safeParse(value: string): CollectionRecord['data'] {
  * because a site may be served from its own domain, where a relative action
  * would hit the sites Worker — which has no database and would answer 404.
  *
- * `doc` is for callers who already hold the document. The room does, and it
- * has to pass it: reading it back through `liveDocument` would be the room
- * fetching itself, which is a deadlock rather than a round trip.
+ * Takes the document rather than fetching it, because both callers have a
+ * reason to hold it: the room must not read its own document back through
+ * itself, and the publisher stores what it published so a version can be put
+ * back later.
  */
 export async function renderSite(
   env: Env,
   projectId: string,
   apiOrigin: string,
-  doc?: Cre8Document | null
-): Promise<GeneratedSite | null> {
-  const document = doc ?? (await liveDocument(env, projectId));
-  if (!document) return null;
-
-  return generateSite(document, {
+  doc: Cre8Document
+): Promise<GeneratedSite> {
+  return generateSite(doc, {
     apiOrigin,
     projectId,
-    records: await recordsFor(env, projectId, document),
+    records: await recordsFor(env, projectId, doc),
   });
 }

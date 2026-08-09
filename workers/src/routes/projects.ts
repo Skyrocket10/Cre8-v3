@@ -7,6 +7,7 @@
  */
 
 import { requireProjectAccess, requireTeamRole, room, roomUrl } from '../lib/db';
+import { documentToRestore, listDeployments, RestoreError } from '../lib/history';
 import {
   mapHostname,
   subdomainProblem,
@@ -287,6 +288,85 @@ export async function handlePublish(
       url: env.PUBLIC_SITE_DOMAIN
         ? `https://${result.subdomain}.${env.PUBLIC_SITE_DOMAIN}/`
         : `/s/${projectId}/`,
+    },
+    200,
+    cors
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Publish history
+ * ----------------------------------------------------------------------- */
+
+/**
+ * What has been published, newest first.
+ *
+ * Viewer access, deliberately: knowing when the site last changed and whether
+ * a person did it is the sort of thing everyone on a team needs and nobody
+ * should have to ask for. Restoring is a different question and needs editor.
+ */
+export async function handleListDeployments(
+  env: Env,
+  projectId: string,
+  user: SessionUser,
+  cors: Record<string, string>
+): Promise<Response> {
+  await requireProjectAccess(env, projectId, user, 'viewer');
+  return json({ deployments: await listDeployments(env, projectId) }, 200, cors);
+}
+
+/**
+ * Put a published design back on the site — and on the canvas.
+ *
+ * Read it, hand it to the room, publish. The middle step is what keeps this
+ * honest: without it the files would change and the editor would still be
+ * showing the design that was replaced, so the next ordinary save would undo
+ * the restore without anybody meaning to.
+ *
+ * The publish is the same one the button runs, so it diffs against the live
+ * manifest and writes only what actually differs — going back a month usually
+ * touches a handful of files.
+ */
+export async function handleRestoreDeployment(
+  request: Request,
+  env: Env,
+  projectId: string,
+  deploymentId: string,
+  user: SessionUser,
+  cors: Record<string, string>
+): Promise<Response> {
+  await requireProjectAccess(env, projectId, user, 'editor');
+
+  const document = await documentToRestore(env, projectId, deploymentId).catch((error) => {
+    // "There is nothing to put back" is a sentence about this version, not a
+    // failure of the server — the dialog shows it next to the row.
+    if (error instanceof RestoreError) throw badRequest(error.message);
+    throw error;
+  });
+
+  const response = await room(env, projectId).fetch(roomUrl(projectId, 'document'), {
+    method: 'POST',
+    body: JSON.stringify({ document }),
+    headers: { 'content-type': 'application/json' },
+  });
+  if (!response.ok) throw badRequest('Could not put that design back');
+
+  const result = await publishSite(env, projectId, {
+    apiOrigin: new URL(request.url).origin,
+    publishedBy: user.id,
+  }).catch((error) => {
+    if (error instanceof RouteError) throw badRequest(error.message);
+    throw error;
+  });
+  if (!result) throw badRequest('Could not publish the restored design');
+
+  return json(
+    {
+      ok: true,
+      publishedAt: result.publishedAt,
+      written: result.written.length,
+      removed: result.removed.length,
+      unchanged: result.unchanged,
     },
     200,
     cors

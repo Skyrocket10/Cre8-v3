@@ -18,12 +18,14 @@ import { useAutosave } from '@/lib/editor/autosave';
 import { useKeyboardShortcuts } from '@/lib/editor/shortcuts';
 import { clearRegistry } from '@/lib/editor/registry';
 import { useEditor } from '@/lib/editor/store';
+import { hasBackend } from '@/lib/api/client';
 import { publishProject, type PublishResult } from '@/lib/publishing/publish';
 import type { RemotePeer } from '@/lib/collab/client';
 import { Canvas } from '../canvas/canvas';
 import { ContextToolbar } from '../canvas/context-toolbar';
 import { DragController, DragGhost } from '../canvas/drag-controller';
 import { PresenceOverlay } from '../canvas/presence-overlay';
+import { HistoryDialog } from '../chrome/history-dialog';
 import { PublishDialog } from '../chrome/publish-dialog';
 import { StatusBar } from '../chrome/status-bar';
 import { Toasts } from '../chrome/toasts';
@@ -41,6 +43,7 @@ export function EditorShell({ projectId }: { projectId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Only join a room once the document is in memory: the welcome message can
   // replace it, and replacing something that isn't there yet loses the race.
@@ -160,6 +163,7 @@ export function EditorShell({ projectId }: { projectId: string }) {
     <div className="flex h-dvh flex-col overflow-hidden bg-[var(--app)]">
       <TopBar
         onPublish={() => void onPublish()}
+        onHistory={hasBackend() ? () => setHistoryOpen(true) : undefined}
         publishing={publishing}
         peers={collab.peers}
         canEdit={collab.canEdit || !live}
@@ -186,6 +190,11 @@ export function EditorShell({ projectId }: { projectId: string }) {
       <Toasts />
       <PreviewOverlay />
       <PublishDialog result={publishResult} onClose={() => setPublishResult(null)} />
+      <HistoryDialog
+        projectId={projectId}
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
     </div>
   );
 }

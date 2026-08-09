@@ -27,6 +27,7 @@ const SUITES = [
   ['routes', 'a collection becomes pages, and every one is reachable'],
   ['collections', 'the whole data layer, driven from the editor'],
   ['republish', 'the site follows its records, and writes only what moved'],
+  ['history', 'every publish is kept, and a design can be put back'],
   ['forms', 'published forms reach the submissions endpoint'],
   ['assets', 'images survive publish and export'],
   ['bodyreset', 'the published page starts at the edge'],

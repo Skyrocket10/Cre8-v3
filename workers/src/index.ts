@@ -45,8 +45,10 @@ import { recordRoutes } from './routes/records';
 import {
   handleDeleteProject,
   handleGetProject,
+  handleListDeployments,
   handleListProjects,
   handlePublish,
+  handleRestoreDeployment,
   handleSaveProject,
   handleSetSubdomain,
   handleSocket,
@@ -207,6 +209,13 @@ function projectRoutes(
     if (method === 'DELETE') return handleDeleteProject(env, projectId, user, cors);
   } else if (section === 'publish' && method === 'POST') {
     return handlePublish(request, env, projectId, user, cors);
+  } else if (section === 'deployments') {
+    if (!item && method === 'GET') return handleListDeployments(env, projectId, user, cors);
+    // `POST .../deployments/<id>/restore` — a verb, because putting a design
+    // back is not an edit of the deployment it names.
+    if (item && parts[4] === 'restore' && method === 'POST') {
+      return handleRestoreDeployment(request, env, projectId, item, user, cors);
+    }
   } else if (section === 'subdomain' && method === 'PUT') {
     return handleSetSubdomain(request, env, projectId, user, cors);
   } else if (section === 'submissions' && method === 'GET') {

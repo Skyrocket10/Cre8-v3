@@ -2295,6 +2295,154 @@ report.group('there is one way to publish and one way to trigger it');
 }
 
 /* --------------------------------------------------------------------------
+ * Publish history
+ *
+ * The claim is narrow and the narrowness is the design:
+ *
+ *   > A version is a design somebody published. Restoring one re-publishes
+ *   > that design against today's records.
+ *
+ * Which rests on a rule from D6 that is stated nowhere near it: a design
+ * change never republishes on its own. If that stopped being true, storing the
+ * document on manual publishes only would silently stop capturing every design
+ * the site has served — some would reach the internet through an alarm and
+ * never be recorded. The two live in different files and nothing connects
+ * them, so the connection is made here.
+ * ----------------------------------------------------------------------- */
+
+report.group('a version is a design somebody published');
+
+{
+  const source = (file) => readFileSync(path.join(ROOT, file), 'utf8');
+  const publish = source(path.join('workers', 'src', 'lib', 'publish.ts'));
+  const room = source(path.join('workers', 'src', 'room.ts'));
+  const history = source(path.join('workers', 'src', 'lib', 'history.ts'));
+
+  /*
+   * The premise. The alarm publishes with nobody credited, and the publisher
+   * stores a document only when somebody is — so an automatic republish can
+   * never create a version, and a design that reached the site only through
+   * one would be unrecoverable.
+   */
+  report.check(
+    'the alarm credits nobody, which is what makes an automatic republish not a version',
+    /publishedBy:\s*null/.test(room),
+    /publishedBy:[^,\n]*/.exec(room)?.[0] ?? 'the alarm names a publisher'
+  );
+  report.check(
+    'and the publisher stores the design only when somebody asked',
+    /document:\s*options\.publishedBy\s*\?\s*document\s*:\s*null/.test(publish),
+    /document:[^,\n]*/.exec(publish.slice(publish.indexOf('recordDeployment')))?.[0] ?? 'not conditional'
+  );
+
+  /*
+   * And the rule that makes those two add up to "every design is captured".
+   * The trigger fires on record writes; if it ever fired on a document write,
+   * a design could go live with no version behind it.
+   */
+  const records = source(path.join('workers', 'src', 'routes', 'records.ts'));
+  const projects = source(path.join('workers', 'src', 'routes', 'projects.ts'));
+  report.check(
+    'a design change still does not republish itself, which the above depends on',
+    /\bcontentChanged\(/.test(records) && !/\bcontentChanged\(/.test(projects),
+    /\bcontentChanged\(/.test(projects)
+      ? 'saving a document now triggers a republish — versions would be missed'
+      : 'records only'
+  );
+
+  /* --- Restoring ---------------------------------------------------------- */
+
+  /*
+   * A restore has to go through the room. Publishing the old document without
+   * writing it back would leave the editor showing the design that was
+   * replaced, and the next ordinary save would undo the restore — silently,
+   * and for the person who asked for it.
+   */
+  const restore = projects.slice(projects.indexOf('export async function handleRestoreDeployment'));
+  const body = restore.slice(0, restore.indexOf('\n}\n'));
+  report.check(
+    'restoring writes the design through the room before it publishes',
+    body.indexOf('roomUrl(') > 0 && body.indexOf('roomUrl(') < body.indexOf('publishSite('),
+    body.indexOf('roomUrl(') < 0 ? 'never reaches the room' : 'room first, publish second'
+  );
+  report.check(
+    'and it republishes rather than writing files of its own',
+    /publishSite\(/.test(body) && !/SITES\./.test(body),
+    /SITES\./.test(body) ? 'a second writer' : 'one publish path'
+  );
+
+  /*
+   * Content is not part of a version. The whole seam rests on the restore
+   * never touching the records table — a restore that did would take a week of
+   * posts down to put a layout back.
+   */
+  report.check(
+    'and nothing about restoring touches a record',
+    !/\bFROM records\b|\bDELETE FROM records\b|\bINSERT INTO records\b/.test(history) &&
+      !/\brecords\b/.test(body),
+    'the records table is not named on the restore path'
+  );
+
+  /* --- The listing ------------------------------------------------------- */
+
+  /*
+   * The document is the largest column in the database and a listing has no
+   * use for it. Selecting it to compute `restorable` would mean reading every
+   * stored design to draw a dialog.
+   */
+  const listing = history.slice(history.indexOf('export async function listDeployments'));
+  const query = listing.slice(0, listing.indexOf('.all<'));
+  report.check(
+    'listing the history never reads a stored design',
+    /document IS NOT NULL/.test(query) && !/SELECT[^;]*\bd\.document\b\s*[,\n]/.test(query),
+    /d\.document\b\s*,/.test(query) ? 'the listing selects the document' : 'only the one bit it needs'
+  );
+
+  /* --- Both ceilings ------------------------------------------------------ */
+
+  /*
+   * Two bounds on two different things. Collapsing them would tie how far back
+   * you can restore to how much history you can read, and a busy collection
+   * republishes often enough that the log would swallow the versions.
+   */
+  report.check(
+    'old designs stop being restorable without the log losing the entry',
+    /UPDATE deployments SET document = NULL/.test(history) &&
+      /DELETE FROM deployments/.test(history),
+    'one ceiling empties the document, the other removes the row'
+  );
+  const restorable = Number(/const RESTORABLE = (\d+)/.exec(history)?.[1] ?? 0);
+  const logged = Number(/const LOGGED = (\d+)/.exec(history)?.[1] ?? 0);
+  report.check(
+    'and the log outlives the designs in it',
+    restorable > 0 && logged > restorable,
+    `${restorable} restorable, ${logged} logged`
+  );
+
+  /* --- The schema keeps up ------------------------------------------------ */
+
+  /*
+   * Two columns were added to a table that already exists everywhere, and
+   * SQLite cannot add them from `CREATE TABLE IF NOT EXISTS`. An upgrade note
+   * nobody wrote is a deployment that fails on the first publish.
+   */
+  const schema = source(path.join('workers', 'schema.sql'));
+  const readme = source('README.md');
+  const added = ['site_manifest', 'document', 'changed'];
+  const missing = added.filter((column) => !schema.includes(`ADD COLUMN ${column}`));
+  report.check(
+    'every column added to an existing table has an ALTER written down',
+    missing.length === 0,
+    missing.join(', ') || added.join(', ')
+  );
+  report.check(
+    'and the README says to run them',
+    /ADD COLUMN site_manifest/.test(readme) && /ADD COLUMN document/.test(readme),
+    'documented where somebody deploying would look'
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Characters that should not be in source
  *
  * Twice now a file has ended up holding a byte that makes every tool treat it

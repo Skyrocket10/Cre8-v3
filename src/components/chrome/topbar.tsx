@@ -7,6 +7,7 @@ import {
   ChevronDown,
   CloudOff,
   Eye,
+  History,
   Home,
   Monitor,
   Moon,
@@ -31,11 +32,14 @@ import { MenuItem } from '../panels/pages-panel';
 
 export function TopBar({
   onPublish,
+  onHistory,
   publishing,
   peers = [],
   canEdit = true,
 }: {
   onPublish: () => void;
+  /** Absent with no backend, which has no publishes to have a history of. */
+  onHistory?: () => void;
   publishing: boolean;
   peers?: RemotePeer[];
   canEdit?: boolean;
@@ -102,6 +106,15 @@ export function TopBar({
         <Play size={11} />
         Preview
       </Button>
+
+      {/* Next to Publish, because it is a question about publishing rather
+          than about the design — and an icon rather than a word, because the
+          bar is already full and this is the button you reach for once. */}
+      {onHistory && (
+        <IconButton label="Publish history" onClick={onHistory}>
+          <History size={14} />
+        </IconButton>
+      )}
 
       <Button
         size="sm"

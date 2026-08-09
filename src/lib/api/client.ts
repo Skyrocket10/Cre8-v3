@@ -325,6 +325,43 @@ export const api = {
       siteDomain: string;
     }>(`/api/projects/${id}/publish`, { method: 'POST' }),
 
+  /**
+   * Every publish this project has had, newest first.
+   *
+   * `restorable` is the whole point of the list: an automatic republish is the
+   * same design carrying newer content, so there is nothing to put back, and
+   * a design old enough to have fallen out of the window is a log entry rather
+   * than a version.
+   */
+  deployments: (id: string) =>
+    call<{
+      deployments: {
+        id: string;
+        publishedAt: number;
+        publishedBy: { id: string; name: string } | null;
+        pageCount: number;
+        bytes: number;
+        changed: { written: number; removed: number; unchanged: number } | null;
+        restorable: boolean;
+      }[];
+    }>(`/api/projects/${id}/deployments`),
+
+  /**
+   * Put a published design back — on the site and on the canvas.
+   *
+   * Records are not touched. Restoring a layout from last month must not
+   * un-publish this month's posts, so what comes back is the design against
+   * today's content.
+   */
+  restoreDeployment: (id: string, deploymentId: string) =>
+    call<{
+      ok: true;
+      publishedAt: number;
+      written: number;
+      removed: number;
+      unchanged: number;
+    }>(`/api/projects/${id}/deployments/${deploymentId}/restore`, { method: 'POST' }),
+
   /** Rename a published site's address. Frees the old hostname immediately. */
   submissions: (id: string) =>
     call<{ submissions: FormSubmission[] }>(`/api/projects/${id}/submissions`),

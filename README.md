@@ -35,6 +35,11 @@ editor, repeaters that draw one copy per record, and pages that become one
 published file per record with a paginated index beside them. Editing a record
 updates the live site on its own — no publish, and only the files that moved.
 
+**History**  Every publish is kept, with who made it and what it changed. The
+ones you made by hand keep the design they shipped, so you can put one back —
+on the canvas and on the site — without touching the content that has been
+written since.
+
 **Ship**  Chrome-free preview at any device size, one-click publish to static
 HTML with sitemap and robots.txt, a site address of its own, and a ZIP export —
 images and all — that works dropped on any host or opened straight from disk.
@@ -220,6 +225,8 @@ nothing happens:
 ```bash
 npx wrangler d1 execute cre8 --remote --command "ALTER TABLE projects ADD COLUMN subdomain TEXT"
 npx wrangler d1 execute cre8 --remote --command "ALTER TABLE projects ADD COLUMN site_manifest TEXT"
+npx wrangler d1 execute cre8 --remote --command "ALTER TABLE deployments ADD COLUMN document TEXT"
+npx wrangler d1 execute cre8 --remote --command "ALTER TABLE deployments ADD COLUMN changed TEXT"
 npm run db:init
 ```
 
@@ -228,6 +235,10 @@ remove the ones a deleted record left behind. Without the column the publish
 route fails outright, which is deliberate: a manifest that silently never
 persisted would mean every republish rewriting the whole site for ever, with
 nothing to show for it.
+
+`deployments.document` is the design each publish shipped, which is what makes
+publish history restorable, and `changed` is what that publish did to the
+bucket. Publishing writes both, so the route fails until they exist too.
 
 **Run it all locally:**
 

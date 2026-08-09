@@ -374,6 +374,37 @@ behind it. Two things deliberately stay manual: a design change, because a
 half-moved section is not content, and any project nobody has published,
 because a record edit is not consent to put a site on the internet.
 
+### A version is a design you published
+
+Every publish is logged in `deployments`, and the ones a *person* made also
+store the document they shipped. That is the whole of versioning here, and the
+narrowness is deliberate: because a design change never republishes on its own,
+every design the site has ever served reached it through somebody pressing
+Publish — so storing the document on manual publishes captures all of them,
+and storing it on the automatic ones would capture nothing but copies of the
+design you already have.
+
+Restoring re-publishes that document **against today's records**. It does not
+roll content back, and it must not: putting last month's layout back is not a
+reason to unpublish last week's posts. Design is versioned, content is live —
+the same seam the Collections panel is split along, arrived at from the other
+end. So a restore lands on a state that never previously existed, and the
+dialog says so before anyone clicks.
+
+Mechanically a restore is three steps and the middle one is the load-bearing
+one: read the stored design, **write it through the room**, then publish. Skip
+the room and the files change while the editor still shows the design that was
+replaced — and the next ordinary save silently undoes the restore. It is
+otherwise an ordinary publish, so it diffs against the manifest (going back a
+month usually rewrites a handful of files) and appears in the history as a
+publish somebody made. Changing your mind is therefore the same operation
+again rather than a second concept.
+
+Two ceilings, on two different things: the last 20 designs stay restorable,
+the last 200 publishes stay in the log. Collapsing them would tie how far back
+you can go to how much history you can read, and a busy collection republishes
+often enough that the log would swallow the versions.
+
 **How fast "follows" actually is, stated rather than implied.** R2 has the new
 bytes within seconds. What a visitor sees is bounded by `s-maxage=60`, and the
 purge is a best-effort improvement on that rather than a guarantee:
