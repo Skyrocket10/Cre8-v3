@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { ImagePlus, Trash2, Upload } from 'lucide-react';
-import { ACCEPTED_TYPES, assetBytes, ingestFile } from '@/lib/api/assets';
+import { ACCEPTED_TYPES, assetBytes, ingestFile, outputFormat } from '@/lib/api/assets';
 import { getStorage } from '@/lib/api/storage';
 import { removeAsset, renameAsset } from '@/lib/document/operations';
 import { useEditor } from '@/lib/editor/store';
@@ -24,17 +24,35 @@ export function AssetsPanel() {
     const storage = getStorage();
     try {
       for (const file of list) {
-        let asset = await ingestFile(file);
+        // Narrower copies are only worth encoding when there is somewhere to
+        // put them: with no backend they would be more data URLs in a document
+        // that has to fit in IndexedDB.
+        let asset = await ingestFile(file, { variants: Boolean(storage.uploadAsset) });
 
         // Hosted deployments push the bytes to R2 and keep only a URL in the
         // document; local ones have nowhere to put them, so the data URL stays.
         if (storage.uploadAsset) {
-          const url = await storage.uploadAsset(
-            store.doc.id,
-            await assetBytes(asset.url),
-            file.name
-          );
-          asset = { ...asset, url };
+          const { extension } = outputFormat();
+          const stem = file.name.replace(/\.[^.]+$/, '');
+          const send = (dataUrl: string, suffix: string) =>
+            assetBytes(dataUrl).then((blob) =>
+              storage.uploadAsset!(store.doc.id, blob, `${stem}${suffix}.${extension}`)
+            );
+
+          // In parallel, and the widths named in the filename: an object in a
+          // bucket outlives the row that describes it, and `photo-480.webp` is
+          // the difference between clearing out old variants and guessing.
+          const [url, ...sources] = await Promise.all([
+            send(asset.url, ''),
+            ...(asset.sources ?? []).map((source) => send(source.url, `-${source.width}`)),
+          ]);
+          asset = {
+            ...asset,
+            url: url!,
+            ...(asset.sources?.length
+              ? { sources: asset.sources.map((s, i) => ({ ...s, url: sources[i]! })) }
+              : {}),
+          };
         }
 
         store.transact('Upload asset', (draft) => {

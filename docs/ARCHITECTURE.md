@@ -188,7 +188,49 @@ transform for the canvas to disagree with.
 
 Two things were measured and dropped: shortening numbers and hex colours won
 96 bytes, and pruning unreferenced classes won none — every generated class is
-used. Both would have been regex passes over values for no return.
+used.
+
+### Images
+
+The stylesheet is the page's second-largest thing. The images are the first,
+and all four of the decisions that matter are made in the browser at upload,
+because a Worker has no image codecs, the file is already in memory, and the
+person who chose it is the one who waits.
+
+**WebP, whatever arrived.** Previously only images with transparency were
+re-encoded to WebP and photographs stayed JPEG. Now everything does, behind a
+capability probe — `toDataURL` does not throw for a format it cannot encode, it
+quietly returns a PNG, and shipping that under a `.webp` name produces a file
+whose label and bytes disagree. Two exceptions, neither about size: a GIF loses
+its animation on a canvas round-trip, and a WebP already under the ceiling
+would be re-encoded from something already lossy.
+
+**A ladder of narrower copies** at 480, 960 and 1440, skipping any rung wider
+than the source so nothing is upscaled. Encoded from the same decode as the
+original and uploaded alongside it, named for their width — an object in a
+bucket outlives the row describing it. Hosted only: with no backend each
+variant would be another data URL in a document that has to fit in IndexedDB.
+
+**Intrinsic size and `srcset` recorded on the node** when the image is picked,
+not looked up at render time — the canvas renderer is deliberately given no
+document, which is what keeps a style change re-rendering one element. The
+`width`/`height` attributes are the intrinsic pixels; they do not size
+anything, they give the browser the ratio so the space is reserved and the page
+stops jumping as images arrive.
+
+**`sizes` derived from the node's own widths.** A `srcset` with no `sizes` is
+often *slower* than none at all, because the browser assumes the image fills
+the viewport and takes the widest file. A node with fixed pixel widths per
+breakpoint is already the media list `sizes` wants, so it is written out
+directly; anything the cascade decides gets `auto`, which asks the browser to
+use the size it actually laid out.
+
+**And a control for what loads eagerly.** Lazy-loading is the right default and
+the wrong universal: the largest image above the fold is usually what a visitor
+is waiting for, and deferring that is a measurable regression dressed as an
+optimisation. Eager images also get `decoding="sync"` and `fetchpriority="high"`,
+because painting the page around the one element it is judged on is the
+opposite of what is wanted. Both would have been regex passes over values for no return.
 
 ---
 

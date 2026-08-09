@@ -19,7 +19,7 @@ import {
   slug,
   slugList,
 } from '@/lib/document/schema';
-import type { ElementType } from '@/lib/document/types';
+import type { Asset, ElementType } from '@/lib/document/types';
 import { detachInstance } from '@/lib/document/operations';
 import { collectSubtree } from '@/lib/document/tree';
 import { activeRootId, useEditor } from '@/lib/editor/store';
@@ -980,9 +980,39 @@ function RichTextContent() {
  * Media
  * ----------------------------------------------------------------------- */
 
+/**
+ * Everything about the picture, recorded when it is picked.
+ *
+ * Copied onto the node rather than looked up from the asset at render time,
+ * because the canvas renderer is given no document — that is what keeps a
+ * style change re-rendering one element instead of the page. The same reason
+ * `src` has always been a URL here rather than an asset id.
+ *
+ * `width` and `height` are the intrinsic pixels. They do not size the image —
+ * CSS still does that — they give the browser the ratio, so the space is
+ * reserved before the bytes arrive and the page stops jumping as it loads.
+ */
+function chooseImage(asset: Asset): void {
+  const srcset = asset.sources?.length
+    ? [...asset.sources.map((s) => `${s.url} ${s.width}w`), `${asset.url} ${asset.width}w`].join(', ')
+    : undefined;
+  useEditor.getState().setNodeProps({
+    src: asset.url,
+    width: asset.width,
+    height: asset.height,
+    // Cleared rather than left behind: replacing a picture with one that has
+    // no variants must not leave the last one's `srcset` pointing at it.
+    srcset: asset.width && srcset ? srcset : undefined,
+  });
+}
+
 function ImageContent() {
   const src = useNodeProp('src');
   const alt = useNodeProp('alt');
+  const priority = useNodeProp('priority');
+  const width = useNodeProp('width');
+  const height = useNodeProp('height');
+  const srcset = useNodeProp('srcset');
   const allAssets = useEditor((s) => s.doc.assets);
   const assets = useMemo(
     () => allAssets.filter((a) => a.type === 'image' || a.type === 'svg'),
@@ -1035,7 +1065,7 @@ function ImageContent() {
                           key={asset.id}
                           type="button"
                           onClick={() => {
-                            src.set(asset.url);
+                            chooseImage(asset);
                             if (!alt.value) alt.set(asset.name);
                             close();
                           }}
@@ -1069,6 +1099,36 @@ function ImageContent() {
             placeholder="Describe the image"
           />
         </StyleRow>
+
+        <StyleRow
+          label="Loading"
+          hint="The first thing a visitor sees should not wait its turn"
+        >
+          <Segmented
+            full
+            value={priority.value ? 'eager' : 'lazy'}
+            onChange={(mode) => priority.set(mode === 'eager' ? true : undefined)}
+            options={[
+              { value: 'lazy', label: 'When near', title: 'Fetched as it scrolls into view' },
+              { value: 'eager', label: 'Straight away', title: 'For anything above the fold' },
+            ]}
+          />
+        </StyleRow>
+
+        {/* Read-only, because they come from the file rather than from a
+            decision — but worth showing: an image with no intrinsic size is
+            one that will make the page jump, and that is invisible until it
+            happens to somebody on a slow connection. */}
+        <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+          {width.value
+            ? `${width.value}×${height.value} intrinsic` +
+              (srcset.value
+                ? ` · ${String(srcset.value).split(',').length} sizes offered`
+                : ' · one size')
+            : src.value
+              ? 'No intrinsic size — the page will shift as this loads. Re-pick it from Assets.'
+              : ''}
+        </p>
 
         <StyleRow label="Fit">
           <Segmented

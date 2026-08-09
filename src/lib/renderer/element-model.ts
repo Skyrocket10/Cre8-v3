@@ -9,7 +9,7 @@
  */
 
 import { SWITCH_SHOW_ALL, resolveTag, slug } from '../document/schema';
-import type { Cre8Document, NodeProps, SceneNode } from '../document/types';
+import { BREAKPOINT_DEFS, type Cre8Document, type NodeProps, type SceneNode } from '../document/types';
 import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
 import {
@@ -124,6 +124,45 @@ export function resolveHref(doc: Cre8Document, href: string | undefined, mode: R
 
 function str(value: unknown, fallback = ''): string {
   return value === undefined || value === null ? fallback : String(value);
+}
+
+/**
+ * How wide the image will actually be laid out, as a media list.
+ *
+ * `srcset` is only half the mechanism: it tells the browser which files exist,
+ * and `sizes` tells it how much room the image will occupy — which it has to
+ * know *before* the stylesheet has been applied, so it cannot simply measure.
+ * Get it wrong and the browser confidently fetches the wrong file.
+ *
+ * The document already holds the answer for the common case. A node with a
+ * fixed pixel width, and different fixed widths at narrower breakpoints, is
+ * exactly the media list `sizes` takes, so it is written out directly.
+ *
+ * Everything else — a percentage, a flex child, anything the cascade decides —
+ * gets `auto`, which asks the browser to use the size it eventually lays out.
+ * Where that is unsupported it falls back to `100vw`: over-fetching on a
+ * narrow image, never under-fetching on a wide one. `auto` also requires
+ * `loading="lazy"`, so an eager image takes the honest guess instead.
+ */
+function sizesFor(node: SceneNode, priority: boolean): string {
+  const fixed = (value: unknown): string | null => {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    return /^\d+(\.\d+)?px$/.test(raw) ? raw : null;
+  };
+
+  const desktop = fixed(node.styles.desktop?.width);
+  if (!desktop) return priority ? '100vw' : 'auto';
+
+  // Narrow first, because `sizes` takes the first condition that matches and a
+  // mobile width would otherwise never be reached.
+  const parts: string[] = [];
+  for (const bp of ['mobile', 'tablet'] as const) {
+    const width = fixed(node.styles[bp]?.width);
+    const max = BREAKPOINT_DEFS[bp].maxWidth;
+    if (width && max) parts.push(`(max-width: ${max}px) ${width}`);
+  }
+  parts.push(desktop);
+  return parts.join(', ');
 }
 
 /**
@@ -253,16 +292,30 @@ function describeBase(
           acceptsChildren: false,
         };
       }
+      const srcset = str(props.srcset);
       return {
         tag: 'img',
         attrs: {
           ...base,
           src,
           alt: str(props.alt),
+          srcset: srcset || undefined,
+          sizes: srcset ? sizesFor(node, Boolean(props.priority)) : undefined,
+          // The largest image above the fold is usually the one a visitor is
+          // waiting for, and deferring *that* is a regression rather than an
+          // optimisation — hence a control rather than a blanket `lazy`.
           loading: props.priority ? undefined : 'lazy',
-          decoding: 'async',
+          // Eager images are also worth decoding on the main thread: `async`
+          // lets the browser paint the page around a hero that has not
+          // finished, which is the opposite of what is wanted for the one
+          // element the page is judged on.
+          decoding: props.priority ? 'sync' : 'async',
+          // Without these the page reflows when each image arrives. They are
+          // the *intrinsic* pixels, not the laid-out size — the browser wants
+          // the ratio, and CSS still decides how big it ends up.
           width: props.width ? Number(props.width) : undefined,
           height: props.height ? Number(props.height) : undefined,
+          ...(props.priority ? { fetchpriority: 'high' } : {}),
         },
         void: true,
         acceptsChildren: false,
@@ -638,6 +691,8 @@ const REACT_ATTR_MAP: Record<string, string> = {
   rowspan: 'rowSpan',
   popovertarget: 'popoverTarget',
   popovertargetaction: 'popoverTargetAction',
+  srcset: 'srcSet',
+  fetchpriority: 'fetchPriority',
   'stroke-width': 'strokeWidth',
   'stroke-linecap': 'strokeLinecap',
   'stroke-linejoin': 'strokeLinejoin',

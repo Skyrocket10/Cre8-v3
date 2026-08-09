@@ -428,6 +428,13 @@ export interface Page {
 
 export type AssetType = 'image' | 'svg' | 'video' | 'font' | 'icon';
 
+/** One rung of a responsive image's ladder. */
+export interface AssetSource {
+  /** Intrinsic width in pixels — the number a `srcset` entry is keyed on. */
+  width: number;
+  url: string;
+}
+
 export interface Asset {
   id: string;
   name: string;
@@ -439,6 +446,11 @@ export interface Asset {
   /** Bytes. */
   size?: number;
   mimeType?: string;
+  /**
+   * Narrower copies, for `srcset`. Absent with no backend, where each one
+   * would be another data URL in a document that has to fit in IndexedDB.
+   */
+  sources?: AssetSource[];
   createdAt: number;
 }
 
