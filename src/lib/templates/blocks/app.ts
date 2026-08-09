@@ -48,6 +48,10 @@ import {
   section,
   slider,
   stack,
+  switchButton,
+  switchCase,
+  switchGroup,
+  switchStep,
   table,
   tableRow,
   textLink,
@@ -1901,5 +1905,124 @@ export function confirmDialogSpec(): NodeSpec {
       ),
     ],
     { paddingTop: '56px', paddingBottom: '64px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Stepper
+ * ----------------------------------------------------------------------- */
+
+const STEPS: { value: string; n: string; label: string; heading: string; fields: string[] }[] = [
+  {
+    value: 'account',
+    n: '1',
+    label: 'Account',
+    heading: 'Who is this for?',
+    fields: ['Full name', 'Work email'],
+  },
+  {
+    value: 'workspace',
+    n: '2',
+    label: 'Workspace',
+    heading: 'Name your workspace',
+    fields: ['Workspace name', 'Web address'],
+  },
+  {
+    value: 'invite',
+    n: '3',
+    label: 'Invite',
+    heading: 'Bring the team in',
+    fields: ['Email addresses'],
+  },
+];
+
+/**
+ * A three-step flow, one step on screen at a time.
+ *
+ * Two kinds of control, and the difference matters. The numbered markers are
+ * a switch — pressed or not, and clickable, because a half-filled form is
+ * something people go back to. Back and Next are not: they move the flow on,
+ * and calling them toggles ("Next, toggle button, not pressed") would
+ * describe something the button is not. `switchStep` is that distinction.
+ *
+ * Every step's fields are in the markup the whole time, which is what makes
+ * this work with one attribute write and no re-render — and also means the
+ * form posts everything at once, rather than needing state kept between
+ * screens.
+ */
+export function stepperSpec(): NodeSpec {
+  const marker = (step: (typeof STEPS)[number]): NodeSpec => ({
+    ...switchButton(`${step.n}. ${step.label}`, step.value, {
+      fontSize: '13.5px',
+      ...pad('8px', '14px'),
+      ...radius('var(--r-full)'),
+      whiteSpace: 'nowrap',
+    }),
+    name: `${step.label} marker`,
+  });
+
+  const panel = (step: (typeof STEPS)[number], index: number): NodeSpec =>
+    switchCase(
+      step.value,
+      column(
+        `${step.label} step`,
+        [
+          heading(step.heading, 2, { ...SUBTITLE, fontSize: '22px' }, SUBTITLE_RESPONSIVE),
+          ...step.fields.map((name) => field(name)),
+          divider(),
+          stack(
+            `${step.label} actions`,
+            [
+              ...(index > 0
+                ? [switchStep('Back', STEPS[index - 1]!.value, 'secondary', { marginRight: 'auto' })]
+                : []),
+              ...(index < STEPS.length - 1
+                ? [switchStep('Continue', STEPS[index + 1]!.value, 'primary', { marginLeft: 'auto' })]
+                : [
+                    {
+                      type: 'button' as const,
+                      name: 'Finish',
+                      props: { label: 'Finish setup', href: '' },
+                      styles: { marginLeft: 'auto', fontSize: '14px', ...pad('10px', '18px') },
+                      states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+                    },
+                  ]),
+            ],
+            { gap: '10px', width: '100%', alignItems: 'center' }
+          ),
+        ],
+        { gap: '18px', width: '100%' }
+      )
+    );
+
+  return section(
+    'Stepper',
+    [
+      container(
+        [
+          switchGroup(
+            'step',
+            'account',
+            [
+              stack('Steps', STEPS.map(marker), {
+                gap: '6px',
+                flexWrap: 'wrap',
+                marginBottom: '26px',
+                width: '100%',
+              }),
+              {
+                type: 'form',
+                name: 'Setup form',
+                styles: { display: 'flex', flexDirection: 'column', width: '100%' },
+                children: STEPS.map(panel),
+              },
+            ],
+            { gap: '0px' }
+          ),
+        ],
+        { gap: '20px', alignItems: 'flex-start', maxWidth: '620px' }
+      ),
+    ],
+    { paddingTop: '56px', paddingBottom: '72px' }
   );
 }

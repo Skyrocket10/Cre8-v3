@@ -383,6 +383,99 @@ try {
     canvasTabs.shown === 'design',
     canvasTabs.shown
   );
+
+  /* ------------------------------- 9. a filter, whose catch-all means it */
+
+  // The reason a case can name more than one value. Each card is tagged
+  // `all brand`, so it answers to its own filter and to the one that shows
+  // everything — no special case anywhere in the mechanism.
+  await insert('Filterable work');
+  await publish(page);
+  const filtered = await (await fetch(`${APP}/s/${id}/`)).text();
+  report.check(
+    'a card belongs to its own category and to the catch-all',
+    /data-cre8-case="all brand"/.test(filtered),
+    /data-cre8-case="all [a-z]+"/.exec(filtered)?.[0] ?? 'no multi-value case'
+  );
+  report.check(
+    'and the rule takes one :not() per value it answers to',
+    filtered.includes(
+      '[data-cre8-switch="kind"]:not([data-cre8-value="all"]):not([data-cre8-value="brand"])'
+    ),
+    'chained'
+  );
+
+  const grid = await ctx.newPage();
+  await grid.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+  const count = () =>
+    grid.evaluate(
+      () =>
+        [
+          ...(document.querySelector('[data-cre8-switch="kind"]')?.querySelectorAll('[data-cre8-case]') ??
+            []),
+        ].filter((el) => el.getBoundingClientRect().height > 0).length
+    );
+
+  report.check('it opens showing everything', (await count()) === 6, `${await count()} cards`);
+  await grid.locator('button:text-is("Brand")').click();
+  await grid.waitForTimeout(220);
+  report.check('a category narrows it', (await count()) === 2, `${await count()} cards`);
+  await grid.locator('button:text-is("Editorial")').click();
+  await grid.waitForTimeout(220);
+  report.check('and another swaps it', (await count()) === 2, `${await count()} cards`);
+  await grid.locator('button:text-is("Everything")').click();
+  await grid.waitForTimeout(220);
+  report.check('“Everything” brings them all back', (await count()) === 6, `${await count()} cards`);
+  report.check(
+    'the chips are pressed, not selected — the grid is a list, not a panel',
+    (await grid.locator('button:text-is("Everything")').getAttribute('aria-pressed')) === 'true' &&
+      (await grid.locator('button:text-is("Brand")').getAttribute('role')) !== 'tab',
+    'filter chips'
+  );
+  await grid.close();
+
+  /* -------------------------------------- 10. a stepper, whose Next is not a toggle */
+
+  await page.bringToFront();
+  await insert('Stepper');
+  await publish(page);
+
+  const flow = await ctx.newPage();
+  await flow.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+  await flow.waitForTimeout(300);
+
+  const step = () =>
+    flow.evaluate(
+      () => document.querySelector('[data-cre8-switch="step"]')?.getAttribute('data-cre8-value') ?? ''
+    );
+
+  report.check('it opens on the first step', (await step()) === 'account', await step());
+  report.check(
+    'Continue moves the flow on without claiming to be a toggle',
+    (await flow.locator('button:text-is("Continue")').first().getAttribute('aria-pressed')) === null,
+    'no aria-pressed'
+  );
+  report.check(
+    'while the numbered markers are toggles, because they are',
+    (await flow.locator('button:text-is("1. Account")').getAttribute('aria-pressed')) === 'true'
+  );
+
+  await flow.locator('button:text-is("Continue")').first().click();
+  await flow.waitForTimeout(220);
+  report.check('Continue advances', (await step()) === 'workspace', await step());
+  await flow.locator('button:text-is("Back")').first().click();
+  await flow.waitForTimeout(220);
+  report.check('Back returns', (await step()) === 'account', await step());
+  await flow.locator('button:text-is("3. Invite")').click();
+  await flow.waitForTimeout(220);
+  report.check('and a marker jumps straight there', (await step()) === 'invite', await step());
+
+  report.check(
+    'every step’s fields are in the page the whole time, so the form posts once',
+    (await flow.locator('form input').count()) === 5,
+    `${await flow.locator('form input').count()} inputs`
+  );
+  await flow.close();
 } catch (error) {
   report.check('behaviour suite completed', false, error.message);
 } finally {

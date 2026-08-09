@@ -8,11 +8,18 @@
  * promise someone has to keep re-checking.
  */
 
-import { resolveTag, slug } from '../document/schema';
+import { resolveTag, slug, slugList } from '../document/schema';
 import type { Cre8Document, SceneNode } from '../document/types';
 import { nodeClass } from './css';
 import { iconMarkup } from './icons';
-import { CASE_ATTR, SET_ATTR, SWITCH_ATTR, TABS_ATTR, VALUE_ATTR } from '../runtime/behaviour';
+import {
+  CASE_ATTR,
+  QUIET_ATTR,
+  SET_ATTR,
+  SWITCH_ATTR,
+  TABS_ATTR,
+  VALUE_ATTR,
+} from '../runtime/behaviour';
 
 export type RenderMode = 'edit' | 'preview' | 'publish';
 
@@ -127,7 +134,7 @@ function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): El
   const props = node.props;
   const key = slug(props.switchKey);
   const set = slug(props.switchSet);
-  const kase = slug(props.switchCase);
+  const kase = slugList(props.switchCase);
   if (!key && !set && !kase) return model;
 
   if (key) {
@@ -139,7 +146,12 @@ function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): El
     model.attrs[VALUE_ATTR] = design || slug(props.switchDefault);
     if (props.switchRole === 'tabs') model.attrs[TABS_ATTR] = 'true';
   }
-  if (set) model.attrs[SET_ATTR] = set;
+  if (set) {
+    model.attrs[SET_ATTR] = set;
+    // A control that moves a stepper on is not a toggle, and announcing it as
+    // one ("Next, toggle button, not pressed") is worse than saying nothing.
+    if (props.switchQuiet) model.attrs[QUIET_ATTR] = 'true';
+  }
   if (kase) model.attrs[CASE_ATTR] = kase;
   return model;
 }

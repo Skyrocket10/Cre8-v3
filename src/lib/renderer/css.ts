@@ -13,7 +13,7 @@
  * the cascade, the reset — is byte-for-byte identical between the two modes.
  */
 
-import { slug } from '../document/schema';
+import { slug, slugList } from '../document/schema';
 import {
   BREAKPOINT_DEFS,
   BREAKPOINT_ORDER,
@@ -176,7 +176,7 @@ export interface GenerateCssOptions {
  * key changes the rules of children that did not themselves change.
  */
 function switchRules(nodes: Record<string, SceneNode>, node: SceneNode, prefix: string): string[] {
-  const kase = slug(node.props.switchCase);
+  const kase = slugList(node.props.switchCase);
   const set = slug(node.props.switchSet);
   const pressed = node.states?.pressed;
   const wantsPressed = set && pressed && Object.keys(pressed).length > 0;
@@ -199,9 +199,14 @@ function switchRules(nodes: Record<string, SceneNode>, node: SceneNode, prefix: 
   const group = `${prefix}[data-cre8-switch="${key}"]`;
   const out: string[] = [];
   if (kase) {
-    out.push(
-      `${group}:not([data-cre8-value="${kase}"]) .${nodeClass(node.id)} {\n  display: none;\n}`
-    );
+    // One `:not()` per value it answers to, so an item tagged `all design`
+    // survives both. Each adds (0,1,0), so more values only widen the margin
+    // over the node's own rule.
+    const unless = kase
+      .split(' ')
+      .map((value) => `:not([data-cre8-value="${value}"])`)
+      .join('');
+    out.push(`${group}${unless} .${nodeClass(node.id)} {\n  display: none;\n}`);
   }
   if (wantsPressed) {
     const body = declarationsToCss(pressed as StyleDecl);

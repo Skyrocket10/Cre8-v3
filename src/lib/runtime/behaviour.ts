@@ -50,6 +50,8 @@ export const CASE_ATTR = 'data-cre8-case';
  * is what makes that interaction exist.
  */
 export const TABS_ATTR = 'data-cre8-tabs';
+/** A setter that changes the value without being a toggle: Back, Next. */
+export const QUIET_ATTR = 'data-cre8-quiet';
 
 /**
  * @param root  Document on a published page, the frame element in the editor.
@@ -73,7 +75,9 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
   const upgrade = function (group: Element): void {
     if (!group.hasAttribute('data-cre8-tabs')) return;
     const key = group.getAttribute('data-cre8-switch') || '';
-    const tabs = own(group, '[data-cre8-set]');
+    // Quiet setters are excluded here rather than skipped inside the loop:
+    // one of them landing first would make its parent the tab list.
+    const tabs = own(group, '[data-cre8-set]:not([data-cre8-quiet])');
     if (!tabs.length) return;
 
     const list = tabs[0]!.parentElement;
@@ -96,7 +100,7 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
       // because `slug()` narrowed it to letters, digits, `_` and `-` before it
       // was ever written — the same guarantee that lets the generator put it
       // in a stylesheet.
-      const panels = own(group, '[data-cre8-case="' + value + '"]');
+      const panels = own(group, '[data-cre8-case~="' + value + '"]');
       const panel = paired[value] ? null : panels[0];
       if (!panel) continue;
       paired[value] = true;
@@ -119,6 +123,7 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
     const setters = own(group, '[data-cre8-set]');
     for (let i = 0; i < setters.length; i++) {
       const setter = setters[i]!;
+      if (setter.hasAttribute('data-cre8-quiet')) continue;
       const on = setter.getAttribute('data-cre8-set') === value;
       if (isTabs) {
         setter.setAttribute('aria-selected', on ? 'true' : 'false');
@@ -167,7 +172,7 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
     const group = setter.closest('[data-cre8-switch]');
     if (!group || !group.hasAttribute('data-cre8-tabs')) return;
 
-    const tabs = own(group, '[data-cre8-set]');
+    const tabs = own(group, '[data-cre8-set]:not([data-cre8-quiet])');
     const at = tabs.indexOf(setter);
     if (at < 0) return;
     const next =

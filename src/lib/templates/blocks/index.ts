@@ -67,6 +67,7 @@ export {
   settingsSpec,
   skeletonSpec,
   statCardsSpec,
+  stepperSpec,
   uploadSpec,
 } from './app';
 export {
@@ -80,6 +81,7 @@ export {
   authorCardSpec,
   blogHeaderSpec,
   featuredPostSpec,
+  installTabsSpec,
   paginationSpec,
   postGridSpec,
   relatedPostsSpec,
@@ -92,6 +94,7 @@ export {
   proseSpec,
   rolesSpec,
   teamSpec,
+  workFilterSpec,
 } from './trust';
 
 import {
@@ -124,6 +127,7 @@ import {
   settingsSpec,
   skeletonSpec,
   statCardsSpec,
+  stepperSpec,
   uploadSpec,
 } from './app';
 import {
@@ -137,6 +141,7 @@ import {
   authorCardSpec,
   blogHeaderSpec,
   featuredPostSpec,
+  installTabsSpec,
   paginationSpec,
   postGridSpec,
   relatedPostsSpec,
@@ -176,6 +181,7 @@ import {
   proseSpec,
   rolesSpec,
   teamSpec,
+  workFilterSpec,
 } from './trust';
 
 export type BlockCategory =
@@ -707,6 +713,30 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'app',
     keywords: ['documents', 'uploads', 'attachments', 'downloads'],
     build: fileListSpec,
+  },
+  {
+    id: 'work-filter',
+    name: 'Filterable work',
+    description: 'A grid that filters by category, with an “Everything”',
+    category: 'trust',
+    keywords: ['portfolio', 'filter', 'category', 'gallery', 'case studies', 'switch'],
+    build: workFilterSpec,
+  },
+  {
+    id: 'app-stepper',
+    name: 'Stepper',
+    description: 'A form in three steps, one on screen at a time',
+    category: 'app',
+    keywords: ['wizard', 'onboarding', 'multi-step', 'checkout', 'flow', 'progress'],
+    build: stepperSpec,
+  },
+  {
+    id: 'docs-install',
+    name: 'Install command',
+    description: 'npm, pnpm, yarn and bun behind real tabs',
+    category: 'editorial',
+    keywords: ['code', 'terminal', 'package manager', 'docs', 'cli', 'tabs'],
+    build: installTabsSpec,
   },
   {
     id: 'features-tabs',

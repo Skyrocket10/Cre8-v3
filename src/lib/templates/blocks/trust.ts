@@ -14,6 +14,7 @@ import {
   TITLE,
   TITLE_RESPONSIVE,
   TWO_TO_ONE,
+  border,
   borderSide,
   column,
   container,
@@ -28,6 +29,9 @@ import {
   section,
   sectionHeader,
   stack,
+  switchButton,
+  switchCase,
+  switchGroup,
   textLink,
 } from './kit';
 
@@ -391,6 +395,100 @@ export function masonrySpec(): NodeSpec {
         ),
       ],
       { gap: '48px' }
+    ),
+  ]);
+}
+
+/* --------------------------------------------------------------------------
+ * Filterable work grid
+ * ----------------------------------------------------------------------- */
+
+const WORK: { name: string; client: string; kind: string }[] = [
+  { name: 'Northwind rebrand', client: 'Northwind', kind: 'brand' },
+  { name: 'Ledger dashboard', client: 'Ledger', kind: 'product' },
+  { name: 'Field Notes annual', client: 'Field Notes', kind: 'editorial' },
+  { name: 'Harbour identity', client: 'Harbour', kind: 'brand' },
+  { name: 'Relay onboarding', client: 'Relay', kind: 'product' },
+  { name: 'Quarterly review', client: 'Meridian', kind: 'editorial' },
+];
+
+const KINDS: { value: string; label: string }[] = [
+  { value: 'all', label: 'Everything' },
+  { value: 'brand', label: 'Brand' },
+  { value: 'product', label: 'Product' },
+  { value: 'editorial', label: 'Editorial' },
+];
+
+/**
+ * A portfolio that filters, with an "Everything" that means it.
+ *
+ * The catch-all is the reason a case can name more than one value: each card
+ * is tagged `all brand`, so it survives both the filter for its own kind and
+ * the one that shows the lot. No special case in the mechanism, and nothing
+ * for a designer to know beyond "put both words in".
+ *
+ * The row is a set of filter chips rather than tabs — pressed, not selected —
+ * because the grid below is a filtered list, not a panel each chip owns.
+ */
+export function workFilterSpec(): NodeSpec {
+  return section('Work', [
+    container(
+      [
+        sectionHeader(
+          'Selected work',
+          'Six projects worth showing',
+          'Brand systems, product interfaces, and the odd printed thing.',
+          'start'
+        ),
+
+        switchGroup(
+          'kind',
+          'all',
+          [
+            stack(
+              'Filters',
+              KINDS.map((kind) =>
+                switchButton(kind.label, kind.value, {
+                  fontSize: '13.5px',
+                  ...pad('8px', '14px'),
+                  ...radius('var(--r-full)'),
+                  ...border('1px', 'var(--c-border)'),
+                })
+              ),
+              { gap: '8px', flexWrap: 'wrap', marginBottom: '28px' }
+            ),
+
+            grid(
+              'Work grid',
+              3,
+              WORK.map((item) =>
+                switchCase(
+                  `all ${item.kind}`,
+                  column(
+                    item.name,
+                    [
+                      media(`${item.name} for ${item.client}`, '4 / 3', {
+                        ...radius('var(--r-md)'),
+                      }),
+                      label(item.name, {
+                        fontSize: '15px',
+                        fontWeight: '560',
+                        color: 'var(--c-text)',
+                      }),
+                      label(item.client, { ...CAPTION, color: 'var(--c-muted)' }),
+                    ],
+                    { gap: '8px' }
+                  )
+                )
+              ),
+              { gap: '24px' },
+              TWO_TO_ONE
+            ),
+          ],
+          { gap: '0px' }
+        ),
+      ],
+      { gap: '32px', alignItems: 'flex-start' }
     ),
   ]);
 }

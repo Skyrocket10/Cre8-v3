@@ -934,11 +934,38 @@ export const switchButton = (text: string, value: string, styles: StyleDecl = {}
   },
 });
 
-/** Marks a node as belonging to one case of the enclosing group. */
+/**
+ * Marks a node as belonging to one or more cases of the enclosing group.
+ *
+ * More than one is how a filter gets an "All": an item tagged `all design`
+ * survives both, so the catch-all needs no special case in the mechanism.
+ */
 export const switchCase = (value: string, node: NodeSpec): NodeSpec => ({
   ...node,
   props: { ...node.props, switchCase: value },
 });
+
+/**
+ * A control that moves the switch on without claiming to be a toggle.
+ *
+ * Back and Next in a stepper. Announcing them as pressed or unpressed —
+ * "Next, toggle button, not pressed" — describes something that is not what
+ * the button is.
+ */
+export const switchStep = (
+  text: string,
+  value: string,
+  variant: 'primary' | 'secondary' = 'secondary',
+  styles: StyleDecl = {}
+): NodeSpec => {
+  const base = button(text, variant);
+  return {
+    ...base,
+    name: `${text} step`,
+    props: { label: text, switchSet: value, switchQuiet: true },
+    styles: { ...base.styles, fontSize: '14px', ...pad('10px', '18px'), ...styles },
+  };
+};
 
 /**
  * A whole tab set, from a list of panels.

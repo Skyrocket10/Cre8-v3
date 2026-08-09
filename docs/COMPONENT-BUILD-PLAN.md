@@ -514,10 +514,38 @@ The one thing that can still be wired wrong is two panels sharing a case
 value, which would mint one id twice. A static check refuses it, along with a
 panel that has no tab.
 
-### C′ — what this unlocks
+### C′ — the blocks, and the two gaps they found
 
-**Pricing with switch** and **Tabbed features** landed as the proof of each
-half. Steppers, filter-by-category and segmented content are the same
-mechanism with different labels. A carousel is not — it wants transforms and
-gestures, and it should wait until there is a reason to build it rather than
-a slot in a table.
+Five so far: **Pricing with switch**, **Tabbed features**, **Filterable
+work**, **Stepper**, **Install command**. Building them turned up two things
+the mechanism could not express, both small and both worth having.
+
+**A case can name more than one value.** A filter needs an "Everything" that
+means it, so a card is tagged `all brand` and answers to both. The generated
+rule chains one `:not()` per value:
+
+```css
+[data-cre8-switch="kind"]:not([data-cre8-value="all"]):not([data-cre8-value="brand"])
+  .c-abc { display: none }
+```
+
+Each `:not()` carries its argument's specificity, so more values only widen
+the margin over the node's own rule. `[data-cre8-case~="v"]` is how the
+runtime matches one, which is a selector CSS already had.
+
+**Not every setter is a toggle.** A stepper's numbered markers are — they are
+on or off, and clicking one jumps there. Back and Continue are not: they move
+the flow on, and `aria-pressed="false"` on Continue announces a toggle button
+that is switched off, which is not what the button is. `switchQuiet` says so,
+and the runtime leaves those alone. It is also why a quiet setter is excluded
+from a tab list by selector rather than skipped inside the loop — one landing
+first would make its parent the `tablist`.
+
+**Filter chips are not tabs**, and the work grid is deliberately a plain
+switch. The chips are pressed rather than selected because the grid below is
+a filtered list, not a panel each chip owns. Getting that backwards is the
+common mistake in this pattern.
+
+A carousel is still not on this list. It wants transforms, gestures and a
+reduced-motion story, and it should wait until there is a reason to build it
+rather than a slot in a table.

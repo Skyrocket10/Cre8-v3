@@ -1156,6 +1156,23 @@ export function slug(value: unknown): string {
     .slice(0, 48);
 }
 
+/**
+ * The same, for a value that may name more than one case.
+ *
+ * A filter needs an "All" that shows everything, which means an item has to
+ * be able to belong to two cases at once — its own and the catch-all. Spelled
+ * as a space-separated list because that is what `[attr~="v"]` already
+ * understands, in CSS and in `querySelector` alike.
+ */
+export function slugList(value: unknown): string {
+  const seen: string[] = [];
+  for (const part of String(value ?? '').split(/[\s,]+/)) {
+    const one = slug(part);
+    if (one && !seen.includes(one)) seen.push(one);
+  }
+  return seen.join(' ');
+}
+
 export function resolveTag(type: ElementType, props: NodeProps): string {
   if (type === 'heading') {
     const level = Number(props.level ?? 2);

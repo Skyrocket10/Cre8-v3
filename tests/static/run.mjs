@@ -355,10 +355,15 @@ function checkSwitches(spec) {
     }
   };
 
+  // A case may name several values — `all brand` is how a filter gets its
+  // catch-all — so everything below reads the list, not the string.
+  const values = (raw) => String(raw ?? '').split(/[\s,]+/).filter(Boolean);
+
   const countCases = (node, into) => {
     for (const child of node.children ?? []) {
-      const value = child.props?.switchCase;
-      if (value) into.set(value, (into.get(value) ?? 0) + 1);
+      for (const value of values(child.props?.switchCase)) {
+        into.set(value, (into.get(value) ?? 0) + 1);
+      }
       if (!child.props?.switchKey) countCases(child, into);
     }
   };
@@ -372,7 +377,7 @@ function checkSwitches(spec) {
 
   const collectCases = (node, into) => {
     for (const child of node.children ?? []) {
-      if (child.props?.switchCase) into.add(child.props.switchCase);
+      for (const value of values(child.props?.switchCase)) into.add(value);
       // A nested group owns its own cases; stop before crossing into one.
       if (!child.props?.switchKey) collectCases(child, into);
     }

@@ -33,6 +33,7 @@ import {
   section,
   splitGrid,
   stack,
+  tabs,
   textLink,
 } from './kit';
 
@@ -510,5 +511,82 @@ export function paginationSpec(): NodeSpec {
       ),
     ],
     { paddingTop: '40px', paddingBottom: '64px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Install command, per package manager
+ * ----------------------------------------------------------------------- */
+
+const INSTALLERS: { value: string; label: string; command: string }[] = [
+  { value: 'npm', label: 'npm', command: 'npm install @northwind/cli' },
+  { value: 'pnpm', label: 'pnpm', command: 'pnpm add @northwind/cli' },
+  { value: 'yarn', label: 'yarn', command: 'yarn add @northwind/cli' },
+  { value: 'bun', label: 'bun', command: 'bun add @northwind/cli' },
+];
+
+/**
+ * The four-line block every developer tool needs and every one rebuilds.
+ *
+ * A real tab set, so the row is one tab stop and the arrow keys move through
+ * it — which matters more here than usual, because this is a component
+ * keyboard users hit constantly. All four commands are in the markup, so the
+ * page still answers "how do I install this with pnpm" to a search engine
+ * that never ran the script.
+ */
+export function installTabsSpec(): NodeSpec {
+  const command = (item: (typeof INSTALLERS)[number]): NodeSpec =>
+    stack(
+      `${item.label} command`,
+      [
+        label('$', { fontFamily: 'var(--f-mono)', fontSize: '14px', color: 'var(--c-muted)' }),
+        label(item.command, {
+          fontFamily: 'var(--f-mono)',
+          fontSize: '14px',
+          color: 'var(--c-text)',
+          whiteSpace: 'nowrap',
+        }),
+      ],
+      {
+        gap: '10px',
+        width: '100%',
+        alignItems: 'center',
+        ...pad('16px', '18px'),
+        ...radius('var(--r-md)'),
+        backgroundColor: 'var(--c-surface)',
+        ...border('1px', 'var(--c-border)'),
+        // Long package names beat short phones; the box scrolls rather than
+        // the page.
+        overflowX: 'auto',
+      }
+    );
+
+  return section(
+    'Install',
+    [
+      container(
+        [
+          column(
+            'Install intro',
+            [
+              heading('Get started in one line', 2, { ...SUBTITLE, fontSize: '26px' }, SUBTITLE_RESPONSIVE),
+              paragraph('Node 20 or newer. Everything else the CLI brings with it.', SMALL),
+            ],
+            { gap: '6px' }
+          ),
+          tabs(
+            'installer',
+            INSTALLERS.map((item) => ({
+              value: item.value,
+              label: item.label,
+              panel: command(item),
+            })),
+            { styles: { gap: '14px' } }
+          ),
+        ],
+        { gap: '22px', alignItems: 'flex-start', maxWidth: '720px' }
+      ),
+    ],
+    { paddingTop: '56px', paddingBottom: '64px' }
   );
 }
