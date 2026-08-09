@@ -46,7 +46,7 @@ meet that bar or it drags the product down rather than filling it out.
 **Since:** 35 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
 `dialog`, `table`, `tableRow`, `tableCell`, `range`, `file`, `progress`,
 `fieldset` added in B) and 67 blocks across nine categories, held to that bar
-by 1049 static checks and 15 browser suites. `◐` marks something that ships and
+by 1064 static checks and 15 browser suites. `◐` marks something that ships and
 is partly gated — the dialog is a real `<dialog>`, announced as one, but not
 modal until there is a runtime to call `showModal()`.
 

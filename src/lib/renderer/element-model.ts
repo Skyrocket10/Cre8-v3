@@ -8,17 +8,20 @@
  * promise someone has to keep re-checking.
  */
 
-import { SWITCH_SHOW_ALL, resolveTag, slug, slugList } from '../document/schema';
+import { SWITCH_SHOW_ALL, readVisibility, resolveTag, slug } from '../document/schema';
 import type { Cre8Document, SceneNode } from '../document/types';
 import { nodeClass } from './css';
 import { iconMarkup } from './icons';
 import {
   CASE_ATTR,
+  KEEP_ATTR,
+  NOT_ATTR,
   QUIET_ATTR,
   SET_ATTR,
   SWITCH_ATTR,
   TABS_ATTR,
   VALUE_ATTR,
+  WHEN_ATTR,
 } from '../runtime/behaviour';
 
 export type RenderMode = 'edit' | 'preview' | 'publish';
@@ -134,8 +137,8 @@ function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): El
   const props = node.props;
   const key = slug(props.switchKey);
   const set = slug(props.switchSet);
-  const kase = slugList(props.switchCase);
-  if (!key && !set && !kase) return model;
+  const when = readVisibility(props);
+  if (!key && !set && !when) return model;
 
   if (key) {
     const showAll = mode === 'edit' && props.switchDesign === SWITCH_SHOW_ALL;
@@ -163,7 +166,15 @@ function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): El
     // one ("Next, toggle button, not pressed") is worse than saying nothing.
     if (props.switchQuiet) model.attrs[QUIET_ATTR] = 'true';
   }
-  if (kase) model.attrs[CASE_ATTR] = kase;
+  if (when) {
+    model.attrs[CASE_ATTR] = when.values.join(' ');
+    // Which state, when it is not simply the nearest one above — and the two
+    // flags, which the runtime reads to tell a tab panel from a node that
+    // merely happens to answer to the same value.
+    if (when.state) model.attrs[WHEN_ATTR] = when.state;
+    if (when.negated) model.attrs[NOT_ATTR] = 'true';
+    if (when.keepSpace) model.attrs[KEEP_ATTR] = 'true';
+  }
   return model;
 }
 

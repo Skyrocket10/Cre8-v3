@@ -1183,6 +1183,54 @@ export function slugList(value: unknown): string {
   return seen.join(' ');
 }
 
+/* --------------------------------------------------------------------------
+ * Visibility
+ * ----------------------------------------------------------------------- */
+
+/**
+ * When an element is on screen.
+ *
+ * The generalisation of what used to be a "switch case". A case could only
+ * say *is this one value*, bound to whichever state happened to be nearest —
+ * which meant "show this unless the plan is Free" had to be written by
+ * tagging every other plan, and a node could never react to a state declared
+ * further up than the closest one.
+ *
+ * Four flat fields rather than a nested object, because `NodeProps` is flat
+ * on purpose: the document stays trivially serialisable and every value is
+ * patchable on its own.
+ */
+export interface Visibility {
+  /** The state this depends on. Empty means the nearest one above. */
+  state: string;
+  /** The values it answers to. */
+  values: string[];
+  /** `isn't` rather than `is`. */
+  negated: boolean;
+  /** Hiding leaves the element's space behind instead of removing it. */
+  keepSpace: boolean;
+}
+
+/**
+ * Read a node's condition, or `null` when it has none.
+ *
+ * `switchCase` is the older spelling and still understood: it meant "the
+ * nearest state above, is, these values", which is exactly this with an empty
+ * state and no negation. Read in one place so nothing downstream has to know
+ * there were ever two ways to say it.
+ */
+export function readVisibility(props: NodeProps): Visibility | null {
+  const raw = props.whenIs ?? props.switchCase;
+  const values = slugList(raw);
+  if (!values) return null;
+  return {
+    state: slug(props.whenState),
+    values: values.split(' '),
+    negated: Boolean(props.whenNot),
+    keepSpace: props.hideMode === 'keep',
+  };
+}
+
 export function resolveTag(type: ElementType, props: NodeProps): string {
   if (type === 'heading') {
     const level = Number(props.level ?? 2);

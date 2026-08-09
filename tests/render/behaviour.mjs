@@ -134,7 +134,7 @@ try {
   );
   report.check(
     'the hiding is a stylesheet rule, not a script decision',
-    html.includes('[data-cre8-switch="billing"]:not([data-cre8-value="annual"])'),
+    html.includes('[data-cre8-switch="billing"]:not([data-cre8-value~="annual"])'),
     'rule present'
   );
 
@@ -430,19 +430,22 @@ try {
   report.check(
     'and the rule takes one :not() per value it answers to',
     filtered.includes(
-      '[data-cre8-switch="kind"]:not([data-cre8-value="all"]):not([data-cre8-value="brand"])'
+      '[data-cre8-switch="kind"]:not([data-cre8-value~="all"]):not([data-cre8-value~="brand"])'
     ),
     'chained'
   );
 
   const grid = await ctx.newPage();
   await grid.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+  // Positive conditions only: the "clear the filter" link is in this group
+  // too, and it answers to the *absence* of a category rather than to one.
   const count = () =>
     grid.evaluate(
       () =>
         [
-          ...(document.querySelector('[data-cre8-switch="kind"]')?.querySelectorAll('[data-cre8-case]') ??
-            []),
+          ...(document
+            .querySelector('[data-cre8-switch="kind"]')
+            ?.querySelectorAll('[data-cre8-case]:not([data-cre8-not])') ?? []),
         ].filter((el) => el.getBoundingClientRect().height > 0).length
     );
 
@@ -622,6 +625,64 @@ try {
     !xray.includes('data-cre8-switch-all') && xray.includes('data-cre8-switch="stage"'),
     xray.includes('data-cre8-switch-all') ? 'leaked' : 'edit-only'
   );
+
+  /* --------------------------------------------- 13. “isn’t”, and hiding itself */
+
+  // Two things a case could not say. `isn't` is the bigger one: written as
+  // `is`, "clear the filter" would have to list the three categories and be
+  // kept in step with them for ever.
+  const clear = await ctx.newPage();
+  await clear.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+  const clearLink = clear.locator('a:text-is("Clear the filter")');
+
+  report.check('the negated rule keys on the value rather than against it',
+    xray.includes('[data-cre8-switch="kind"]:is([data-cre8-value~="all"])'),
+    'isn’t compiled'
+  );
+  report.check('“clear the filter” is absent while showing everything',
+    !(await clearLink.isVisible()),
+    'hidden on all'
+  );
+  await clear.locator('button:text-is("Brand")').click();
+  await clear.waitForTimeout(220);
+  report.check('and appears for every category that is not it', await clearLink.isVisible());
+  await clear.locator('button:text-is("Editorial")').click();
+  await clear.waitForTimeout(220);
+  report.check('including the next one, with nothing listing them', await clearLink.isVisible());
+  await clear.locator('button:text-is("Everything")').click();
+  await clear.waitForTimeout(220);
+  report.check('and goes again on the way back', !(await clearLink.isVisible()));
+  await clear.close();
+
+  // A bar that closes itself. The state is on the bar, so the rule is one
+  // compound selector rather than a descendant one — an element is not
+  // inside itself, and this was simply impossible before.
+  await page.bringToFront();
+  await insert('Dismissible notice');
+  await publish(page);
+  const withNotice = await (await fetch(`${APP}/s/${id}/`)).text();
+
+  report.check(
+    'a self-hiding bar compiles to a compound selector, not a descendant one',
+    /\[data-cre8-switch="notice"\]:not\(\[data-cre8-value~="shown"\]\)\.c-[a-z0-9]+ ?\{/.test(
+      withNotice
+    ),
+    'no space before the class'
+  );
+
+  const notice = await ctx.newPage();
+  await notice.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+  const bar = notice.locator('[data-cre8-switch="notice"]');
+  report.check('it starts on screen', await bar.isVisible());
+  await notice.locator('[data-cre8-switch="notice"] button').click();
+  await notice.waitForTimeout(220);
+  report.check('and closes itself', !(await bar.isVisible()));
+  report.check(
+    'the close button is not announced as a toggle',
+    (await notice.locator('[data-cre8-switch="notice"] button').getAttribute('aria-pressed')) ===
+      null
+  );
+  await notice.close();
 } catch (error) {
   report.check('behaviour suite completed', false, error.message);
 } finally {

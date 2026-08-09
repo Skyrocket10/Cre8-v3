@@ -11,7 +11,7 @@
 
 import { cloneSubtree, createNode, structuredCloneCompat, type NodeSpec, buildTree } from './factory';
 import { uid, slugify } from './id';
-import { SWITCH_SHOW_ALL, canContain, getElement, slug, slugList } from './schema';
+import { SWITCH_SHOW_ALL, canContain, getElement, readVisibility, slug } from './schema';
 import {
   canReparent,
   collectSubtree,
@@ -668,49 +668,67 @@ export function revealSwitchPath(doc: Cre8Document, nodeId: NodeId): boolean {
   if (!node) return false;
   let changed = false;
 
-  const showing = (group: SceneNode, values: string[]): boolean => {
-    if (group.props.switchDesign === SWITCH_SHOW_ALL) return true;
-    const current = slug(group.props.switchDesign) || slug(group.props.switchDefault);
-    return values.includes(current);
-  };
+  const valueOf = (group: SceneNode): string =>
+    slug(group.props.switchDesign) || slug(group.props.switchDefault);
 
-  const groupAbove = (from: NodeId | null): SceneNode | undefined => {
-    let current = from ? doc.nodes[from] : undefined;
+  /** Which element owns the named state — itself first, then upwards. */
+  const ownerOf = (from: SceneNode, name: string): SceneNode | undefined => {
+    const own = slug(from.props.switchKey);
+    if (own && (!name || own === name)) return from;
+    let current: SceneNode | undefined = from.parentId ? doc.nodes[from.parentId] : undefined;
     let guard = 0;
     while (current && guard++ < 200) {
-      if (slug(current.props.switchKey)) return current;
+      const key = slug(current.props.switchKey);
+      if (key && (!name || key === name)) return current;
       current = current.parentId ? doc.nodes[current.parentId] : undefined;
     }
     return undefined;
   };
 
+  /** Put a state into some value that satisfies the condition, if it is not. */
+  const satisfy = (from: SceneNode): void => {
+    const when = readVisibility(from.props);
+    if (!when) return;
+    const group = ownerOf(from, when.state);
+    if (!group || group.props.switchDesign === SWITCH_SHOW_ALL) return;
+
+    const current = valueOf(group);
+    const matches = when.values.includes(current);
+    if (when.negated ? !matches : matches) return;
+
+    if (!when.negated) {
+      group.props.switchDesign = when.values[0]!;
+      changed = true;
+      return;
+    }
+    // "Shown unless the state is X." Anything not in the list will do, and
+    // what it ships as is the least surprising choice; if that is in the list
+    // too there is nothing to fall back to and it is left alone.
+    const fallback = slug(group.props.switchDefault);
+    if (fallback && !when.values.includes(fallback)) {
+      group.props.switchDesign = fallback;
+      changed = true;
+    }
+  };
+
   // Selecting a tab is the most direct way of saying which panel to work on.
   const set = slug(node.props.switchSet);
   if (set) {
-    const group = groupAbove(node.parentId);
-    if (group && !showing(group, [set])) {
-      group.props.switchDesign = set;
+    const group = ownerOf(node, '');
+    // A setter inside the group it drives, not the group itself.
+    const target = group === node ? ownerOf(doc.nodes[node.parentId ?? ''] ?? node, '') : group;
+    if (target && target.props.switchDesign !== SWITCH_SHOW_ALL && valueOf(target) !== set) {
+      target.props.switchDesign = set;
       changed = true;
     }
   }
 
-  // And everything between the selection and the page root.
-  let pending = slugList(node.props.switchCase);
-  let current: SceneNode | undefined = node.parentId ? doc.nodes[node.parentId] : undefined;
+  // Then the node itself and everything between it and the page root, so a
+  // panel three states deep is reachable in one click.
+  let current: SceneNode | undefined = node;
   let guard = 0;
   while (current && guard++ < 200) {
-    if (slug(current.props.switchKey)) {
-      const values = pending ? pending.split(' ') : [];
-      if (values.length && !showing(current, values)) {
-        current.props.switchDesign = values[0]!;
-        changed = true;
-      }
-      pending = '';
-    } else {
-      // The outermost case below the group is the one that has to be current
-      // — an inner one is only reachable once its container is.
-      pending = slugList(current.props.switchCase) || pending;
-    }
+    satisfy(current);
     current = current.parentId ? doc.nodes[current.parentId] : undefined;
   }
 

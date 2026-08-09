@@ -12,6 +12,7 @@ export * from './kit';
 export {
   announcementSpec,
   breadcrumbsSpec,
+  dismissibleNoticeSpec,
   docsLayoutSpec,
   footerSpec,
   minimalFooterSpec,
@@ -100,6 +101,7 @@ export {
 import {
   announcementSpec,
   breadcrumbsSpec,
+  dismissibleNoticeSpec,
   docsLayoutSpec,
   footerSpec,
   minimalFooterSpec,
@@ -713,6 +715,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'app',
     keywords: ['documents', 'uploads', 'attachments', 'downloads'],
     build: fileListSpec,
+  },
+  {
+    id: 'notice-dismiss',
+    name: 'Dismissible notice',
+    description: 'A bar with a close button, and no script beyond the switch',
+    category: 'chrome',
+    keywords: ['banner', 'announcement', 'dismiss', 'close', 'cookie', 'alert'],
+    build: dismissibleNoticeSpec,
   },
   {
     id: 'work-filter',

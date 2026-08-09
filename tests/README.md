@@ -14,7 +14,7 @@ width will never show you:
 - images carry alt text worth reading
 - no nesting the HTML parser would rearrange on the way out
 - every popover button names a popover that is in the same block
-- every switch is wired to its own cases, in both directions
+- every state has something depending on it, and every control changes something
 - every tab has one panel and every panel has one tab
 - buttons and links respond to hover
 - every node is named for the layer tree

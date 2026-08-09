@@ -31,6 +31,7 @@ import {
   radius,
   section,
   stack,
+  switchButton,
   textLink,
   tint,
 } from './kit';
@@ -680,6 +681,88 @@ export function navMenuSpec(links: (string | BlockLink)[] = DEFAULT_NAV_LINKS): 
         ),
         props: { popoverMode: 'auto', showWhileEditing: false },
       },
+    ],
+  };
+}
+
+
+/* --------------------------------------------------------------------------
+ * Dismissible notice
+ * ----------------------------------------------------------------------- */
+
+/**
+ * A bar that closes itself, which needs the one thing a case could not do.
+ *
+ * The bar declares the state *and* depends on it, so the rule it generates is
+ * a single compound selector rather than a descendant one — an element is not
+ * inside itself. That is the whole of a dismissible anything: state on the
+ * thing, a control inside it that sets the other value, done.
+ *
+ * It forgets on reload, and that is the honest behaviour rather than an
+ * oversight — remembering means storage, and storage means a consent question
+ * this block has no business answering on a visitor's behalf.
+ */
+export function dismissibleNoticeSpec(): NodeSpec {
+  return {
+    type: 'section',
+    name: 'Notice',
+    props: { switchKey: 'notice', switchDefault: 'shown', whenIs: 'shown' },
+    styles: {
+      ...pad('11px', '24px'),
+      backgroundColor: 'var(--c-text)',
+      color: 'var(--c-background)',
+      width: '100%',
+    },
+    responsive: { mobile: { paddingLeft: '16px', paddingRight: '16px' } },
+    children: [
+      container(
+        [
+          stack(
+            'Notice row',
+            [
+              icon('sparkles', { width: '15px', height: '15px', flexShrink: '0' }),
+              label('Cre8 2.0 is out — switches, tabs and a form endpoint.', {
+                fontSize: '13.5px',
+                color: 'var(--c-background)',
+              }),
+              {
+                ...textLink('Read the notes', '#'),
+                name: 'Notice link',
+                styles: {
+                  fontSize: '13.5px',
+                  fontWeight: '560',
+                  color: 'var(--c-background)',
+                  textDecoration: 'underline',
+                  whiteSpace: 'nowrap',
+                },
+                states: { hover: { color: 'var(--c-background)' } },
+              },
+              {
+                ...switchButton('Dismiss', 'dismissed'),
+                name: 'Dismiss notice',
+                styles: {
+                  marginLeft: 'auto',
+                  flexShrink: '0',
+                  fontSize: '18px',
+                  lineHeight: '1',
+                  ...pad('2px', '6px'),
+                  backgroundColor: 'transparent',
+                  color: 'var(--c-background)',
+                },
+                props: { label: '\u00d7', switchSet: 'dismissed', switchQuiet: true },
+                states: { hover: { color: 'var(--c-background)' } },
+              },
+            ],
+            { gap: '10px', width: '100%', alignItems: 'center' },
+            { mobile: { flexWrap: 'wrap' } }
+          ),
+        ],
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          maxWidth: 'var(--w-wide)',
+        }
+      ),
     ],
   };
 }

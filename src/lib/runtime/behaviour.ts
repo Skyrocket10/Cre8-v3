@@ -52,6 +52,12 @@ export const CASE_ATTR = 'data-cre8-case';
 export const TABS_ATTR = 'data-cre8-tabs';
 /** A setter that changes the value without being a toggle: Back, Next. */
 export const QUIET_ATTR = 'data-cre8-quiet';
+/** Names the state a condition depends on, when it is not the nearest one. */
+export const WHEN_ATTR = 'data-cre8-when';
+/** The condition is `isn't` rather than `is`. */
+export const NOT_ATTR = 'data-cre8-not';
+/** Hiding leaves the element's space behind. */
+export const KEEP_ATTR = 'data-cre8-keep';
 
 /**
  * @param root  Document on a published page, the frame element in the editor.
@@ -100,7 +106,9 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
       // because `slug()` narrowed it to letters, digits, `_` and `-` before it
       // was ever written — the same guarantee that lets the generator put it
       // in a stylesheet.
-      const panels = own(group, '[data-cre8-case~="' + value + '"]');
+      // `:not([data-cre8-not])` because an "isn't" condition answers to this
+      // value by *hiding*, which makes it the opposite of the panel.
+      const panels = own(group, '[data-cre8-case~="' + value + '"]:not([data-cre8-not])');
       const panel = paired[value] ? null : panels[0];
       if (!panel) continue;
       paired[value] = true;

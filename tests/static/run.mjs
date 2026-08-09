@@ -16,8 +16,15 @@ import { createReport } from '../report.mjs';
 import { layers, loadBlocks, walk } from './load-blocks.mjs';
 
 const report = createReport();
-const { BLOCKS, BLOCK_CATEGORIES, ICON_NAMES, ELEMENTS, PLACEHOLDER_MIN_HEIGHT, canContain } =
-  loadBlocks();
+const {
+  BLOCKS,
+  BLOCK_CATEGORIES,
+  ICON_NAMES,
+  ELEMENTS,
+  PLACEHOLDER_MIN_HEIGHT,
+  canContain,
+  readVisibility,
+} = loadBlocks();
 const KNOWN_ICONS = new Set(ICON_NAMES);
 
 const CATEGORY_IDS = new Set(BLOCK_CATEGORIES.map((c) => c.id));
@@ -310,80 +317,100 @@ function checkPopoverRefs(spec) {
  */
 function checkSwitches(spec) {
   const bad = [];
+  const at = (node) => node.name ?? node.type;
 
-  const walkGroup = (node, groupKey, groupCases) => {
+  /** Everything a state can be told to be, and every test made against it. */
+  const survey = (group) => {
+    const positive = new Set();
+    const negated = new Set();
+    const sets = [];
+    const panelCounts = new Map();
+    let selfCondition = false;
+
+    // The group's own condition, which is how a dismissible thing hides
+    // itself — it belongs to this state, not to whatever encloses it.
+    const own = readVisibility(group.props ?? {});
+    if (own) {
+      selfCondition = true;
+      for (const v of own.values) (own.negated ? negated : positive).add(v);
+    }
+
+    const walk = (node) => {
+      for (const child of node.children ?? []) {
+        const when = readVisibility(child.props ?? {});
+        if (when && !when.state) {
+          for (const v of when.values) (when.negated ? negated : positive).add(v);
+          if (!when.negated) {
+            for (const v of when.values) panelCounts.set(v, (panelCounts.get(v) ?? 0) + 1);
+          }
+        }
+        if (child.props?.switchSet) sets.push({ node: child, value: child.props.switchSet });
+        // A nested state owns everything below it.
+        if (!child.props?.switchKey) walk(child);
+      }
+    };
+    walk(group);
+    return { positive, negated, sets, panelCounts, selfCondition };
+  };
+
+  const walkGroups = (node, enclosed) => {
     for (const child of node.children ?? []) {
       const key = child.props?.switchKey;
-      if (key) {
-        const cases = new Set();
-        collectCases(child, cases);
-        const initial = child.props?.switchDefault;
-        if (cases.size === 0) {
-          bad.push(`${child.name ?? child.type}: switch "${key}" has no cases beneath it`);
-        } else if (initial && !cases.has(initial)) {
-          bad.push(`${child.name ?? child.type}: ships as "${initial}", which is not one of its cases`);
-        }
-        // Tabs pair one panel to one tab, and the runtime mints the ids from
-        // the case value. Two panels on the same value would take the same id
-        // and `aria-controls` would point at whichever the browser kept.
-        if (child.props?.switchRole === 'tabs') {
-          const counts = new Map();
-          countCases(child, counts);
-          for (const [value, n] of counts) {
-            if (n > 1) bad.push(`${child.name ?? child.type}: ${n} panels share the tab "${value}"`);
+      if (!key) {
+        if (!enclosed) {
+          const when = readVisibility(child.props ?? {});
+          // A condition naming a state explicitly may reach further up than
+          // this walk has seen, so only an unnamed one is provably orphaned.
+          if (when && !when.state) {
+            bad.push(`${at(child)}: shown when "${when.values.join(' ')}", but no state encloses it`);
           }
-          const tabValues = new Set();
-          collectSets(child, tabValues);
-          for (const value of cases) {
-            if (!tabValues.has(value)) bad.push(`${child.name ?? child.type}: panel "${value}" has no tab`);
+          if (child.props?.switchSet) {
+            bad.push(`${at(child)}: sets "${child.props.switchSet}", but no state encloses it`);
           }
         }
-        walkGroup(child, key, cases);
+        walkGroups(child, enclosed);
         continue;
       }
-      if (!groupKey) {
-        if (child.props?.switchCase) {
-          bad.push(`${child.name ?? child.type}: shown when "${child.props.switchCase}", but no switch encloses it`);
-        }
-        if (child.props?.switchSet) {
-          bad.push(`${child.name ?? child.type}: sets "${child.props.switchSet}", but no switch encloses it`);
-        }
-      } else if (child.props?.switchSet && !groupCases.has(child.props.switchSet)) {
-        bad.push(`${child.name ?? child.type}: sets "${child.props.switchSet}", which no case listens for`);
+
+      const { positive, negated, sets, panelCounts, selfCondition } = survey(child);
+      const known = new Set([...positive, ...negated]);
+
+      if (known.size === 0) {
+        bad.push(`${at(child)}: state "${key}" has nothing that depends on it`);
       }
-      walkGroup(child, groupKey, groupCases);
-    }
-  };
 
-  // A case may name several values — `all brand` is how a filter gets its
-  // catch-all — so everything below reads the list, not the string.
-  const values = (raw) => String(raw ?? '').split(/[\s,]+/).filter(Boolean);
-
-  const countCases = (node, into) => {
-    for (const child of node.children ?? []) {
-      for (const value of values(child.props?.switchCase)) {
-        into.set(value, (into.get(value) ?? 0) + 1);
+      const initial = child.props?.switchDefault;
+      if (initial && known.size && !known.has(initial)) {
+        bad.push(`${at(child)}: ships as "${initial}", which nothing tests for`);
       }
-      if (!child.props?.switchKey) countCases(child, into);
+
+      // A value nothing names is only meaningful when *some* condition is
+      // satisfied by "anything else" — a negated one, or the state's owner
+      // hiding itself. Otherwise it is a typo that blanks the group.
+      const anyOtherValueMatters = negated.size > 0 || selfCondition;
+      for (const { node: setter, value } of sets) {
+        if (!known.has(value) && !anyOtherValueMatters) {
+          bad.push(`${at(setter)}: sets "${value}", which nothing listens for`);
+        }
+      }
+
+      if (child.props?.switchRole === 'tabs') {
+        // Tabs pair one panel to one tab, and the runtime mints the ids from
+        // the value. Two panels on one value would take the same id.
+        for (const [value, n] of panelCounts) {
+          if (n > 1) bad.push(`${at(child)}: ${n} panels share the tab "${value}"`);
+        }
+        const tabValues = new Set(sets.map((s) => s.value));
+        for (const value of panelCounts.keys()) {
+          if (!tabValues.has(value)) bad.push(`${at(child)}: panel "${value}" has no tab`);
+        }
+      }
+
+      walkGroups(child, true);
     }
   };
 
-  const collectSets = (node, into) => {
-    for (const child of node.children ?? []) {
-      if (child.props?.switchSet) into.add(child.props.switchSet);
-      if (!child.props?.switchKey) collectSets(child, into);
-    }
-  };
-
-  const collectCases = (node, into) => {
-    for (const child of node.children ?? []) {
-      for (const value of values(child.props?.switchCase)) into.add(value);
-      // A nested group owns its own cases; stop before crossing into one.
-      if (!child.props?.switchKey) collectCases(child, into);
-    }
-  };
-
-  walkGroup(spec, spec.props?.switchKey ?? '', new Set());
+  walkGroups(spec, Boolean(spec.props?.switchKey));
   return bad;
 }
 
@@ -612,7 +639,7 @@ const VIOLATIONS = [
   ],
   [
     checkSwitches,
-    'a switch that ships as a case it does not have',
+    'a switch that ships as a value nothing tests for',
     {
       type: 'frame',
       name: 'Root',
@@ -624,6 +651,15 @@ const VIOLATIONS = [
           children: [{ type: 'text', name: 'A', props: { switchCase: 'monthly' } }],
         },
       ],
+    },
+  ],
+  [
+    checkSwitches,
+    'a state nothing depends on',
+    {
+      type: 'frame',
+      name: 'Root',
+      children: [{ type: 'frame', name: 'G', props: { switchKey: 'k', switchDefault: 'a' } }],
     },
   ],
   [

@@ -32,6 +32,7 @@ import {
   switchButton,
   switchCase,
   switchGroup,
+  switchUnless,
   textLink,
 } from './kit';
 
@@ -456,6 +457,18 @@ export function workFilterSpec(): NodeSpec {
                 })
               ),
               { gap: '8px', flexWrap: 'wrap', marginBottom: '28px' }
+            ),
+
+            // The `isn't` case, and the reason it is worth having: written as
+            // `is`, this would have to list the three categories and be kept
+            // in step with them for ever.
+            switchUnless(
+              'all',
+              textLink('Clear the filter', '#', {
+                fontSize: '13px',
+                marginBottom: '20px',
+                textDecoration: 'underline',
+              })
             ),
 
             grid(

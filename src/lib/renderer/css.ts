@@ -13,7 +13,7 @@
  * the cascade, the reset — is byte-for-byte identical between the two modes.
  */
 
-import { slug, slugList } from '../document/schema';
+import { readVisibility, slug } from '../document/schema';
 import {
   BREAKPOINT_DEFS,
   BREAKPOINT_ORDER,
@@ -162,59 +162,96 @@ export interface GenerateCssOptions {
 /**
  * The rules that make a switch work without a script.
  *
- * Two of them. A case is hidden whenever the group it belongs to holds some
- * other value; a control that sets the group takes its selected styling
- * whenever the group holds *its* value.
+ * Two of them. A node with a condition is hidden whenever the state it names
+ * fails that condition; a control that sets a state takes its selected
+ * styling whenever the state holds *its* value.
+ *
  * Specificity is the whole trick: `[data-cre8-switch="k"]:not([…]) .c-id`
  * scores (0,3,0) and the node's own rule scores (0,1,0), so hiding wins over
  * whatever `display` the designer set, at every breakpoint, without an
  * `!important` anywhere.
  *
- * Written from the node map rather than from the node, because a case only
- * knows its value — the key belongs to an ancestor. That also means this
- * cannot be memoised on node identity the way the rest is: renaming a group's
- * key changes the rules of children that did not themselves change.
+ * Written from the node map rather than from the node, because a condition
+ * names a state and the state belongs to some ancestor. That also means this
+ * cannot be memoised on node identity the way the rest is: renaming a state
+ * changes the rules of nodes that did not themselves change.
  */
 function switchRules(nodes: Record<string, SceneNode>, node: SceneNode, prefix: string): string[] {
-  const kase = slugList(node.props.switchCase);
+  const when = readVisibility(node.props);
   const set = slug(node.props.switchSet);
   const pressed = node.states?.pressed;
   const wantsPressed = set && pressed && Object.keys(pressed).length > 0;
-  if (!kase && !wantsPressed) return [];
+  if (!when && !wantsPressed) return [];
 
-  // Both rules hang off the nearest enclosing group, so the walk happens once.
-  let key = '';
+  const out: string[] = [];
+
+  if (when) {
+    const owner = stateOwner(nodes, node, when.state);
+    // No such state above it. Emitting nothing leaves the node always
+    // visible, which is the honest reading of a condition that names nothing
+    // — and the static check refuses to let a block ship in that state.
+    if (owner) {
+      const anchor = `${prefix}[data-cre8-switch="${owner.key}"]`;
+      // Hide when the state is *not* one of the values, or — negated — when
+      // it is. `:is()` takes the highest specificity of its arguments, so
+      // both forms land at the same weight and neither can out-rank the
+      // other by accident.
+      const match = when.negated
+        ? `:is(${when.values.map((v) => `[data-cre8-value~="${v}"]`).join(',')})`
+        : when.values.map((v) => `:not([data-cre8-value~="${v}"])`).join('');
+      // A node can depend on the state it declares itself — that is what a
+      // dismissible banner is — and then the rule is one compound selector
+      // rather than a descendant one, because an element is not inside
+      // itself.
+      const selector = owner.self
+        ? `${anchor}${match}.${nodeClass(node.id)}`
+        : `${anchor}${match} .${nodeClass(node.id)}`;
+      const declaration = when.keepSpace ? 'visibility: hidden' : 'display: none';
+      out.push(`${selector} {\n  ${declaration};\n}`);
+    }
+  }
+
+  if (wantsPressed) {
+    const owner = stateOwner(nodes, node, '');
+    if (owner && !owner.self) {
+      const body = declarationsToCss(pressed as StyleDecl);
+      if (body) {
+        out.push(
+          `${prefix}[data-cre8-switch="${owner.key}"][data-cre8-value~="${set}"] ` +
+            `.${nodeClass(node.id)} {\n${body}\n}`
+        );
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Which element owns the state a node is talking about.
+ *
+ * Named explicitly, a condition can reach past the nearest group to one
+ * further up — a card inside a filtered grid reacting to the section's
+ * billing switch, say, which used to be impossible. Unnamed, it means the
+ * nearest, and *itself* first: a node that declares a state and also has a
+ * condition is almost always the dismissible-banner case.
+ */
+function stateOwner(
+  nodes: Record<string, SceneNode>,
+  node: SceneNode,
+  name: string
+): { key: string; self: boolean } | null {
+  const own = slug(node.props.switchKey);
+  if (own && (!name || own === name)) return { key: own, self: true };
+
   let current: SceneNode | undefined = node.parentId ? nodes[node.parentId] : undefined;
   let guard = 0;
   while (current && guard++ < 200) {
-    key = slug(current.props.switchKey);
-    if (key) break;
+    const key = slug(current.props.switchKey);
+    if (key && (!name || key === name)) return { key, self: false };
     current = current.parentId ? nodes[current.parentId] : undefined;
   }
-  // No group above it. Emitting nothing leaves the node always visible, which
-  // is the honest reading of "belongs to no switch" — and the static check
-  // refuses to let a block ship in that state.
-  if (!key) return [];
-
-  const group = `${prefix}[data-cre8-switch="${key}"]`;
-  const out: string[] = [];
-  if (kase) {
-    // One `:not()` per value it answers to, so an item tagged `all design`
-    // survives both. Each adds (0,1,0), so more values only widen the margin
-    // over the node's own rule.
-    const unless = kase
-      .split(' ')
-      .map((value) => `:not([data-cre8-value="${value}"])`)
-      .join('');
-    out.push(`${group}${unless} .${nodeClass(node.id)} {\n  display: none;\n}`);
-  }
-  if (wantsPressed) {
-    const body = declarationsToCss(pressed as StyleDecl);
-    if (body) {
-      out.push(`${group}[data-cre8-value="${set}"] .${nodeClass(node.id)} {\n${body}\n}`);
-    }
-  }
-  return out;
+  return null;
 }
 
 export function generateNodeCss(
@@ -235,7 +272,11 @@ export function generateNodeCss(
     const rules = rulesFor(node, prefix);
     if (rules.base) baseChunks.push(rules.base);
     if (options.includeStates !== false && rules.states) stateChunks.push(rules.states);
-    if (node.props.switchCase !== undefined || node.props.switchSet !== undefined) {
+    if (
+      node.props.switchCase !== undefined ||
+      node.props.whenIs !== undefined ||
+      node.props.switchSet !== undefined
+    ) {
       caseChunks.push(...switchRules(nodes, node, prefix));
     }
     for (const bp of BREAKPOINT_ORDER) {

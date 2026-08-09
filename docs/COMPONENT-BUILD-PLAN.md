@@ -599,3 +599,61 @@ geometry, so selecting it from the tree outlines nothing. That is inherent to
 editing a DOM rather than a scene graph — Webflow and Framer behave the same
 way. The route back is the layer row, which stays put with a struck-through
 eye, and a notice in the inspector with a Show button.
+
+
+---
+
+## Visibility
+
+The switch shipped with one way to say when something is on screen: *is this
+one value*, bound to whichever state happened to be nearest. Three things that
+could not express, all of which turned up within a day of using it.
+
+**"Unless."** "Show this except when the plan is Free" had to be written by
+tagging every other plan, and keeping that list in step with the plans for
+ever. So the condition gained an operator, and `isn't` compiles to the
+mirror image of `is` at the same specificity:
+
+```css
+/* is    → hide when the state is none of these */
+[data-cre8-switch="k"]:not([data-cre8-value~="a"]) .c-abc { display: none }
+/* isn't → hide when it is any of them */
+[data-cre8-switch="k"]:is([data-cre8-value~="a"]) .c-abc { display: none }
+```
+
+`:is()` takes the highest specificity of its arguments, so both forms land at
+(0,3,0) and neither can out-rank the other by accident.
+
+**Which state.** A condition can now name one, so a node reacts to a state
+further up than the closest — a card inside a filtered grid answering to the
+section's billing switch. Unnamed still means nearest, which is the common
+case and the sensible default.
+
+**Hiding itself.** A group could never hide on its own state, because the rule
+was a descendant selector and an element is not inside itself. Naming the
+owner made the fix obvious: when it *is* the node, emit one compound selector
+instead. That is the whole of a dismissible anything — state on the thing, a
+control inside it that sets the other value — and **Dismissible notice** is
+the block that proves it.
+
+**And whether hiding takes the space.** `display: none` removes the box;
+`visibility: hidden` empties it. A grid cell that vanishes and one that
+empties are different designs, and only one of them was available.
+
+### One reader
+
+`readVisibility()` in `schema.ts` is the only place that knows what a
+condition looks like — the renderer, the generator, the reveal-on-select and
+the static lint all go through it. It also still understands `switchCase`, the
+older spelling, so a project built last week keeps working without a
+migration and nothing downstream has to know there were ever two ways to say
+it.
+
+### What the lint had to learn
+
+The old rule was "a control must set a value some case listens for", which was
+right when `is` was the only operator and wrong the moment it was not: a
+dismiss button sets `dismissed`, and nothing listens for it *positively* —
+the bar listens for `shown` and dismissing is simply anything else. The rule
+now flags an unnamed value only when no negated and no self condition exists
+on that state, which is exactly when "anything else" cannot matter.

@@ -935,14 +935,45 @@ export const switchButton = (text: string, value: string, styles: StyleDecl = {}
 });
 
 /**
- * Marks a node as belonging to one or more cases of the enclosing group.
+ * Show a node while a state holds one of these values.
  *
  * More than one is how a filter gets an "All": an item tagged `all design`
- * survives both, so the catch-all needs no special case in the mechanism.
+ * answers to both, so the catch-all needs no special case in the mechanism.
  */
-export const switchCase = (value: string, node: NodeSpec): NodeSpec => ({
+export const switchCase = (
+  value: string,
+  node: NodeSpec,
+  options: { state?: string; keepSpace?: boolean } = {}
+): NodeSpec => ({
   ...node,
-  props: { ...node.props, switchCase: value },
+  props: {
+    ...node.props,
+    whenIs: value,
+    ...(options.state ? { whenState: options.state } : {}),
+    ...(options.keepSpace ? { hideMode: 'keep' } : {}),
+  },
+});
+
+/**
+ * The opposite: show a node *unless* the state is one of these.
+ *
+ * "Clear the filter" belongs on screen for every category except the one that
+ * shows everything, and writing that as `is` would mean listing the other
+ * three and keeping the list in step with them.
+ */
+export const switchUnless = (
+  value: string,
+  node: NodeSpec,
+  options: { state?: string; keepSpace?: boolean } = {}
+): NodeSpec => ({
+  ...node,
+  props: {
+    ...node.props,
+    whenIs: value,
+    whenNot: true,
+    ...(options.state ? { whenState: options.state } : {}),
+    ...(options.keepSpace ? { hideMode: 'keep' } : {}),
+  },
 });
 
 /**
