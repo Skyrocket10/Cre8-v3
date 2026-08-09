@@ -177,11 +177,31 @@ try {
     onCanvas.width === String(SOURCE_WIDTH) && onCanvas.height === String(SOURCE_HEIGHT),
     `${onCanvas.width}×${onCanvas.height}, wanted ${SOURCE_WIDTH}×${SOURCE_HEIGHT}`);
 
-  // Rungs below 1600: 480, 960 and 1440, plus the full-size original.
-  const widths = [...onCanvas.srcset.matchAll(/(\d+)w/g)].map((m) => Number(m[1]));
+  /*
+   * Rungs below 1600: 480, 960 and 1440, plus the full-size original.
+   *
+   * The descriptor is read off the *end* of each entry rather than scanned for
+   * anywhere in the string, and that is not fussiness. A project id is ten
+   * characters of `a-z0-9`, so roughly one in fifteen contains a digit
+   * followed by a `w` — and the id is in the URL of every entry, so when it
+   * does, a loose `(\d+)w` reports `3w, 480w, 3w, 960w, …` and the suite fails
+   * on a run that found nothing wrong. Caught exactly that way.
+   */
+  const descriptors = (srcset) =>
+    srcset
+      .split(',')
+      .map((entry) => Number(/(\d+)w\s*$/.exec(entry.trim())?.[1] ?? NaN));
+
+  const widths = descriptors(onCanvas.srcset);
   check('and the narrower copies it can offer instead',
     widths.join(',') === `480,960,1440,${SOURCE_WIDTH}`,
     widths.length ? `${widths.join('w, ')}w` : 'no srcset');
+  // The reading has to survive the id that broke it, or this is one lucky run.
+  check('and reading them ignores a width-shaped id inside the URL',
+    descriptors('/api/assets/ab3wxy%2Fq-p-480.webp 480w, /api/assets/ab3wxy%2Fq-p.webp 1600w')
+      .join(',') === '480,1600',
+    descriptors('/api/assets/ab3wxy%2Fq-p-480.webp 480w, /api/assets/ab3wxy%2Fq-p.webp 1600w')
+      .join(','));
   check('every entry in the srcset is a real uploaded object',
     onCanvas.srcset.split(',').every((entry) => entry.trim().startsWith('/api/assets/')),
     onCanvas.srcset.slice(0, 70) || 'empty');
