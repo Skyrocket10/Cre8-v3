@@ -374,6 +374,15 @@ behind it. Two things deliberately stay manual: a design change, because a
 half-moved section is not content, and any project nobody has published,
 because a record edit is not consent to put a site on the internet.
 
+**How fast "follows" actually is, stated rather than implied.** R2 has the new
+bytes within seconds. What a visitor sees is bounded by `s-maxage=60`, and the
+purge is a best-effort improvement on that rather than a guarantee:
+`caches.default` is per-colo, so a publish clears the colo it ran in and no
+other — and a background republish runs wherever the Durable Object lives,
+which is usually not where the reader is. On a site's own domain the purge
+does not help at all, because the sites Worker caches under that hostname and
+the API cannot address it. Sixty seconds is the number to quote.
+
 With no backend there is nowhere to move to, so the browser still generates.
 That path and the ZIP export are two callers of `generateSite` that keep the
 shared module honest, and the render suite holds all three to producing the
