@@ -247,6 +247,142 @@ try {
     /data-cre8-switch="([^"]*)"/.exec(hostile)?.[1] ?? 'none'
   );
   report.check('and the page is still balanced markup', unbalanced(hostile).length === 0);
+
+  /* --------------------------------------------------------------- 7. tabs */
+
+  // A tab set is the same state machine wearing the semantics that make it
+  // one. The state half is already covered above, so these are about the
+  // half that is invisible on screen: what a screen reader is told, and what
+  // the keyboard can reach.
+  await insert('Tabbed features');
+  await publish(page);
+  const tabbed = await (await fetch(`${APP}/s/${id}/`)).text();
+
+  report.check(
+    'all three panels are in the file, not just the open one',
+    (tabbed.match(/data-cre8-case="(design|build|ship)"/g) ?? []).length === 3,
+    `${(tabbed.match(/data-cre8-case="/g) ?? []).length} cases`
+  );
+  report.check(
+    'so the copy in the closed ones is still readable by a crawler',
+    tabbed.includes('Components that stay in step') && tabbed.includes('Static files, on the edge')
+  );
+  report.check(
+    'the roles are not in the markup, because the script is what makes them true',
+    !tabbed.includes('role="tab"'),
+    'applied at runtime'
+  );
+
+  const tabPage = await ctx.newPage();
+  await tabPage.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+  await tabPage.waitForTimeout(300);
+
+  const wired = await tabPage.evaluate(() => {
+    const list = document.querySelector('[role="tablist"]');
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+    return {
+      lists: document.querySelectorAll('[role="tablist"]').length,
+      tabs: tabs.length,
+      panels: panels.length,
+      inList: list ? tabs.every((t) => list.contains(t)) : false,
+      // Every tab points at a panel that exists, and that panel points back.
+      paired: tabs.every((t) => {
+        const panel = document.getElementById(t.getAttribute('aria-controls') ?? '');
+        return panel?.getAttribute('aria-labelledby') === t.id;
+      }),
+      // One stop for the whole set, not one per tab.
+      stops: tabs.filter((t) => t.getAttribute('tabindex') === '0').length,
+      selected: tabs.filter((t) => t.getAttribute('aria-selected') === 'true').length,
+      // A tab is selected, never pressed — saying both is worse than one.
+      pressed: tabs.filter((t) => t.hasAttribute('aria-pressed')).length,
+    };
+  });
+
+  report.check('the row of tabs is announced as a tab list', wired.lists === 1, `${wired.lists}`);
+  report.check('with three tabs inside it', wired.tabs === 3 && wired.inList, `${wired.tabs} tabs`);
+  report.check('and three panels', wired.panels === 3, `${wired.panels}`);
+  report.check('each tab names its panel, and the panel names it back', wired.paired);
+  report.check('exactly one is selected', wired.selected === 1, `${wired.selected}`);
+  report.check(
+    'the whole set is one tab stop, not three',
+    wired.stops === 1,
+    `${wired.stops} tabbable`
+  );
+  report.check('and none of them claims to be pressed as well', wired.pressed === 0);
+
+  // The keyboard half. A tab set that only answers to a mouse is a row of
+  // buttons with extra words attached.
+  await tabPage.locator('[role="tab"][aria-selected="true"]').focus();
+  await tabPage.keyboard.press('ArrowRight');
+  await tabPage.waitForTimeout(220);
+  const afterRight = await tabPage.evaluate(() => ({
+    selected: document.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? '',
+    focused: document.activeElement?.textContent ?? '',
+    // Scoped to the tab set: the pricing block further up the page has cases
+    // of its own, and counting those would make this assert nothing.
+    shown: [...(document.querySelector('[data-cre8-tabs]')?.querySelectorAll('[data-cre8-case]') ?? [])]
+      .filter((el) => el.getBoundingClientRect().height > 0)
+      .map((el) => el.getAttribute('data-cre8-case'))
+      .join(','),
+  }));
+  report.check('the right arrow moves to the next tab', afterRight.selected === 'Build', afterRight.selected);
+  report.check('focus follows it', afterRight.focused === 'Build', afterRight.focused);
+  report.check('and the panel comes with it', afterRight.shown === 'build', afterRight.shown);
+
+  await tabPage.keyboard.press('ArrowLeft');
+  await tabPage.keyboard.press('ArrowLeft');
+  await tabPage.waitForTimeout(220);
+  report.check(
+    'left wraps round to the last one',
+    (await tabPage.evaluate(
+      () => document.querySelector('[role="tab"][aria-selected="true"]')?.textContent
+    )) === 'Ship'
+  );
+
+  await tabPage.keyboard.press('Home');
+  await tabPage.waitForTimeout(220);
+  report.check(
+    'Home returns to the first',
+    (await tabPage.evaluate(
+      () => document.querySelector('[role="tab"][aria-selected="true"]')?.textContent
+    )) === 'Design'
+  );
+
+  // Tab out of the set: the next stop must be inside the open panel or past
+  // it, never one of the other tabs.
+  await tabPage.keyboard.press('Tab');
+  const leftTheSet = await tabPage.evaluate(
+    () => document.activeElement?.getAttribute('role') !== 'tab'
+  );
+  report.check('Tab leaves the set rather than walking through it', leftTheSet);
+
+  await tabPage.close();
+
+  /* ------------------------------------------- 8. the same set, on the canvas */
+
+  await page.bringToFront();
+  const canvasTabs = await page.evaluate(() => {
+    const frame = document.querySelector('.cre8-frame.cre8-editing');
+    return {
+      tabs: frame?.querySelectorAll('[role="tab"]').length ?? 0,
+      panels: frame?.querySelectorAll('[role="tabpanel"]').length ?? 0,
+      shown: [...(frame?.querySelector('[data-cre8-tabs]')?.querySelectorAll('[data-cre8-case]') ?? [])]
+        .filter((el) => el.getBoundingClientRect().height > 0)
+        .map((el) => el.getAttribute('data-cre8-case'))
+        .join(','),
+    };
+  });
+  report.check(
+    'the canvas builds the same tab set, from the same runtime',
+    canvasTabs.tabs === 3 && canvasTabs.panels === 3,
+    `${canvasTabs.tabs} tabs, ${canvasTabs.panels} panels`
+  );
+  report.check(
+    'and shows the panel a visitor would see first',
+    canvasTabs.shown === 'design',
+    canvasTabs.shown
+  );
 } catch (error) {
   report.check('behaviour suite completed', false, error.message);
 } finally {

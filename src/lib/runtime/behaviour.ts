@@ -39,6 +39,17 @@ export const VALUE_ATTR = 'data-cre8-value';
 export const SET_ATTR = 'data-cre8-set';
 /** Something shown only while the enclosing group holds a value. */
 export const CASE_ATTR = 'data-cre8-case';
+/**
+ * Marks a group as a tab set.
+ *
+ * The state machine is the same one a pricing toggle uses. What this adds is
+ * the half that makes tabs *tabs* rather than buttons that hide things: the
+ * roles, the tab-to-panel pairing, one tab stop for the whole set, and arrow
+ * keys. Applied by the runtime rather than written into the markup, which is
+ * the honest place for it — the roles announce an interaction, and the script
+ * is what makes that interaction exist.
+ */
+export const TABS_ATTR = 'data-cre8-tabs';
 
 /**
  * @param root  Document on a published page, the frame element in the editor.
@@ -48,25 +59,90 @@ export const CASE_ATTR = 'data-cre8-case';
  * @returns A disposer, for surfaces that unmount.
  */
 export function behaviourRuntime(root: Document | HTMLElement, live: boolean): () => void {
+  /** Descendants belonging to this group rather than to one nested inside. */
+  const own = function (group: Element, selector: string): Element[] {
+    const found = group.querySelectorAll(selector);
+    const mine: Element[] = [];
+    for (let i = 0; i < found.length; i++) {
+      if (found[i]!.closest('[data-cre8-switch]') === group) mine.push(found[i]!);
+    }
+    return mine;
+  };
+
+  /** Roles and pairing: fixed for the life of the page, so done once. */
+  const upgrade = function (group: Element): void {
+    if (!group.hasAttribute('data-cre8-tabs')) return;
+    const key = group.getAttribute('data-cre8-switch') || '';
+    const tabs = own(group, '[data-cre8-set]');
+    if (!tabs.length) return;
+
+    const list = tabs[0]!.parentElement;
+    if (list) list.setAttribute('role', 'tablist');
+
+    const paired: Record<string, boolean> = {};
+    for (let i = 0; i < tabs.length; i++) {
+      const tab = tabs[i]!;
+      const value = tab.getAttribute('data-cre8-set') || '';
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('id', 'cre8t-' + key + '-' + value);
+      // A tab is selected, not pressed, and saying both is worse than saying
+      // one — so the toggle's attribute comes off.
+      tab.removeAttribute('aria-pressed');
+
+      // The first case holding this value is its panel. Later ones are
+      // ordinary content that happens to share the case, as a price does.
+      //
+      // Building a selector from a value read out of the DOM is only safe
+      // because `slug()` narrowed it to letters, digits, `_` and `-` before it
+      // was ever written — the same guarantee that lets the generator put it
+      // in a stylesheet.
+      const panels = own(group, '[data-cre8-case="' + value + '"]');
+      const panel = paired[value] ? null : panels[0];
+      if (!panel) continue;
+      paired[value] = true;
+      panel.setAttribute('role', 'tabpanel');
+      panel.setAttribute('id', 'cre8p-' + key + '-' + value);
+      panel.setAttribute('aria-labelledby', 'cre8t-' + key + '-' + value);
+      tab.setAttribute('aria-controls', 'cre8p-' + key + '-' + value);
+      // A panel with nothing focusable inside it is unreachable by keyboard,
+      // so it becomes the stop itself. One with a link already has one.
+      if (!panel.querySelector('a[href], button, input, select, textarea, [tabindex]')) {
+        panel.setAttribute('tabindex', '0');
+      }
+    }
+  };
+
+  /** Everything that changes when the value does. */
   const sync = function (group: Element): void {
     const value = group.getAttribute('data-cre8-value') || '';
-    const setters = group.querySelectorAll('[data-cre8-set]');
+    const isTabs = group.hasAttribute('data-cre8-tabs');
+    const setters = own(group, '[data-cre8-set]');
     for (let i = 0; i < setters.length; i++) {
       const setter = setters[i]!;
-      // A nested group owns its own setters; without this the outer group
-      // would keep overwriting the inner one's aria on every click.
-      if (setter.closest('[data-cre8-switch]') !== group) continue;
-      setter.setAttribute(
-        'aria-pressed',
-        setter.getAttribute('data-cre8-set') === value ? 'true' : 'false'
-      );
+      const on = setter.getAttribute('data-cre8-set') === value;
+      if (isTabs) {
+        setter.setAttribute('aria-selected', on ? 'true' : 'false');
+        // Roving tabindex: a tab set is one stop, and the arrow keys move
+        // within it. Without this, Tab walks through every tab in turn.
+        setter.setAttribute('tabindex', on ? '0' : '-1');
+      } else {
+        setter.setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
     }
   };
 
   const groups = root.querySelectorAll('[data-cre8-switch]');
-  for (let g = 0; g < groups.length; g++) sync(groups[g]!);
+  for (let g = 0; g < groups.length; g++) {
+    upgrade(groups[g]!);
+    sync(groups[g]!);
+  }
 
   if (!live) return function () {};
+
+  const choose = function (group: Element, setter: Element): void {
+    group.setAttribute('data-cre8-value', setter.getAttribute('data-cre8-set') || '');
+    sync(group);
+  };
 
   const onClick = function (event: Event): void {
     const target = event.target as Element | null;
@@ -78,13 +154,41 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
     // A setter is a `<button>`, so this is only belt and braces — but a
     // designer can put one inside a form, where the default is a submit.
     event.preventDefault();
-    group.setAttribute('data-cre8-value', setter.getAttribute('data-cre8-set') || '');
-    sync(group);
+    choose(group, setter);
+  };
+
+  const onKeyDown = function (event: Event): void {
+    const key = (event as KeyboardEvent).key;
+    if (key !== 'ArrowRight' && key !== 'ArrowLeft' && key !== 'Home' && key !== 'End') return;
+    const target = event.target as Element | null;
+    if (!target || !target.closest) return;
+    const setter = target.closest('[data-cre8-set]');
+    if (!setter) return;
+    const group = setter.closest('[data-cre8-switch]');
+    if (!group || !group.hasAttribute('data-cre8-tabs')) return;
+
+    const tabs = own(group, '[data-cre8-set]');
+    const at = tabs.indexOf(setter);
+    if (at < 0) return;
+    const next =
+      key === 'Home'
+        ? 0
+        : key === 'End'
+          ? tabs.length - 1
+          : (at + (key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+
+    event.preventDefault();
+    // Activated on arrival rather than on Enter. Showing a panel here costs a
+    // class flip, so making someone press twice buys nothing.
+    choose(group, tabs[next]!);
+    (tabs[next] as HTMLElement).focus();
   };
 
   root.addEventListener('click', onClick);
+  root.addEventListener('keydown', onKeyDown);
   return function () {
     root.removeEventListener('click', onClick);
+    root.removeEventListener('keydown', onKeyDown);
   };
 }
 

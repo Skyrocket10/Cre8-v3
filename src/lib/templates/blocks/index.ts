@@ -44,6 +44,7 @@ export {
   featureSectionSpec,
   integrationsSpec,
   processStepsSpec,
+  tabbedFeaturesSpec,
   timelineSpec,
 } from './features';
 export { ctaSpec, ctaSplitSpec, pricingSpec, pricingSwitchSpec } from './convert';
@@ -147,6 +148,7 @@ import {
   featureSectionSpec,
   integrationsSpec,
   processStepsSpec,
+  tabbedFeaturesSpec,
   timelineSpec,
 } from './features';
 import {
@@ -705,6 +707,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'app',
     keywords: ['documents', 'uploads', 'attachments', 'downloads'],
     build: fileListSpec,
+  },
+  {
+    id: 'features-tabs',
+    name: 'Tabbed features',
+    description: 'Three panels behind real tabs — arrow keys and all',
+    category: 'features',
+    keywords: ['tabs', 'tabbed', 'switch', 'panels', 'stages', 'how it works'],
+    build: tabbedFeaturesSpec,
   },
   {
     id: 'pricing-switch',

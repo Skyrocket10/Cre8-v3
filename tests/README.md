@@ -15,6 +15,7 @@ width will never show you:
 - no nesting the HTML parser would rearrange on the way out
 - every popover button names a popover that is in the same block
 - every switch is wired to its own cases, in both directions
+- every tab has one panel and every panel has one tab
 - buttons and links respond to hover
 - every node is named for the layer tree
 
@@ -57,7 +58,7 @@ preferring an installed copy over downloading one.
 | `nav` | Do page links work inside a published site |
 | `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime |
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
-| `behaviour` | Do switches work — with the script, without it, and identically on both surfaces |
+| `behaviour` | Do switches and tabs work — with the script, without it, and identically on both surfaces |
 | `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
 | `assets` | Do images survive publish and ZIP export |
 | `bodyreset` | Does the published page start at the viewport edge |

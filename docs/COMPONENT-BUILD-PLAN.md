@@ -484,9 +484,40 @@ site. It is stated at the top of the file, and the render suite drives a real
 published page built by the production minifier so a mistake there fails a
 test rather than a visitor.
 
+### Tabs
+
+The state half of a tab set is the switch, unchanged. What `switchRole: 'tabs'`
+adds is the half that makes it a tab set rather than buttons that hide things,
+and all of it is applied by the runtime:
+
+- `role="tablist"` / `role="tab"` / `role="tabpanel"`;
+- each tab paired to its panel by `aria-controls`, and the panel back by
+  `aria-labelledby`, with ids minted from the switch key and the case value so
+  nothing has to be threaded through the renderer;
+- `aria-selected` rather than `aria-pressed` — a tab is selected, and claiming
+  both is worse than claiming one;
+- **roving `tabindex`**, so the whole set is one tab stop instead of three;
+- Left / Right / Home / End, activating on arrival, because showing a panel
+  costs a class flip and making someone press twice buys nothing;
+- `tabindex="0"` on a panel only when it contains nothing focusable, so a
+  panel of prose is reachable and a panel with a link does not gain a stop.
+
+**Why the roles are applied by the script rather than written into the
+markup.** They announce an interaction, and the script is what makes that
+interaction exist — with scripting off, a page that called itself a tab list
+would be promising something it cannot do. Applying them at runtime also keeps
+the renderer free of ancestor context: a setter would otherwise have to know
+what kind of group encloses it, and the only ways to tell it are to walk the
+tree in the renderer or to denormalise the fact onto every member.
+
+The one thing that can still be wired wrong is two panels sharing a case
+value, which would mint one id twice. A static check refuses it, along with a
+panel that has no tab.
+
 ### C′ — what this unlocks
 
-**Pricing with switch** landed with C as the proof. Tabs, steppers and
-filter-by-category are the same mechanism with different labels. A carousel is
-not — it wants transforms and gestures, and it should wait until there is a
-reason to build it rather than a slot in a table.
+**Pricing with switch** and **Tabbed features** landed as the proof of each
+half. Steppers, filter-by-category and segmented content are the same
+mechanism with different labels. A carousel is not — it wants transforms and
+gestures, and it should wait until there is a reason to build it rather than
+a slot in a table.

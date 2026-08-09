@@ -633,6 +633,7 @@ function SwitchGroupContent() {
   const key = useNodeProp('switchKey');
   const fallback = useNodeProp('switchDefault');
   const design = useNodeProp('switchDesign');
+  const role = useNodeProp('switchRole');
   const cases = useSwitchCases(id);
 
   const current = slug(design.value) || slug(fallback.value) || cases[0] || '';
@@ -646,6 +647,18 @@ function SwitchGroupContent() {
             value={String(key.value ?? '')}
             onValueChange={(next) => key.set(slug(next) || undefined)}
             placeholder="plan"
+          />
+        </StyleRow>
+
+        <StyleRow label="Behaves as" hint="Tabs add roles, arrow keys and one tab stop">
+          <Segmented
+            full
+            value={role.value === 'tabs' ? 'tabs' : 'switch'}
+            onChange={(value) => role.set(value === 'tabs' ? 'tabs' : undefined)}
+            options={[
+              { value: 'switch', label: 'Switch', title: 'A plain set of options' },
+              { value: 'tabs', label: 'Tabs', title: 'Announced as a tab set' },
+            ]}
           />
         </StyleRow>
 
@@ -673,7 +686,9 @@ function SwitchGroupContent() {
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         {cases.length === 0
           ? 'Nothing inside is tied to a case yet. Select a child and give it a “Shown when”.'
-          : 'Switching here only changes the canvas. Visitors start on “Ships as”.'}
+          : role.value === 'tabs'
+            ? 'Each case is a panel, paired to the option that shows it. Switching here only changes the canvas.'
+            : 'Switching here only changes the canvas. Visitors start on “Ships as”.'}
       </p>
     </Section>
   );

@@ -3,6 +3,8 @@
 import type { NodeSpec } from '../../document/factory';
 import type { ResponsiveStyles, StyleDecl } from '../../document/types';
 import {
+  BODY,
+  BODY_RESPONSIVE,
   CARD_TITLE,
   LEAD,
   LEAD_RESPONSIVE,
@@ -32,8 +34,10 @@ import {
   radius,
   section,
   sectionHeader,
+  splitGrid,
   stack,
   step,
+  tabs,
 } from './kit';
 
 const FEATURES: { icon: string; title: string; body: string }[] = [
@@ -476,6 +480,84 @@ export function integrationsSpec(): NodeSpec {
         ),
       ],
       { gap: '48px' }
+    ),
+  ]);
+}
+
+/* --------------------------------------------------------------------------
+ * Tabbed features
+ * ----------------------------------------------------------------------- */
+
+const TABBED: { value: string; label: string; title: string; body: string; points: string[] }[] = [
+  {
+    value: 'design',
+    label: 'Design',
+    title: 'Draw it the way you mean it',
+    body: 'A canvas that renders the real thing, at the real width, with the real type. What you approve is what ships.',
+    points: ['Container-query breakpoints', 'Real fonts and tokens', 'Nothing approximated'],
+  },
+  {
+    value: 'build',
+    label: 'Build',
+    title: 'Components that stay in step',
+    body: 'Change the main copy of a component and every instance follows. Detach one when it needs to go its own way.',
+    points: ['Shared components', 'Design tokens', 'Reusable blocks'],
+  },
+  {
+    value: 'ship',
+    label: 'Ship',
+    title: 'Static files, on the edge',
+    body: 'Publishing writes HTML and CSS. No build step to wait on, nothing to keep running, nothing to patch.',
+    points: ['Publishes in seconds', 'Own domain or ours', 'Nothing to execute'],
+  },
+];
+
+/**
+ * The switch, wearing the semantics that make it a tab set.
+ *
+ * Same state machine as the pricing toggle underneath — a generated CSS rule
+ * hides the panels that are not current — with the roles, the tab-to-panel
+ * pairing, one tab stop for the whole row and arrow keys added by the runtime.
+ * All three panels are in the markup, so the copy in the two that are closed
+ * is still read by a crawler and still there when the page is printed.
+ */
+export function tabbedFeaturesSpec(): NodeSpec {
+  const panel = (item: (typeof TABBED)[number]): NodeSpec =>
+    splitGrid(
+      `${item.label} panel`,
+      [
+        column(
+          `${item.label} copy`,
+          [
+            heading(item.title, 3, { ...SUBTITLE, fontSize: '30px' }, SUBTITLE_RESPONSIVE),
+            paragraph(item.body, BODY, BODY_RESPONSIVE),
+            bullets(item.points),
+          ],
+          { gap: '18px' }
+        ),
+        media(`A screenshot of the ${item.label.toLowerCase()} experience`, '4 / 3', {
+          ...radius('var(--r-lg)'),
+          boxShadow: 'var(--sh-lg)',
+        }),
+      ],
+      { gap: '48px' }
+    );
+
+  return section('Tabbed features', [
+    container(
+      [
+        sectionHeader(
+          'How it works',
+          'Three steps, one tool',
+          'Most of what slows a site down is the handoff between these. There is not one.'
+        ),
+        tabs(
+          'stage',
+          TABBED.map((item) => ({ value: item.value, label: item.label, panel: panel(item) })),
+          { listStyles: { marginLeft: 'auto', marginRight: 'auto' } }
+        ),
+      ],
+      { gap: '44px' }
     ),
   ]);
 }

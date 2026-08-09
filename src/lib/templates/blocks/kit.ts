@@ -939,3 +939,52 @@ export const switchCase = (value: string, node: NodeSpec): NodeSpec => ({
   ...node,
   props: { ...node.props, switchCase: value },
 });
+
+/**
+ * A whole tab set, from a list of panels.
+ *
+ * Built as one call rather than three, because tabs are the arrangement most
+ * likely to be assembled half-right: a tab list with no panel paired to it, a
+ * panel with no tab, a default naming a case that does not exist. All three
+ * are invisible until somebody uses the page, and none of them is possible
+ * from here — the values come from the same array the labels do.
+ *
+ * The state machine underneath is the same one the pricing toggle uses. What
+ * `switchRole` adds is the tab semantics, which the runtime applies.
+ */
+export const tabs = (
+  key: string,
+  items: { value: string; label: string; panel: NodeSpec }[],
+  options: { styles?: StyleDecl; listStyles?: StyleDecl; responsive?: ResponsiveStyles } = {}
+): NodeSpec => ({
+  type: 'frame',
+  name: `${key} tabs`,
+  props: { switchKey: key, switchDefault: items[0]?.value ?? '', switchRole: 'tabs' },
+  styles: { ...pad('0px'), width: '100%', gap: '28px', ...options.styles },
+  ...rsp(options.responsive ?? {}),
+  children: [
+    stack(
+      'Tab list',
+      items.map((item) =>
+        switchButton(item.label, item.value, {
+          fontSize: '14.5px',
+          ...pad('9px', '16px'),
+          ...radius('var(--r-md)'),
+        })
+      ),
+      {
+        gap: '4px',
+        width: 'fit-content',
+        ...pad('4px'),
+        ...radius('var(--r-lg)'),
+        backgroundColor: 'var(--c-surface)',
+        ...border('1px', 'var(--c-border)'),
+        ...options.listStyles,
+      },
+      // A row of tabs is the first thing to overflow a phone. Wrapping beats
+      // a horizontal scroller here because the labels are short.
+      { mobile: { flexWrap: 'wrap', width: '100%' } }
+    ),
+    ...items.map((item) => switchCase(item.value, item.panel)),
+  ],
+});

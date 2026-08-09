@@ -12,7 +12,7 @@ import { resolveTag, slug } from '../document/schema';
 import type { Cre8Document, SceneNode } from '../document/types';
 import { nodeClass } from './css';
 import { iconMarkup } from './icons';
-import { CASE_ATTR, SET_ATTR, SWITCH_ATTR, VALUE_ATTR } from '../runtime/behaviour';
+import { CASE_ATTR, SET_ATTR, SWITCH_ATTR, TABS_ATTR, VALUE_ATTR } from '../runtime/behaviour';
 
 export type RenderMode = 'edit' | 'preview' | 'publish';
 
@@ -137,6 +137,7 @@ function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): El
     // visitors see first.
     const design = mode === 'edit' ? slug(props.switchDesign) : '';
     model.attrs[VALUE_ATTR] = design || slug(props.switchDefault);
+    if (props.switchRole === 'tabs') model.attrs[TABS_ATTR] = 'true';
   }
   if (set) model.attrs[SET_ATTR] = set;
   if (kase) model.attrs[CASE_ATTR] = kase;

@@ -323,6 +323,21 @@ function checkSwitches(spec) {
         } else if (initial && !cases.has(initial)) {
           bad.push(`${child.name ?? child.type}: ships as "${initial}", which is not one of its cases`);
         }
+        // Tabs pair one panel to one tab, and the runtime mints the ids from
+        // the case value. Two panels on the same value would take the same id
+        // and `aria-controls` would point at whichever the browser kept.
+        if (child.props?.switchRole === 'tabs') {
+          const counts = new Map();
+          countCases(child, counts);
+          for (const [value, n] of counts) {
+            if (n > 1) bad.push(`${child.name ?? child.type}: ${n} panels share the tab "${value}"`);
+          }
+          const tabValues = new Set();
+          collectSets(child, tabValues);
+          for (const value of cases) {
+            if (!tabValues.has(value)) bad.push(`${child.name ?? child.type}: panel "${value}" has no tab`);
+          }
+        }
         walkGroup(child, key, cases);
         continue;
       }
@@ -337,6 +352,21 @@ function checkSwitches(spec) {
         bad.push(`${child.name ?? child.type}: sets "${child.props.switchSet}", which no case listens for`);
       }
       walkGroup(child, groupKey, groupCases);
+    }
+  };
+
+  const countCases = (node, into) => {
+    for (const child of node.children ?? []) {
+      const value = child.props?.switchCase;
+      if (value) into.set(value, (into.get(value) ?? 0) + 1);
+      if (!child.props?.switchKey) countCases(child, into);
+    }
+  };
+
+  const collectSets = (node, into) => {
+    for (const child of node.children ?? []) {
+      if (child.props?.switchSet) into.add(child.props.switchSet);
+      if (!child.props?.switchKey) collectSets(child, into);
     }
   };
 
@@ -530,6 +560,46 @@ const VIOLATIONS = [
           children: [
             { type: 'text', name: 'A', props: { switchCase: 'monthly' } },
             { type: 'button', name: 'B', props: { switchSet: 'yearly' } },
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    checkSwitches,
+    'two tab panels sharing one tab',
+    {
+      type: 'frame',
+      name: 'Root',
+      children: [
+        {
+          type: 'frame',
+          name: 'T',
+          props: { switchKey: 'view', switchDefault: 'a', switchRole: 'tabs' },
+          children: [
+            { type: 'button', name: 'A', props: { switchSet: 'a' } },
+            { type: 'frame', name: 'P1', props: { switchCase: 'a' } },
+            { type: 'frame', name: 'P2', props: { switchCase: 'a' } },
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    checkSwitches,
+    'a tab panel with no tab to open it',
+    {
+      type: 'frame',
+      name: 'Root',
+      children: [
+        {
+          type: 'frame',
+          name: 'T',
+          props: { switchKey: 'view', switchDefault: 'a', switchRole: 'tabs' },
+          children: [
+            { type: 'button', name: 'A', props: { switchSet: 'a' } },
+            { type: 'frame', name: 'P1', props: { switchCase: 'a' } },
+            { type: 'frame', name: 'P2', props: { switchCase: 'b' } },
           ],
         },
       ],

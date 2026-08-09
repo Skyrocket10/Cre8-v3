@@ -46,7 +46,7 @@ meet that bar or it drags the product down rather than filling it out.
 **Since:** 35 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
 `dialog`, `table`, `tableRow`, `tableCell`, `range`, `file`, `progress`,
 `fieldset` added in B) and 67 blocks across nine categories, held to that bar
-by 991 static checks and 15 browser suites. `◐` marks something that ships and
+by 1007 static checks and 15 browser suites. `◐` marks something that ships and
 is partly gated — the dialog is a real `<dialog>`, announced as one, but not
 modal until there is a runtime to call `showModal()`.
 
@@ -324,7 +324,7 @@ backgrounds all come from the browser, correct on the first try.
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Accordion | P | | a |
-| Tabs | B | | b — the switch is built, the roles are not |
+| Tabs | B | ✅ | |
 | Stepper / wizard | B | | b |
 | Pagination | B | | |
 | App shell — sidebar + topbar | B | | |
@@ -440,7 +440,7 @@ not after.**
 | **B** | Native primitives: form controls, table family, `<details>`, `<dialog>`, popover, `tag` prop on container/section | a | All native. Each one is a schema row plus a renderer branch, and behaves identically on all three surfaces. Landed so far: `details`, `select`, `checkbox`, `radio`, semantic tags, `popover`, `table`/`tableRow`/`tableCell`. `<dialog>` deferred — see below |
 | **B′** | The ~25 blocks those primitives unlock: accordion, overlays, form composition, comparison tables | a | Composition only, once B lands |
 | **C** | Behaviour runtime, design-time state, behavioural fidelity harness | b | The gated one. §6 |
-| **C′** | Tabs, carousel, toast, pricing toggle, stepper, command palette | b | |
+| **C′** | Tabs ✅, pricing toggle ✅, command palette ✅ (native), stepper, toast, carousel | b | |
 | **D** | Data bindings + repeater | c | Unlocks real tables, blog indexes, product grids, CMS |
 | **E** | Patterns: dashboard, settings, auth flow, docs site, changelog, store, help centre | — | Multi-page arrangements of everything above |
 
