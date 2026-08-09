@@ -28,9 +28,20 @@
  * in-memory state can vanish between messages. Nothing may live only in
  * memory: the document reloads from D1 on demand, and per-connection identity
  * rides on the socket via `serializeAttachment`.
+ *
+ * ## Republishing
+ *
+ * D6 gave the room a second job, and it is here rather than anywhere else for
+ * one reason: it is the only thing in the system that is already exactly one
+ * per project and can hold a timer. A record write pings it; it sets an alarm;
+ * the alarm publishes. Everything about coalescing a burst of edits into a
+ * single publish lives in those three lines of state.
  */
 
 import { applyPatches, enablePatches, type Patch } from 'immer';
+import { hasBeenPublished, publishSite } from './lib/publish';
+import { hydrateDocument, RouteError } from './lib/render';
+import type { Cre8Document } from './lib/render';
 import type { Env } from './types';
 
 enablePatches();
@@ -38,6 +49,50 @@ enablePatches();
 /** Guards against a client trying to blow up the room with one message. */
 const MAX_MESSAGE_BYTES = 1_000_000;
 const MAX_PATCHES = 2_000;
+
+/**
+ * How long the room waits for the edits to stop before republishing…
+ *
+ * Short enough that saving a record and switching to the live site feels like
+ * it followed you, long enough that reordering a list is one publish. Every
+ * further edit inside the window pushes the alarm out again.
+ */
+const REPUBLISH_QUIET_MS = 5_000;
+
+/**
+ * …and how far that pushing is allowed to go.
+ *
+ * Without a ceiling, a steady drip of edits — someone working through a
+ * collection a row at a time — would defer the publish for as long as they
+ * kept going, and the site would never update while it was being used most.
+ */
+const REPUBLISH_MAX_WAIT_MS = 30_000;
+
+/**
+ * Is this a failure that retrying cannot fix?
+ *
+ * The platform retries a failing alarm with backoff, which is exactly right
+ * for R2 or D1 having a moment and exactly wrong for a document that asks for
+ * something impossible. The two are told apart the same way the HTTP layer
+ * tells them apart: a 4xx is the caller's, a 5xx is ours. `RouteError` is the
+ * planner's own refusal and carries no status, so it is named directly.
+ */
+function permanent(error: unknown): boolean {
+  if (error instanceof RouteError) return true;
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === 'number' && status >= 400 && status < 500;
+}
+
+/** What the alarm needs, since it fires with no request behind it. */
+interface PendingRepublish {
+  projectId: string;
+  /** Where published forms post. The alarm has no URL of its own to derive it from. */
+  apiOrigin: string;
+  /** When the burst started, for the ceiling above. */
+  since: number;
+}
+
+const PENDING = 'republish';
 
 interface Peer {
   connectionId: string;
@@ -72,6 +127,7 @@ export class ProjectRoom implements DurableObject {
 
     if (url.pathname.endsWith('/socket')) return this.handleUpgrade(request);
     if (url.pathname.endsWith('/document')) return this.handleDocument(request);
+    if (url.pathname.endsWith('/content-changed')) return this.handleContentChanged(request);
     return new Response('Not found', { status: 404 });
   }
 
@@ -138,6 +194,98 @@ export class ProjectRoom implements DurableObject {
     // Anyone with the room open is now behind by a whole-document replacement.
     this.broadcast({ t: 'resync', version: this.version, doc: this.doc }, null);
     return Response.json({ version: this.version });
+  }
+
+  /* --------------------------------------------------------- republish -- */
+
+  /**
+   * A record was written. Arm the timer.
+   *
+   * Trailing edge with a ceiling: each change moves the alarm to
+   * `now + QUIET`, but never past `since + MAX_WAIT`. So a burst settles into
+   * one publish five seconds after the last edit, and a steady stream still
+   * publishes every thirty seconds rather than never.
+   *
+   * The project id goes into storage with everything else. It has to: this
+   * object is addressed by `idFromName(projectId)` and there is no way back
+   * from the id to the name, so an alarm that woke a hibernated room would
+   * otherwise not know which project it was for.
+   */
+  private async handleContentChanged(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => ({}))) as { apiOrigin?: unknown };
+    const apiOrigin = typeof body.apiOrigin === 'string' ? body.apiOrigin : '';
+    if (!apiOrigin || !this.projectId) return new Response('Missing origin', { status: 400 });
+
+    const now = Date.now();
+    const pending = await this.ctx.storage.get<PendingRepublish>(PENDING);
+    const since = pending?.since ?? now;
+
+    await this.ctx.storage.put<PendingRepublish>(PENDING, {
+      projectId: this.projectId,
+      apiOrigin,
+      since,
+    });
+    await this.ctx.storage.setAlarm(
+      Math.min(now + REPUBLISH_QUIET_MS, since + REPUBLISH_MAX_WAIT_MS)
+    );
+
+    return Response.json({ ok: true });
+  }
+
+  /**
+   * The republish itself.
+   *
+   * Runs the same `publishSite` the Publish button runs — the only differences
+   * are that nobody is credited for it and that the document is handed over
+   * rather than fetched. That second one is not a shortcut: reading it back the
+   * usual way goes through the room, and a Durable Object calling itself
+   * deadlocks.
+   */
+  async alarm(): Promise<void> {
+    const pending = await this.ctx.storage.get<PendingRepublish>(PENDING);
+    if (!pending) return;
+
+    this.projectId = pending.projectId;
+
+    // A project nobody has ever published has no site to update, and a record
+    // edit is not consent to put one on the internet.
+    if (!(await hasBeenPublished(this.env, pending.projectId))) {
+      await this.ctx.storage.delete(PENDING);
+      return;
+    }
+
+    await this.ensureLoaded();
+    if (!this.doc) {
+      await this.ctx.storage.delete(PENDING);
+      return;
+    }
+
+    try {
+      await publishSite(this.env, pending.projectId, {
+        apiOrigin: pending.apiOrigin,
+        // Nobody pressed anything. `deployments.published_by` is nullable, and
+        // this is what the null means — crediting the person whose record edit
+        // happened to trip the timer would put their name on a deploy they
+        // never asked for.
+        publishedBy: null,
+        document: hydrateDocument(this.doc as Partial<Cre8Document>),
+      });
+    } catch (error) {
+      if (!permanent(error)) {
+        // Transient — R2 or D1 having a moment. Leave the pending state where
+        // it is and let the platform retry the alarm with backoff.
+        throw error;
+      }
+      // Not transient. The document asks for something that will be refused
+      // again in six seconds and in six hours — a route past its ceiling, two
+      // pages wanting one URL, an image belonging to somebody else. Retrying
+      // would burn the backoff schedule to arrive at the same sentence, so
+      // this stops and says so; the designer sees it when they next publish.
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[room] ${pending.projectId} cannot republish: ${message}`);
+    }
+
+    await this.ctx.storage.delete(PENDING);
   }
 
   /* ---------------------------------------------------------- WebSocket -- */

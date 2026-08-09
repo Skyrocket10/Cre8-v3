@@ -128,6 +128,11 @@ export function PublishDialog({
                     read. */}
                 {formatBytes(result.bytes)} of static files — nothing renders on the request path.
               </p>
+              {result.changed && (
+                <p className="mt-1 text-[11px] text-[var(--text-faint)]">
+                  {describeChange(result.changed)}
+                </p>
+              )}
             </div>
           </div>
 
@@ -193,6 +198,37 @@ export function PublishDialog({
       )}
     </Modal>
   );
+}
+
+/**
+ * What this publish did to the site, as opposed to what the site now holds.
+ *
+ * Worth its own line because the interesting case is the boring one: pressing
+ * Publish twice in a row writes nothing the second time, and a person who is
+ * not told that will assume it failed. The same sentence is what makes the
+ * automatic republishes legible — they are the same operation, arriving on
+ * their own.
+ */
+function describeChange({
+  written,
+  removed,
+  unchanged,
+}: {
+  written: number;
+  removed: number;
+  unchanged: number;
+}): string {
+  if (!written && !removed) {
+    return unchanged === 1
+      ? 'Already up to date — the one file was unchanged.'
+      : `Already up to date — all ${unchanged} files were unchanged.`;
+  }
+
+  const parts: string[] = [];
+  if (written) parts.push(`${written} file${written === 1 ? '' : 's'} written`);
+  if (removed) parts.push(`${removed} removed`);
+  if (unchanged) parts.push(`${unchanged} left alone`);
+  return `${parts.join(' · ')}.`;
 }
 
 /* --------------------------------------------------------------------------

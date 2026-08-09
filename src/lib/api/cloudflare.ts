@@ -73,6 +73,11 @@ export class CloudflareAdapter implements StorageAdapter {
    * repeaters point at out of D1, and runs the same generator the editor used
    * to run. Serving the result still costs a cache lookup rather than CPU —
    * what moved is where the bytes are made, not where they are read.
+   *
+   * It also decides how much of that to store: since D6 it compares what it
+   * generated against what is already on the site, so a republish of a
+   * thousand-page blog after one typo writes one file. The counts come back
+   * because the editor cannot work them out — it no longer builds anything.
    */
   async publishSite(projectId: string): Promise<PublishedSummary> {
     const result = await api.publish(projectId);
@@ -81,6 +86,11 @@ export class CloudflareAdapter implements StorageAdapter {
       bytes: result.bytes,
       pageCount: result.pageCount,
       pages: result.pages,
+      changed: {
+        written: result.written,
+        removed: result.removed,
+        unchanged: result.unchanged,
+      },
       url: result.url,
       subdomain: result.subdomain,
       siteDomain: result.siteDomain,

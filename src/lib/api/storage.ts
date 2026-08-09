@@ -73,6 +73,13 @@ export interface PublishedSummary extends PublishedInfo {
   bytes: number;
   pageCount: number;
   pages: { slug: string; title: string }[];
+  /**
+   * What the publish actually wrote, for a host that only writes what moved.
+   *
+   * Absent where the question has no answer: the no-backend path builds a ZIP,
+   * which is every file every time by definition.
+   */
+  changed?: { written: number; removed: number; unchanged: number };
 }
 
 export interface PublishedPage {

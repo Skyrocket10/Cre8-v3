@@ -352,6 +352,28 @@ whole collections; and nothing on the server could render, so republishing
 when a record changed was impossible. Both are now questions of what the
 Worker does, not of what it can do.
 
+### A publish writes only what moved
+
+Each project stores what is currently on its site — published path → short
+content hash, in `projects.site_manifest`. A publish hashes what it generated,
+writes the paths whose bytes differ, **deletes the paths that are no longer in
+the plan**, and leaves the rest alone. In D1 rather than in the sites bucket,
+because everything under a project's prefix there is reachable at
+`/s/<projectId>/…`; and written after the objects it describes, so it can only
+under-claim.
+
+The deletion half is not the optimisation. Without it a deleted record leaves
+its page on the internet permanently: nothing walks the bucket, and nothing
+else knows the page ever existed.
+
+That is what makes the site able to follow its content. A record write pings
+the project's room, which coalesces the burst on a Durable Object alarm — five
+seconds after the last edit, never more than thirty after the first — and
+calls the same `publishSite` the button calls, with no session and no request
+behind it. Two things deliberately stay manual: a design change, because a
+half-moved section is not content, and any project nobody has published,
+because a record edit is not consent to put a site on the internet.
+
 With no backend there is nowhere to move to, so the browser still generates.
 That path and the ZIP export are two callers of `generateSite` that keep the
 shared module honest, and the render suite holds all three to producing the
@@ -422,7 +444,7 @@ Three design-time choices now use one pattern — `switchDesign` for a state,
 record a template page is drawn against. All three change only what the canvas
 shows. Looking at one post is never a way to publish that post.
 
-The rest of the data layer — republish on change — is scoped in
+The data layer's staging, and what each stage was held to, is in
 [DATA-LAYER.md](DATA-LAYER.md).
 
 ---

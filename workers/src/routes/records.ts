@@ -15,11 +15,19 @@
  * be trusted with: who may read and write, that a record id belongs to the
  * project the caller named, the two limits countable in one query, and that a
  * slug is unique inside its collection.
+ *
+ * Since D6, every write here also tells the project's room that its content
+ * moved, which is what makes a published site follow its records without
+ * anybody pressing Publish. That is one line per handler and it is the whole
+ * trigger; the coalescing, the "has this ever been published" question and the
+ * publish itself are all somewhere else, because none of them belong in the
+ * path of a save.
  */
 
 import { newId } from '../lib/crypto';
 import { requireProjectAccess } from '../lib/db';
 import { badRequest, conflict, json, notFound, readJson } from '../lib/http';
+import { contentChanged } from '../lib/publish';
 import type { Env, SessionUser } from '../types';
 
 /** Kept in step with `LIMITS` in the document model, which the editor reads. */
@@ -111,13 +119,17 @@ export function recordRoutes(
   cors: Record<string, string>,
   method: string
 ): Promise<Response> {
+  // Where a republish should point published forms. The record write came from
+  // the editor, which shares an origin with the API.
+  const origin = new URL(request.url).origin;
+
   if (!recordId) {
     if (method === 'GET') return listRecords(request, env, projectId, user, cors);
-    if (method === 'POST') return createRecord(request, env, projectId, user, cors);
+    if (method === 'POST') return createRecord(request, env, projectId, user, cors, origin);
   } else {
     if (method === 'GET') return getRecord(env, projectId, recordId, user, cors);
-    if (method === 'PUT') return updateRecord(request, env, projectId, recordId, user, cors);
-    if (method === 'DELETE') return deleteRecord(env, projectId, recordId, user, cors);
+    if (method === 'PUT') return updateRecord(request, env, projectId, recordId, user, cors, origin);
+    if (method === 'DELETE') return deleteRecord(env, projectId, recordId, user, cors, origin);
   }
   throw notFound();
 }
@@ -183,7 +195,8 @@ async function createRecord(
   env: Env,
   projectId: string,
   user: SessionUser,
-  cors: Record<string, string>
+  cors: Record<string, string>,
+  origin: string
 ): Promise<Response> {
   await requireProjectAccess(env, projectId, user, 'editor');
   const body = await readJson<RecordBody>(request);
@@ -216,6 +229,7 @@ async function createRecord(
   };
 
   await insert(env, projectId, row);
+  await contentChanged(env, projectId, origin);
   return json({ record: shape(row) }, 200, cors);
 }
 
@@ -225,7 +239,8 @@ async function updateRecord(
   projectId: string,
   recordId: string,
   user: SessionUser,
-  cors: Record<string, string>
+  cors: Record<string, string>,
+  origin: string
 ): Promise<Response> {
   await requireProjectAccess(env, projectId, user, 'editor');
   const existing = await env.DB.prepare(`SELECT * FROM records WHERE id = ?1 AND project_id = ?2`)
@@ -251,6 +266,7 @@ async function updateRecord(
       WHERE id = ?6 AND project_id = ?7`,
     [next.slug, next.position, next.published, next.data, next.updated_at, recordId, projectId]
   );
+  await contentChanged(env, projectId, origin);
   return json({ record: shape(next) }, 200, cors);
 }
 
@@ -259,7 +275,8 @@ async function deleteRecord(
   projectId: string,
   recordId: string,
   user: SessionUser,
-  cors: Record<string, string>
+  cors: Record<string, string>,
+  origin: string
 ): Promise<Response> {
   await requireProjectAccess(env, projectId, user, 'editor');
   const result = await env.DB.prepare(`DELETE FROM records WHERE id = ?1 AND project_id = ?2`)
@@ -268,6 +285,10 @@ async function deleteRecord(
   // Reported rather than swallowed: a delete that matched nothing is either a
   // stale client or an id from somewhere else, and both are worth knowing.
   if (!result.meta.changes) throw notFound('Record not found');
+
+  // The one that would be easiest to forget and worst to miss. A deleted
+  // record has a page, and until this runs that page is still on the internet.
+  await contentChanged(env, projectId, origin);
   return json({ ok: true }, 200, cors);
 }
 

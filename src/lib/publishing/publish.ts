@@ -47,6 +47,8 @@ export interface PublishResult {
   /** Present when the deployment gives published sites their own domain. */
   subdomain?: string;
   siteDomain?: string;
+  /** Present when the host only wrote what had changed. See `PublishedSummary`. */
+  changed?: { written: number; removed: number; unchanged: number };
 }
 
 export async function publishProject(doc: Cre8Document): Promise<PublishResult> {
@@ -65,6 +67,7 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
       url: published.url || routes.publishedSite(doc.id),
       ...(published.subdomain ? { subdomain: published.subdomain } : {}),
       ...(published.siteDomain ? { siteDomain: published.siteDomain } : {}),
+      ...(published.changed ? { changed: published.changed } : {}),
     };
   }
 

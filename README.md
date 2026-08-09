@@ -30,6 +30,11 @@ hide and component badges. Multiple pages with slugs and SEO metadata.
 every instance, everywhere. Design tokens for colour, type, spacing, radius,
 shadow and width that compile to CSS custom properties.
 
+**Content**  Collections with typed fields, a record table and form in the
+editor, repeaters that draw one copy per record, and pages that become one
+published file per record with a paginated index beside them. Editing a record
+updates the live site on its own — no publish, and only the files that moved.
+
 **Ship**  Chrome-free preview at any device size, one-click publish to static
 HTML with sitemap and robots.txt, a site address of its own, and a ZIP export —
 images and all — that works dropped on any host or opened straight from disk.
@@ -71,7 +76,8 @@ src/
   components/
     canvas/                 canvas, overlays, spacing, rulers, drag, presence
     inspector/              layout, typography, fill, border, effects, box model
-    panels/                 layers, insert, pages, assets, components, theme
+    panels/                 layers, insert, pages, assets, components, theme,
+                            collections
     chrome/                 top bar, status bar, toasts, publish dialog
     preview/                preview mode, published-site viewer
     auth/                   sign-in form, account menu, team members, guard
@@ -88,9 +94,10 @@ src/
     auth/                   key derivation, session context
     collab/                 socket client, presence hook
 workers/
-  src/routes/               auth, teams, projects
-  src/room.ts               ProjectRoom Durable Object
-  src/lib/                  crypto, db access, HTTP plumbing
+  src/routes/               auth, teams, projects, records, forms
+  src/room.ts               ProjectRoom Durable Object — and the republish alarm
+  src/lib/                  crypto, db access, HTTP plumbing, site rendering,
+                            the diffed publish, hostnames
   schema.sql                D1 schema
   sites/                    the published-sites Worker: R2 + KV, nothing else
 ```
@@ -205,13 +212,22 @@ it invalidates all existing passwords.
 `ALLOW_SIGNUP` closes open registration when set to `"false"`. Invites keep
 working.
 
-**Upgrading a database created before site addresses existed?** SQLite has no
-`ALTER TABLE ... IF NOT EXISTS`, so this one runs by hand, once:
+**Upgrading an existing database?** SQLite has no `ALTER TABLE ... IF NOT
+EXISTS`, so column additions run by hand, once each. Both are safe to attempt
+on a database that already has them — the error is `duplicate column name` and
+nothing happens:
 
 ```bash
 npx wrangler d1 execute cre8 --remote --command "ALTER TABLE projects ADD COLUMN subdomain TEXT"
+npx wrangler d1 execute cre8 --remote --command "ALTER TABLE projects ADD COLUMN site_manifest TEXT"
 npm run db:init
 ```
+
+`site_manifest` is what lets a publish write only the files that changed and
+remove the ones a deleted record left behind. Without the column the publish
+route fails outright, which is deliberate: a manifest that silently never
+persisted would mean every republish rewriting the whole site for ever, with
+nothing to show for it.
 
 **Run it all locally:**
 
@@ -221,6 +237,9 @@ npm run db:init:local
 npm run preview          # editor + API on :8787
 npm run preview:sites    # published sites on :8788
 ```
+
+Add `--local` to the `ALTER` commands above (and `--persist-to .wrangler/state`)
+if your local database predates them.
 
 Two caveats local dev has and production does not. Both Workers must share one
 state directory or the sites Worker reads an empty KV — hence the
@@ -329,7 +348,13 @@ sandbox CSP to keep author-supplied `<script>` away from the session.
 ## Not built yet
 
 Deliberately out of scope: end-user databases, authentication for *published*
-sites, workflows, server actions, payments, a CMS, and AI generation.
+sites, workflows, server actions, payments, and AI generation.
+
+The content layer is built, and its edges are drawn on purpose: filter, sort
+and limit rather than a query language; one reference between records rather
+than many-to-many; a `published` flag rather than a revision and approval
+system; and no importing from anywhere. The reasoning for each is in
+[docs/DATA-LAYER.md](docs/DATA-LAYER.md).
 
 The document model reserves typed, unused slots for the three axes those need —
 behaviour, data and logic — so they can be added without a migration or a

@@ -290,7 +290,7 @@ than in a Worker log, is not.
 | **D3** | Publishing moves to the Worker for the hosted path. | The same document publishes byte-identical output from the Worker as from the browser. That is a strong gate and the right one: it is the whole claim. **landed** |
 | **D4** | Dynamic routes and static pagination. | A blog of thirty posts publishes thirty files plus a paginated index, every one reachable and every one in the sitemap. **landed** |
 | **D5** | The editor: collections panel, field editor, record table and form, binding in the inspector. | Someone creates a collection, adds a record and sees it on the canvas without leaving the editor or reading this document. **landed** |
-| **D6** | Republish on change. | Editing a record updates the live site with no manual publish, and republishing an unchanged collection writes nothing. |
+| **D6** | Republish on change. | Editing a record updates the live site with no manual publish, and republishing an unchanged collection writes nothing. **landed** |
 
 ### What D1 held to
 
@@ -517,7 +517,71 @@ now select on open.
 D3 before D4 is the ordering §6 argues for. D5 last is deliberate and slightly
 uncomfortable: it means D1–D4 are tested through fixtures rather than through
 the UI, which is exactly how stage 2 and stage 3 were built and is the reason
-they landed working. D6 is the one that can slip without blocking anything.
+they landed working.
+
+### What D6 held to
+
+Twenty-three checks in `republish.mjs`, and eleven in the static suite. The
+gate is two sentences and they pull in opposite directions — one wants the
+site to change without being asked, the other wants it not to change when
+there is nothing to change — so most of the work was in making each half fail
+independently.
+
+**A manifest, in D1, not in R2.** `projects.site_manifest` holds published
+path → short content hash. It could not live in the sites bucket: everything
+under a project's prefix there is reachable at `/s/<projectId>/…`, so storing
+the manifest beside the files would publish a map of the site to anyone who
+guessed the name. It is written *after* the objects it describes, so it can
+only ever under-claim — the failure mode is rewriting a file that did not need
+it, never claiming a file that was never stored.
+
+**Deleting is the half that would have been missed.** Counting writes is the
+obvious optimisation and it is not the point. Before D6, a deleted record left
+its page on the internet for ever: nothing walked the bucket, nothing knew the
+page had existed, and no amount of republishing would take it down. The
+manifest exists so that publishing can *subtract*, and the suite deletes a
+record and asks the site for its URL rather than asking the API what it thinks
+it did.
+
+**Both surfaces run the same publish.** `publishSite` takes the two things
+that differ — where forms post, and who to credit — as parameters, so the
+Publish button and the Durable Object alarm are the same code. A static rule
+holds it there: exactly one file in the Worker may write to the sites bucket,
+and exactly two may call `publishSite`.
+
+**The trigger coalesces, with a ceiling.** A record write pings the project's
+room, which sets an alarm five seconds out and pushes it back on every further
+edit — but never past thirty seconds from the first. Trailing-edge alone would
+let someone working steadily through a collection defer the publish for as
+long as they kept working, which is exactly when they most want to see it.
+
+**Two things deliberately do not republish**, and both are checked by waiting
+out the window and finding nothing moved. A design change waits for a person,
+because a half-moved section is not content. And a project nobody has
+published stays unpublished: a record edit is not consent to put a site on the
+internet, complete with the address it would claim.
+
+**A no-op has to say so.** Pressing Publish twice writes nothing the second
+time, and a dialog that reported that as silence would read as a failure. It
+says "Already up to date — all 6 files were unchanged", which is also what
+makes the automatic republishes legible: they are the same operation arriving
+on their own.
+
+Two things this stage found by being falsified rather than by being written:
+
+- The **determinism premise had never been stated.** "Republishing writes
+  nothing" rests entirely on the generator being a function of the document
+  and the records — one Map iterated in a different order and every file would
+  hash differently every time, the manifest would never match, and the diff
+  code would look perfectly correct while saving nothing. It is now a check,
+  and it failed on its first run: the fixture rebuilt the document per render,
+  and `buildTree` mints fresh node ids, and node ids are in the class names.
+- The **first version of the trigger test passed with the trigger removed.**
+  Seeding the project wrote three records, each of which armed the room's
+  timer; one of those alarms landing after the edit republished it, and the
+  suite could not tell the difference. It now waits the window out and
+  confirms the site has settled before touching anything, so what follows is
+  attributable to what caused it.
 
 ---
 

@@ -579,6 +579,20 @@ function RecordTable({
           Add record
         </Button>
       </div>
+
+      {/*
+       * Said unconditionally, and phrased so it is true either way.
+       *
+       * The panel does not know whether this project has been published, and
+       * guessing would be worse than saying nothing: telling someone their
+       * edit is live when there is no site is a lie, and staying silent leaves
+       * them pressing Publish after every typo out of superstition. What is
+       * true in both states is the rule itself.
+       */}
+      <p className="shrink-0 border-t border-[var(--border-soft)] px-3 py-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+        A published site follows this collection — saving a record updates it within a few seconds,
+        with no publish. Design changes still need one.
+      </p>
     </div>
   );
 }

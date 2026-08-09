@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS projects (
   -- Assigned on first publish, editable after. NULL until then, and the unique
   -- index below ignores NULLs, so unpublished projects don't collide.
   subdomain   TEXT,
+  -- What is currently in the sites bucket for this project: a JSON object of
+  -- published path → short content hash. Written after the objects it
+  -- describes, never before, so it can only ever under-claim.
+  --
+  -- Its whole purpose is subtraction. A republish hashes what it generated,
+  -- writes the paths that differ, and deletes the paths that have gone —
+  -- without it there is no way to know a record was deleted, and the page it
+  -- used to have would stay on the internet for ever.
+  site_manifest TEXT,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
@@ -105,13 +114,18 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE INDEX IF NOT EXISTS projects_team_updated ON projects (team_id, updated_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS projects_subdomain ON projects (subdomain);
 
--- Upgrading a database created before subdomains existed? `ALTER TABLE` has no
--- IF NOT EXISTS in SQLite, so it cannot live above. Run it once, by hand:
+-- Upgrading a database created before subdomains or the site manifest existed?
+-- `ALTER TABLE` has no IF NOT EXISTS in SQLite, so neither can live above. Run
+-- them once, by hand, ignoring "duplicate column name" for any you already have:
 --
 --   npx wrangler d1 execute cre8 --remote \
 --     --command "ALTER TABLE projects ADD COLUMN subdomain TEXT"
+--   npx wrangler d1 execute cre8 --remote \
+--     --command "ALTER TABLE projects ADD COLUMN site_manifest TEXT"
 --
--- then re-run this file to pick up the index.
+-- then re-run this file to pick up the index. A missing manifest is safe on its
+-- own terms — the next publish writes every file and starts one — so this is
+-- about not losing the deletions, not about the site breaking.
 
 CREATE TABLE IF NOT EXISTS deployments (
   id            TEXT PRIMARY KEY,

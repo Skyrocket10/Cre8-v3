@@ -1788,90 +1788,96 @@ report.group('the Worker is checked against the platform it runs on');
  * where the arithmetic lives and where an off-by-one hides.
  * ----------------------------------------------------------------------- */
 
+/*
+ * The fixture is out here rather than inside the block because D6 reuses it:
+ * "what does a republish write" is a question about two renders of the same
+ * blog, and building a second, slightly different blog to ask it would make
+ * the answer about the fixture.
+ */
+const row = (id, title, position) => ({
+  id,
+  collectionId: 'posts',
+  slug: title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+  position,
+  published: true,
+  data: { title, blurb: `About ${title}` },
+  createdAt: 0,
+  updatedAt: 0,
+});
+
+const POSTS = Array.from({ length: 30 }, (_, i) => row(`p${i}`, `Post ${i + 1}`, i));
+
+/**
+ * A blog: an index that paginates ten at a time, and a detail page beside
+ * it sharing the slug — the way a folder holds both an index and its
+ * contents.
+ */
+const blog = ({ paginate = 10, dynamic = true } = {}) => {
+  const doc = createEmptyDocument('Blog');
+  const home = doc.pages[0];
+
+  const index = buildTree(
+    {
+      type: 'stack',
+      name: 'Feed',
+      repeat: { collection: 'posts', paginate },
+      children: [
+        {
+          type: 'link',
+          name: 'Card',
+          props: { text: 'A post', href: 'page:pg-post' },
+          bind: { text: 'title' },
+        },
+      ],
+    },
+    doc.nodes
+  );
+  doc.nodes[index.rootId].parentId = home.rootNodeId;
+  doc.nodes[home.rootNodeId].children.push(index.rootId);
+
+  // The two pager links, which is what `series:` exists for.
+  const pager = buildTree(
+    {
+      type: 'stack',
+      name: 'Pager',
+      children: [
+        { type: 'link', name: 'Older', props: { text: 'Older', href: 'series:next' } },
+        { type: 'link', name: 'Newer', props: { text: 'Newer', href: 'series:prev' } },
+      ],
+    },
+    doc.nodes
+  );
+  doc.nodes[pager.rootId].parentId = home.rootNodeId;
+  doc.nodes[home.rootNodeId].children.push(pager.rootId);
+
+  if (dynamic) {
+    const detail = buildTree(
+      {
+        type: 'page',
+        name: 'Post',
+        children: [
+          { type: 'heading', name: 'Title', props: { text: 'A title' }, bind: { text: 'title' } },
+          { type: 'link', name: 'Home', props: { text: 'Home', href: `page:${home.id}` } },
+        ],
+      },
+      doc.nodes
+    );
+    doc.pages.push({
+      id: 'pg-post',
+      name: 'Post',
+      slug: 'blog',
+      rootNodeId: detail.rootId,
+      order: 1,
+      meta: {},
+      dynamic: { collection: 'posts' },
+    });
+  }
+  return doc;
+};
+
 report.group('a collection becomes pages');
 
 {
-  const row = (id, title, position) => ({
-    id,
-    collectionId: 'posts',
-    slug: title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    position,
-    published: true,
-    data: { title, blurb: `About ${title}` },
-    createdAt: 0,
-    updatedAt: 0,
-  });
-
-  const POSTS = Array.from({ length: 30 }, (_, i) => row(`p${i}`, `Post ${i + 1}`, i));
-
-  /**
-   * A blog: an index that paginates ten at a time, and a detail page beside
-   * it sharing the slug — the way a folder holds both an index and its
-   * contents.
-   */
-  const blog = ({ paginate = 10, dynamic = true } = {}) => {
-    const doc = createEmptyDocument('Blog');
-    const home = doc.pages[0];
-
-    const index = buildTree(
-      {
-        type: 'stack',
-        name: 'Feed',
-        repeat: { collection: 'posts', paginate },
-        children: [
-          {
-            type: 'link',
-            name: 'Card',
-            props: { text: 'A post', href: 'page:pg-post' },
-            bind: { text: 'title' },
-          },
-        ],
-      },
-      doc.nodes
-    );
-    doc.nodes[index.rootId].parentId = home.rootNodeId;
-    doc.nodes[home.rootNodeId].children.push(index.rootId);
-
-    // The two pager links, which is what `series:` exists for.
-    const pager = buildTree(
-      {
-        type: 'stack',
-        name: 'Pager',
-        children: [
-          { type: 'link', name: 'Older', props: { text: 'Older', href: 'series:next' } },
-          { type: 'link', name: 'Newer', props: { text: 'Newer', href: 'series:prev' } },
-        ],
-      },
-      doc.nodes
-    );
-    doc.nodes[pager.rootId].parentId = home.rootNodeId;
-    doc.nodes[home.rootNodeId].children.push(pager.rootId);
-
-    if (dynamic) {
-      const detail = buildTree(
-        {
-          type: 'page',
-          name: 'Post',
-          children: [
-            { type: 'heading', name: 'Title', props: { text: 'A title' }, bind: { text: 'title' } },
-            { type: 'link', name: 'Home', props: { text: 'Home', href: `page:${home.id}` } },
-          ],
-        },
-        doc.nodes
-      );
-      doc.pages.push({
-        id: 'pg-post',
-        name: 'Post',
-        slug: 'blog',
-        rootNodeId: detail.rootId,
-        order: 1,
-        meta: {},
-        dynamic: { collection: 'posts' },
-      });
-    }
-    return doc;
-  };
-
   const site = generateSite(blog(), { records: { posts: POSTS } });
   const paths = site.files.map((f) => f.path);
   const html = (path) => site.files.find((f) => f.path === path)?.contents ?? '';
@@ -2012,6 +2018,279 @@ report.group('a collection becomes pages');
     'a page with no pagination and no route is still exactly one file',
     plain.files.filter((f) => f.path.endsWith('.html')).length === 1 && plain.pageCount === 1,
     `${plain.pageCount} pages`
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Republishing
+ *
+ * D6's gate is two sentences, and only one of them needs a browser:
+ *
+ *   > Editing a record updates the live site with no manual publish, and
+ *   > republishing an unchanged collection writes nothing.
+ *
+ * The second half rests on a premise nothing else in this suite states: that
+ * the generator is a *function* of the document and the records. If it were
+ * not — one Map iterated in insertion order here and hash order there, one
+ * timestamp, one id from a counter — every file would hash differently every
+ * time, the manifest would never match, and "writes nothing" would quietly
+ * mean "writes everything" while the diff code looked perfectly correct.
+ *
+ * So this checks the premise directly, then checks the arithmetic that rests
+ * on it: which files a change moves, and which it leaves alone. The Worker's
+ * side of it — that the unmoved ones are genuinely not written to R2 — is in
+ * `tests/render/republish.mjs`, because only a running Worker can answer that.
+ * ----------------------------------------------------------------------- */
+
+report.group('a republish writes only what moved');
+
+{
+  /*
+   * One document, rendered many times. Built once rather than per render, and
+   * the first version of this was not — which made every check below fail at
+   * once, because `buildTree` mints fresh node ids and node ids are in the
+   * class names. A useful reminder of what the premise is actually about: the
+   * bytes are a function of the *document*, and two documents that look the
+   * same on screen are not the same document.
+   */
+  const DOC = blog();
+  const render = (records, doc = DOC) => {
+    const site = generateSite(doc, { records: { posts: records } });
+    return new Map(site.files.map((f) => [f.path, f.contents]));
+  };
+
+  /** Paths whose bytes differ, in either direction. */
+  const moved = (before, after) => {
+    const paths = new Set([...before.keys(), ...after.keys()]);
+    return [...paths].filter((path) => before.get(path) !== after.get(path)).sort();
+  };
+
+  const base = render(POSTS);
+
+  /* --- The premise ------------------------------------------------------- */
+
+  report.check(
+    'the same document and the same records produce the same bytes',
+    moved(base, render(POSTS)).length === 0,
+    moved(base, render(POSTS)).join(', ') || `${base.size} files, all identical`
+  );
+
+  /*
+   * And through the trip the Worker actually makes. A published document is
+   * read out of D1 as text, parsed and hydrated — so if hydration invents
+   * anything, or if any part of the render reflects object identity rather
+   * than value, the server's bytes would differ from these on every publish.
+   */
+  const roundTripped = hydrateDocument(JSON.parse(JSON.stringify(DOC)));
+  report.check(
+    'and so does the same document after a trip through JSON and hydration',
+    moved(base, render(POSTS, roundTripped)).length === 0,
+    moved(base, render(POSTS, roundTripped)).join(', ') || 'identical'
+  );
+
+  /* --- What one edit costs ----------------------------------------------- */
+
+  /*
+   * Post 7 is on the first page of the index and on its own page, and nowhere
+   * else. Two files out of thirty-three, which is the whole argument for the
+   * manifest: without it this is thirty-three writes.
+   */
+  const edited = POSTS.map((r) => (r.id === 'p6' ? { ...r, data: { ...r.data, title: 'Rewritten' } } : r));
+  report.check(
+    'editing one record moves exactly the files that show it',
+    moved(base, render(edited)).join() === 'blog/post-7/index.html,index.html',
+    moved(base, render(edited)).join(', ') || 'nothing moved'
+  );
+  report.check(
+    'and leaves the sitemap alone, because no URL changed',
+    base.get('sitemap.xml') === render(edited).get('sitemap.xml'),
+    'sitemap untouched'
+  );
+
+  /*
+   * A slug is a URL, so renaming the file is the point rather than a side
+   * effect — and the old one has to be taken away, or the post is on the
+   * internet twice.
+   */
+  const reslugged = POSTS.map((r) => (r.id === 'p6' ? { ...r, slug: 'seven' } : r));
+  const after = render(reslugged);
+  report.check(
+    'changing a slug adds the new page and abandons the old one',
+    after.has('blog/seven/index.html') && !after.has('blog/post-7/index.html'),
+    [...moved(base, after)].join(', ')
+  );
+
+  /* --- What a deletion costs --------------------------------------------- */
+
+  const minusOne = render(POSTS.filter((r) => r.id !== 'p29'));
+  report.check(
+    'deleting a record takes its page off the site',
+    [...base.keys()].filter((path) => !minusOne.has(path)).join() === 'blog/post-30/index.html',
+    [...base.keys()].filter((path) => !minusOne.has(path)).join(', ') || 'nothing removed'
+  );
+  report.check(
+    'and does not disturb the twenty-nine that remain',
+    moved(base, minusOne).filter((p) => /^blog\//.test(p)).join() === 'blog/post-30/index.html',
+    moved(base, minusOne).join(', ')
+  );
+
+  /*
+   * Ten deletions take a whole slice of the index with them. That one is
+   * easier to miss than a record page and worse to leave behind: `/3/` would
+   * keep serving ten posts that are not in the collection any more, with the
+   * pager on `/2/` no longer pointing at it, so nothing would ever reveal it.
+   */
+  const minusTen = render(POSTS.slice(0, 20));
+  report.check(
+    'and dropping enough records takes a page of the index with them',
+    [...base.keys()].filter((path) => !minusTen.has(path)).includes('3/index.html'),
+    [...base.keys()].filter((path) => !minusTen.has(path)).join(', ')
+  );
+
+  /* --- What an addition costs -------------------------------------------- */
+
+  /*
+   * Four files, and the fourth is the interesting one: `/3/` was the last page
+   * of the series, so its "Older" link was hidden and its head carried no
+   * `rel=next`. A thirty-first post gives it somewhere to point. Worth writing
+   * down because the obvious expectation — "a new post touches the new post's
+   * page and the new index slice" — is wrong, and a diff that got it right by
+   * accident would be indistinguishable from one that rewrote everything.
+   */
+  const plusOne = render([...POSTS, row('p30', 'Post 31', 30)]);
+  report.check(
+    'adding a record writes its page, its slice, and the page that now links on',
+    moved(base, plusOne).join() ===
+      '3/index.html,4/index.html,blog/post-31/index.html,sitemap.xml',
+    moved(base, plusOne).join(', ')
+  );
+  report.check(
+    'and leaves everything it is not on — thirty-three of thirty-five files',
+    !moved(base, plusOne).some((path) => ['index.html', '2/index.html'].includes(path)) &&
+      base.size - moved(base, plusOne).filter((p) => base.has(p)).length === 33,
+    `${base.size - moved(base, plusOne).filter((p) => base.has(p)).length} of ${base.size} untouched`
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * …and the Worker only has one way to do it
+ *
+ * The manifest is a claim about the contents of a bucket, kept in a different
+ * store. It stays true only for as long as every write goes through the code
+ * that maintains it — a second `SITES.put` anywhere would put a file on a site
+ * that the manifest does not know about, which means it can never be deleted
+ * and never be recognised as unchanged.
+ *
+ * Same shape of argument for the trigger: the site follows a collection only
+ * if *every* way of changing that collection says so. A new handler that
+ * forgets is not a bug anyone would see; the site would simply stop updating
+ * for one kind of edit.
+ * ----------------------------------------------------------------------- */
+
+report.group('there is one way to publish and one way to trigger it');
+
+{
+  const workerFiles = [];
+  const walkWorker = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walkWorker(full);
+      else if (entry.name.endsWith('.ts')) workerFiles.push(full);
+    }
+  };
+  walkWorker(path.join(ROOT, 'workers', 'src'));
+
+  const writers = workerFiles
+    .filter((file) => /\bSITES\.(put|delete)\(/.test(readFileSync(file, 'utf8')))
+    .map((file) => path.relative(ROOT, file))
+    .sort();
+  report.check(
+    'exactly one Worker file writes to the sites bucket',
+    writers.length === 1 && writers[0] === path.join('workers', 'src', 'lib', 'publish.ts'),
+    writers.join(', ') || 'nothing writes — has publishing moved?'
+  );
+
+  const callers = workerFiles
+    .filter((file) => /\bpublishSite\(/.test(readFileSync(file, 'utf8')))
+    .map((file) => path.relative(ROOT, file))
+    .sort();
+  report.check(
+    'and it is called from the route and the alarm, and nowhere else',
+    callers.join() ===
+      [
+        path.join('workers', 'src', 'lib', 'publish.ts'),
+        path.join('workers', 'src', 'room.ts'),
+        path.join('workers', 'src', 'routes', 'projects.ts'),
+      ].join(),
+    callers.join(', ')
+  );
+
+  /*
+   * A Durable Object that fetches itself does not make a request, it makes a
+   * deadlock — the second call waits for the first to finish and the first is
+   * waiting for the second. The alarm publishes, and publishing reads a
+   * document, so the temptation is right there.
+   */
+  const roomSource = readFileSync(path.join(ROOT, 'workers', 'src', 'room.ts'), 'utf8');
+  report.check(
+    'the room never reaches for its own document through the room',
+    !/\b(roomUrl|liveDocument)\b/.test(roomSource) && !/\broom\(this\.env/.test(roomSource),
+    /\b(roomUrl|liveDocument)\b/.exec(roomSource)?.[0] ?? 'reads this.doc directly'
+  );
+
+  /* --- Every record write says so ---------------------------------------- */
+
+  /**
+   * Handlers `recordRoutes` dispatches for a mutating method that never
+   * mention `contentChanged`.
+   *
+   * Read off the dispatch table rather than by looking for SQL: the SQL is in
+   * two shared helpers, so a scan for `INSERT` would find `insert()` and clear
+   * every handler that calls it.
+   */
+  const mutatorsMissingPing = (source) => {
+    const missing = [];
+    for (const [, , name] of source.matchAll(
+      /method === '(POST|PUT|DELETE)'\)\s*return (\w+)\(/g
+    )) {
+      const at = source.indexOf(`function ${name}(`);
+      if (at < 0) {
+        missing.push(`${name} (not found)`);
+        continue;
+      }
+      const end = source.indexOf('\n}\n', at);
+      if (!source.slice(at, end < 0 ? undefined : end).includes('contentChanged')) {
+        missing.push(name);
+      }
+    }
+    return missing;
+  };
+
+  const recordsSource = readFileSync(
+    path.join(ROOT, 'workers', 'src', 'routes', 'records.ts'),
+    'utf8'
+  );
+  const dispatched = [
+    ...recordsSource.matchAll(/method === '(POST|PUT|DELETE)'\)\s*return (\w+)\(/g),
+  ];
+  report.check(
+    'every record write tells the room its content moved',
+    mutatorsMissingPing(recordsSource).length === 0,
+    mutatorsMissingPing(recordsSource).join(', ') || `${dispatched.length} handlers, all reporting`
+  );
+  report.check(
+    'and there were three of them to check',
+    dispatched.length === 3,
+    dispatched.map((m) => m[2]).join(', ')
+  );
+  // The rule reads source with a regex, which is a thing that can quietly stop
+  // matching. A handler with the call taken out has to be caught.
+  report.check(
+    'the rule catches a handler that forgot',
+    mutatorsMissingPing(
+      recordsSource.replace(/await contentChanged\([^)]*\);/, '/* removed */')
+    ).length === 1,
+    'a missing ping is found'
   );
 }
 

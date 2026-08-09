@@ -38,11 +38,11 @@ import {
   SESSION_COOKIE,
   unauthorised,
 } from './lib/http';
+import { contentTypeFor, SITE_CACHE_CONTROL } from './lib/publish';
 import { handleMe, handleSignIn, handleSignOut, handleSignUp } from './routes/auth';
 import { handleFormSubmission, listSubmissions } from './routes/forms';
 import { recordRoutes } from './routes/records';
 import {
-  contentTypeFor,
   handleDeleteProject,
   handleGetProject,
   handleListProjects,
@@ -50,7 +50,6 @@ import {
   handleSaveProject,
   handleSetSubdomain,
   handleSocket,
-  SITE_CACHE_CONTROL,
 } from './routes/projects';
 import {
   handleAcceptInvite,

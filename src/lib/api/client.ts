@@ -315,6 +315,10 @@ export const api = {
       publishedAt: number;
       bytes: number;
       pageCount: number;
+      /** What the publish did to the bucket, as opposed to what the site holds. */
+      written: number;
+      removed: number;
+      unchanged: number;
       pages: { slug: string; title: string; path: string }[];
       url: string;
       subdomain: string;

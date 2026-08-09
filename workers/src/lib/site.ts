@@ -3,9 +3,8 @@
  *
  * Everything a publish needs and nothing about where the result goes: read the
  * live document, read the rows its repeaters point at, hand both to the shared
- * generator. Storage, cache purging and bookkeeping stay in the route, so this
- * is also what a background republish will call when D6 arrives — a caller
- * with no request and no session.
+ * generator. Storage, cache purging and bookkeeping live next door in
+ * `publish.ts`, which is what let the background republish reuse all of it.
  */
 
 import { collectionsUsedBy, generateSite, hydrateDocument } from './render';
@@ -118,19 +117,23 @@ function safeParse(value: string): CollectionRecord['data'] {
  * `apiOrigin` is where published forms post. Absolute rather than relative
  * because a site may be served from its own domain, where a relative action
  * would hit the sites Worker — which has no database and would answer 404.
+ *
+ * `doc` is for callers who already hold the document. The room does, and it
+ * has to pass it: reading it back through `liveDocument` would be the room
+ * fetching itself, which is a deadlock rather than a round trip.
  */
-export async function buildSite(
+export async function renderSite(
   env: Env,
   projectId: string,
-  apiOrigin: string
-): Promise<{ doc: Cre8Document; site: GeneratedSite } | null> {
-  const doc = await liveDocument(env, projectId);
-  if (!doc) return null;
+  apiOrigin: string,
+  doc?: Cre8Document | null
+): Promise<GeneratedSite | null> {
+  const document = doc ?? (await liveDocument(env, projectId));
+  if (!document) return null;
 
-  const site = generateSite(doc, {
+  return generateSite(document, {
     apiOrigin,
     projectId,
-    records: await recordsFor(env, projectId, doc),
+    records: await recordsFor(env, projectId, document),
   });
-  return { doc, site };
 }
