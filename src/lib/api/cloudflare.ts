@@ -109,19 +109,39 @@ export class CloudflareAdapter implements StorageAdapter {
   }
 
   /**
-   * Published rows only, and no more of them than a repeater may show.
+   * Published rows only, and enough of them for the hungriest reader.
    *
-   * The clamp is the same number the renderer applies, asked for at the source
-   * instead of after the fact — a collection of five thousand should not cross
-   * the wire so the canvas can throw away four and a half. The record table
-   * (D5) pages against the same route with its own window; this is the
-   * renderer's view, not the editor's.
+   * That is the *route* ceiling, not the repeater's: a repeater shows at most
+   * five hundred, but a dynamic page publishes one file per record up to a
+   * thousand, and fetching the smaller number would have capped a blog at
+   * five hundred posts without saying so. One more than the ceiling, so
+   * "at the limit" can be told from "over it" and refused with a message.
+   *
+   * The record table (D5) pages against the same route with its own window;
+   * this is the renderer's view, not the editor's.
    */
   async listRecords(projectId: string, collectionId: string): Promise<CollectionRecord[]> {
-    const { records } = await api.listRecords(projectId, collectionId, {
-      limit: LIMITS.recordsPerRepeat,
-      publishedOnly: true,
-    });
-    return records;
+    // Fetched a window at a time, because the API caps one response at 200
+    // rows and asking for a thousand would quietly have got two hundred. That
+    // cap is right — it stops one request pulling a whole table — so the
+    // paging belongs here rather than in a bigger limit.
+    //
+    // Cost: up to six requests for a collection that big, once per session,
+    // and the result is cached by the store. The canvas rarely needs them all,
+    // but a ZIP export does, and one code path that is sometimes generous
+    // beats two that disagree.
+    const wanted = LIMITS.pagesPerRoute + 1;
+    const page = 200;
+    const out: CollectionRecord[] = [];
+    while (out.length < wanted) {
+      const { records } = await api.listRecords(projectId, collectionId, {
+        limit: Math.min(page, wanted - out.length),
+        offset: out.length,
+        publishedOnly: true,
+      });
+      out.push(...records);
+      if (records.length < page) break;
+    }
+    return out;
   }
 }

@@ -54,10 +54,16 @@ type FieldValue = string | number | boolean | null | undefined;
  * the order D1 happened to return — because D3 wants the Worker's output to be
  * byte-identical to the browser's, and a sort that disagrees across two
  * JavaScript engines would quietly break that.
+ *
+ * @param ceiling The most rows this caller may take. Defaults to what one
+ *   repeater may show — a list of five thousand on a page helps nobody. A
+ *   dynamic route passes its own, larger one: it is making *pages*, not rows,
+ *   and the two have different reasons to stop.
  */
 export function recordsFor(
   repeat: RepeatSpec,
-  pool: CollectionRecord[] | undefined
+  pool: CollectionRecord[] | undefined,
+  ceiling: number = LIMITS.recordsPerRepeat
 ): CollectionRecord[] {
   if (!pool?.length) return [];
 
@@ -69,7 +75,6 @@ export function recordsFor(
 
   rows.sort(compareWith(repeat.sort));
 
-  const ceiling = LIMITS.recordsPerRepeat;
   const limit = repeat.limit === undefined ? ceiling : Math.min(repeat.limit, ceiling);
   return limit >= rows.length ? rows : rows.slice(0, Math.max(0, limit));
 }

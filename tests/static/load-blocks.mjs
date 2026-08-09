@@ -40,6 +40,7 @@ export function loadBlocks() {
       // The publisher, so the checks can read a finished page rather than
       // reason about what one would contain.
       'src/lib/publishing/html.ts',
+      'src/lib/publishing/routes.ts',
       '--outDir',
       OUT,
       // Pinned so the emitted path is predictable no matter which files tsc
@@ -74,14 +75,42 @@ export function loadBlocks() {
     // rather than on a description of what they are supposed to be.
     buildTree: require(path.join(OUT, 'document/factory.js')).buildTree,
     generateNodeCss: require(path.join(OUT, 'renderer/css.js')).generateNodeCss,
-    renderPage: require(path.join(OUT, 'publishing/html.js')).renderPage,
     // The whole site, not just a page: D3's gate is that the Worker's output
     // matches this one's byte for byte, and a site is sitemap and robots too.
     generateSite: require(path.join(OUT, 'publishing/html.js')).generateSite,
+    plan: require(path.join(OUT, 'publishing/routes.js')).plan,
+    renderPage: onePage(require),
     createEmptyDocument: require(path.join(OUT, 'document/factory.js')).createEmptyDocument,
     hydrateDocument: require(path.join(OUT, 'document/factory.js')).hydrateDocument,
     buildInto: require(path.join(OUT, 'document/factory.js')).buildTree,
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
+  };
+}
+
+/**
+ * "Render this one page", which production no longer offers.
+ *
+ * Since D4 a page is not a file: a dynamic one becomes a file per record and a
+ * paginated index becomes several, so `renderPage` takes a planned *output*
+ * and the plan is the only thing that decides what exists. That is the right
+ * shape for the publisher and an awkward one for a check that just wants the
+ * markup of a fixture, so the adapter lives here — in the tests, where a
+ * second way to answer "what does this page look like" cannot drift into the
+ * product.
+ *
+ * It goes through the real plan rather than fabricating an output, so a check
+ * written against a page still sees whatever routing decided about it.
+ */
+function onePage(require) {
+  const html = require(path.join(OUT, 'publishing/html.js'));
+  const routes = require(path.join(OUT, 'publishing/routes.js'));
+  return (doc, page, options = {}) => {
+    const outputs = routes.plan(doc, options.records);
+    const mine = outputs.filter((output) => output.page.id === page.id);
+    if (!mine.length) {
+      throw new Error(`“${page.name}” publishes no files — there is nothing to render`);
+    }
+    return html.renderPage(doc, mine[0], options, outputs);
   };
 }
 

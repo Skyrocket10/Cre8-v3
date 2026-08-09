@@ -116,7 +116,20 @@ export function EditorShell({ projectId }: { projectId: string }) {
       setPublishResult(result);
     } catch (publishError) {
       console.error('[cre8] publish failed', publishError);
-      store.toast('Publishing failed. Your work is still saved.', 'error');
+      /*
+       * Say what went wrong when the server bothered to explain.
+       *
+       * Routing refusals are written for the person who caused them — which
+       * page wanted a thousand files, which two pages want the same URL — and
+       * the whole reason `LIMITS` refuses rather than degrades is that the
+       * number reaches somebody. Swallowing it into "Publishing failed" throws
+       * that away and leaves them guessing.
+       */
+      const said = publishError instanceof Error ? publishError.message.trim() : '';
+      store.toast(
+        said && said.length < 200 ? said : 'Publishing failed. Your work is still saved.',
+        'error'
+      );
     } finally {
       setPublishing(false);
     }

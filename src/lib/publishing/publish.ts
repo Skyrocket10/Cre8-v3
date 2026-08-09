@@ -25,7 +25,7 @@ import { slugify } from '../document/id';
 import { collectionsUsedBy, type RecordSet } from '../renderer/repeat';
 import { routes } from '../routes';
 import type { Cre8Document } from '../document/types';
-import { generateSite, pagePath, renderPage } from './html';
+import { generateSite } from './html';
 import { createZip, downloadBlob } from './zip';
 
 /**
@@ -85,13 +85,15 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
     projectName: doc.settings.siteName || doc.name,
     publishedAt,
     bytes: generated.totalBytes,
-    pages: [...doc.pages]
-      .sort((a, b) => a.order - b.order)
-      .map((page) => ({
-        slug: page.isHome ? '' : page.slug,
-        title: page.meta.title || page.name,
-        html: renderPage(doc, page, formTarget),
-      })),
+    // Read back off what was generated rather than rendered a second time.
+    // One page is no longer one file — a dynamic route is thirty of them — so
+    // rebuilding this list from `doc.pages` would leave the local preview
+    // route showing three pages of a thirty-three page site.
+    pages: generated.outputs.map((output) => ({
+      slug: output.path === '/' ? '' : output.path.replace(/^\/|\/$/g, ''),
+      title: output.page.meta.title || output.page.name,
+      html: generated.files.find((f) => f.path === output.file)?.contents ?? '',
+    })),
   };
 
   const info = await adapter.savePublished(
@@ -199,11 +201,7 @@ directory can be served as-is from any static host or CDN:
   • S3 / R2 / nginx  — copy the files across
 
 ${generated.assets.length ? `Images are in ${'_assets'}/ and referenced relatively, so this folder\nworks opened straight from disk as well as served.\n\n` : ''}Pages
-${doc.pages
-  .slice()
-  .sort((a, b) => a.order - b.order)
-  .map((p) => `  ${pagePath(p).padEnd(24)} ${p.name}`)
-  .join('\n')}
+${generated.outputs.map((o) => `  ${o.path.padEnd(32)} ${o.page.name}`).join('\n')}
 `;
 
   const blob = createZip([

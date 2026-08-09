@@ -83,6 +83,7 @@ preferring an installed copy over downloading one.
 | `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |
 | `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added |
 | `worker-publish` | Does the Worker publish the same bytes a local render produces, and do the runtimes it serialises still run |
+| `routes` | Does a collection become one page per record plus a paginated index — walked link by link, and matched against the sitemap |
 | `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
 | `assets` | Do images survive publish and ZIP export — re-encoded, carrying their intrinsic size, offered at four widths, and eager where it matters |
 | `bodyreset` | Does the published page start at the viewport edge |

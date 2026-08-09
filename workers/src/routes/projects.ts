@@ -9,7 +9,7 @@
 import { newId } from '../lib/crypto';
 import { requireProjectAccess, requireTeamRole, room, roomUrl } from '../lib/db';
 import { badRequest, conflict, forbidden, json, notFound, readJson } from '../lib/http';
-import { pagePath } from '../lib/render';
+import { RouteError } from '../lib/render';
 import { buildSite } from '../lib/site';
 import type { Env, SessionUser } from '../types';
 
@@ -326,9 +326,15 @@ export async function handlePublish(
   // Where published forms post. The publish request came from the editor, so
   // its origin *is* the API's — the two share one, which is the whole reason
   // there is no build-time API URL to configure.
-  const built = await buildSite(env, projectId, new URL(request.url).origin);
+  // A routing problem is the designer's, and the message names what to fix —
+  // which page, how many files it wanted, which two collided. Letting it out
+  // as a 500 would turn that into "Publishing failed" and a log nobody reads.
+  const built = await buildSite(env, projectId, new URL(request.url).origin).catch((error) => {
+    if (error instanceof RouteError) throw badRequest(error.message);
+    throw error;
+  });
   if (!built) throw badRequest('Nothing to publish');
-  const { doc, site } = built;
+  const { site } = built;
 
   const prefix = `${projectId}/`;
   let bytes = 0;
@@ -414,13 +420,14 @@ export async function handlePublish(
       // The editor no longer knows what it published, because it no longer
       // built it — so the counts and the page list come back from here.
       pageCount: site.pageCount,
-      pages: [...doc.pages]
-        .sort((a, b) => a.order - b.order)
-        .map((page) => ({
-          slug: page.isHome ? '' : page.slug,
-          title: page.meta.title || page.name,
-          path: pagePath(page),
-        })),
+      // Every file, not every page in the document — a dynamic route is one
+      // page and thirty of these, and the dialog that lists them should say
+      // what is actually on the site.
+      pages: site.outputs.map((output) => ({
+        slug: output.path === '/' ? '' : output.path.replace(/^\/|\/$/g, ''),
+        title: output.page.meta.title || output.page.name,
+        path: output.path,
+      })),
       subdomain,
       siteDomain: env.PUBLIC_SITE_DOMAIN ?? '',
       // Absolute once a site domain is configured; the same-origin fallback

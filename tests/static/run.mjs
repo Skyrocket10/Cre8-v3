@@ -32,6 +32,7 @@ const {
   buildTree,
   generateNodeCss,
   renderPage,
+  generateSite,
   createEmptyDocument,
   hydrateDocument,
 } = loadBlocks();
@@ -1770,6 +1771,313 @@ report.group('the Worker is checked against the platform it runs on');
     'exactly one Worker file reaches into the app’s source',
     crossings.length === 1 && crossings[0] === path.join('workers', 'src', 'lib', 'render.ts'),
     crossings.join(', ') || 'none — has the renderer stopped being shared?'
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Routes
+ *
+ * D4's gate:
+ *
+ *   > A blog of thirty posts publishes thirty files plus a paginated index,
+ *   > every one reachable and every one in the sitemap.
+ *
+ * All of that is a property of generated files, so it is checked against
+ * generated files. The browser half — that the URLs actually serve — is in
+ * `tests/render/routes.mjs`; what is here is the routing itself, which is
+ * where the arithmetic lives and where an off-by-one hides.
+ * ----------------------------------------------------------------------- */
+
+report.group('a collection becomes pages');
+
+{
+  const row = (id, title, position) => ({
+    id,
+    collectionId: 'posts',
+    slug: title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    position,
+    published: true,
+    data: { title, blurb: `About ${title}` },
+    createdAt: 0,
+    updatedAt: 0,
+  });
+
+  const POSTS = Array.from({ length: 30 }, (_, i) => row(`p${i}`, `Post ${i + 1}`, i));
+
+  /**
+   * A blog: an index that paginates ten at a time, and a detail page beside
+   * it sharing the slug — the way a folder holds both an index and its
+   * contents.
+   */
+  const blog = ({ paginate = 10, dynamic = true } = {}) => {
+    const doc = createEmptyDocument('Blog');
+    const home = doc.pages[0];
+
+    const index = buildTree(
+      {
+        type: 'stack',
+        name: 'Feed',
+        repeat: { collection: 'posts', paginate },
+        children: [
+          {
+            type: 'link',
+            name: 'Card',
+            props: { text: 'A post', href: 'page:pg-post' },
+            bind: { text: 'title' },
+          },
+        ],
+      },
+      doc.nodes
+    );
+    doc.nodes[index.rootId].parentId = home.rootNodeId;
+    doc.nodes[home.rootNodeId].children.push(index.rootId);
+
+    // The two pager links, which is what `series:` exists for.
+    const pager = buildTree(
+      {
+        type: 'stack',
+        name: 'Pager',
+        children: [
+          { type: 'link', name: 'Older', props: { text: 'Older', href: 'series:next' } },
+          { type: 'link', name: 'Newer', props: { text: 'Newer', href: 'series:prev' } },
+        ],
+      },
+      doc.nodes
+    );
+    doc.nodes[pager.rootId].parentId = home.rootNodeId;
+    doc.nodes[home.rootNodeId].children.push(pager.rootId);
+
+    if (dynamic) {
+      const detail = buildTree(
+        {
+          type: 'page',
+          name: 'Post',
+          children: [
+            { type: 'heading', name: 'Title', props: { text: 'A title' }, bind: { text: 'title' } },
+            { type: 'link', name: 'Home', props: { text: 'Home', href: `page:${home.id}` } },
+          ],
+        },
+        doc.nodes
+      );
+      doc.pages.push({
+        id: 'pg-post',
+        name: 'Post',
+        slug: 'blog',
+        rootNodeId: detail.rootId,
+        order: 1,
+        meta: {},
+        dynamic: { collection: 'posts' },
+      });
+    }
+    return doc;
+  };
+
+  const site = generateSite(blog(), { records: { posts: POSTS } });
+  const paths = site.files.map((f) => f.path);
+  const html = (path) => site.files.find((f) => f.path === path)?.contents ?? '';
+
+  report.check(
+    'thirty posts become thirty files',
+    POSTS.every((r) => paths.includes(`blog/${r.slug}/index.html`)),
+    `${paths.filter((p) => p.startsWith('blog/') && !/^blog\/\d+\//.test(p)).length} record pages`
+  );
+  report.check(
+    'and the index becomes three, ten at a time',
+    paths.includes('index.html') && paths.includes('2/index.html') && paths.includes('3/index.html'),
+    paths.filter((p) => p === 'index.html' || /^\d+\/index\.html$/.test(p)).join(' ')
+  );
+  report.check(
+    'page one keeps the page’s own address rather than inventing /1/',
+    !paths.includes('1/index.html'),
+    paths.includes('1/index.html') ? 'a second URL for the same content' : 'no /1/'
+  );
+
+  const titles = (page) => [...html(page).matchAll(/>Post (\d+)</g)].map((m) => Number(m[1]));
+  report.check(
+    'each index file carries its own ten, in order and without overlap',
+    titles('index.html').join() === '1,2,3,4,5,6,7,8,9,10' &&
+      titles('2/index.html').join() === '11,12,13,14,15,16,17,18,19,20' &&
+      titles('3/index.html').join() === '21,22,23,24,25,26,27,28,29,30',
+    `${titles('index.html').length} / ${titles('2/index.html').length} / ${titles('3/index.html').length}`
+  );
+
+  /* --- Reachable ------------------------------------------------------- */
+
+  report.check(
+    'a card links to its own record’s page, not to a template',
+    html('index.html').includes('href="blog/post-1/"') &&
+      html('index.html').includes('href="blog/post-10/"'),
+    /href="blog\/[a-z0-9-]+\/"/.exec(html('index.html'))?.[0] ?? 'no record link'
+  );
+  report.check(
+    'and the link from a record page back home climbs the right number of levels',
+    html('blog/post-1/index.html').includes('href="../../"'),
+    /href="\.\.[^"]*"/.exec(html('blog/post-1/index.html'))?.[0] ?? 'no link home'
+  );
+  report.check(
+    'a record page binds the record, not the design-time copy',
+    html('blog/post-7/index.html').includes('>Post 7<') &&
+      !html('blog/post-7/index.html').includes('>A title<'),
+    'bound'
+  );
+
+  const pager = (page, text) =>
+    new RegExp(`<a[^>]*>${text}</a>`).exec(html(page))?.[0] ??
+    new RegExp(`<a[^>]*hidden[^>]*>${text}</a>`).exec(html(page))?.[0] ??
+    'absent';
+  report.check(
+    'the first page offers a way on and no way back',
+    /href="2\/"/.test(pager('index.html', 'Older')) && /hidden/.test(pager('index.html', 'Newer')),
+    `older=${pager('index.html', 'Older')} newer=${pager('index.html', 'Newer')}`
+  );
+  report.check(
+    'the middle page offers both, relative to where it sits',
+    /href="\.\.\/3\/"/.test(pager('2/index.html', 'Older')) &&
+      /href="\.\.\/"/.test(pager('2/index.html', 'Newer')),
+    `older=${pager('2/index.html', 'Older')} newer=${pager('2/index.html', 'Newer')}`
+  );
+  report.check(
+    'and the last offers no way on — hidden rather than pointed at nothing',
+    /hidden/.test(pager('3/index.html', 'Older')) && !/href/.test(pager('3/index.html', 'Older')),
+    pager('3/index.html', 'Older')
+  );
+  report.check(
+    'the series says so in the head, for a crawler that reads no pager',
+    html('2/index.html').includes('<link rel="prev"') &&
+      html('2/index.html').includes('<link rel="next"') &&
+      !html('index.html').includes('<link rel="prev"'),
+    'prev and next where they belong'
+  );
+
+  /* --- In the sitemap --------------------------------------------------- */
+
+  const sitemap = html('sitemap.xml');
+  const locs = [...sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1]);
+  report.check(
+    'every generated page is in the sitemap, and nothing else is',
+    locs.length === site.pageCount && locs.length === 33,
+    `${locs.length} urls for ${site.pageCount} pages`
+  );
+  report.check(
+    'including every record and every slice of the index',
+    locs.includes('/blog/post-30/') && locs.includes('/2/') && locs.includes('/3/'),
+    locs.slice(0, 4).join(' ')
+  );
+
+  /* --- The numbers that must be refused --------------------------------- */
+
+  const tooMany = Array.from({ length: 1200 }, (_, i) => row(`x${i}`, `Extra ${i}`, i));
+  let refused = '';
+  try {
+    generateSite(blog({ paginate: 1000 }), { records: { posts: tooMany } });
+  } catch (error) {
+    refused = String(error.message);
+  }
+  report.check(
+    'a route past the ceiling is refused, and says what the ceiling is',
+    refused.includes('more than 1000') && refused.includes('Post'),
+    refused || 'it wrote them'
+  );
+  // The clamp a repeater lives under is five hundred, and applying it here
+  // would have capped a blog at five hundred posts with no error at all —
+  // the worst kind of limit, since nothing tells you it happened.
+  const nineHundred = Array.from({ length: 900 }, (_, i) => row(`n${i}`, `Nine ${i}`, i));
+  report.check(
+    'and a route below it publishes every record, not the repeater’s five hundred',
+    generateSite(blog({ paginate: 0 }), { records: { posts: nineHundred } }).files.filter((f) =>
+      /^blog\/[a-z0-9-]+\/index\.html$/.test(f.path)
+    ).length === 900,
+    `${generateSite(blog({ paginate: 0 }), { records: { posts: nineHundred } }).files.filter((f) => /^blog\/[a-z0-9-]+\/index\.html$/.test(f.path)).length} record pages`
+  );
+
+  let collided = '';
+  try {
+    // A record slugged `2` lands exactly where the index's second page goes.
+    const doc = blog({ paginate: 1 });
+    doc.pages[1].slug = '';
+    generateSite(doc, { records: { posts: [row('a', '2', 0), row('b', 'Other', 1)] } });
+  } catch (error) {
+    collided = String(error.message);
+  }
+  report.check(
+    'and two pages wanting one URL is refused rather than raced',
+    collided.includes('/2/index.html'),
+    collided || 'one of them silently won'
+  );
+
+  /* --- Nothing changes for a site with neither -------------------------- */
+
+  const plain = generateSite(blog({ paginate: 0, dynamic: false }), { records: { posts: POSTS } });
+  report.check(
+    'a page with no pagination and no route is still exactly one file',
+    plain.files.filter((f) => f.path.endsWith('.html')).length === 1 && plain.pageCount === 1,
+    `${plain.pageCount} pages`
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Characters that should not be in source
+ *
+ * Twice now a file has ended up holding a byte that makes every tool treat it
+ * as binary: once a literal `\x00` where an escape was meant, once a
+ * zero-width space smuggled into a comment to stop `*` `/` closing it early.
+ * Neither breaks the build. Both make `grep` answer "binary file matches" and
+ * refuse to show the line, which is a bad thing to discover while looking for
+ * something else.
+ * ----------------------------------------------------------------------- */
+
+report.group('nothing in the tree reads as binary');
+
+{
+  // Control characters minus the three that are ordinary text (tab, newline,
+  // carriage return), plus the invisibles that have no business in source: the
+  // zero-width space, the two joiners, and a byte-order mark anywhere at all.
+  //
+  // Written as escapes, obviously — a rule spelled with the characters it
+  // forbids would fail itself, which is a funnier way to learn the lesson than
+  // anyone needs.
+  const FORBIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u200B-\u200D\uFEFF]/;
+  const SKIP = new Set(['node_modules', '.git', '.next', 'out', '.wrangler', '.artifacts']);
+  const EXTENSIONS = new Set(['.ts', '.tsx', '.mjs', '.js', '.json', '.jsonc', '.md', '.css', '.sql']);
+
+  const offenders = [];
+  let scanned = 0;
+  const scan = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (SKIP.has(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scan(full);
+        continue;
+      }
+      if (!EXTENSIONS.has(path.extname(entry.name))) continue;
+      scanned++;
+      const text = readFileSync(full, 'utf8');
+      const at = text.search(FORBIDDEN);
+      if (at >= 0) {
+        offenders.push(`${path.relative(ROOT, full)}:${text.slice(0, at).split('\n').length}`);
+      }
+    }
+  };
+  scan(ROOT);
+
+  report.check(
+    'no source file carries a control character or an invisible',
+    offenders.length === 0,
+    offenders.join(', ') || `${scanned} files, all readable`
+  );
+  report.check(
+    'and the scan actually looked at the tree',
+    scanned > 100,
+    `${scanned} files`
+  );
+  // The rule has to be able to fire, and a character class this fiddly proves
+  // nothing by being read.
+  report.check(
+    'the rule catches each kind it is written for',
+    ['\u0000', '\u200B', '\uFEFF', '\u0001'].every((c) => FORBIDDEN.test(`text${c}text`)) &&
+      !FORBIDDEN.test('ordinary text\n\twith a tab\r\n'),
+    'NUL, zero-width space, BOM and a stray control byte'
   );
 }
 

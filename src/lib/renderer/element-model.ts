@@ -9,7 +9,13 @@
  */
 
 import { SWITCH_SHOW_ALL, resolveTag, slug } from '../document/schema';
-import { BREAKPOINT_DEFS, type Cre8Document, type NodeProps, type SceneNode } from '../document/types';
+import {
+  BREAKPOINT_DEFS,
+  type CollectionRecord,
+  type Cre8Document,
+  type NodeProps,
+  type SceneNode,
+} from '../document/types';
 import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
 import {
@@ -27,7 +33,14 @@ export type RenderMode = 'edit' | 'preview' | 'publish';
 export interface RenderOptions {
   mode: RenderMode;
   /** Maps an internal page reference (`page:<id>`) to a real URL. */
-  hrefResolver?: (href: string) => string;
+  hrefResolver?: (href: string, record: CollectionRecord | null) => string;
+  /**
+   * The record in scope, for links that only mean something with one.
+   *
+   * A card inside a repeater that links to "the Post page" means *its* post,
+   * and the resolver cannot know which without being told.
+   */
+  record?: CollectionRecord | null;
   /**
    * Where a form with no action of its own should post.
    *
@@ -390,9 +403,21 @@ function describeBase(
       const target = str(props.target, '_self');
       const attrs: Record<string, AttrValue> = { ...base };
       if (tag === 'a') {
-        attrs.href = options.hrefResolver
-          ? options.hrefResolver(rawHref)
+        const resolved = options.hrefResolver
+          ? options.hrefResolver(rawHref, options.record ?? null)
           : resolveHref(doc, rawHref, mode);
+        if (resolved === '') {
+          /*
+           * A link with nowhere to go, which is a real state rather than a
+           * mistake: `series:next` on the last page of a paginated index. It
+           * is hidden rather than pointed at `#`, because a Next button that
+           * does nothing is worse than no button — and `hidden` needs no
+           * stylesheet and no script to be true.
+           */
+          attrs.hidden = true;
+        } else {
+          attrs.href = resolved;
+        }
         if (target && target !== '_self') {
           attrs.target = target;
           attrs.rel = 'noopener noreferrer';

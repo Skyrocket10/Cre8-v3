@@ -288,7 +288,7 @@ than in a Worker log, is not.
 | **D1** | Collections and records, headless. Schema on the document, records in D1, CRUD routes with the existing access checks. | Records survive a round-trip, and a hostile client cannot read or write another project's — proven in `security.mjs`, next to the checks that already prove it for assets. **landed** |
 | **D2** | The repeater and binding. `repeat`, `bind`, record-in-scope in both renderers, expansion at publish. | A bound list renders identically on canvas and published, with no script, and the stylesheet does not grow by a single rule as records are added. **landed** |
 | **D3** | Publishing moves to the Worker for the hosted path. | The same document publishes byte-identical output from the Worker as from the browser. That is a strong gate and the right one: it is the whole claim. **landed** |
-| **D4** | Dynamic routes and static pagination. | A blog of thirty posts publishes thirty files plus a paginated index, every one reachable and every one in the sitemap. |
+| **D4** | Dynamic routes and static pagination. | A blog of thirty posts publishes thirty files plus a paginated index, every one reachable and every one in the sitemap. **landed** |
 | **D5** | The editor: collections panel, field editor, record table and form, binding in the inspector. | Someone creates a collection, adds a record and sees it on the canvas without leaving the editor or reading this document. |
 | **D6** | Republish on change. | Editing a record updates the live site with no manual publish, and republishing an unchanged collection writes nothing. |
 
@@ -426,6 +426,61 @@ browser's and the Worker is checked against a platform it is not running on.
 The runtimes now declare the handful of DOM members they touch — which is also
 more honest, since in a Worker the ambient name `Element` already means an
 `HTMLRewriter` element. Both Worker tsconfigs are checked for this.
+
+### What D4 held to
+
+Seventeen checks against generated files and twelve in a browser. The browser
+half earns its keep by **walking the site**: start at the home page, follow
+every internal link transitively, and compare what the crawl reaches with what
+the sitemap promises and what was written. Thirty-three URLs, all answering,
+all reached. A link that resolves one directory short reads perfectly in a
+string comparison and 404s in a browser, and that is exactly the mistake this
+phase is prone to.
+
+**A page stopped being a file, so one function decides what is.** `plan()` in
+`publishing/routes.ts` returns every output — which page, which record, which
+slice of which repeater, what path, what filename — and the generator, the
+sitemap, the link resolver and the publish route's page count all read it.
+Two opinions about what exists at what URL is the kind of disagreement that
+surfaces as a link into a 404 six months later.
+
+Four decisions worth recording:
+
+**An index and its detail page share a slug.** Page "Blog" at `blog` publishes
+`/blog/`, and page "Post" at `blog` with `dynamic: {collection}` publishes
+`/blog/hello/` and never `/blog/` itself — the way a folder holds both an
+index and its contents. Page one of a paginated series keeps the page's own
+address rather than inventing `/blog/1/`, because a second URL for the same
+content is a canonical problem nobody asked for.
+
+**A link to a dynamic page resolves through the record in scope.** No new
+syntax: `page:<id>` already means "that page", and when that page is a
+template the record decides which of its files is meant. With no record in
+scope there is genuinely nowhere to point and it resolves to `#`.
+
+**A pager link that has nowhere to go is `hidden`, not `#`.** `series:prev`
+and `series:next` resolve to the empty string at the ends of a series, and a
+link whose href resolves to nothing hides itself — a Next button on the last
+page is worse than no button, and `hidden` needs neither stylesheet nor
+script to be true. `rel=prev`/`rel=next` go in the head regardless, for a
+crawler that reads no pager.
+
+**Two ceilings, and conflating them was a real bug.** A repeater stops at 500
+because a page holding more is unusable; a route stops at 1,000 because a
+publish writing more is unmanageable. `recordsFor` had only the first, so a
+dynamic route would have silently capped a blog at 500 posts — and the fetch
+limits on both the client and the Worker were 500 as well, so it would have
+capped even without that. Both now read one past the route ceiling, so "at the
+limit" can be told from "over it" and refused with a sentence. Colliding output
+paths — a record slugged `2` beside a paginated index — are refused the same
+way rather than raced.
+
+Two things D4 deliberately did not do. The **numbered** page links in the
+Pagination block are still `#`: turning `1 2 3 … 9` into real links needs a
+repeat over page numbers, which is a different mechanism from a repeat over
+records. And **the editor half** — a record to design a dynamic page against,
+a control for any of this — is D5, so a dynamic page on the canvas shows its
+design-time copy exactly as a repeater's template row does.
 
 D3 before D4 is the ordering §6 argues for. D5 last is deliberate and slightly
 uncomfortable: it means D1–D4 are tested through fixtures rather than through

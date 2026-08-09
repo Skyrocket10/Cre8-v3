@@ -372,8 +372,37 @@ The two serialised runtimes therefore declare the DOM members they touch
 instead of borrowing ambient names — in a Worker, `Element` already means an
 `HTMLRewriter` element. Both facts are checked in `tests/static`.
 
-The rest of the data layer — dynamic routes, the collections UI, republish on
-change — is scoped in [DATA-LAYER.md](DATA-LAYER.md).
+### A page is not a file
+
+Two things broke that equivalence, and `publishing/routes.ts` is where both are
+resolved. A page carrying `dynamic: { collection }` is a **template**: its slug
+is a directory and each record's slug names a file inside it, so thirty posts
+become thirty files and nothing sits at the directory itself. A repeater
+carrying `paginate: n` splits its **page** rather than its list, so an index
+becomes `/blog/`, `/blog/2/`, `/blog/3/` — each a real file, each indexable,
+which is the reason not to reach for client-side paging that hands a crawler
+page one and nothing else.
+
+`plan()` returns every output the site will contain, and the generator, the
+sitemap, the link resolver and the publish route all read that one list. The
+sitemap in particular stopped being derivable from `doc.pages`: it is the list
+of pages that were *generated*, which is a fact the publisher has and the
+document does not.
+
+Links keep the syntax they had. `page:<id>` names a page, and where that page
+is dynamic the **record in scope** decides which of its files is meant — so a
+card inside a repeater points at its own record. `series:prev` and
+`series:next` step through a paginated index and resolve to nothing at the
+ends, which hides the link rather than pointing it at `#`.
+
+Two ceilings apply and they are not the same number: a repeater shows at most
+500 rows because a page holding more is unusable, and a route publishes at
+most 1,000 files because a publish writing more is unmanageable. Both refuse
+with a sentence rather than degrading, as does a pair of pages that want the
+same URL.
+
+The rest of the data layer — the collections UI, republish on change — is
+scoped in [DATA-LAYER.md](DATA-LAYER.md).
 
 ---
 

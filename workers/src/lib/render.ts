@@ -30,7 +30,9 @@
  */
 
 export { hydrateDocument } from '../../../src/lib/document/factory';
-export { generateSite, pagePath } from '../../../src/lib/publishing/html';
+export { generateSite } from '../../../src/lib/publishing/html';
+export { RouteError } from '../../../src/lib/publishing/routes';
+export type { Output } from '../../../src/lib/publishing/routes';
 export { collectionsUsedBy } from '../../../src/lib/renderer/repeat';
 export type { RecordSet } from '../../../src/lib/renderer/repeat';
 export type { GeneratedSite } from '../../../src/lib/publishing/html';

@@ -436,8 +436,20 @@ export interface Page {
   order: number;
   isHome?: boolean;
   meta: PageMeta;
-  /** RESERVED — dynamic/CMS routes will set this. */
-  dynamic?: { collection: string; param: string };
+  /**
+   * One published file per record, rather than one for the page.
+   *
+   * The page becomes a template: its `slug` is the directory, and each
+   * record's own slug names a file inside it, so a page slugged `blog` over a
+   * collection of thirty posts publishes `/blog/hello/`, `/blog/next-one/`
+   * and twenty-eight more — and nothing at `/blog/` itself. The index that
+   * usually sits there is a second, ordinary page with the same slug, the way
+   * a folder holds both an index and its contents.
+   *
+   * The record is in scope for the whole tree, so `bind` works on any node of
+   * it exactly as it does inside a repeater.
+   */
+  dynamic?: { collection: string };
 }
 
 /* --------------------------------------------------------------------------
@@ -540,6 +552,19 @@ export interface RepeatSpec {
   sort?: { field: string; direction: 'asc' | 'desc' };
   /** Rows to show, after filtering and sorting. Clamped to the limit below. */
   limit?: number;
+  /**
+   * Rows per published file, which splits the *page* rather than the list.
+   *
+   * Two hundred posts should not be one page with two hundred entries, so
+   * `/blog/`, `/blog/2/`, `/blog/3/` are generated at publish — each a real
+   * file, each indexable. That is the reason not to reach for client-side
+   * paging, which hands a crawler page one and nothing else.
+   *
+   * A page paginates on the first repeater that asks; a second one on the same
+   * page keeps its own rows and is ignored here, because a file cannot be page
+   * two of two different things.
+   */
+  paginate?: number;
 }
 
 /**
@@ -555,6 +580,14 @@ export const LIMITS = {
   fieldsPerCollection: 40,
   recordsPerCollection: 5000,
   recordsPerRepeat: 500,
+  /**
+   * Files one dynamic route may generate.
+   *
+   * Refused rather than written: a route that quietly produced four thousand
+   * files would turn a typo in a collection id into a publish nobody can
+   * undo, and the number is more useful in an error message than in a log.
+   */
+  pagesPerRoute: 1000,
   /** Bytes of serialised `data`. */
   recordBytes: 64 * 1024,
 } as const;

@@ -13,8 +13,18 @@ import type { CollectionRecord, Cre8Document, GeneratedSite, RecordSet } from '.
 import { room, roomUrl } from './db';
 import type { Env } from '../types';
 
-/** Kept in step with `LIMITS.recordsPerRepeat`, which the renderer clamps to. */
-const MAX_RECORDS_PER_REPEAT = 500;
+/**
+ * How many rows a publish reads per collection.
+ *
+ * The *route* ceiling rather than the repeater's, and one past it. A repeater
+ * shows at most five hundred; a dynamic page publishes one file per record up
+ * to a thousand, so reading five hundred would cap a blog at five hundred
+ * posts and say nothing. The extra row is what lets `routes.ts` tell "at the
+ * limit" from "over it" and refuse with a sentence.
+ *
+ * Kept in step with `LIMITS.pagesPerRoute` in the document model.
+ */
+const MAX_RECORDS_PER_PUBLISH = 1001;
 
 interface RecordRow {
   id: string;
@@ -51,10 +61,10 @@ export async function liveDocument(env: Env, projectId: string): Promise<Cre8Doc
  * Every collection the document repeats over, straight out of D1.
  *
  * The same query the API route serves the editor — published only, ordered by
- * position then age, clamped to what one repeater may show. It has to be the
- * same: if the server took a different five hundred rows than the browser
- * would have, the two would publish different pages and the byte-identical
- * claim would be false in exactly the case nobody tests.
+ * position then age, clamped the same way. It has to be the same: if the
+ * server took a different thousand rows than the browser would have, the two
+ * would publish different pages and the byte-identical claim would be false in
+ * exactly the case nobody tests.
  */
 export async function recordsFor(env: Env, projectId: string, doc: Cre8Document): Promise<RecordSet> {
   const collections = collectionsUsedBy(doc.nodes, Object.keys(doc.nodes));
@@ -68,7 +78,7 @@ export async function recordsFor(env: Env, projectId: string, doc: Cre8Document)
         ORDER BY position, created_at
         LIMIT ?3`
     )
-      .bind(projectId, collectionId, MAX_RECORDS_PER_REPEAT)
+      .bind(projectId, collectionId, MAX_RECORDS_PER_PUBLISH)
       .all<RecordRow>();
     out[collectionId] = (rows.results ?? []).map(shape);
   }

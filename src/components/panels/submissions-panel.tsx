@@ -188,7 +188,9 @@ function downloadCsv(rows: FormSubmission[]): void {
   ];
 
   // A BOM, so Excel opens UTF-8 as UTF-8 instead of mangling every accent.
-  const blob = new Blob([`﻿${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
+  // Escaped rather than typed: the character is invisible, and a source file
+  // that silently contains one reads as binary to every tool that greps it.
+  const blob = new Blob([`\uFEFF${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

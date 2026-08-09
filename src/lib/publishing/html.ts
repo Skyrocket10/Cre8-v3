@@ -26,7 +26,8 @@ import { generateStylesheet, minifyCss } from '../renderer/css';
 import { themeToCssVariables, usedWebFonts } from '../document/theme';
 import { collectSubtree } from '../document/tree';
 import { getElement } from '../document/schema';
-import type { CollectionRecord, Cre8Document, NodeId, Page, SceneNode } from '../document/types';
+import type { CollectionRecord, Cre8Document, NodeId, SceneNode } from '../document/types';
+import { depthOf, plan, relativePath, type Output, type PageWindow } from './routes';
 
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source',
@@ -56,14 +57,22 @@ function renderAttrs(attrs: Record<string, AttrValue>): string {
 }
 
 export interface RenderNodeOptions {
-  /** Resolve `page:<id>` links to real paths. */
-  hrefResolver?: (href: string) => string;
+  /** Resolve `page:<id>` and `series:*` links to real paths. */
+  hrefResolver?: (href: string, record: CollectionRecord | null) => string;
   /** Give a form with no action of its own somewhere to post. */
   formAction?: (formId: string) => string;
   /** Every collection's rows, for the repeaters on this page. */
   records?: RecordSet;
-  /** The record in scope — set by the nearest repeater above this node. */
+  /**
+   * The record in scope.
+   *
+   * Set by the nearest repeater above this node — or, on a dynamic page, by
+   * the route itself before the tree is entered, which is what makes `bind`
+   * work the same on a detail page as it does inside a list.
+   */
   record?: CollectionRecord | null;
+  /** Which slice of which repeater this file shows, on a paginated index. */
+  window?: PageWindow | null;
   /** Guard against a component that somehow contains itself. */
   depth?: number;
 }
@@ -117,6 +126,7 @@ function renderVariant(
       mode: 'publish',
       hrefResolver: options.hrefResolver,
       formAction: options.formAction,
+      record: options.record ?? null,
     },
     variant
   );
@@ -171,46 +181,16 @@ function renderChildren(
 
   if (!node.repeat) return inside(options.record ?? null);
   const pool = options.records?.[node.repeat.collection];
-  return repeatRows(node.repeat, pool, 'publish').map(inside).join('');
-}
+  const rows = repeatRows(node.repeat, pool, 'publish');
 
-/* --------------------------------------------------------------------------
- * Whole pages
- * ----------------------------------------------------------------------- */
-
-/**
- * A page's canonical path, always directory-style.
- *
- * The trailing slash is load-bearing rather than cosmetic: `/plans` and
- * `/plans/` resolve relative links to different places, and every internal link
- * below is relative. Both Workers redirect to this form.
- */
-export function pagePath(page: Page): string {
-  return page.isHome || page.slug === '' ? '/' : `/${page.slug}/`;
-}
-
-export function pageFilename(page: Page): string {
-  return page.isHome || page.slug === '' ? 'index.html' : `${page.slug}/index.html`;
-}
-
-/** How many directory levels down from the site root a page sits. */
-function depthOf(page: Page): number {
-  if (page.isHome || page.slug === '') return 0;
-  return page.slug.split('/').filter(Boolean).length;
-}
-
-/**
- * A link from one page to another, written relative to the page it sits on.
- *
- * Published files are the same bytes wherever they end up: the root of a
- * domain, `/s/<projectId>/` on the editor's origin, or a folder on someone's
- * desktop after unzipping. A root-absolute `/plans` only works in the first of
- * those — everywhere else it escapes the site and lands on whatever owns the
- * origin root. Relative links work in all three.
- */
-export function relativeHref(from: Page, to: Page): string {
-  const target = to.isHome || to.slug === '' ? '' : `${to.slug}/`;
-  return '../'.repeat(depthOf(from)) + target || './';
+  // A paginated index is the same repeater rendered several times, each file
+  // taking its own slice. The slice is decided in `routes.ts` — this only has
+  // to know which node it applies to.
+  const window = options.window;
+  const mine = window && window.nodeId === node.id
+    ? rows.slice(window.offset, window.offset + window.size)
+    : rows;
+  return mine.map(inside).join('');
 }
 
 /* --------------------------------------------------------------------------
@@ -280,7 +260,7 @@ function safeDecode(value: string): string {
  * served from a domain root, from `/s/<projectId>/`, and from a folder on a
  * desktop.
  */
-function rewriteAssetUrls(html: string, from: Page): string {
+function rewriteAssetUrls(html: string, from: string): string {
   const prefix = '../'.repeat(depthOf(from));
   return html.replace(ASSET_URL, (whole, encoded: string) => {
     const key = safeDecode(encoded);
@@ -288,15 +268,51 @@ function rewriteAssetUrls(html: string, from: Page): string {
   });
 }
 
-function hrefResolverFor(doc: Cre8Document, from: Page) {
-  return (href: string): string => {
+/**
+ * Where a link written in the editor actually points, from this file.
+ *
+ * Three schemes, and the interesting one is the middle:
+ *
+ * `page:<id>` names a page. When that page is *dynamic* it names a template
+ * rather than a file, and which of its files is meant is decided by the record
+ * in scope — so a card inside a repeater links to that card's record. With no
+ * record in scope there is genuinely nowhere to point, and `#` is the honest
+ * answer rather than a guess at the first one.
+ *
+ * `series:prev` / `series:next` step through a paginated index. They resolve
+ * to the empty string at the ends, which the link element reads as "no target"
+ * and hides — a Next button on the last page is worse than no button.
+ *
+ * Anything else is a URL the designer typed, and is left alone.
+ */
+function hrefResolverFor(doc: Cre8Document, from: Output, all: Output[]) {
+  const seriesAt = (delta: number): string => {
+    if (from.of <= 1) return '';
+    const wanted = from.number + delta;
+    if (wanted < 1 || wanted > from.of) return '';
+    const target = all.find((o) => o.page.id === from.page.id && o.number === wanted);
+    return target ? relativePath(from.path, target.path) : '';
+  };
+
+  return (href: string, record: CollectionRecord | null): string => {
     if (!href) return '#';
     // A deferred template reference that never got resolved. Inert beats
     // shipping `page@pricing` as a literal href.
     if (href.startsWith('page@')) return '#';
+    if (href === 'series:prev') return seriesAt(-1);
+    if (href === 'series:next') return seriesAt(1);
     if (!href.startsWith('page:')) return href;
-    const page = doc.pages.find((p) => p.id === href.slice(5));
-    return page ? relativeHref(from, page) : '#';
+
+    const pageId = href.slice(5);
+    const page = doc.pages.find((p) => p.id === pageId);
+    if (!page) return '#';
+    if (!page.dynamic) {
+      const target = all.find((o) => o.page.id === pageId);
+      return target ? relativePath(from.path, target.path) : '#';
+    }
+    if (!record) return '#';
+    const target = all.find((o) => o.page.id === pageId && o.record?.id === record.id);
+    return target ? relativePath(from.path, target.path) : '#';
   };
 }
 
@@ -326,7 +342,28 @@ export interface RenderPageOptions {
   records?: RecordSet;
 }
 
-export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOptions = {}): string {
+/** The path of the file this many steps along the same series. */
+function seriesPath(all: Output[], from: Output, delta: number): string {
+  const wanted = from.number + delta;
+  return all.find((o) => o.page.id === from.page.id && o.number === wanted)?.path ?? from.path;
+}
+
+/**
+ * One published file.
+ *
+ * Takes an `Output` rather than a `Page` because a page is no longer a file:
+ * a dynamic page is thirty of them and a paginated index is three. Everything
+ * that used to be read off the page — where it sits, what links to it resolve
+ * against, which record is in scope — is read off the output instead, and
+ * `routes.ts` is the only thing that decides any of it.
+ */
+export function renderPage(
+  doc: Cre8Document,
+  output: Output,
+  options: RenderPageOptions = {},
+  all: Output[] = [output]
+): string {
+  const page = output.page;
   const nodeIds = collectSubtree(doc.nodes, page.rootNodeId);
   nodeIds.push(...componentsUsedOn(doc, nodeIds));
 
@@ -350,8 +387,12 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
   );
 
   const body = applyShortClasses(renderNodeToHtml(doc, page.rootNodeId, {
-    hrefResolver: hrefResolverFor(doc, page),
+    hrefResolver: hrefResolverFor(doc, output, all),
     records: options.records,
+    // A dynamic page's record is in scope before the tree is entered, so
+    // `bind` on a detail page reads exactly as it does inside a repeater.
+    record: output.record,
+    window: output.window,
     formAction:
       options.apiOrigin && options.projectId
         ? (formId) =>
@@ -362,7 +403,7 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
             // which makes the page an opaque origin, so the browser sends no
             // Referer and the endpoint would have nothing to go back to.
             `${options.apiOrigin}/api/f/${encodeURIComponent(options.projectId!)}` +
-            `/${encodeURIComponent(formId)}?r=${encodeURIComponent(pagePath(page))}`
+            `/${encodeURIComponent(formId)}?r=${encodeURIComponent(output.path)}`
         : undefined,
   }), shortClasses);
   // A page inherits a sensible <title> rather than repeating its internal
@@ -384,6 +425,29 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
         .join('&')}&display=swap">`
     : '';
 
+  /*
+   * A paginated index is one document split across several files, and
+   * `rel=prev`/`rel=next` is how you say so. Worth emitting even where a
+   * designer has built no pager: it is what tells a crawler these are a
+   * series rather than three pages that happen to look alike, and it costs
+   * two tags on the two-in-a-hundred pages that have a series at all.
+   */
+  const series =
+    output.of > 1
+      ? [
+          output.number > 1
+            ? `<link rel="prev" href="${escapeAttr(
+                relativePath(output.path, seriesPath(all, output, -1))
+              )}">`
+            : '',
+          output.number < output.of
+            ? `<link rel="next" href="${escapeAttr(
+                relativePath(output.path, seriesPath(all, output, 1))
+              )}">`
+            : '',
+        ].filter(Boolean)
+      : [];
+
   const head = [
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -395,6 +459,7 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     page.meta.ogImage ? `<meta property="og:image" content="${escapeAttr(page.meta.ogImage)}">` : '',
     '<meta property="og:type" content="website">',
     doc.settings.favicon ? `<link rel="icon" href="${escapeAttr(doc.settings.favicon)}">` : '',
+    ...series,
     fontLink,
     `<style>${options.pretty ? css : minifyCss(css)}</style>`,
     // Before the stylesheet would be pointless and after the body would be a
@@ -438,7 +503,7 @@ ${root}
 `
     : `<!doctype html>${root}<head>${head}</head><body>${body}${script}</body></html>`;
 
-  return rewriteAssetUrls(html, page);
+  return rewriteAssetUrls(html, output.path);
 }
 
 /* --------------------------------------------------------------------------
@@ -458,34 +523,46 @@ export interface GeneratedSite {
    * already live rather than the browser re-uploading bytes it does not have.
    */
   assets: PublishedAsset[];
+  /** What was generated and where, for anything that needs to say so. */
+  outputs: Output[];
   totalBytes: number;
+  /** Files of HTML, which is no longer the number of pages in the document. */
   pageCount: number;
 }
 
 export function generateSite(doc: Cre8Document, options: RenderPageOptions = {}): GeneratedSite {
+  const outputs = plan(doc, options.records);
   const files: GeneratedFile[] = [];
 
-  for (const page of [...doc.pages].sort((a, b) => a.order - b.order)) {
-    const contents = renderPage(doc, page, options);
-    files.push({ path: pageFilename(page), contents, bytes: byteLength(contents) });
+  for (const output of outputs) {
+    const contents = renderPage(doc, output, options, outputs);
+    files.push({ path: output.file, contents, bytes: byteLength(contents) });
   }
 
-  files.push(sitemap(doc));
+  files.push(sitemap(outputs));
   files.push(robots(doc));
 
   return {
     files,
+    outputs,
     assets: collectPublishedAssets(doc),
     totalBytes: files.reduce((sum, f) => sum + f.bytes, 0),
-    pageCount: doc.pages.length,
+    pageCount: outputs.length,
   };
 }
 
-function sitemap(doc: Cre8Document): GeneratedFile {
-  const urls = [...doc.pages]
-    .sort((a, b) => a.order - b.order)
-    .filter((p) => !p.meta.noIndex)
-    .map((page) => `  <url><loc>${escapeHtml(pagePath(page))}</loc></url>`)
+/**
+ * Every page that was generated, which is not the same as every page designed.
+ *
+ * It used to be built from `doc.pages`, and that stopped being the list of
+ * pages that exist the moment one page could become thirty files. A sitemap
+ * naming three URLs for a thirty-post blog is worse than none: it tells a
+ * crawler it has seen everything.
+ */
+function sitemap(outputs: Output[]): GeneratedFile {
+  const urls = outputs
+    .filter((output) => !output.page.meta.noIndex)
+    .map((output) => `  <url><loc>${escapeHtml(output.path)}</loc></url>`)
     .join('\n');
   const contents = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
   return { path: 'sitemap.xml', contents, bytes: byteLength(contents) };
