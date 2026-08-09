@@ -32,7 +32,8 @@ export const editorEngine: RenderEngine = {
   // nothing about this node changes when the switch moves and a plain read
   // would leave the editor attached to the copy that just went off screen.
   // Only nodes that actually have variants ask, so the cost is theirs alone.
-  useActiveVariantKey: (node) => useEditor((s) => activeVariant(s.doc.nodes, node).key),
+  useActiveVariantKey: (node) =>
+    useEditor((s) => activeVariant(s.doc.nodes, node, s.doc.settings).key),
 
   commitText: (id, prop, value, ruleId) => {
     const store = useEditor.getState();

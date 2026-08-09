@@ -1011,6 +1011,32 @@ export const switchSet = (
 });
 
 /**
+ * What this says when something about the *visit* is true.
+ *
+ * The same expansion `switchSet` gets, on a condition nobody clicks: the time
+ * on the visitor's own clock, where they arrived from, what the link carried.
+ * Both strings ship, a rule chooses, and the value is resolved in the document
+ * head — so there is no flash and no script decides what the page says.
+ */
+export const dataSet = (
+  source: string,
+  value: string,
+  set: NodeProps,
+  node: NodeSpec
+): NodeSpec => ({
+  ...node,
+  rules: [
+    ...(node.rules ?? []),
+    {
+      id: `d-${source}-${value.replace(/\s+/g, '-')}`,
+      when: [{ kind: 'data', source, op: 'is', values: value.split(/\s+/) }],
+      apply: {},
+      set,
+    },
+  ],
+});
+
+/**
  * A control that moves the switch on without claiming to be a toggle.
  *
  * Back and Continue in a stepper. Announcing them as pressed or unpressed —

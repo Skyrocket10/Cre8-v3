@@ -306,11 +306,48 @@ Three answers, none free:
 This document does not pick one. It records that the choice exists, belongs
 with the data layer, and must not be made by accident.
 
+> **As built** — there is a fourth answer, and it is the one that shipped:
+> **resolve synchronously, in the document head, before the body is parsed.** A
+> classic inline `<script>` there blocks parsing, so the attribute every data
+> rule keys on is correct before a single element exists. Not a short flash —
+> none. It costs no CDN caching and needs no edge.
+>
+> The price is that it only works for values the client knows *without asking
+> anyone*, and that is exactly the line stage 3 draws:
+>
+> | | |
+> |---|---|
+> | **Synchronous and local** — the visitor's clock, where they arrived from, what the link carried | shipped |
+> | **Needs a round trip** — who is signed in, what a record says | not offered |
+>
+> The second row is not deferred out of laziness. Serving it from the client
+> means the page painting the wrong thing and correcting itself, which is what
+> the scripting-disabled test exists to prevent. It belongs at the edge, filled
+> in before the HTML is sent, and Cre8 has no edge data layer yet. When it gets
+> one, `describeSource` is where the new sources go and nothing else moves.
+>
+> A third constraint turned out to matter as much as the other two: **no
+> storage**. A "returning visitor" source is the most obviously useful one
+> available and it is deliberately absent, because storage is a consent
+> question and `dismissibleNoticeSpec` already answered it — a block has no
+> business making that decision on a visitor's behalf.
+
 ### Variables in text
 
 `"Welcome, {user.name}"` is templating, and templating is substitution, not
 CSS. Same rule as content: substituted at publish when the value is known
 then (a CMS record), by the runtime when it is not (the signed-in user).
+
+> **Not built, and the reason is the point.** Both halves of that sentence need
+> a data layer: publish-time substitution needs a record to read, and runtime
+> substitution needs the round trip stage 3 declines to make. Substituting
+> `{site.name}` and calling it done would be a gesture, not the feature.
+>
+> Note also that the *conditions* need no templating to be useful, because
+> stage 2 already covers the bounded case: a value with a known, finite set of
+> alternatives is better served by shipping all of them and letting CSS choose
+> than by substituting one. Templating is only needed for the unbounded case —
+> a name, a count — which is precisely the case that needs the round trip.
 
 ---
 
@@ -378,7 +415,7 @@ Worth listing, because a refactor that only adds is usually the wrong one.
 |---|---|---|---|
 | **1** | The rule model, the generator, migration at document load, the panel. Everything above except `set`. | Every existing block renders byte-identically, and the whole render suite passes untouched. | **landed** |
 | **2** | `set` — content and attributes — with publish-time expansion and the mutual-exclusion check. | A block that varies its text by state publishes both strings, indexed, with no script. | **landed** |
-| **3** | Data conditions and `{variables}`, with the data layer. | The state engine is not modified. | |
+| **3** | Data conditions and `{variables}`, with the data layer. | The state engine is not modified. | **conditions landed; `{variables}` blocked on the data layer** |
 
 Stage 1 is about the size of the switch itself. Its gate is deliberately
 strict: a refactor that changes output is a rewrite wearing a refactor's
@@ -429,6 +466,32 @@ read the attribute now reads the prices, which is both stronger and closer to
 what the gate actually says. `VISIBLE_PRICES` learned to resolve a negated case
 against the group's current value, and gained two checks on the editor
 attaching to the copy on screen — which is what caught the memoisation bug.
+
+### What stage 3 held to
+
+The gate is a claim about generated output, so it is checked against generated
+output. A data condition compiles to `:where(:is([data-cre8-data~="time:night"]))`
+— the same `:is()` either way, at the same weight, so `is` and `isn't` still
+cannot out-rank each other and source order is still the whole of precedence.
+Strip the `:where()` groups and what is left is the node's class alone.
+
+The sharper proof is that a data condition drives **stage 2's expansion** with
+nothing added for it. `axisOf` in `variants.ts` reads a state key and a data
+source into the same shape, and everything below that point cannot tell which
+it was handed. Content that changes with a toggle and content that changes with
+the time of day are one mechanism, not two that resemble each other.
+
+What did change: one branch in `conditionParts`, and the anchor it emits. That
+is what a `Condition` union is for. Rule ordering, specificity, `readCase`, the
+variant expansion and the behaviour runtime are untouched — the click runtime
+is not even loaded on a page whose only conditions are data, which the render
+suite checks.
+
+**Opening hours** is the block it proves it on: a strip that reads "Open now"
+in the day and "Closed for the night" after nine. Both versions are in the
+published file, one script resolves the clock in the head, and with scripting
+off a visitor still sees one coherent version — the one the site chose to ship,
+which is a decision in the inspector rather than an accident.
 
 ### Migration
 

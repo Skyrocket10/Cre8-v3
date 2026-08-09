@@ -17,6 +17,7 @@ import { collectSubtree } from '@/lib/document/tree';
 import { generateNodeCss, DOCUMENT_RESET, PLACEHOLDER_CSS } from '@/lib/renderer/css';
 import { createSnapshotEngine, NodeView, RenderProvider } from '@/lib/renderer/render';
 import { behaviourRuntime } from '@/lib/runtime/behaviour';
+import { DATA_ATTR, collectDataSources, dataRuntime, fallbackTokens } from '@/lib/runtime/data';
 import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { Tooltip } from '../ui/primitives';
@@ -161,14 +162,29 @@ function PreviewSurface({
 
   const themeVars = useMemo(() => themeToStyleObject(doc.theme), [doc.theme]);
 
+  /* Preview answers "what will a visitor get", so it carries what the *file*
+     will carry rather than what the canvas is designing against — and the
+     resolver then overwrites it here too, exactly as it would on the published
+     page. Without this the frame has no attribute at all, which reads as the
+     base version whether or not that is the one the site ships. */
+  const dataTokens = useMemo(() => {
+    if (!page) return '';
+    const ids = collectSubtree(doc.nodes, page.rootNodeId);
+    return fallbackTokens(doc.settings, collectDataSources(doc.nodes, ids));
+  }, [doc, page]);
+
   /* Preview is the surface that answers "what will a visitor get", so the
      runtime runs live here — the same call the published page makes, with the
      listener bound and cleaned up on the way out. */
   const frameRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!frameRef.current) return;
+    // Data first: the published page resolves it before anything paints, and
+    // resolving after the click runtime would let preview show the shipped
+    // fallback for a frame when the real page never would.
+    if (dataTokens) dataRuntime(frameRef.current);
     return behaviourRuntime(frameRef.current, true);
-  }, [doc, pageId]);
+  }, [doc, pageId, dataTokens]);
 
   if (!page) return null;
   const isDesktop = device === 'desktop';
@@ -194,6 +210,7 @@ function PreviewSurface({
     >
       <div
         ref={frameRef}
+        {...(dataTokens ? { [DATA_ATTR]: dataTokens } : {})}
         className={cn(
           'cre8-frame mx-auto bg-white',
           !isDesktop && 'overflow-hidden rounded-xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.5)]'

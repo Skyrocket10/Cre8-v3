@@ -11,12 +11,14 @@ import {
   TITLE_RESPONSIVE,
   badge,
   border,
+  borderSide,
   bullets,
   button,
   card,
   cols,
   column,
   container,
+  dataSet,
   divider,
   grid,
   heading,
@@ -474,4 +476,97 @@ export function pricingSwitchSpec(): NodeSpec {
       { gap: '40px' }
     ),
   ]);
+}
+
+/* --------------------------------------------------------------------------
+ * Opening hours
+ * ----------------------------------------------------------------------- */
+
+/**
+ * A strip that knows what time it is where the visitor is.
+ *
+ * The first block built on a **data** condition rather than on a control, and
+ * the point of the mechanism: nobody clicks anything. The time is resolved in
+ * the document head, before the body is parsed, so the right copy is on screen
+ * at the first paint rather than swapped in after it.
+ *
+ * Both versions are in the published file, which is what makes this honest
+ * rather than clever — a crawler reads them, a printout is right, and a
+ * visitor with no scripting gets whatever the site chose to ship, coherently,
+ * instead of an empty strip.
+ *
+ * Two rules on two different nodes, both keyed on `night`. They could not be
+ * one rule: content rules on a single node must be mutually exclusive, and the
+ * escape hatch for anything else is exactly this — put the second one on its
+ * own element.
+ */
+export function openingHoursSpec(): NodeSpec {
+  const dot = dataSet('time', 'night', {}, {
+    type: 'frame',
+    name: 'Status dot',
+    styles: {
+      width: '8px',
+      height: '8px',
+      flexShrink: '0',
+      ...radius('var(--r-full)'),
+      backgroundColor: 'var(--c-primary)',
+    },
+    rules: [],
+  });
+  // The dot changes colour rather than words, so its rule carries `apply`
+  // instead of `set` — and lands on that variant's own class.
+  dot.rules = [
+    {
+      id: 'd-time-night',
+      when: [{ kind: 'data', source: 'time', op: 'is', values: ['night'] }],
+      apply: { backgroundColor: 'var(--c-muted)' },
+      set: { title: 'Closed' },
+    },
+  ];
+
+  return section(
+    'Opening hours',
+    [
+      container(
+        [
+          stack(
+            'Hours row',
+            [
+              dot,
+              dataSet(
+                'time',
+                'night',
+                { text: 'Closed for the night — we open again at 9am' },
+                label('Open now — the team replies in under an hour', {
+                  fontSize: '14.5px',
+                  fontWeight: '540',
+                  color: 'var(--c-text)',
+                })
+              ),
+              dataSet(
+                'time',
+                'night',
+                { label: 'Leave a message' },
+                {
+                  ...button('Call the team', 'secondary'),
+                  name: 'Contact action',
+                  styles: { marginLeft: 'auto', fontSize: '14px', ...pad('9px', '16px') },
+                  responsive: { mobile: { marginLeft: '0px', width: '100%' } },
+                }
+              ),
+            ],
+            { gap: '12px', alignItems: 'center', width: '100%' },
+            { mobile: { flexWrap: 'wrap' } }
+          ),
+        ],
+        { gap: '0px', maxWidth: 'var(--w-wide)' }
+      ),
+    ],
+    {
+      ...pad('14px', '24px'),
+      backgroundColor: 'var(--c-surface)',
+      ...borderSide('Bottom'),
+    },
+    { mobile: { paddingLeft: '20px', paddingRight: '20px' } }
+  );
 }

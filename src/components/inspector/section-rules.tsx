@@ -23,6 +23,7 @@ import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { collectSubtree } from '@/lib/document/tree';
 import { slug, slugList } from '@/lib/document/schema';
 import type { Condition, StyleRule } from '@/lib/document/types';
+import { DATA_SOURCES, QUERY_PREFIX, describeSource } from '@/lib/runtime/data';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives';
@@ -39,6 +40,10 @@ export function describeRule(rule: StyleRule): string {
         return `${condition.name} ${condition.op === 'is' ? 'is' : 'isn’t'} ${condition.values.join(' or ')}`;
       case 'state':
         return `${condition.key || 'state'} ${condition.op === 'is' ? 'is' : 'isn’t'} ${condition.values.join(' or ')}`;
+      case 'data': {
+        const source = describeSource(condition.source);
+        return `${source?.label ?? condition.source} ${condition.op === 'is' ? 'is' : 'isn’t'} ${condition.values.join(' or ')}`;
+      }
     }
   });
   const where = rule.part ? ` · ${rule.part}` : '';
@@ -194,6 +199,19 @@ export function RulesSection() {
               }
             />
           )}
+          <AddButton
+            label="Visit…"
+            onClick={() =>
+              useEditor.getState().addRule([
+                {
+                  kind: 'data',
+                  source: DATA_SOURCES[0]!.id,
+                  op: 'is',
+                  values: [DATA_SOURCES[0]!.values[0]!],
+                },
+              ])
+            }
+          />
           {canBackdrop && (
             <AddButton
               label="Backdrop"
@@ -234,6 +252,7 @@ function RuleRow({
 }) {
   const store = useEditor.getState;
   const condition = rule.when.find((c) => c.kind === 'state');
+  const data = rule.when.find((c) => c.kind === 'data');
   const chosen = states.find((s) => s.key === (condition?.kind === 'state' ? condition.key : ''));
 
   const setCondition = (patch: Partial<Extract<Condition, { kind: 'state' }>>) => {
@@ -342,6 +361,144 @@ function RuleRow({
           </p>
         </div>
       )}
+
+      {active && data?.kind === 'data' && <DataFields rule={rule} condition={data} />}
+    </div>
+  );
+}
+
+/**
+ * A condition on the visit rather than on the page.
+ *
+ * Three controls, and the second two are the ones that matter. What a source
+ * *is* the resolver decides; what the file **ships** with is a design decision,
+ * because that is what a visitor sees for the instant before the resolver runs
+ * and for ever if they have no scripting. What the canvas is **designing
+ * against** never leaves the editor, exactly like a switch's design-time case.
+ */
+/**
+ * Site-wide, not per-rule: two rules on the same source must agree about what
+ * ships, or the file would have to carry the attribute twice.
+ */
+function configure(source: string, patch: { ships?: string; designing?: string }): void {
+  useEditor.getState().transact('Data source', (draft) => {
+    const data = (draft.settings.data ??= {});
+    data[source] = { ...data[source], ...patch };
+  });
+}
+
+function DataFields({
+  rule,
+  condition,
+}: {
+  rule: StyleRule;
+  condition: Extract<Condition, { kind: 'data' }>;
+}) {
+  const store = useEditor.getState;
+  const config = useEditor((s) => s.doc.settings.data?.[condition.source]);
+  const source = describeSource(condition.source);
+  const open = source ? source.values.length === 0 : true;
+
+  const setCondition = (patch: Partial<Extract<Condition, { kind: 'data' }>>) => {
+    store().updateRule(rule.id, {
+      when: rule.when.map((c) => (c === condition ? { ...condition, ...patch } : c)),
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-[var(--border-soft)] px-2 py-2">
+      <StyleRow label="About" labelWidth={62}>
+        <Select
+          className="flex-1"
+          value={DATA_SOURCES.some((s) => s.id === condition.source) ? condition.source : 'query'}
+          onChange={(id) => {
+            if (id === 'query') {
+              setCondition({ source: `${QUERY_PREFIX}ref`, values: ['acme'] });
+              return;
+            }
+            const next = describeSource(id);
+            setCondition({ source: id, values: [next?.values[0] ?? 'yes'] });
+          }}
+          options={[
+            ...DATA_SOURCES.map((s) => ({ value: s.id, label: s.label, hint: s.hint })),
+            { value: 'query', label: 'A link parameter', hint: '?ref=acme' },
+          ]}
+        />
+      </StyleRow>
+
+      {open && (
+        <StyleRow label="Parameter" labelWidth={62}>
+          <TextInput
+            className="flex-1"
+            value={condition.source.replace(QUERY_PREFIX, '')}
+            onValueChange={(raw) => {
+              const name = slug(raw);
+              if (name) setCondition({ source: `${QUERY_PREFIX}${name}` });
+            }}
+            placeholder="ref"
+          />
+        </StyleRow>
+      )}
+
+      <StyleRow label="Is" labelWidth={62}>
+        <Segmented
+          full
+          value={condition.op}
+          onChange={(op) => setCondition({ op: op as 'is' | 'isNot' })}
+          options={[
+            { value: 'is', label: 'is' },
+            { value: 'isNot', label: 'isn’t' },
+          ]}
+        />
+      </StyleRow>
+
+      <StyleRow label="Value" labelWidth={62}>
+        {source && source.values.length > 0 ? (
+          <Select
+            className="flex-1"
+            value={condition.values[0] ?? source.values[0]!}
+            onChange={(value) => setCondition({ values: [value] })}
+            options={source.values.map((value) => ({ value, label: value }))}
+          />
+        ) : (
+          <TextInput
+            className="flex-1"
+            value={condition.values.join(' ')}
+            onValueChange={(raw) => {
+              const values = slugList(raw).split(' ').filter(Boolean);
+              if (values.length) setCondition({ values });
+            }}
+            placeholder="acme"
+          />
+        )}
+      </StyleRow>
+
+      {source && source.values.length > 0 && (
+        <>
+          <StyleRow label="Ships as" labelWidth={62} hint="Before the page resolves it, and for ever with no scripting">
+            <Select
+              className="flex-1"
+              value={config?.ships ?? source.fallback}
+              onChange={(value) => configure(condition.source, { ships: value })}
+              options={source.values.map((value) => ({ value, label: value }))}
+            />
+          </StyleRow>
+          <StyleRow label="Designing" labelWidth={62} hint="What the canvas shows. Never published">
+            <Select
+              className="flex-1"
+              value={config?.designing || config?.ships || source.fallback}
+              onChange={(value) => configure(condition.source, { designing: value })}
+              options={source.values.map((value) => ({ value, label: value }))}
+            />
+          </StyleRow>
+        </>
+      )}
+
+      <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+        {open
+          ? 'Absent unless the link carries it — so the base version is what most visitors get.'
+          : 'Resolved before the page paints, so nothing flashes. No storage, nothing to consent to.'}
+      </p>
     </div>
   );
 }

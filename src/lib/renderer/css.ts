@@ -154,6 +154,18 @@ function conditionParts(
       return { prefix: '', compound: `:where(${test})` };
     }
 
+    case 'data': {
+      // The whole of stage 3 in the generator. A data source resolves to a
+      // value on the document element, so the test is the one a state already
+      // uses — `:is()` either way so `is` and `isn't` weigh the same — hung
+      // off an ancestor that is always there rather than one found by walking.
+      const match = condition.values
+        .map((value) => `[data-cre8-data~="${condition.source}:${value}"]`)
+        .join(',');
+      const test = condition.op === 'is' ? `:is(${match})` : `:not(:is(${match}))`;
+      return { prefix: `:where(${test}) `, compound: '' };
+    }
+
     case 'state': {
       const owner = stateOwner(nodes, node, condition.key);
       // Naming a state nothing declares is not an error to shout about — it

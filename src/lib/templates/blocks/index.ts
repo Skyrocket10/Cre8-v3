@@ -48,7 +48,13 @@ export {
   tabbedFeaturesSpec,
   timelineSpec,
 } from './features';
-export { ctaSpec, ctaSplitSpec, pricingSpec, pricingSwitchSpec } from './convert';
+export {
+  ctaSpec,
+  ctaSplitSpec,
+  openingHoursSpec,
+  pricingSpec,
+  pricingSwitchSpec,
+} from './convert';
 export {
   alertsSpec,
   appShellSpec,
@@ -109,7 +115,13 @@ import {
   navbarSpec,
   subNavSpec,
 } from './chrome';
-import { ctaSpec, ctaSplitSpec, pricingSpec, pricingSwitchSpec } from './convert';
+import {
+  ctaSpec,
+  ctaSplitSpec,
+  openingHoursSpec,
+  pricingSpec,
+  pricingSwitchSpec,
+} from './convert';
 import {
   alertsSpec,
   appShellSpec,
@@ -763,6 +775,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'convert',
     keywords: ['toggle', 'billing', 'annual', 'plans', 'tabs', 'switch'],
     build: pricingSwitchSpec,
+  },
+  {
+    id: 'opening-hours',
+    name: 'Opening hours',
+    description: 'A strip that knows what time it is where the visitor is',
+    category: 'convert',
+    keywords: ['hours', 'open', 'closed', 'time', 'contact', 'call', 'availability'],
+    build: openingHoursSpec,
   },
   {
     id: 'comparison',

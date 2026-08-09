@@ -420,7 +420,7 @@ export function createSnapshotEngine(
     useComponentRoot: (componentId) => componentRoots.get(componentId),
     // A snapshot has no design-time state to consult, so the base is the
     // honest answer — and nothing outside the canvas uses what it decides.
-    useActiveVariantKey: (node) => activeVariant(doc.nodes, node).key,
+    useActiveVariantKey: (node) => activeVariant(doc.nodes, node, doc.settings).key,
     resolveHref: hrefResolver ?? ((href) => defaultHref(doc, href, mode)),
   };
 }

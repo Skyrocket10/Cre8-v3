@@ -20,6 +20,7 @@ import { themeToStyleObject } from '@/lib/document/theme';
 import { DOCUMENT_RESET, PLACEHOLDER_CSS, generateNodeCss } from '@/lib/renderer/css';
 import { NodeView, RenderProvider } from '@/lib/renderer/render';
 import { behaviourRuntime } from '@/lib/runtime/behaviour';
+import { DATA_ATTR, collectDataSources, designTokens } from '@/lib/runtime/data';
 import { hitTest } from '@/lib/editor/registry';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
@@ -90,6 +91,17 @@ export function Canvas() {
   );
 
   const themeVars = useMemo(() => themeToStyleObject(theme), [theme]);
+
+  /* --- Data conditions -----------------------------------------------------
+     The published page hangs these off `<html>`; the frame is the equivalent
+     ancestor here. Same attribute, same selectors, so a rule that reads "in
+     the evening" is answered by the same mechanism on both surfaces — the only
+     difference is that here the value is one the designer chose. */
+  const settings = useEditor((s) => s.doc.settings);
+  const dataTokens = useMemo(
+    () => designTokens(settings, collectDataSources(nodes, scopedIds)),
+    [settings, nodes, scopedIds]
+  );
 
   /* --- Fit to view -------------------------------------------------------- */
 
@@ -282,6 +294,7 @@ export function Canvas() {
 
           <div
             ref={frameRef}
+            {...(dataTokens ? { [DATA_ATTR]: dataTokens } : {})}
             className={cn(
               'cre8-frame cre8-doc cre8-editing relative overflow-hidden bg-white',
               showOutlines && 'cre8-outlines'

@@ -15,6 +15,12 @@
 import { describeElement, type AttrValue } from '../renderer/element-model';
 import { variantsOf, type Variant } from '../renderer/variants';
 import { behaviourRuntimeSource } from '../runtime/behaviour';
+import {
+  DATA_ATTR,
+  collectDataSources,
+  dataRuntimeSource,
+  fallbackTokens,
+} from '../runtime/data';
 import { generateStylesheet, minifyCss } from '../renderer/css';
 import { themeToCssVariables, usedWebFonts } from '../document/theme';
 import { collectSubtree } from '../document/tree';
@@ -282,6 +288,8 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
   // Components referenced anywhere on this page still need their rules.
   for (const component of doc.components) nodeIds.push(...collectSubtree(doc.nodes, component.rootNodeId));
 
+  const dataSources = collectDataSources(doc.nodes, nodeIds);
+
   const css = generateStylesheet(doc, {
     mode: 'media',
     nodeIds,
@@ -339,6 +347,10 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     doc.settings.favicon ? `<link rel="icon" href="${escapeAttr(doc.settings.favicon)}">` : '',
     fontLink,
     `<style>${options.pretty ? css : minifyCss(css)}</style>`,
+    // Before the stylesheet would be pointless and after the body would be a
+    // flash: a classic script here blocks parsing, so the attribute every data
+    // condition keys on is correct before a single element of the body exists.
+    dataSources.size ? `<script>${dataRuntimeSource()}</script>` : '',
     doc.settings.customHead ?? '',
   ]
     .filter(Boolean)
@@ -354,9 +366,15 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     : '';
 
   const lang = escapeAttr(doc.settings.language || 'en');
+  // The values the file ships with. A visitor sees them for the instant before
+  // the resolver runs, and for ever if they have no scripting — so they are a
+  // real design decision, made in the inspector, not a placeholder.
+  const shipped = fallbackTokens(doc.settings, dataSources);
+  const root = `<html lang="${lang}"${shipped ? ` ${DATA_ATTR}="${escapeAttr(shipped)}"` : ''}>`;
+
   const html = options.pretty
     ? `<!doctype html>
-<html lang="${lang}">
+${root}
   <head>
     ${head}
   </head>
@@ -366,7 +384,7 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
   </body>
 </html>
 `
-    : `<!doctype html><html lang="${lang}"><head>${head}</head><body>${body}${script}</body></html>`;
+    : `<!doctype html>${root}<head>${head}</head><body>${body}${script}</body></html>`;
 
   return rewriteAssetUrls(html, page);
 }

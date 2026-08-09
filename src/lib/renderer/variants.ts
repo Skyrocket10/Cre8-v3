@@ -21,12 +21,24 @@
  * nothing new: it emits those rules the way it emits every other one.
  *
  * Both renderers loop over this, so the published DOM and the canvas DOM have
- * the same shape. Only the editor-only attributes differ, and which element
- * gets them is decided by the registry from what actually has a box.
+ * the same shape. Only the editor-only attributes differ, and `activeVariant`
+ * decides which element gets them.
+ *
+ * The axis an expansion varies on is a switch value **or** a data source —
+ * `axisOf` flattens the two into one shape, and nothing below it knows which
+ * it was handed. That is stage 3's claim, and it is the reason a strip that
+ * reads differently after nine at night needed no new expansion path.
  */
 
 import { SWITCH_SHOW_ALL, readCase, slug } from '../document/schema';
-import type { Condition, NodeProps, SceneNode, StyleRule } from '../document/types';
+import { designValue } from '../runtime/data';
+import type {
+  Condition,
+  NodeProps,
+  ProjectSettings,
+  SceneNode,
+  StyleRule,
+} from '../document/types';
 
 /** Stable, collision-free class name for a node. */
 export function nodeClass(id: string): string {
@@ -102,6 +114,32 @@ const hideRule = (id: string, when: Condition[]): StyleRule => ({
   apply: { display: 'none' },
 });
 
+/**
+ * The one axis a rule varies on, if it varies on exactly one.
+ *
+ * A state and a data source are the same shape here on purpose — that is the
+ * whole claim stage 3 makes. Content that changes with the time of day and
+ * content that changes with a switch expand identically, and nothing below
+ * this function knows which it was handed.
+ */
+function axisOf(
+  condition: Condition
+): { kind: 'state' | 'data'; key: string; values: string[] } | null {
+  if (condition.kind !== 'state' && condition.kind !== 'data') return null;
+  if (condition.op !== 'is' || !condition.values.length) return null;
+  return condition.kind === 'state'
+    ? { kind: 'state', key: condition.key, values: condition.values }
+    : { kind: 'data', key: condition.source, values: condition.values };
+}
+
+const onAxis = (
+  kind: 'state' | 'data',
+  key: string,
+  op: 'is' | 'isNot',
+  values: string[]
+): Condition =>
+  kind === 'data' ? { kind: 'data', source: key, op, values } : { kind: 'state', key, op, values };
+
 const cache = new WeakMap<SceneNode, Variant[]>();
 
 /**
@@ -141,24 +179,24 @@ function build(node: SceneNode): Variant[] {
    * condition it cannot resolve, and the static suite refuses to let a block
    * ship one.
    */
-  let key: string | null = null;
+  let axis: { kind: 'state' | 'data'; key: string } | null = null;
   const claimed = new Set<string>();
   const usable: { rule: StyleRule; values: string[] }[] = [];
 
   for (const rule of setting) {
     if (rule.when.length !== 1 || rule.part || rule.breakpoint) continue;
-    const condition = rule.when[0]!;
-    if (condition.kind !== 'state' || condition.op !== 'is' || !condition.values.length) continue;
-    if (key === null) key = condition.key;
-    else if (condition.key !== key) continue;
-    if (condition.values.some((value) => claimed.has(value))) continue;
+    const found = axisOf(rule.when[0]!);
+    if (!found) continue;
+    if (axis === null) axis = { kind: found.kind, key: found.key };
+    else if (axis.kind !== found.kind || axis.key !== found.key) continue;
+    if (found.values.some((value) => claimed.has(value))) continue;
 
-    for (const value of condition.values) claimed.add(value);
-    usable.push({ rule, values: condition.values });
+    for (const value of found.values) claimed.add(value);
+    usable.push({ rule, values: found.values });
   }
 
-  if (!usable.length) return single;
-  const state = key ?? '';
+  if (!usable.length || !axis) return single;
+  const { kind, key } = axis;
 
   const variants: Variant[] = [
     {
@@ -167,9 +205,7 @@ function build(node: SceneNode): Variant[] {
       props: node.props,
       // The base is what shows when none of the alternatives do, which is one
       // condition rather than one per rule because they are exclusive.
-      hide: hideRule(`${node.id}-v0`, [
-        { kind: 'state', key: state, op: 'is', values: [...claimed] },
-      ]),
+      hide: hideRule(`${node.id}-v0`, [onAxis(kind, key, 'is', [...claimed])]),
       ruleId: null,
     },
   ];
@@ -180,7 +216,7 @@ function build(node: SceneNode): Variant[] {
       key: key_,
       className: `${nodeClass(node.id)} ${variantClass(node.id, key_)}`,
       props: merge(node.props, rule.set!),
-      hide: hideRule(`${node.id}-${key_}`, [{ kind: 'state', key: state, op: 'isNot', values }]),
+      hide: hideRule(`${node.id}-${key_}`, [onAxis(kind, key, 'isNot', values)]),
       ruleId: rule.id,
     });
   });
@@ -257,7 +293,8 @@ export function stateOwner(
  */
 export function activeVariant(
   nodes: Record<string, SceneNode>,
-  node: SceneNode
+  node: SceneNode,
+  settings: ProjectSettings
 ): Variant {
   const variants = variantsOf(node);
   if (variants.length === 1) return variants[0]!;
@@ -265,14 +302,25 @@ export function activeVariant(
   for (const variant of variants) {
     if (!variant.hide) return variant;
     const condition = variant.hide.when[0];
-    if (condition?.kind !== 'state') return variant;
+    if (!condition) return variant;
 
-    const owner = stateOwner(nodes, node, condition.key);
-    // Nothing declares the state, or the group is laid out with every case at
-    // once — in both cases nothing is hidden, so the base is the honest answer.
-    if (!owner || owner.node.props.switchDesign === SWITCH_SHOW_ALL) break;
+    let value: string;
+    if (condition.kind === 'data') {
+      // The data equivalent of `switchDesign`: which value the canvas is
+      // working against. It never leaves the editor, so looking at the evening
+      // copy cannot change what the site says in the morning.
+      value = designValue(settings, condition.source);
+    } else if (condition.kind === 'state') {
+      const owner = stateOwner(nodes, node, condition.key);
+      // Nothing declares the state, or the group is laid out with every case
+      // at once — either way nothing is hidden, so the base is the honest
+      // answer.
+      if (!owner || owner.node.props.switchDesign === SWITCH_SHOW_ALL) break;
+      value = slug(owner.node.props.switchDesign) || slug(owner.node.props.switchDefault);
+    } else {
+      return variant;
+    }
 
-    const value = slug(owner.node.props.switchDesign) || slug(owner.node.props.switchDefault);
     const matches = condition.values.includes(value);
     if (condition.op === 'is' ? !matches : matches) return variant;
   }

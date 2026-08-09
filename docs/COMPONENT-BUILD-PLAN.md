@@ -743,7 +743,48 @@ price blocks per tier with opposite cases — six extra rows in the layer tree
 and two copies of one design to keep in step. One price per tier now, and the
 published file still contains both strings.
 
-Stage 3 — data conditions — is still ahead.
+## Stage 3 — conditions on the visit
+
+A condition can now be about the *visit* rather than about the page, and it
+gets no rendering path of its own:
+
+```
+condition  →  state  →  CSS / DOM effect
+```
+
+The source resolves to a value on the document element and from there it is
+the switch machinery unchanged. The generator learned one anchor —
+`:where(:is([data-cre8-data~="time:night"]))` — at the same weight as
+everything else. Rule ordering, specificity, `readCase`, the variant expansion
+and the behaviour runtime are untouched, and the click runtime is not even
+loaded on a page whose only conditions are data.
+
+The sharper proof is that a data condition drives **stage 2's expansion** with
+nothing added for it. `axisOf` reads a state key and a data source into the
+same shape, so content that changes with a toggle and content that changes
+with the time of day are one mechanism.
+
+**Resolved in the head, before the body is parsed.** A classic inline script
+there blocks parsing, so the attribute is correct before a single element
+exists — no flash, no CDN cost, no edge required. The published file also ships
+a fallback the designer chose, so a visitor with no scripting sees one coherent
+version rather than a gap.
+
+**What counts as data, and why the line is where it is.** Only what a browser
+knows synchronously, locally, and without storing anything: the visitor's
+clock, where they arrived from, what the link carried. Anything needing a round
+trip — who is signed in, what a record says — would mean painting the wrong
+thing and correcting it, which is what the scripting-disabled test exists to
+prevent; it belongs at the edge, and there is no edge data layer yet. And there
+is deliberately no "returning visitor" source, however useful it looks, because
+storage is a consent question `dismissibleNoticeSpec` already declined to
+answer on a visitor's behalf.
+
+`{variables}` in text is **not** built. Both halves of it — substituted at
+publish from a record, or at runtime for the signed-in user — need that same
+data layer. Substituting `{site.name}` and calling it done would be a gesture.
+
+**Opening hours** is the block it ships on.
 
 It should be read before any more stateful components are built, because the
 storage migration is the expensive part and it only gets more expensive.

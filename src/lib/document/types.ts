@@ -222,7 +222,16 @@ export type Condition =
   /** A named state on this node or an ancestor. Empty `key` means the nearest. */
   | { kind: 'state'; key: string; op: 'is' | 'isNot'; values: string[] }
   /** An attribute on the element itself — `aria-selected`, `aria-expanded`. */
-  | { kind: 'attr'; name: string; op: 'is' | 'isNot'; values: string[] };
+  | { kind: 'attr'; name: string; op: 'is' | 'isNot'; values: string[] }
+  /**
+   * Something about the visit rather than about the page.
+   *
+   * Deliberately the same shape as `state`, because that is what it becomes:
+   * the source resolves to a value on the document element and everything
+   * downstream — the selector, the ordering, the expansion into elements —
+   * is the switch machinery unchanged. See `runtime/data.ts`.
+   */
+  | { kind: 'data'; source: string; op: 'is' | 'isNot'; values: string[] };
 
 /**
  * Which box the declarations land on. Absent means the element itself.
@@ -509,6 +518,17 @@ export interface ProjectSettings {
   /** Injected into the published <head>. */
   customHead?: string;
   language: string;
+  /**
+   * Per data source: what the file ships with, and what the canvas shows.
+   *
+   * The same pair a switch has — `switchDefault` and `switchDesign` — for the
+   * same two reasons. `ships` is what a visitor sees for the instant before the
+   * resolver runs and for ever if they have no scripting, so it is a real
+   * design decision rather than a placeholder. `designing` never leaves the
+   * editor, so looking at the evening version cannot change what a site says
+   * in the morning.
+   */
+  data?: Record<string, { ships?: string; designing?: string }>;
 }
 
 export interface PublishRecord {

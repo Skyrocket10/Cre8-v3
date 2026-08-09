@@ -67,6 +67,10 @@ export function loadBlocks() {
     canContain: require(path.join(OUT, 'document/schema.js')).canContain,
     readCase: require(path.join(OUT, 'document/schema.js')).readCase,
     migrateDocument: require(path.join(OUT, 'document/migrate.js')).migrateDocument,
+    // The generator, so the checks can assert on real compiled selectors
+    // rather than on a description of what they are supposed to be.
+    buildTree: require(path.join(OUT, 'document/factory.js')).buildTree,
+    generateNodeCss: require(path.join(OUT, 'renderer/css.js')).generateNodeCss,
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
   };
 }

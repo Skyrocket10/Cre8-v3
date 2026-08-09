@@ -24,7 +24,36 @@ const {
   PLACEHOLDER_MIN_HEIGHT,
   canContain,
   migrateDocument,
+  buildTree,
+  generateNodeCss,
 } = loadBlocks();
+
+/** The selector of the first generated rule mentioning `needle`. */
+const selectorOf = (css, needle) =>
+  css.split('\n').find((line) => line.includes(needle) && line.endsWith('{'))?.slice(0, -1) ?? '';
+
+/**
+ * A selector with its `:where()` groups removed.
+ *
+ * Balanced rather than a regex, because the groups nest — `:where(:not(:is(…
+ * )))` — and a non-greedy `\)` stops at the wrong bracket. What is left has to
+ * be the node's class alone, or the rule out-ranks the ones around it.
+ */
+const withoutWhere = (selector) => {
+  let out = '';
+  for (let i = 0; i < selector.length; i++) {
+    if (!selector.startsWith(':where(', i)) {
+      out += selector[i];
+      continue;
+    }
+    let depth = 0;
+    for (i += 6; i < selector.length; i++) {
+      if (selector[i] === '(') depth++;
+      else if (selector[i] === ')' && --depth === 0) break;
+    }
+  }
+  return out.trim();
+};
 const KNOWN_ICONS = new Set(ICON_NAMES);
 
 const CATEGORY_IDS = new Set(BLOCK_CATEGORIES.map((c) => c.id));
@@ -519,7 +548,16 @@ function checkContentRules(spec) {
       bad.push(`${path}: ${node.type} content cannot vary — both copies would take the same id`);
     }
 
-    let state = null;
+    // A switch value and a data source are the same axis here, which is the
+    // claim stage 3 makes: content that changes with the time of day and
+    // content that changes with a toggle expand identically.
+    const axisOf = (condition) => {
+      if (condition.kind === 'state') return condition.key || 'the nearest state';
+      if (condition.kind === 'data') return condition.source;
+      return null;
+    };
+
+    let axis = null;
     const claimed = new Map();
     for (const rule of setting) {
       const unsettable = Object.keys(rule.set).filter((prop) => !SETTABLE.has(prop));
@@ -527,19 +565,22 @@ function checkContentRules(spec) {
         bad.push(`${path}: "${unsettable.join(', ')}" is structure, not content — it cannot be set`);
       }
       if (rule.when.length !== 1 || rule.part || rule.breakpoint) {
-        bad.push(`${path}: a content rule takes exactly one plain state condition`);
+        bad.push(`${path}: a content rule takes exactly one plain condition`);
         continue;
       }
       const condition = rule.when[0];
-      if (condition.kind !== 'state' || condition.op !== 'is' || !condition.values?.length) {
-        bad.push(`${path}: content varies on "${condition.kind}", which is not a state value`);
+      const found = axisOf(condition);
+      if (found === null || condition.op !== 'is' || !condition.values?.length) {
+        bad.push(
+          `${path}: content varies on "${condition.kind}", which is not a value it can expand on`
+        );
         continue;
       }
-      if (state === null) state = condition.key;
-      else if (condition.key !== state) {
+      if (axis === null) axis = found;
+      else if (found !== axis) {
         bad.push(
-          `${path}: content varies on both "${state || 'the nearest state'}" and ` +
-            `"${condition.key || 'the nearest state'}" — nest an element for the second`
+          `${path}: content varies on both "${axis}" and "${found}" — ` +
+            'nest an element for the second'
         );
       }
       for (const value of condition.values) {
@@ -848,6 +889,23 @@ const VIOLATIONS = [
   ],
   [
     checkContentRules,
+    'content varying on a state and on the visit at once',
+    {
+      type: 'text',
+      name: 'T',
+      rules: [
+        saysWhen('annual', { text: 'a' }),
+        {
+          id: 'd',
+          when: [{ kind: 'data', source: 'time', op: 'is', values: ['night'] }],
+          apply: {},
+          set: { text: 'b' },
+        },
+      ],
+    },
+  ],
+  [
+    checkContentRules,
     'content varying on a hover, which cannot expand into elements',
     {
       type: 'text',
@@ -973,6 +1031,81 @@ report.group('a document saved before rules still opens');
   report.check(
     'running it a second time changes nothing',
     JSON.stringify(again) === JSON.stringify(doc)
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Data conditions
+ *
+ * The gate for stage 3 is that the state engine is not modified, which is a
+ * claim about generated output — so it is checked against generated output.
+ * A data condition must compile to the same shape a state condition does, at
+ * the same weight, and must drive the same expansion into elements.
+ * ----------------------------------------------------------------------- */
+
+report.group('a condition on the visit compiles like one on a state');
+
+{
+  const data = (source, op, values, extra = {}) => ({
+    id: `d-${source}`,
+    when: [{ kind: 'data', source, op, values }],
+    apply: {},
+    ...extra,
+  });
+
+  const compile = (rules, props = {}) => {
+    const { nodes } = buildTree({ type: 'frame', name: 'Root', props, children: [
+      { type: 'text', name: 'T', props: { text: 'base' }, rules },
+    ] });
+    return generateNodeCss(nodes, { mode: 'media' });
+  };
+
+  const styling = compile([data('time', 'is', ['night'], { apply: { color: 'red' } })]);
+  report.check(
+    'it hangs off the document element rather than a group it has to find',
+    styling.includes(':where(:is([data-cre8-data~="time:night"]))'),
+    /:where\([^{]*data-cre8-data[^{]*/.exec(styling)?.[0]?.trim() ?? 'no rule'
+  );
+  report.check(
+    'and weighs the same as everything else, so order is still precedence',
+    /^\s*\.c-[a-z0-9]+$/.test(withoutWhere(selectorOf(styling, 'data-cre8-data'))),
+    withoutWhere(selectorOf(styling, 'data-cre8-data'))
+  );
+
+  const negated = compile([data('time', 'isNot', ['night'], { apply: { color: 'red' } })]);
+  report.check(
+    '“isn’t” is one :not(:is()), the same as a state’s',
+    negated.includes(':where(:not(:is([data-cre8-data~="time:night"])))')
+  );
+
+  const many = compile([data('time', 'is', ['evening', 'night'], { apply: { color: 'red' } })]);
+  report.check(
+    'and several values are one :is(), so two of them do not out-rank one',
+    many.includes(':is([data-cre8-data~="time:evening"],[data-cre8-data~="time:night"])')
+  );
+
+  const param = compile([data('query.ref', 'is', ['acme'], { apply: { color: 'red' } })]);
+  report.check(
+    'a link parameter is a source like any other',
+    param.includes('[data-cre8-data~="query.ref:acme"]')
+  );
+
+  // The real proof of the layering: a data condition drives the *stage 2*
+  // expansion with nothing added for it. If this works, the two stages are
+  // genuinely one mechanism rather than two that resemble each other.
+  const expanded = compile([data('time', 'is', ['night'], { set: { text: 'closed' } })]);
+  report.check(
+    'and it expands content into elements, exactly as a switch value does',
+    expanded.includes(':where(:is([data-cre8-data~="time:night"])) .c-') &&
+      expanded.includes(':where(:not(:is([data-cre8-data~="time:night"]))) .c-'),
+    'both halves of the pair'
+  );
+
+  // A source nothing on the page mentions must not appear anywhere, or every
+  // site would carry a resolver for conditions it does not have.
+  report.check(
+    'a page with no data conditions generates nothing about data',
+    !compile([]).includes('data-cre8-data')
   );
 }
 

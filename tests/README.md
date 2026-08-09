@@ -21,6 +21,12 @@ width will never show you:
 - content varies on one state, exclusively, so the expansion stays linear
 - every node is named for the layer tree
 
+It also compiles real conditions through the generator and asserts on the CSS
+that comes out — that a condition on the visit lands on the same anchor a state
+does, at the same weight, and drives the same expansion into elements. That is
+the whole of the stage-3 gate, and it is a claim about output, so it is checked
+against output rather than against the code that produces it.
+
 It also runs `migrateDocument()` over a hand-written older document. That
 function upgrades every project every time one is opened and rewrites the part
 of a node that decides whether the node is visible, so the checks cover the
@@ -69,6 +75,7 @@ preferring an installed copy over downloading one.
 | `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime |
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces |
+| `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |
 | `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
 | `assets` | Do images survive publish and ZIP export |
 | `bodyreset` | Does the published page start at the viewport edge |
