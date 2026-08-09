@@ -34,7 +34,7 @@ export function useStyleBindings(props: readonly StyleProp[]): Record<string, St
   const nodes = useEditor((s) => s.doc.nodes);
   const selection = useEditor((s) => s.selection);
   const breakpoint = useEditor((s) => s.breakpoint);
-  const styleState = useEditor((s) => s.styleState);
+  const activeRuleId = useEditor((s) => s.activeRuleId);
   const key = props.join('|');
 
   return useMemo(() => {
@@ -52,8 +52,8 @@ export function useStyleBindings(props: readonly StyleProp[]): Record<string, St
         let candidate: string | undefined;
         let own = false;
 
-        if (styleState !== 'default') {
-          const stateValue = node.states?.[styleState]?.[prop];
+        if (activeRuleId) {
+          const stateValue = node.rules?.find((r) => r.id === activeRuleId)?.apply[prop];
           if (stateValue !== undefined) {
             candidate = stateValue as string;
             own = true;
@@ -78,7 +78,7 @@ export function useStyleBindings(props: readonly StyleProp[]): Record<string, St
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, selection, breakpoint, styleState, key]);
+  }, [nodes, selection, breakpoint, activeRuleId, key]);
 }
 
 export function useStyleBinding(prop: StyleProp): StyleBinding {
@@ -87,33 +87,33 @@ export function useStyleBinding(prop: StyleProp): StyleBinding {
 }
 
 export function useStyleWriter() {
-  const styleState = useEditor((s) => s.styleState);
+  const activeRuleId = useEditor((s) => s.activeRuleId);
 
   return useCallback(
     (patch: StyleDecl, options?: StyleWriteOptions) => {
       const store = useEditor.getState();
-      if (styleState === 'default') store.setStyle(patch, options);
-      else store.setStateStyle(styleState, patch, options);
+      if (!activeRuleId) store.setStyle(patch, options);
+      else store.setRuleStyle(activeRuleId, patch, options);
     },
-    [styleState]
+    [activeRuleId]
   );
 }
 
 /** Removes the override at the active breakpoint, falling back to inherited. */
 export function useStyleReset() {
-  const styleState = useEditor((s) => s.styleState);
+  const activeRuleId = useEditor((s) => s.activeRuleId);
 
   return useCallback(
     (props: StyleProp[]) => {
       const store = useEditor.getState();
-      if (styleState === 'default') store.clearStyle(props);
+      if (!activeRuleId) store.clearStyle(props);
       else {
         const patch: StyleDecl = {};
         for (const prop of props) patch[prop as 'width'] = undefined as never;
-        store.setStateStyle(styleState, patch);
+        store.setRuleStyle(activeRuleId, patch);
       }
     },
-    [styleState]
+    [activeRuleId]
   );
 }
 

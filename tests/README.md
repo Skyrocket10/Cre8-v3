@@ -17,7 +17,16 @@ width will never show you:
 - every state has something depending on it, and every control changes something
 - every tab has one panel and every panel has one tab
 - buttons and links respond to hover
+- no block still says when it shows in props, rather than as a rule
 - every node is named for the layer tree
+
+It also runs `migrateDocument()` over a hand-written older document. That
+function upgrades every project every time one is opened and rewrites the part
+of a node that decides whether the node is visible, so the checks cover the
+two properties that are not obvious: it recognises the *shape* rather than
+trusting `version` — the field was written from the beginning and read by
+nothing, so a document saved last year and one saved last week both claim `1` —
+and it is safe to run twice.
 
 Run it on every commit. `npm run verify` is this plus `typecheck`.
 

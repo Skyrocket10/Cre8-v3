@@ -31,6 +31,11 @@ export function loadBlocks() {
       // can hold children. Both import types only.
       'src/lib/renderer/icons.ts',
       'src/lib/document/schema.ts',
+      // The upgrade every stored document goes through on load. It runs on
+      // every project every time and would otherwise be exercised only by
+      // accident, which is a poor arrangement for the one piece of code that
+      // can silently discard somebody's work.
+      'src/lib/document/migrate.ts',
       'src/lib/renderer/css.ts',
       '--outDir',
       OUT,
@@ -60,7 +65,8 @@ export function loadBlocks() {
     ICON_NAMES: require(path.join(OUT, 'renderer/icons.js')).ICON_NAMES,
     ELEMENTS: require(path.join(OUT, 'document/schema.js')).ELEMENTS,
     canContain: require(path.join(OUT, 'document/schema.js')).canContain,
-    readVisibility: require(path.join(OUT, 'document/schema.js')).readVisibility,
+    readCase: require(path.join(OUT, 'document/schema.js')).readCase,
+    migrateDocument: require(path.join(OUT, 'document/migrate.js')).migrateDocument,
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
   };
 }

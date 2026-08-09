@@ -330,26 +330,51 @@ Worth listing, because a refactor that only adds is usually the wrong one.
   `rulesFor`;
 - `whenState` / `whenIs` / `whenNot` / `hideMode` as props, and
   `readVisibility` with them — after migration it survives only as the
-  document-version upgrade;
+  document-version upgrade, renamed `readLegacyVisibility` so that being its
+  second caller has to be a decision;
 - the `styleState` field on the store and its two sticky-state guards, which
   become "which rule is selected";
 - `VisibilitySection` and the state switcher in the inspector header, replaced
-  by one list.
+  by one list. What is left of the section is the "Switches to" control, which
+  survives because putting a state into a value is not a style change and does
+  not belong in a list of them.
 
 ---
 
 ## 9. Staging
 
-| Stage | Scope | Gate |
-|---|---|---|
-| **1** | The rule model, the generator, migration at document load, the panel. Everything above except `set`. | Every existing block renders byte-identically, and the whole render suite passes untouched. |
-| **2** | `set` — content and attributes — with publish-time expansion and the mutual-exclusion check. | A block that varies its text by state publishes both strings, indexed, with no script. |
-| **3** | Data conditions and `{variables}`, with the data layer. | The state engine is not modified. |
+| Stage | Scope | Gate | |
+|---|---|---|---|
+| **1** | The rule model, the generator, migration at document load, the panel. Everything above except `set`. | Every existing block renders byte-identically, and the whole render suite passes untouched. | **landed** |
+| **2** | `set` — content and attributes — with publish-time expansion and the mutual-exclusion check. | A block that varies its text by state publishes both strings, indexed, with no script. | |
+| **3** | Data conditions and `{variables}`, with the data layer. | The state engine is not modified. | |
 
 Stage 1 is about the size of the switch itself. Its gate is deliberately
 strict: a refactor that changes output is a rewrite wearing a refactor's
 clothes, and the block sweep already compares 512 rendered checks against the
 canvas, so "byte-identical" is measurable rather than aspirational.
+
+### What the gate actually held to
+
+Rendering is byte-identical and the suite passes — but four assertions in
+`tests/render/behaviour.mjs` had to be rewritten, and it is worth being
+precise about which, because "the tests needed changing" is how a regression
+gets waved through.
+
+All four asserted on the **text of a generated selector**, and the selector
+text changed on purpose: `:where()` padding is the whole point of §4, and
+`:not(:is(a,b))` replaces chained `:not(a):not(b)` because chained negations
+each add specificity — a card answering to two values would have out-ranked
+one answering to a single value, for no reason a designer could see. Every
+assertion about *what a visitor sees* passed untouched, including the two that
+compare the canvas against the published page.
+
+One assertion was added rather than changed, and it is the one that now holds
+the property the other three used to imply by accident: strip the `:where()`
+groups out of every conditional selector on a published page, and what is left
+must be the node's class alone. That fails the moment a condition is emitted
+unpadded, which is the regression that would quietly make order stop being
+precedence.
 
 ### Migration
 

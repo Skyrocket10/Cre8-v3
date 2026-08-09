@@ -13,7 +13,7 @@
  */
 
 import React from 'react';
-import { EyeOff, MousePointer2, Monitor, Smartphone, Tablet } from 'lucide-react';
+import { EyeOff, Layers2, MousePointer2, Monitor, Smartphone, Tablet } from 'lucide-react';
 import { getElement } from '@/lib/document/schema';
 import { BREAKPOINT_DEFS } from '@/lib/document/types';
 import { useEditor } from '@/lib/editor/store';
@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
 import { Segmented, TextInput, Tooltip } from '../ui/primitives';
 import { ContentSection } from './section-content';
+import { RulesSection, describeRule } from './section-rules';
 import {
   FlexChildSection,
   LayoutSection,
@@ -61,21 +62,7 @@ function InspectorHeader() {
   const tab = useEditor((s) => s.inspectorTab);
   const setTab = useEditor((s) => s.setInspectorTab);
   const breakpoint = useEditor((s) => s.breakpoint);
-  const styleState = useEditor((s) => s.styleState);
-  const setStyleState = useEditor((s) => s.setStyleState);
   const selectionCount = useEditor((s) => s.selection.length);
-  // `::backdrop` only exists for something in the top layer. Offering it on
-  // every element would be a control that silently does nothing.
-  const hasBackdrop = useEditor((s) => {
-    const id = s.selection[0];
-    const type = id ? s.doc.nodes[id]?.type : undefined;
-    return type === 'dialog' || type === 'popover';
-  });
-  // Likewise "Selected": only a control that sets a switch has one.
-  const setsSwitch = useEditor((s) => {
-    const id = s.selection[0];
-    return Boolean(id && s.doc.nodes[id]?.props.switchSet);
-  });
 
   const BreakpointIcon =
     breakpoint === 'desktop' ? Monitor : breakpoint === 'tablet' ? Tablet : Smartphone;
@@ -117,34 +104,6 @@ function InspectorHeader() {
             </div>
           </Tooltip>
 
-          <Segmented
-            size="xs"
-            className="flex-1"
-            value={styleState}
-            onChange={setStyleState}
-            options={[
-              { value: 'default', label: 'Default', title: 'Base style' },
-              { value: 'hover', label: 'Hover', title: 'Styles applied on hover' },
-              ...(hasBackdrop
-                ? [
-                    {
-                      value: 'backdrop' as const,
-                      label: 'Backdrop',
-                      title: 'The sheet the browser paints behind it',
-                    },
-                  ]
-                : []),
-              ...(setsSwitch
-                ? [
-                    {
-                      value: 'pressed' as const,
-                      label: 'Selected',
-                      title: 'While the switch holds this value',
-                    },
-                  ]
-                : []),
-            ]}
-          />
         </div>
       )}
     </div>
@@ -160,7 +119,8 @@ function SingleSelection() {
     const id = s.selection[0];
     return id ? s.doc.nodes[id] : undefined;
   });
-  const styleState = useEditor((s) => s.styleState);
+  const activeRuleId = useEditor((s) => s.activeRuleId);
+  const activeRule = node?.rules?.find((rule) => rule.id === activeRuleId);
 
   if (!node) return null;
   const def = getElement(node.type);
@@ -189,17 +149,25 @@ function SingleSelection() {
         </button>
       )}
 
-      {styleState !== 'default' && (
-        <div className="border-b border-[var(--border-soft)] bg-[var(--accent-subtle)] px-3 py-1.5 text-[10.5px] text-[var(--accent)]">
-          {styleState === 'backdrop'
-            ? 'Changes apply to the backdrop behind it. Switch to Default for the panel itself.'
-            : styleState === 'pressed'
-              ? 'Changes apply while this option is the selected one.'
-              : `Changes apply on ${styleState}. Switch to Default for the base style.`}
-        </div>
+      {/* Louder than the old tinted strip, because there can now be any
+          number of these rather than two, and writing a colour into the
+          wrong one looks exactly like writing it into the right one. */}
+      {activeRule && (
+        <button
+          type="button"
+          onClick={() => useEditor.getState().setActiveRule(null)}
+          className="flex w-full items-center gap-1.5 border-b border-[var(--accent)] bg-[var(--accent-subtle)] px-3 py-1.5 text-left text-[10.5px] text-[var(--accent)] transition-opacity hover:opacity-80"
+        >
+          <Layers2 size={11} className="shrink-0" />
+          <span className="flex-1 truncate font-medium">
+            Editing {describeRule(activeRule).toLowerCase()}
+          </span>
+          <span className="shrink-0 opacity-70">Back to base</span>
+        </button>
       )}
 
       <ContentSection />
+      <RulesSection />
       <LayoutSection />
       <SizeSection />
       <SpacingSection />

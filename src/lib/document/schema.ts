@@ -7,7 +7,7 @@
  * an element type means adding a row — not touching six subsystems.
  */
 
-import type { ElementType, NodeProps, StateStyles, StyleDecl } from './types';
+import type { ElementType, NodeProps, StateStyles, StyleDecl, StyleRule } from './types';
 
 export type InsertCategory =
   | 'layout'
@@ -1188,17 +1188,18 @@ export function slugList(value: unknown): string {
  * ----------------------------------------------------------------------- */
 
 /**
- * When an element is on screen.
+ * When an element is on screen — in the terms the rest of the app thinks in.
  *
- * The generalisation of what used to be a "switch case". A case could only
- * say *is this one value*, bound to whichever state happened to be nearest —
- * which meant "show this unless the plan is Free" had to be written by
- * tagging every other plan, and a node could never react to a state declared
- * further up than the closest one.
+ * Hiding is now just a rule like any other, and the generator needs to know
+ * nothing else about it. But three things do still care specifically about
+ * *being a case of a state*: the runtime pairs a tab to its panel, the layer
+ * tree marks rows that are on another case, and selecting a node has to bring
+ * its case forward. All three want the same four facts, so they are read out
+ * of the rule in one place.
  *
- * Four flat fields rather than a nested object, because `NodeProps` is flat
- * on purpose: the document stays trivially serialisable and every value is
- * patchable on its own.
+ * Note the flip. A rule stores the literal — *when this, hide* — while this
+ * reads as the intent, *shown when this*. `negated` therefore means the rule
+ * said `is` and `!negated` means it said `isn't`.
  */
 export interface Visibility {
   /** The state this depends on. Empty means the nearest one above. */
@@ -1211,15 +1212,47 @@ export interface Visibility {
   keepSpace: boolean;
 }
 
+/** Whether a rule's changes amount to "not on screen". */
+function hides(rule: StyleRule): boolean {
+  return rule.apply.display === 'none' || rule.apply.visibility === 'hidden';
+}
+
 /**
- * Read a node's condition, or `null` when it has none.
+ * The rule that makes a node a case of a state, or `null` when it has none.
  *
- * `switchCase` is the older spelling and still understood: it meant "the
- * nearest state above, is, these values", which is exactly this with an empty
- * state and no negation. Read in one place so nothing downstream has to know
- * there were ever two ways to say it.
+ * Deliberately narrow. A node can carry any number of rules and several of
+ * them may hide it, but only one shape means *this element belongs to that
+ * case*: a single state condition, hiding, at every width, on the element
+ * itself. A hide that only applies on mobile is a responsive choice, and a
+ * hide behind two conditions is not something a tab can be paired with — both
+ * still work, they simply are not a case.
+ *
+ * The first match wins, which is also the one that migration produces, so a
+ * document that came from the old props reads back exactly as it did before.
  */
-export function readVisibility(props: NodeProps): Visibility | null {
+export function readCase(rules: StyleRule[] | undefined): Visibility | null {
+  for (const rule of rules ?? []) {
+    if (rule.part || rule.breakpoint || rule.when.length !== 1 || !hides(rule)) continue;
+    const condition = rule.when[0]!;
+    if (condition.kind !== 'state' || condition.values.length === 0) continue;
+    return {
+      state: condition.key,
+      values: condition.values,
+      negated: condition.op === 'is',
+      keepSpace: rule.apply.display !== 'none',
+    };
+  }
+  return null;
+}
+
+/**
+ * The same reading, from the props it used to live in.
+ *
+ * Only `migrate.ts` calls this. It exists because documents saved before the
+ * rule model still say `whenIs` and `switchCase`, and it should acquire no
+ * other callers — anything asking "is this a case" wants `readCase`.
+ */
+export function readLegacyVisibility(props: NodeProps): Visibility | null {
   const raw = props.whenIs ?? props.switchCase;
   const values = slugList(raw);
   if (!values) return null;

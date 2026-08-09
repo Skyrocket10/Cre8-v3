@@ -935,53 +935,54 @@ export const switchButton = (text: string, value: string, styles: StyleDecl = {}
 });
 
 /**
- * Show a node while a state holds one of these values.
+ * A rule that hides a node unless a state holds one of these values.
  *
- * More than one is how a filter gets an "All": an item tagged `all design`
- * answers to both, so the catch-all needs no special case in the mechanism.
+ * Blocks write the condition rather than an intent: the stored form is always
+ * the literal *when this, apply that*, and it is the inspector that presents
+ * it back as "shown when". More than one value is how a filter gets an
+ * "All" — an item answering to `all design` survives both.
  */
 export const switchCase = (
   value: string,
   node: NodeSpec,
   options: { state?: string; keepSpace?: boolean } = {}
-): NodeSpec => ({
-  ...node,
-  props: {
-    ...node.props,
-    whenIs: value,
-    ...(options.state ? { whenState: options.state } : {}),
-    ...(options.keepSpace ? { hideMode: 'keep' } : {}),
-  },
-});
+): NodeSpec => hideRule(node, value, 'isNot', options);
 
 /**
- * The opposite: show a node *unless* the state is one of these.
+ * The opposite: hide it *when* the state is one of these.
  *
  * "Clear the filter" belongs on screen for every category except the one that
- * shows everything, and writing that as `is` would mean listing the other
- * three and keeping the list in step with them.
+ * shows everything, and writing that the other way round would mean listing
+ * the other three and keeping the list in step with them.
  */
 export const switchUnless = (
   value: string,
   node: NodeSpec,
   options: { state?: string; keepSpace?: boolean } = {}
+): NodeSpec => hideRule(node, value, 'is', options);
+
+const hideRule = (
+  node: NodeSpec,
+  value: string,
+  op: 'is' | 'isNot',
+  options: { state?: string; keepSpace?: boolean }
 ): NodeSpec => ({
   ...node,
-  props: {
-    ...node.props,
-    whenIs: value,
-    whenNot: true,
-    ...(options.state ? { whenState: options.state } : {}),
-    ...(options.keepSpace ? { hideMode: 'keep' } : {}),
-  },
+  rules: [
+    ...(node.rules ?? []),
+    {
+      id: `r-${op}-${value.replace(/\s+/g, '-')}`,
+      when: [{ kind: 'state', key: options.state ?? '', op, values: value.split(/\s+/) }],
+      apply: options.keepSpace ? { visibility: 'hidden' } : { display: 'none' },
+    },
+  ],
 });
 
 /**
  * A control that moves the switch on without claiming to be a toggle.
  *
- * Back and Next in a stepper. Announcing them as pressed or unpressed —
- * "Next, toggle button, not pressed" — describes something that is not what
- * the button is.
+ * Back and Continue in a stepper. Announcing them as pressed or unpressed —
+ * "Next, toggle button, not pressed" — describes something the button is not.
  */
 export const switchStep = (
   text: string,

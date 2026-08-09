@@ -98,6 +98,8 @@ export interface StyleDecl {
   overflow?: string;
   overflowX?: string;
   overflowY?: string;
+  /** `hidden` empties the box without taking its space. */
+  visibility?: string;
 
   /* Size */
   width?: string;
@@ -200,31 +202,73 @@ export type StyleProp = keyof StyleDecl;
 /** Style overrides keyed by breakpoint. `desktop` is the base layer. */
 export type ResponsiveStyles = Partial<Record<Breakpoint, StyleDecl>>;
 
+/* --------------------------------------------------------------------------
+ * Rules: when this is true, apply that
+ * ----------------------------------------------------------------------- */
+
 /**
- * Variants of a node's own rule.
+ * Something that has to hold for a rule to apply.
  *
- * Three are interaction states, published as `:hover` / `:active` / `:focus`.
- * `backdrop` is the odd one: it is a pseudo-*element*, the sheet the browser
- * paints behind anything in the top layer, and it lives here because it is
- * the same thing mechanically — one more selector hung off the node's class.
- * A separate field would have meant a second path through the generator, the
- * inspector and the patch stream to say the same sentence.
+ * One union covering what used to be four mechanisms. The split between
+ * members is not cosmetic — it is where in the selector each one lands. A
+ * pointer condition joins the element's own compound; a state condition is a
+ * match on an ancestor and therefore prefixes it.
  */
+export type Condition =
+  /** Evaluated by the browser and free: `:hover`, `:active`, `:focus-visible`. */
+  | { kind: 'pointer'; pseudo: 'hover' | 'active' | 'focus' | 'focus-visible' }
+  /** Also pseudo-classes, but about a control's own state. */
+  | { kind: 'control'; pseudo: 'checked' | 'disabled' | 'invalid' | 'placeholder-shown' }
+  /** A named state on this node or an ancestor. Empty `key` means the nearest. */
+  | { kind: 'state'; key: string; op: 'is' | 'isNot'; values: string[] }
+  /** An attribute on the element itself — `aria-selected`, `aria-expanded`. */
+  | { kind: 'attr'; name: string; op: 'is' | 'isNot'; values: string[] };
+
+/**
+ * Which box the declarations land on. Absent means the element itself.
+ *
+ * Deliberately separate from `Condition`: a part does not say *when* a rule
+ * applies, it says *where*, and the two compose — `:hover` on the backdrop of
+ * an open dialog is both at once. Folding pseudo-elements into the condition
+ * list, which is what the old `states.backdrop` did, made that combination
+ * impossible to express.
+ */
+export type Part = 'backdrop' | 'placeholder' | 'marker' | 'selection';
+
+/**
+ * When this is true, apply that.
+ *
+ * A list rather than a record because two rules can both match and both set
+ * `background`, and the only precedence a designer can predict is the order
+ * they are in. Every rule is padded to the same specificity for exactly that
+ * reason — see `css.ts`.
+ */
+export interface StyleRule {
+  /**
+   * Unique within the node, not across the document.
+   *
+   * Duplicating or pasting onto a node copies the rules as they are, ids and
+   * all, which is deliberate: nothing keys a document-wide map by rule id, and
+   * a copy keeping the same id is what lets "editing the hover rule" survive
+   * selecting the copy.
+   */
+  id: string;
+  /** All must hold. Empty is legal: a part with no condition, like a backdrop. */
+  when: Condition[];
+  part?: Part;
+  apply: StyleDecl;
+  /** Scope to one breakpoint. Absent means every breakpoint. */
+  breakpoint?: Breakpoint;
+}
+
+/* --------------------------------------------------------------------------
+ * Legacy — read by the version-2 migration and by nothing else
+ * ----------------------------------------------------------------------- */
+
+/** @deprecated Folded into `StyleRule` at document version 2. */
 export type StyleState = 'hover' | 'active' | 'focus' | 'backdrop' | 'pressed';
 
-/** Which of those are `::` rather than `:`. */
-export const PSEUDO_ELEMENT_STATES: readonly StyleState[] = ['backdrop'] as const;
-
-/**
- * `pressed` is not a selector on the node at all.
- *
- * It means "the switch this control sets is currently on my value", which is
- * a fact about an *ancestor*, so the generator writes it as a descendant rule
- * keyed on the group. Doing it that way rather than off `aria-pressed` is
- * what stops the selected tab flashing unselected on every page load: the
- * style is in the stylesheet, not applied by a script after first paint.
- */
-export const SWITCH_STATES: readonly StyleState[] = ['pressed'] as const;
+/** @deprecated Folded into `StyleRule` at document version 2. */
 export type StateStyles = Partial<Record<StyleState, StyleDecl>>;
 
 /* --------------------------------------------------------------------------
@@ -320,8 +364,14 @@ export interface SceneNode {
   props: NodeProps;
   /** Base + per-breakpoint overrides. */
   styles: ResponsiveStyles;
-  /** Hover/active/focus styles, base breakpoint only for now. */
-  states?: StateStyles;
+  /**
+   * Conditional overrides, in the order they apply.
+   *
+   * Replaces the old `states` record. Authoring still accepts the shorthand —
+   * `NodeSpec.states` and `ElementDefinition.defaultStates` are folded into
+   * this by the factory — but nothing downstream reads anything else.
+   */
+  rules?: StyleRule[];
   meta: NodeMeta;
 
   /* Reserved extension points — declared so the format never has to change. */
@@ -458,7 +508,14 @@ export interface PublishRecord {
   bytes: number;
 }
 
-export const DOCUMENT_VERSION = 1;
+/**
+ * 2 — `states` and the `when*` visibility props folded into `rules`.
+ *
+ * Read on load by `migrateDocument`. Version 1 was written by every document
+ * built before that and never checked by anything, which is why the migration
+ * had to be able to recognise the old shape rather than trust the number.
+ */
+export const DOCUMENT_VERSION = 2;
 
 export interface Cre8Document {
   version: number;

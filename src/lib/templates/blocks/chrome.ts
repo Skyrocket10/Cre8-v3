@@ -32,6 +32,7 @@ import {
   section,
   stack,
   switchButton,
+  switchCase,
   textLink,
   tint,
 } from './kit';
@@ -703,10 +704,10 @@ export function navMenuSpec(links: (string | BlockLink)[] = DEFAULT_NAV_LINKS): 
  * this block has no business answering on a visitor's behalf.
  */
 export function dismissibleNoticeSpec(): NodeSpec {
-  return {
+  return switchCase('shown', {
     type: 'section',
     name: 'Notice',
-    props: { switchKey: 'notice', switchDefault: 'shown', whenIs: 'shown' },
+    props: { switchKey: 'notice', switchDefault: 'shown' },
     styles: {
       ...pad('11px', '24px'),
       backgroundColor: 'var(--c-text)',
@@ -764,5 +765,5 @@ export function dismissibleNoticeSpec(): NodeSpec {
         }
       ),
     ],
-  };
+  });
 }

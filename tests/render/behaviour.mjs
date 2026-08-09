@@ -27,6 +27,32 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } }
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('  [pageerror]', e.message));
 
+/** Every generated selector that tests a state, from a published page. */
+const conditionalSelectors = (html) =>
+  [...html.matchAll(/^(.*data-cre8-switch=.*?)\s*\{$/gm)].map((m) => m[1]);
+
+/**
+ * A selector with its `:where()` groups removed.
+ *
+ * Balanced rather than a regex, because the groups nest — `:where(:not(:is(…
+ * )))` — and a non-greedy `\)` stops at the wrong bracket.
+ */
+const withoutWhere = (selector) => {
+  let out = '';
+  for (let i = 0; i < selector.length; i++) {
+    if (!selector.startsWith(':where(', i)) {
+      out += selector[i];
+      continue;
+    }
+    let depth = 0;
+    for (i += 6; i < selector.length; i++) {
+      if (selector[i] === '(') depth++;
+      else if (selector[i] === ')' && --depth === 0) break;
+    }
+  }
+  return out;
+};
+
 /**
  * A row in the layer tree, scrolled to.
  *
@@ -134,8 +160,25 @@ try {
   );
   report.check(
     'the hiding is a stylesheet rule, not a script decision',
-    html.includes('[data-cre8-switch="billing"]:not([data-cre8-value~="annual"])'),
+    html.includes(
+      ':where([data-cre8-switch="billing"]):where(:not(:is([data-cre8-value~="annual"])))'
+    ),
     'rule present'
+  );
+  // Everything a condition contributes goes through `:where()`, which scores
+  // nothing — so a conditional rule weighs exactly what the node's base rule
+  // weighs and the cascade falls back to source order. That is what makes the
+  // rule list in the inspector mean what it says. Strip the `:where()` groups
+  // out of every conditional selector and what is left must be the class
+  // alone; anything else is specificity nobody asked for.
+  report.check(
+    'and it weighs no more than the element’s own styles, so order is precedence',
+    conditionalSelectors(html).every((selector) =>
+      /^\s*\.c-[a-z0-9]+(::[a-z-]+)?$/.test(withoutWhere(selector))
+    ),
+    conditionalSelectors(html)
+      .map(withoutWhere)
+      .find((rest) => !/^\s*\.c-[a-z0-9]+(::[a-z-]+)?$/.test(rest)) ?? 'all padded'
   );
 
   /* --------------------------------- 4. it works, and it works without the script */
@@ -427,12 +470,16 @@ try {
     /data-cre8-case="all brand"/.test(filtered),
     /data-cre8-case="all [a-z]+"/.exec(filtered)?.[0] ?? 'no multi-value case'
   );
+  // One `:not(:is(a,b))` rather than `:not(a):not(b)`. Chained negations each
+  // add specificity, so a card answering to two values would have out-ranked
+  // one answering to a single value for no reason a designer could see;
+  // `:is()` takes the highest of its arguments, so every case weighs the same.
   report.check(
-    'and the rule takes one :not() per value it answers to',
+    'and the rule tests every value it answers to, at one weight',
     filtered.includes(
-      '[data-cre8-switch="kind"]:not([data-cre8-value~="all"]):not([data-cre8-value~="brand"])'
+      ':where(:not(:is([data-cre8-value~="all"],[data-cre8-value~="brand"])))'
     ),
-    'chained'
+    'one :is'
   );
 
   const grid = await ctx.newPage();
@@ -636,7 +683,9 @@ try {
   const clearLink = clear.locator('a:text-is("Clear the filter")');
 
   report.check('the negated rule keys on the value rather than against it',
-    xray.includes('[data-cre8-switch="kind"]:is([data-cre8-value~="all"])'),
+    xray.includes(
+      ':where([data-cre8-switch="kind"]):where(:is([data-cre8-value~="all"]))'
+    ),
     'isn’t compiled'
   );
   report.check('“clear the filter” is absent while showing everything',
@@ -664,7 +713,7 @@ try {
 
   report.check(
     'a self-hiding bar compiles to a compound selector, not a descendant one',
-    /\[data-cre8-switch="notice"\]:not\(\[data-cre8-value~="shown"\]\)\.c-[a-z0-9]+ ?\{/.test(
+    /\.c-[a-z0-9]+:where\(\[data-cre8-switch="notice"\]\):where\(:not\(:is\(\[data-cre8-value~="shown"\]\)\)\) ?\{/.test(
       withNotice
     ),
     'no space before the class'

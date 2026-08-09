@@ -8,7 +8,7 @@
  * promise someone has to keep re-checking.
  */
 
-import { SWITCH_SHOW_ALL, readVisibility, resolveTag, slug } from '../document/schema';
+import { SWITCH_SHOW_ALL, readCase, resolveTag, slug } from '../document/schema';
 import type { Cre8Document, SceneNode } from '../document/types';
 import { nodeClass } from './css';
 import { iconMarkup } from './icons';
@@ -137,7 +137,10 @@ function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): El
   const props = node.props;
   const key = slug(props.switchKey);
   const set = slug(props.switchSet);
-  const when = readVisibility(props);
+  // Hiding is the stylesheet's job — these attributes exist so the *runtime*
+  // can tell a tab's panel from a price that happens to answer to the same
+  // value, which it cannot read out of a rule.
+  const when = readCase(node.rules);
   if (!key && !set && !when) return model;
 
   if (key) {

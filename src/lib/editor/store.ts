@@ -31,7 +31,9 @@ import type {
   NodeProps,
   StyleDecl,
   StyleProp,
-  StyleState,
+  Condition,
+  Part,
+  StyleRule,
 } from '../document/types';
 import { commit, emptyHistory, redo as redoHistory, undo as undoHistory, type HistoryState } from '../history/history';
 import { cloneSubtree } from '../document/factory';
@@ -135,7 +137,13 @@ interface EditorState {
   rightWidth: number;
   inspectorTab: InspectorTab;
   /** Which style layer the inspector writes to: the base, or an interaction state. */
-  styleState: 'default' | StyleState;
+  /**
+   * Which rule the style panels write into, or `null` for the base layer.
+   *
+   * Replaces `styleState`. The old field named a fixed set of states; a node
+   * can now carry any number of rules, so the mode is an id.
+   */
+  activeRuleId: string | null;
   previewing: boolean;
   previewDevice: Breakpoint;
   showRulers: boolean;
@@ -227,7 +235,11 @@ interface EditorActions {
   setLeftWidth(width: number): void;
   setRightWidth(width: number): void;
   setInspectorTab(tab: InspectorTab): void;
-  setStyleState(state: 'default' | StyleState): void;
+  setActiveRule(ruleId: string | null): void;
+  addRule(when: Condition[], part?: Part): string | null;
+  removeRule(ruleId: string): void;
+  moveRule(ruleId: string, delta: number): void;
+  updateRule(ruleId: string, patch: Partial<Pick<StyleRule, 'when' | 'part' | 'breakpoint'>>): void;
   setPreviewing(on: boolean): void;
   setPreviewDevice(bp: Breakpoint): void;
   toggleRulers(): void;
@@ -252,7 +264,7 @@ interface EditorActions {
   setNodeProps(patch: NodeProps, ids?: NodeId[]): void;
   setStyle(patch: StyleDecl, options?: TransactOptions & { ids?: NodeId[] }): void;
   clearStyle(props: StyleProp[], ids?: NodeId[]): void;
-  setStateStyle(state: StyleState, patch: StyleDecl, options?: TransactOptions): void;
+  setRuleStyle(ruleId: string, patch: StyleDecl, options?: TransactOptions): void;
   toggleHidden(ids?: NodeId[]): void;
   toggleLocked(ids?: NodeId[]): void;
   reorderInParent(id: NodeId, direction: 1 | -1): void;
@@ -330,7 +342,7 @@ function initialState(): EditorState {
     rightOpen: true,
     rightWidth: 288,
     inspectorTab: 'design',
-    styleState: 'default',
+    activeRuleId: null,
     previewing: false,
     previewDevice: 'desktop',
     showRulers: true,
@@ -540,21 +552,21 @@ export const useEditor = create<EditorStore>()((set, get) => ({
 
     if (result.length === selection.length && result.every((id, i) => selection[i] === id)) return;
 
-    // `::backdrop` only exists on something in the top layer, and "selected"
-    // only on a control that sets a switch. Left sticky, the next element
-    // selected would silently take styles it can never render — edits that
-    // appear to do nothing and are invisible in the panel.
     const first = result[0];
-    const node = first ? doc.nodes[first] : undefined;
-    const keeps =
-      get().styleState === 'backdrop'
-        ? node?.type === 'dialog' || node?.type === 'popover'
-        : get().styleState === 'pressed'
-          ? Boolean(node?.props.switchSet)
-          : true;
-    const styleState = keeps ? undefined : ('default' as const);
 
-    set({ selection: result, editingTextId: null, ...(styleState ? { styleState } : {}) });
+    // A rule id belongs to one node, so it cannot survive the selection
+    // moving to another. Left sticky, the style panels would write into a
+    // rule that is no longer on screen.
+    const keepsRule =
+      get().activeRuleId !== null &&
+      first !== undefined &&
+      Boolean(doc.nodes[first]?.rules?.some((rule) => rule.id === get().activeRuleId));
+
+    set({
+      selection: result,
+      editingTextId: null,
+      ...(keepsRule ? {} : { activeRuleId: null }),
+    });
 
     // A case that is not current has no box on the canvas, so selecting one
     // would otherwise outline nothing. Recorded as `false`: revealing is the
@@ -672,8 +684,8 @@ export const useEditor = create<EditorStore>()((set, get) => ({
   setInspectorTab(tab) {
     set({ inspectorTab: tab });
   },
-  setStyleState(state) {
-    set({ styleState: state });
+  setActiveRule(ruleId) {
+    set({ activeRuleId: ruleId });
   },
   setPreviewing(on) {
     set({ previewing: on, previewDevice: get().breakpoint, editingTextId: null });
@@ -892,17 +904,48 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     });
   },
 
-  setStateStyle(state_, patch, options) {
-    const targets = get().selection;
-    if (!targets.length) return;
+  setRuleStyle(ruleId, patch, options) {
+    const state = get();
+    if (!state.selection.length) return;
+    const targets = state.selection;
     get().transact(
       'Style',
       (draft) => {
-        ops.setStateStyles(draft, targets, state_, patch);
+        ops.setRuleStyles(draft, targets, ruleId, patch);
         return targets;
       },
       options
     );
+  },
+
+  addRule(when, part) {
+    const id = get().selection[0];
+    if (!id) return null;
+    const ruleId = uid();
+    get().transact('Add condition', (draft) => {
+      ops.addRule(draft, id, { id: ruleId, when, ...(part ? { part } : {}), apply: {} });
+    });
+    set({ activeRuleId: ruleId });
+    return ruleId;
+  },
+
+  removeRule(ruleId) {
+    const id = get().selection[0];
+    if (!id) return;
+    get().transact('Remove condition', (draft) => ops.removeRule(draft, id, ruleId));
+    if (get().activeRuleId === ruleId) set({ activeRuleId: null });
+  },
+
+  moveRule(ruleId, delta) {
+    const id = get().selection[0];
+    if (!id) return;
+    get().transact('Reorder conditions', (draft) => ops.moveRule(draft, id, ruleId, delta));
+  },
+
+  updateRule(ruleId, patch) {
+    const id = get().selection[0];
+    if (!id) return;
+    get().transact('Edit condition', (draft) => ops.updateRule(draft, id, ruleId, patch));
   },
 
   toggleHidden(ids) {

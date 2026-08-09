@@ -11,7 +11,7 @@
 
 import { cloneSubtree, createNode, structuredCloneCompat, type NodeSpec, buildTree } from './factory';
 import { uid, slugify } from './id';
-import { SWITCH_SHOW_ALL, canContain, getElement, readVisibility, slug } from './schema';
+import { SWITCH_SHOW_ALL, canContain, getElement, readCase, slug } from './schema';
 import {
   canReparent,
   collectSubtree,
@@ -31,7 +31,7 @@ import type {
   SceneNode,
   StyleDecl,
   StyleProp,
-  StyleState,
+  StyleRule,
 } from './types';
 
 /* --------------------------------------------------------------------------
@@ -290,23 +290,65 @@ export function clearStyles(
   }
 }
 
-export function setStateStyles(
+/**
+ * Write declarations into one of a node's rules.
+ *
+ * The rule has to exist — the inspector creates it when the designer adds a
+ * condition, and this only ever fills it in. Emptying a rule of declarations
+ * leaves it in the list rather than deleting it: the condition is still
+ * something the designer wrote, and having it vanish because the last
+ * declaration was cleared would be a surprise.
+ */
+export function setRuleStyles(
   doc: Cre8Document,
   ids: NodeId[],
-  state: StyleState,
+  ruleId: string,
   patch: StyleDecl
 ): void {
   for (const id of ids) {
-    const node = doc.nodes[id];
-    if (!node) continue;
-    node.states ??= {};
-    const layer = (node.states[state] ??= {});
+    const rule = doc.nodes[id]?.rules?.find((r) => r.id === ruleId);
+    if (!rule) continue;
     for (const [key, value] of Object.entries(patch)) {
-      if (value === undefined || value === '') delete layer[key as StyleProp];
-      else layer[key as StyleProp] = value as never;
+      if (value === undefined || value === '') delete rule.apply[key as StyleProp];
+      else rule.apply[key as StyleProp] = value as never;
     }
-    if (Object.keys(layer).length === 0) delete node.states[state];
   }
+}
+
+export function addRule(doc: Cre8Document, id: NodeId, rule: StyleRule): string | null {
+  const node = doc.nodes[id];
+  if (!node) return null;
+  (node.rules ??= []).push(rule);
+  return rule.id;
+}
+
+export function removeRule(doc: Cre8Document, id: NodeId, ruleId: string): void {
+  const node = doc.nodes[id];
+  if (!node?.rules) return;
+  node.rules = node.rules.filter((rule) => rule.id !== ruleId);
+  if (node.rules.length === 0) delete node.rules;
+}
+
+/** Order is precedence, so moving a rule is a real edit rather than a view. */
+export function moveRule(doc: Cre8Document, id: NodeId, ruleId: string, delta: number): void {
+  const rules = doc.nodes[id]?.rules;
+  if (!rules) return;
+  const from = rules.findIndex((rule) => rule.id === ruleId);
+  if (from < 0) return;
+  const to = clamp(from + delta, 0, rules.length - 1);
+  if (to === from) return;
+  const [moved] = rules.splice(from, 1);
+  rules.splice(to, 0, moved!);
+}
+
+export function updateRule(
+  doc: Cre8Document,
+  id: NodeId,
+  ruleId: string,
+  patch: Partial<Pick<StyleRule, 'when' | 'part' | 'breakpoint'>>
+): void {
+  const rule = doc.nodes[id]?.rules?.find((r) => r.id === ruleId);
+  if (rule) Object.assign(rule, patch);
 }
 
 /** Copy the full style stack from one node onto others. */
@@ -317,7 +359,7 @@ export function pasteStyles(doc: Cre8Document, sourceId: NodeId, targetIds: Node
     const node = doc.nodes[id];
     if (!node || node.id === sourceId) continue;
     node.styles = structuredCloneCompat(source.styles);
-    if (source.states) node.states = structuredCloneCompat(source.states);
+    if (source.rules) node.rules = structuredCloneCompat(source.rules);
   }
 }
 
@@ -687,7 +729,7 @@ export function revealSwitchPath(doc: Cre8Document, nodeId: NodeId): boolean {
 
   /** Put a state into some value that satisfies the condition, if it is not. */
   const satisfy = (from: SceneNode): void => {
-    const when = readVisibility(from.props);
+    const when = readCase(from.rules);
     if (!when) return;
     const group = ownerOf(from, when.state);
     if (!group || group.props.switchDesign === SWITCH_SHOW_ALL) return;

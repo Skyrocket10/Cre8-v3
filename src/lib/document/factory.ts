@@ -8,6 +8,7 @@
  */
 
 import { uid } from './id';
+import { migrateDocument, rulesFromLegacy } from './migrate';
 import { getElement } from './schema';
 import { createDefaultTheme } from './theme';
 import {
@@ -20,7 +21,9 @@ import {
   type Page,
   type ResponsiveStyles,
   type SceneNode,
+  type StateStyles,
   type StyleDecl,
+  type StyleRule,
 } from './types';
 import type { NodeMap } from './tree';
 
@@ -48,7 +51,9 @@ export function createNode(type: ElementType, options: CreateNodeOptions = {}): 
       desktop: { ...def.defaultStyles, ...options.styles, ...options.responsive?.desktop },
     },
     meta: {},
-    ...(def.defaultStates ? { states: structuredCloneCompat(def.defaultStates) } : {}),
+    ...(def.defaultStates
+      ? { rules: rulesFromLegacy(structuredCloneCompat(def.defaultStates), {}) }
+      : {}),
   };
 }
 
@@ -63,7 +68,9 @@ export interface NodeSpec {
   props?: NodeProps;
   styles?: StyleDecl;
   responsive?: ResponsiveStyles;
-  states?: SceneNode['states'];
+  /** Authoring shorthand, folded into `rules` on the way in. */
+  states?: StateStyles;
+  rules?: StyleRule[];
   meta?: SceneNode['meta'];
   children?: NodeSpec[];
 }
@@ -87,7 +94,13 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
     responsive: spec.responsive,
     parentId,
   });
-  if (spec.states) node.states = spec.states;
+  // `states` and `rules` are both accepted from a spec: the first is the
+  // shorthand most blocks are written in, the second is what a block reaches
+  // for when it needs a condition a state name cannot express.
+  const fromStates = rulesFromLegacy(spec.states, node.props);
+  if (fromStates.length || spec.rules?.length) {
+    node.rules = [...(node.rules ?? []), ...fromStates, ...(spec.rules ?? [])];
+  }
   if (spec.meta) node.meta = { ...node.meta, ...spec.meta };
 
   into[node.id] = node;
@@ -288,7 +301,11 @@ export function hydrateDocument(input: Partial<Cre8Document> & { nodes?: NodeMap
   const doc: Cre8Document = {
     ...base,
     ...input,
-    version: DOCUMENT_VERSION,
+    // Whatever version came in is kept until `migrateDocument` below has
+    // earned the new one. Stamping it here — which this used to do — made the
+    // field a decoration: every document claimed to be current the moment it
+    // was read, whatever shape it was actually in.
+    version: input.version ?? 1,
     theme: { ...base.theme, ...(input.theme ?? {}) },
     settings: { ...base.settings, ...(input.settings ?? {}) },
     nodes: input.nodes ?? base.nodes,
@@ -325,5 +342,9 @@ export function hydrateDocument(input: Partial<Cre8Document> & { nodes?: NodeMap
     page.meta ??= {};
   });
 
-  return doc;
+  // Last, because a migration is entitled to assume the fields above exist.
+  // This is the only place a document is upgraded: everything that loads one —
+  // the editor, the collaboration client, the API, the publisher — comes
+  // through here, so there is one answer to "has this been migrated yet".
+  return migrateDocument(doc);
 }

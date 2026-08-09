@@ -15,7 +15,7 @@ import {
   SEMANTIC_TAGS,
   SWITCH_SHOW_ALL,
   getElement,
-  readVisibility,
+  readCase,
   slug,
   slugList,
 } from '@/lib/document/schema';
@@ -28,6 +28,7 @@ import { ColorField } from '../ui/color-field';
 import { NumberField } from '../ui/number-field';
 import { Button, Popover, Section, Segmented, Select, Switch, TextInput, Tooltip } from '../ui/primitives';
 import { InspectorGroup, StyleRow } from './controls';
+import { useStatesInScope } from './section-rules';
 import { useNodeProp } from './use-style';
 
 export function ContentSection() {
@@ -46,9 +47,10 @@ export function ContentSection() {
           Semantics, because it is structural rather than something you reach
           for on every element. */}
       {def.container && !def.internal && <SwitchGroupContent />}
-      {/* And anything inside one can react to it — this returns nothing at
-          all when there is no switch above, so it never becomes noise. */}
-      <VisibilitySection canSet={type === 'button' || type === 'link'} />
+      {/* And anything clickable inside one can drive it — this returns
+          nothing at all when there is no switch above, so it never becomes
+          noise. When it shows is a rule, and lives in States & conditions. */}
+      {(type === 'button' || type === 'link') && <SwitchSetterSection />}
     </>
   );
 }
@@ -625,7 +627,9 @@ function useSwitchCases(groupId: string | undefined): string[] {
     add(s.doc.nodes[groupId]?.props.switchDefault);
     for (const id of collectSubtree(s.doc.nodes, groupId)) {
       add(s.doc.nodes[id]?.props.switchSet);
-      const when = readVisibility(s.doc.nodes[id]?.props ?? {});
+      // Only cases of *this* state, and only positive ones: "shown unless
+      // Free" does not make Free a case worth laying out on its own.
+      const when = readCase(s.doc.nodes[id]?.rules);
       if (when && !when.negated && !when.state) add(when.values.join(' '));
     }
     return seen.join(ENTRY);
@@ -719,179 +723,51 @@ function SwitchGroupContent() {
 }
 
 /**
- * Every state a node can talk about, nearest first.
+ * What clicking this element does to a state.
  *
- * Nearest first because that is the one it means when it does not say — and
- * because the list being ordered is what makes "the one I am inside" the
- * obvious default rather than a guess.
+ * All that survives of what used to be the Visibility section. *When* an
+ * element is on screen is a rule like any other now and lives in States &
+ * conditions, next to hover and everything else that changes with a
+ * condition. Putting a state into a value is not a style change at all, so it
+ * stays here with the rest of what an element *does*.
  */
-function useStatesInScope(nodeId: string | undefined): { key: string; values: string[] }[] {
-  const encoded = useEditor((s) => {
-    if (!nodeId) return '';
-    const found: string[] = [];
-    const seen = new Set<string>();
-
-    const collect = (ownerId: string) => {
-      const key = slug(s.doc.nodes[ownerId]?.props.switchKey);
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      // What the state can be: everything a control sets it to, everything a
-      // condition tests for, and whatever it ships as. Read off the tree
-      // rather than declared, so the two can never disagree.
-      const values: string[] = [];
-      const add = (raw: unknown) => {
-        for (const v of slugList(raw).split(' ')) if (v && !values.includes(v)) values.push(v);
-      };
-      add(s.doc.nodes[ownerId]?.props.switchDefault);
-      for (const id of collectSubtree(s.doc.nodes, ownerId)) {
-        add(s.doc.nodes[id]?.props.switchSet);
-        const when = readVisibility(s.doc.nodes[id]?.props ?? {});
-        if (when) add(when.values.join(' '));
-      }
-      found.push(`${key}${FIELD}${values.join(' ')}`);
-    };
-
-    // Itself first: a node that declares a state can hide on it, which is
-    // what a dismissible banner is.
-    collect(nodeId);
-    let current = s.doc.nodes[nodeId]?.parentId;
-    let guard = 0;
-    while (current && guard++ < 200) {
-      collect(current);
-      current = s.doc.nodes[current]?.parentId ?? undefined;
-    }
-    return found.join(ENTRY);
-  });
-
-  return useMemo(() => {
-    if (!encoded) return [];
-    return encoded.split(ENTRY).map((entry) => {
-      const [key = '', values = ''] = entry.split(FIELD);
-      return { key, values: values ? values.split(' ') : [] };
-    });
-  }, [encoded]);
-}
-
-/**
- * When this element is on screen, and what it does to a state.
- *
- * The generalisation of what used to be "shown when this case". Three things
- * it can now say that a case could not:
- *
- *   - *isn't* — "show this unless the plan is Free", which previously meant
- *     tagging every other plan and keeping the list in step;
- *   - which state, by name, so a node can react to one further up than the
- *     nearest;
- *   - whether hiding takes the space with it, because a grid cell that
- *     vanishes and one that empties are different designs.
- */
-function VisibilitySection({ canSet }: { canSet: boolean }) {
-  const id = useEditor((s) => s.selection[0]);
+function SwitchSetterSection() {
   const set = useNodeProp('switchSet');
-  const whenState = useNodeProp('whenState');
-  const whenIs = useNodeProp('whenIs');
-  const whenNot = useNodeProp('whenNot');
-  const hideMode = useNodeProp('hideMode');
-  const legacy = useNodeProp('switchCase');
-  const states = useStatesInScope(id);
-
+  const quiet = useNodeProp('switchQuiet');
+  // Only states something can actually be put into: a state whose values are
+  // unknown offers an empty menu, which reads as broken.
+  const states = useStatesInScope().filter((state) => state.values.length > 0);
   if (states.length === 0) return null;
 
-  // `switchCase` is the older spelling; the field edits it in place rather
-  // than leaving a node with two opinions about when it shows.
-  const values = slugList(whenIs.value ?? legacy.value).split(' ').filter(Boolean);
-  const conditional = values.length > 0;
-  const chosen = slug(whenState.value) || states[0]?.key || '';
-  const known = states.find((state) => state.key === chosen)?.values ?? [];
-
-  const write = (next: { state?: string; is?: string; not?: boolean }) => {
-    if (next.state !== undefined) whenState.set(next.state || undefined);
-    if (next.is !== undefined) {
-      whenIs.set(next.is || undefined);
-      if (legacy.value !== undefined) legacy.set(undefined);
-    }
-    if (next.not !== undefined) whenNot.set(next.not || undefined);
-  };
-
-  // The setter's own value should be one the state actually reaches.
-  const setStates = states.filter((state) => state.values.length > 0);
+  const chosen = slug(set.value);
 
   return (
-    <Section title="Visibility" defaultOpen>
+    <Section title="Interaction" defaultOpen>
       <InspectorGroup>
-        {canSet && setStates.length > 0 && (
-          <StyleRow label="Switches to" hint="Clicking this puts the state into that value">
-            <Select
-              className="flex-1"
-              value={slug(set.value)}
-              onChange={(value) => set.set(value || undefined)}
-              options={[
-                { value: '', label: 'Nothing' },
-                ...(setStates[0]?.values ?? []).map((value) => ({ value, label: value })),
-              ]}
-            />
-          </StyleRow>
-        )}
-
-        <StyleRow label="Shown">
-          <Segmented
-            full
-            value={conditional ? 'when' : 'always'}
-            onChange={(mode) =>
-              write({ is: mode === 'when' ? (known[0] ?? chosen ?? 'on') : '', state: chosen })
-            }
+        <StyleRow label="Switches to" hint="Clicking this puts the state into that value">
+          <Select
+            className="flex-1"
+            value={chosen}
+            onChange={(value) => set.set(value || undefined)}
             options={[
-              { value: 'always', label: 'Always' },
-              { value: 'when', label: 'When…' },
+              { value: '', label: 'Nothing' },
+              ...(states[0]?.values ?? []).map((value) => ({ value, label: value })),
             ]}
           />
         </StyleRow>
 
-        {conditional && (
-          <>
-            <StyleRow label="State">
-              <Select
-                className="flex-1"
-                value={chosen}
-                onChange={(value) => write({ state: value })}
-                options={states.map((state) => ({
-                  value: state.key,
-                  label: state.key,
-                  hint: state.values.join(' ') || undefined,
-                }))}
-              />
-            </StyleRow>
-            <StyleRow label="Is">
-              <Segmented
-                full
-                value={whenNot.value ? 'isNot' : 'is'}
-                onChange={(op) => write({ not: op === 'isNot' })}
-                options={[
-                  { value: 'is', label: 'is' },
-                  { value: 'isNot', label: 'isn’t' },
-                ]}
-              />
-            </StyleRow>
-            <StyleRow label="Value" hint="More than one, separated by spaces, means any of them">
-              <TextInput
-                className="flex-1"
-                value={values.join(' ')}
-                onValueChange={(value) => write({ is: slugList(value) })}
-                placeholder={known.join(' ') || 'annual'}
-              />
-            </StyleRow>
-            <StyleRow label="While hidden">
-              <Segmented
-                full
-                value={hideMode.value === 'keep' ? 'keep' : 'remove'}
-                onChange={(mode) => hideMode.set(mode === 'keep' ? 'keep' : undefined)}
-                options={[
-                  { value: 'remove', label: 'Take the space', title: 'display: none' },
-                  { value: 'keep', label: 'Leave it', title: 'visibility: hidden' },
-                ]}
-              />
-            </StyleRow>
-          </>
+        {chosen && (
+          <StyleRow label="Announced as" hint="A toggle says whether it is on; Next and Back do not">
+            <Segmented
+              full
+              value={quiet.value ? 'quiet' : 'toggle'}
+              onChange={(mode) => quiet.set(mode === 'quiet' ? true : undefined)}
+              options={[
+                { value: 'toggle', label: 'A toggle', title: 'aria-pressed' },
+                { value: 'quiet', label: 'Nothing', title: 'Moves the state without claiming to be a toggle' },
+              ]}
+            />
+          </StyleRow>
         )}
       </InspectorGroup>
     </Section>

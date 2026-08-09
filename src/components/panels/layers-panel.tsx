@@ -11,7 +11,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Eye, EyeOff, Lock, LockOpen } from 'lucide-react';
-import { SWITCH_SHOW_ALL, canContain, slug, slugList } from '@/lib/document/schema';
+import { SWITCH_SHOW_ALL, canContain, readCase, slug } from '@/lib/document/schema';
 import * as ops from '@/lib/document/operations';
 import { canReparent } from '@/lib/document/tree';
 import { hasAnyOverride } from '@/lib/renderer/styles';
@@ -39,7 +39,7 @@ interface Row {
    * the selection outline appears to land on nothing. Saying which case it is
    * turns "why can I not see this" into "ah, it is on the other tab".
    */
-  kase?: { value: string; current: boolean };
+  kase?: { value: string; negated: boolean; current: boolean };
 }
 
 export function LayersPanel() {
@@ -67,12 +67,16 @@ export function LayersPanel() {
       const expandable = node.children.length > 0;
       const expanded = expandable && !collapsed.has(id);
 
-      const values = slugList(node.props.switchCase);
+      const when = readCase(node.rules);
+      const matches = when ? when.values.includes(showing ?? '') : false;
       const kase =
-        values && showing !== null
+        when && showing !== null
           ? {
-              value: values.split(' ')[0]!,
-              current: showing === SWITCH_SHOW_ALL || values.split(' ').includes(showing),
+              value: when.values[0]!,
+              negated: when.negated,
+              // An "isn't" row is on screen for everything *except* its
+              // values, so what counts as current is the other way round.
+              current: showing === SWITCH_SHOW_ALL || (when.negated ? !matches : matches),
             }
           : undefined;
 
@@ -370,9 +374,13 @@ const LayerRow = React.memo(function LayerRow({
       {kase && !renaming && (
         <Tooltip
           content={
-            kase.current
-              ? `Shown when the switch is on “${kase.value}”`
-              : `On “${kase.value}” — select it to bring it forward`
+            kase.negated
+              ? kase.current
+                ? `Shown while the switch is not on “${kase.value}”`
+                : `Hidden on “${kase.value}” — select it to bring it forward`
+              : kase.current
+                ? `Shown when the switch is on “${kase.value}”`
+                : `On “${kase.value}” — select it to bring it forward`
           }
           side="left"
         >
@@ -384,7 +392,7 @@ const LayerRow = React.memo(function LayerRow({
                 : 'bg-[var(--field)] text-[var(--text-faint)]'
             )}
           >
-            {kase.value}
+            {kase.negated ? `not ${kase.value}` : kase.value}
           </span>
         </Tooltip>
       )}

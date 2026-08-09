@@ -23,7 +23,7 @@ const {
   ELEMENTS,
   PLACEHOLDER_MIN_HEIGHT,
   canContain,
-  readVisibility,
+  migrateDocument,
 } = loadBlocks();
 const KNOWN_ICONS = new Set(ICON_NAMES);
 
@@ -319,38 +319,57 @@ function checkSwitches(spec) {
   const bad = [];
   const at = (node) => node.name ?? node.type;
 
+  /**
+   * The unnamed state conditions a node carries.
+   *
+   * A rule stores the literal — *when this, hide* — so the operator reads the
+   * opposite way round from the intent. `isNot X` is "hide unless X", which
+   * makes X a value something depends on; `is X` is "hide when X", which does
+   * not.
+   */
+  const conditionsOf = (node) => {
+    const out = [];
+    for (const rule of node.rules ?? []) {
+      for (const condition of rule.when ?? []) {
+        if (condition.kind === 'state' && !condition.key) out.push(condition);
+      }
+    }
+    return out;
+  };
+
   /** Everything a state can be told to be, and every test made against it. */
   const survey = (group) => {
-    const positive = new Set();
+    const depends = new Set();
     const negated = new Set();
     const sets = [];
     const panelCounts = new Map();
-    let selfCondition = false;
+
+    const record = (conditions, counting) => {
+      for (const condition of conditions) {
+        for (const value of condition.values) {
+          (condition.op === 'isNot' ? depends : negated).add(value);
+          if (counting && condition.op === 'isNot') {
+            panelCounts.set(value, (panelCounts.get(value) ?? 0) + 1);
+          }
+        }
+      }
+    };
 
     // The group's own condition, which is how a dismissible thing hides
     // itself — it belongs to this state, not to whatever encloses it.
-    const own = readVisibility(group.props ?? {});
-    if (own) {
-      selfCondition = true;
-      for (const v of own.values) (own.negated ? negated : positive).add(v);
-    }
+    const own = conditionsOf(group);
+    record(own, false);
 
     const walk = (node) => {
       for (const child of node.children ?? []) {
-        const when = readVisibility(child.props ?? {});
-        if (when && !when.state) {
-          for (const v of when.values) (when.negated ? negated : positive).add(v);
-          if (!when.negated) {
-            for (const v of when.values) panelCounts.set(v, (panelCounts.get(v) ?? 0) + 1);
-          }
-        }
+        record(conditionsOf(child), true);
         if (child.props?.switchSet) sets.push({ node: child, value: child.props.switchSet });
         // A nested state owns everything below it.
         if (!child.props?.switchKey) walk(child);
       }
     };
     walk(group);
-    return { positive, negated, sets, panelCounts, selfCondition };
+    return { depends, negated, sets, panelCounts, selfCondition: own.length > 0 };
   };
 
   const walkGroups = (node, enclosed) => {
@@ -358,11 +377,12 @@ function checkSwitches(spec) {
       const key = child.props?.switchKey;
       if (!key) {
         if (!enclosed) {
-          const when = readVisibility(child.props ?? {});
           // A condition naming a state explicitly may reach further up than
           // this walk has seen, so only an unnamed one is provably orphaned.
-          if (when && !when.state) {
-            bad.push(`${at(child)}: shown when "${when.values.join(' ')}", but no state encloses it`);
+          for (const condition of conditionsOf(child)) {
+            bad.push(
+              `${at(child)}: conditional on "${condition.values.join(' ')}", but no state encloses it`
+            );
           }
           if (child.props?.switchSet) {
             bad.push(`${at(child)}: sets "${child.props.switchSet}", but no state encloses it`);
@@ -372,8 +392,8 @@ function checkSwitches(spec) {
         continue;
       }
 
-      const { positive, negated, sets, panelCounts, selfCondition } = survey(child);
-      const known = new Set([...positive, ...negated]);
+      const { depends, negated, sets, panelCounts, selfCondition } = survey(child);
+      const known = new Set([...depends, ...negated]);
 
       if (known.size === 0) {
         bad.push(`${at(child)}: state "${key}" has nothing that depends on it`);
@@ -423,6 +443,28 @@ function checkNames(spec) {
   return bad;
 }
 
+/**
+ * The props that used to say when an element was on screen.
+ *
+ * A document that still carries them is upgraded on load, and that path has
+ * to keep working — but a *block* is source, and one written with them would
+ * be authoring against a shape the editor no longer writes. The migration
+ * would quietly rescue it, which is exactly why nothing would notice.
+ */
+const RETIRED_PROPS = ['switchCase', 'whenIs', 'whenState', 'whenNot', 'hideMode'];
+
+function checkRetiredProps(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    for (const prop of RETIRED_PROPS) {
+      if (node.props?.[prop] !== undefined) {
+        bad.push(`${path}: "${prop}" is a retired prop — write it as a rule`);
+      }
+    }
+  }
+  return bad;
+}
+
 const RULES = [
   ['every colour and font comes from a token', checkTokens],
   ['multi-column layouts have narrow-width behaviour', checkResponsive],
@@ -435,6 +477,7 @@ const RULES = [
   ['no nesting the HTML parser would rearrange', checkNesting],
   ['every popover button names a popover in its block', checkPopoverRefs],
   ['every switch is wired to its own cases', checkSwitches],
+  ['no block still says when it shows in props', checkRetiredProps],
   ['small images clear the empty-slot floor', checkPlaceholderFloor],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['every node is named for the layer tree', checkNames],
@@ -482,6 +525,21 @@ for (const [rule, fn] of RULES) {
  * each rule is handed something it must reject. If one of these ever passes,
  * that rule has become a no-op and the blocks it "approves" mean nothing.
  * ----------------------------------------------------------------------- */
+
+/**
+ * "Shown when the nearest state is X", as a fixture writes it.
+ *
+ * A rule stores the literal — *hide when it isn't X* — so spelling one out by
+ * hand in each fixture is four lines of inverted logic apiece, and one of them
+ * would eventually say `is` and quietly stop testing anything.
+ */
+const shownWhen = (value) => [
+  {
+    id: `case-${value}`,
+    when: [{ kind: 'state', key: '', op: 'isNot', values: value.split(' ') }],
+    apply: { display: 'none' },
+  },
+];
 
 const VIOLATIONS = [
   [
@@ -576,7 +634,7 @@ const VIOLATIONS = [
   [
     checkSwitches,
     'a case with no switch above it',
-    { type: 'frame', name: 'F', children: [{ type: 'text', name: 'T', props: { switchCase: 'annual' } }] },
+    { type: 'frame', name: 'F', children: [{ type: 'text', name: 'T', rules: shownWhen('annual') }] },
   ],
   [
     checkSwitches,
@@ -590,7 +648,7 @@ const VIOLATIONS = [
           name: 'G',
           props: { switchKey: 'billing', switchDefault: 'monthly' },
           children: [
-            { type: 'text', name: 'A', props: { switchCase: 'monthly' } },
+            { type: 'text', name: 'A', rules: shownWhen('monthly') },
             { type: 'button', name: 'B', props: { switchSet: 'yearly' } },
           ],
         },
@@ -610,8 +668,8 @@ const VIOLATIONS = [
           props: { switchKey: 'view', switchDefault: 'a', switchRole: 'tabs' },
           children: [
             { type: 'button', name: 'A', props: { switchSet: 'a' } },
-            { type: 'frame', name: 'P1', props: { switchCase: 'a' } },
-            { type: 'frame', name: 'P2', props: { switchCase: 'a' } },
+            { type: 'frame', name: 'P1', rules: shownWhen('a') },
+            { type: 'frame', name: 'P2', rules: shownWhen('a') },
           ],
         },
       ],
@@ -630,8 +688,8 @@ const VIOLATIONS = [
           props: { switchKey: 'view', switchDefault: 'a', switchRole: 'tabs' },
           children: [
             { type: 'button', name: 'A', props: { switchSet: 'a' } },
-            { type: 'frame', name: 'P1', props: { switchCase: 'a' } },
-            { type: 'frame', name: 'P2', props: { switchCase: 'b' } },
+            { type: 'frame', name: 'P1', rules: shownWhen('a') },
+            { type: 'frame', name: 'P2', rules: shownWhen('b') },
           ],
         },
       ],
@@ -648,7 +706,7 @@ const VIOLATIONS = [
           type: 'frame',
           name: 'G',
           props: { switchKey: 'billing', switchDefault: 'weekly' },
-          children: [{ type: 'text', name: 'A', props: { switchCase: 'monthly' } }],
+          children: [{ type: 'text', name: 'A', rules: shownWhen('monthly') }],
         },
       ],
     },
@@ -663,6 +721,11 @@ const VIOLATIONS = [
     },
   ],
   [
+    checkRetiredProps,
+    'a block that still hides itself with a prop',
+    { type: 'text', name: 'T', props: { whenIs: 'annual' } },
+  ],
+  [
     checkIconNames,
     'an icon name the renderer does not have',
     { type: 'icon', name: 'I', props: { name: 'definitely-not-an-icon' } },
@@ -675,6 +738,120 @@ const VIOLATIONS = [
 report.group('the checks would catch a violation');
 for (const [fn, description, spec] of VIOLATIONS) {
   report.check(`rejects ${description}`, fn(spec).length > 0);
+}
+
+/* --------------------------------------------------------------------------
+ * Loading an older document
+ *
+ * `migrateDocument` runs on every project every time it is opened, and it
+ * rewrites the part of a node that decides whether the node is visible. There
+ * is no louder failure available and no quieter one either: get it wrong and
+ * somebody's page silently loses a section.
+ *
+ * Two properties matter beyond "it converts". It must recognise the *shape*
+ * rather than trust the version — the field was written and never read, so a
+ * document saved last year and one saved last week both claim `1` — and it
+ * must be safe to run twice, because that is what "recognise the shape"
+ * costs if you get it wrong.
+ * ----------------------------------------------------------------------- */
+
+const asDocument = (nodes) => ({
+  version: 1,
+  nodes: Object.fromEntries(nodes.map((node, i) => [`n${i}`, { id: `n${i}`, props: {}, ...node }])),
+});
+
+report.group('a document saved before rules still opens');
+
+{
+  const doc = migrateDocument(
+    asDocument([
+      { props: { whenIs: 'annual' } },
+      { props: { whenIs: 'free', whenNot: true, hideMode: 'keep' } },
+      { props: { switchCase: 'monthly' } },
+      { props: { whenIs: 'pro', whenState: 'plan' } },
+      { states: { hover: { color: 'red' } } },
+      { props: { switchSet: 'annual' }, states: { pressed: { color: 'red' } } },
+      { states: { pressed: { color: 'red' } } },
+      { states: { backdrop: { backgroundColor: 'black' } } },
+    ])
+  );
+  const at = (i) => doc.nodes[`n${i}`];
+  const only = (i) => at(i).rules?.[0];
+  const when = (i) => only(i)?.when?.[0];
+
+  report.check('the version is the one the code understands now', doc.version === 2, doc.version);
+  report.check(
+    '"shown when annual" becomes "hide unless annual"',
+    when(0)?.op === 'isNot' && when(0)?.values.join() === 'annual',
+    `${when(0)?.op} ${when(0)?.values}`
+  );
+  report.check(
+    'and it hides by taking the space, as it did',
+    only(0)?.apply.display === 'none'
+  );
+  report.check(
+    '"shown unless free" flips the other way',
+    when(1)?.op === 'is' && when(1)?.values.join() === 'free',
+    `${when(1)?.op} ${when(1)?.values}`
+  );
+  report.check(
+    'and "leave the space" survives as visibility',
+    only(1)?.apply.visibility === 'hidden' && only(1)?.apply.display === undefined
+  );
+  report.check(
+    'the older spelling is understood too',
+    when(2)?.op === 'isNot' && when(2)?.values.join() === 'monthly'
+  );
+  report.check('a named state keeps its name', when(3)?.key === 'plan', when(3)?.key);
+  report.check(
+    'hover becomes a pointer condition',
+    when(4)?.kind === 'pointer' && when(4)?.pseudo === 'hover' && only(4)?.apply.color === 'red'
+  );
+  report.check(
+    'pressed becomes a condition on the value the control sets',
+    when(5)?.kind === 'state' && when(5)?.op === 'is' && when(5)?.values.join() === 'annual',
+    `${when(5)?.kind} ${when(5)?.op} ${when(5)?.values}`
+  );
+  // Rather than invent a condition the author never wrote: `pressed` only
+  // ever meant anything next to a `switchSet`, and a rule with no condition
+  // would paint the control as permanently selected.
+  report.check('and is dropped when there is no value to press', !at(6).rules?.length);
+  report.check(
+    'a backdrop becomes a part, not a condition',
+    only(7)?.part === 'backdrop' && only(7)?.when.length === 0
+  );
+  report.check(
+    'the props it used to live in are gone',
+    Object.values(doc.nodes).every((node) =>
+      RETIRED_PROPS.every((prop) => node.props[prop] === undefined)
+    )
+  );
+  report.check(
+    'and so is the states record',
+    Object.values(doc.nodes).every((node) => node.states === undefined)
+  );
+
+  // Running it twice is not a hypothetical: the version is stamped by the
+  // same function, so anything that reads a half-migrated document — a
+  // collaborator's patch arriving mid-load — goes through here again.
+  const again = migrateDocument(JSON.parse(JSON.stringify(doc)));
+  report.check(
+    'running it a second time changes nothing',
+    JSON.stringify(again) === JSON.stringify(doc)
+  );
+}
+
+{
+  // The shape check, stated on its own: a document that lies about its
+  // version must still be converted, or the field's history becomes a bug.
+  const lying = migrateDocument({
+    version: 2,
+    nodes: { a: { id: 'a', props: { whenIs: 'annual' } } },
+  });
+  report.check(
+    'a document claiming to be current is converted on its shape',
+    lying.nodes.a.rules?.length === 1 && lying.nodes.a.props.whenIs === undefined
+  );
 }
 
 report.finish();

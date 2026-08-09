@@ -13,16 +13,15 @@
  * the cascade, the reset — is byte-for-byte identical between the two modes.
  */
 
-import { readVisibility, slug } from '../document/schema';
+import { slug } from '../document/schema';
 import {
   BREAKPOINT_DEFS,
   BREAKPOINT_ORDER,
-  PSEUDO_ELEMENT_STATES,
-  SWITCH_STATES,
   type Breakpoint,
+  type Condition,
   type SceneNode,
   type StyleDecl,
-  type StyleState,
+  type StyleRule,
   type Cre8Document,
 } from '../document/types';
 
@@ -95,7 +94,6 @@ interface NodeRules {
   base: string;
   /** Keyed by breakpoint, base excluded. */
   responsive: Partial<Record<Breakpoint, string>>;
-  states: string;
 }
 
 /**
@@ -122,119 +120,106 @@ function rulesFor(node: SceneNode, selectorPrefix: string): NodeRules {
     if (body) responsive[bp] = `  ${selector} {\n${body}\n  }`;
   }
 
-  const stateChunks: string[] = [];
-  for (const [state, layer] of Object.entries(node.states ?? {})) {
-    if (!layer || Object.keys(layer).length === 0) continue;
-    // Handled by `switchRules`, which needs the node map to find the group.
-    if (SWITCH_STATES.includes(state as StyleState)) continue;
-    const body = declarationsToCss(layer as StyleDecl);
-    // `::backdrop` is a pseudo-element, and the single colon a pseudo-class
-    // takes is not merely old-fashioned spelling here — `:backdrop` matches
-    // nothing, so the rule would be dropped and the page behind a dialog
-    // would simply never dim.
-    const colons = PSEUDO_ELEMENT_STATES.includes(state as StyleState) ? '::' : ':';
-    if (body) stateChunks.push(`${selector}${colons}${state} {\n${body}\n}`);
-  }
-
   const rules: NodeRules = {
     base: baseBody ? `${selector} {\n${baseBody}\n}` : '',
     responsive,
-    states: stateChunks.join('\n'),
   };
   ruleCache.set(node, rules);
   return rules;
 }
 
 /* --------------------------------------------------------------------------
- * Document stylesheet
+ * Conditional rules
  * ----------------------------------------------------------------------- */
 
-export interface GenerateCssOptions {
-  mode: QueryMode;
-  /** Restrict output to these nodes (a single page + the components it uses). */
-  nodeIds?: Iterable<string>;
-  /** Prefix every selector, e.g. `.cre8-doc` to scope preview output. */
-  scope?: string;
-  /** Emit hover/active/focus rules. Off inside the editor canvas. */
-  includeStates?: boolean;
-}
-
 /**
- * The rules that make a switch work without a script.
+ * A condition, as the fragment of selector it contributes.
  *
- * Two of them. A node with a condition is hidden whenever the state it names
- * fails that condition; a control that sets a state takes its selected
- * styling whenever the state holds *its* value.
- *
- * Specificity is the whole trick: `[data-cre8-switch="k"]:not([…]) .c-id`
- * scores (0,3,0) and the node's own rule scores (0,1,0), so hiding wins over
- * whatever `display` the designer set, at every breakpoint, without an
- * `!important` anywhere.
- *
- * Written from the node map rather than from the node, because a condition
- * names a state and the state belongs to some ancestor. That also means this
- * cannot be memoised on node identity the way the rest is: renaming a state
- * changes the rules of nodes that did not themselves change.
+ * Two fragments, because they land in different places. State conditions
+ * match an *ancestor*, so they prefix the element; everything else joins the
+ * element's own compound. Both are wrapped in `:where()` — see
+ * `ruleSelector` for why that matters more than it looks.
  */
-function switchRules(nodes: Record<string, SceneNode>, node: SceneNode, prefix: string): string[] {
-  const when = readVisibility(node.props);
-  const set = slug(node.props.switchSet);
-  const pressed = node.states?.pressed;
-  const wantsPressed = set && pressed && Object.keys(pressed).length > 0;
-  if (!when && !wantsPressed) return [];
+function conditionParts(
+  nodes: Record<string, SceneNode>,
+  node: SceneNode,
+  condition: Condition
+): { prefix: string; compound: string } | null {
+  switch (condition.kind) {
+    case 'pointer':
+    case 'control':
+      return { prefix: '', compound: `:where(:${condition.pseudo})` };
 
-  const out: string[] = [];
+    case 'attr': {
+      // Several values mean *any of them*, the same as a state — so `:is()`
+      // both ways. Joining them into one compound would read as "all of
+      // them", which for a plain attribute can never be true.
+      const match = condition.values.map((value) => `[${condition.name}="${value}"]`).join(',');
+      const test = condition.op === 'is' ? `:is(${match})` : `:not(:is(${match}))`;
+      return { prefix: '', compound: `:where(${test})` };
+    }
 
-  if (when) {
-    const owner = stateOwner(nodes, node, when.state);
-    // No such state above it. Emitting nothing leaves the node always
-    // visible, which is the honest reading of a condition that names nothing
-    // — and the static check refuses to let a block ship in that state.
-    if (owner) {
-      const anchor = `${prefix}[data-cre8-switch="${owner.key}"]`;
-      // Hide when the state is *not* one of the values, or — negated — when
-      // it is. `:is()` takes the highest specificity of its arguments, so
-      // both forms land at the same weight and neither can out-rank the
-      // other by accident.
-      const match = when.negated
-        ? `:is(${when.values.map((v) => `[data-cre8-value~="${v}"]`).join(',')})`
-        : when.values.map((v) => `:not([data-cre8-value~="${v}"])`).join('');
+    case 'state': {
+      const owner = stateOwner(nodes, node, condition.key);
+      // Naming a state nothing declares is not an error to shout about — it
+      // happens mid-edit, while the designer is still typing the name — but
+      // it must not silently become "always". Dropping the whole rule is the
+      // honest reading of a condition that cannot be evaluated.
+      if (!owner) return null;
+      const match = condition.values.map((value) => `[data-cre8-value~="${value}"]`).join(',');
+      // `:is()` takes the highest specificity of its arguments, so a case
+      // answering to three values weighs what a one-value case weighs — where
+      // chained `:not(a):not(b)` would have quietly out-ranked it.
+      const test = condition.op === 'is' ? `:is(${match})` : `:not(:is(${match}))`;
+      const anchor = `:where([data-cre8-switch="${owner.key}"]):where(${test})`;
       // A node can depend on the state it declares itself — that is what a
-      // dismissible banner is — and then the rule is one compound selector
-      // rather than a descendant one, because an element is not inside
-      // itself.
-      const selector = owner.self
-        ? `${anchor}${match}.${nodeClass(node.id)}`
-        : `${anchor}${match} .${nodeClass(node.id)}`;
-      const declaration = when.keepSpace ? 'visibility: hidden' : 'display: none';
-      out.push(`${selector} {\n  ${declaration};\n}`);
+      // dismissible banner is — and then the anchor joins its compound
+      // instead of prefixing it, because an element is not inside itself.
+      return owner.self ? { prefix: '', compound: anchor } : { prefix: `${anchor} `, compound: '' };
     }
   }
-
-  if (wantsPressed) {
-    const owner = stateOwner(nodes, node, '');
-    if (owner && !owner.self) {
-      const body = declarationsToCss(pressed as StyleDecl);
-      if (body) {
-        out.push(
-          `${prefix}[data-cre8-switch="${owner.key}"][data-cre8-value~="${set}"] ` +
-            `.${nodeClass(node.id)} {\n${body}\n}`
-        );
-      }
-    }
-  }
-
-  return out;
 }
 
 /**
- * Which element owns the state a node is talking about.
+ * The selector for one rule, padded so that order is the whole of precedence.
  *
- * Named explicitly, a condition can reach past the nearest group to one
+ * Every condition goes through `:where()`, which contributes nothing to
+ * specificity, so every rule on a node weighs exactly what the node's base
+ * rule weighs — (0,1,0), the class alone. That is deliberate. Before this,
+ * a visibility rule scored (0,3,0) and a hover rule (0,2,0), so a state
+ * silently beat a hover however they were written; the two rarely collided,
+ * and would have collided constantly now that they sit in one list looking
+ * like peers.
+ *
+ * With everything level, the cascade falls back to source order, and source
+ * order is the order the panel shows. `null` when a condition cannot be
+ * resolved.
+ */
+function ruleSelector(
+  nodes: Record<string, SceneNode>,
+  node: SceneNode,
+  rule: StyleRule,
+  prefix: string
+): string | null {
+  let before = '';
+  let after = '';
+  for (const condition of rule.when) {
+    const parts = conditionParts(nodes, node, condition);
+    if (!parts) return null;
+    before += parts.prefix;
+    after += parts.compound;
+  }
+  const part = rule.part ? `::${rule.part}` : '';
+  return `${prefix}${before}.${nodeClass(node.id)}${after}${part}`;
+}
+
+/**
+ * Which element owns the state a condition names.
+ *
+ * Named explicitly, a condition can reach past the nearest state to one
  * further up — a card inside a filtered grid reacting to the section's
- * billing switch, say, which used to be impossible. Unnamed, it means the
- * nearest, and *itself* first: a node that declares a state and also has a
- * condition is almost always the dismissible-banner case.
+ * billing switch. Unnamed it means the nearest, and *itself* first: a node
+ * that declares a state and also depends on it is the dismissible case.
  */
 function stateOwner(
   nodes: Record<string, SceneNode>,
@@ -254,6 +239,25 @@ function stateOwner(
   return null;
 }
 
+/** True when nothing about the rule depends on where the pointer is. */
+function isInteraction(rule: StyleRule): boolean {
+  return rule.when.some((c) => c.kind === 'pointer');
+}
+
+/* --------------------------------------------------------------------------
+ * Document stylesheet
+ * ----------------------------------------------------------------------- */
+
+export interface GenerateCssOptions {
+  mode: QueryMode;
+  /** Restrict output to these nodes (a single page + the components it uses). */
+  nodeIds?: Iterable<string>;
+  /** Prefix every selector, e.g. `.cre8-doc` to scope preview output. */
+  scope?: string;
+  /** Emit hover/active/focus rules. Off inside the editor canvas. */
+  includeStates?: boolean;
+}
+
 export function generateNodeCss(
   nodes: Record<string, SceneNode>,
   options: GenerateCssOptions
@@ -262,42 +266,55 @@ export function generateNodeCss(
   const ids = options.nodeIds ? [...options.nodeIds] : Object.keys(nodes);
 
   const baseChunks: string[] = [];
-  const stateChunks: string[] = [];
-  const caseChunks: string[] = [];
+  const ruleChunks: string[] = [];
   const responsiveChunks: Partial<Record<Breakpoint, string[]>> = {};
 
   for (const id of ids) {
     const node = nodes[id];
     if (!node) continue;
-    const rules = rulesFor(node, prefix);
-    if (rules.base) baseChunks.push(rules.base);
-    if (options.includeStates !== false && rules.states) stateChunks.push(rules.states);
-    if (
-      node.props.switchCase !== undefined ||
-      node.props.whenIs !== undefined ||
-      node.props.switchSet !== undefined
-    ) {
-      caseChunks.push(...switchRules(nodes, node, prefix));
-    }
+    const cached = rulesFor(node, prefix);
+    if (cached.base) baseChunks.push(cached.base);
     for (const bp of BREAKPOINT_ORDER) {
-      const chunk = rules.responsive[bp];
+      const chunk = cached.responsive[bp];
       if (!chunk) continue;
       (responsiveChunks[bp] ??= []).push(chunk);
+    }
+
+    for (const rule of node.rules ?? []) {
+      // The canvas suppresses interaction rules: hovering over the page while
+      // designing it is aiming, not using, and watching every button light up
+      // under the cursor makes the layout harder to read rather than easier.
+      // State rules stay — a selected tab has to look selected.
+      if (options.includeStates === false && isInteraction(rule)) continue;
+      if (Object.keys(rule.apply).length === 0) continue;
+
+      const selector = ruleSelector(nodes, node, rule, prefix);
+      if (!selector) continue;
+
+      if (rule.breakpoint && rule.breakpoint !== 'desktop') {
+        const body = declarationsToCss(rule.apply, '    ');
+        if (body) (responsiveChunks[rule.breakpoint] ??= []).push(`  ${selector} {\n${body}\n  }`);
+        continue;
+      }
+      const body = declarationsToCss(rule.apply);
+      if (body) ruleChunks.push(`${selector} {\n${body}\n}`);
     }
   }
 
   const out: string[] = [];
   if (baseChunks.length) out.push(baseChunks.join('\n'));
-  if (stateChunks.length) out.push(stateChunks.join('\n'));
-  if (caseChunks.length) out.push(caseChunks.join('\n'));
 
-  // Narrow breakpoints emitted last so they win at equal specificity.
+  // Narrow breakpoints emitted before the rules and after the base, so that
+  // at equal specificity the cascade reads: what it is, then what it is when
+  // narrow, then what it is when something is true.
   for (const bp of BREAKPOINT_ORDER) {
     const chunks = responsiveChunks[bp];
     if (!chunks?.length) continue;
     const rule = atRule(options.mode, bp);
     out.push(rule ? `${rule} {\n${chunks.join('\n')}\n}` : chunks.join('\n'));
   }
+
+  if (ruleChunks.length) out.push(ruleChunks.join('\n'));
   return out.join('\n\n');
 }
 

@@ -407,18 +407,22 @@ A **switch** is three things:
 
 - a **group** — `switchKey` on any container, holding a current value;
 - **setters** — `switchSet` on a button, which set that value;
-- **cases** — `switchCase` on anything, which exist only while the value
-  matches.
+- **cases** — a **rule** on anything, hiding it while the value does not
+  match. (This was `switchCase`, a prop, until states and conditions were
+  generalised; see below.)
 
 The generator writes one rule per case:
 
 ```css
-[data-cre8-switch="billing"]:not([data-cre8-value="annual"]) .c-abc { display: none; }
+:where([data-cre8-switch="billing"]):where(:not(:is([data-cre8-value~="annual"])))
+  .c-abc { display: none; }
 ```
 
-Specificity is the trick — `(0,3,0)` against the node's own `(0,1,0)`, so
-hiding wins over whatever `display` the designer set, at every breakpoint,
-with no `!important` anywhere. Changing state is then **one attribute write**,
+Everything the condition contributes goes through `:where()`, which scores
+nothing, so the rule weighs exactly what the node's own `(0,1,0)` weighs and
+**source order decides** — the generator emits base, then breakpoints, then
+rules in the order the inspector lists them. Changing state is then **one
+attribute write**,
 and nothing has to agree about anything else: the canvas, preview and the
 published page run identical rules over identical markup because there is one
 mechanism, not one per surface.
@@ -642,12 +646,19 @@ empties are different designs, and only one of them was available.
 
 ### One reader
 
-`readVisibility()` in `schema.ts` is the only place that knows what a
-condition looks like — the renderer, the generator, the reveal-on-select and
-the static lint all go through it. It also still understands `switchCase`, the
-older spelling, so a project built last week keeps working without a
-migration and nothing downstream has to know there were ever two ways to say
-it.
+`readCase()` in `schema.ts` is the only place that knows what a case looks
+like — the renderer, the reveal-on-select and the layer tree all go through
+it. It reads the node's rules and returns the four facts the rest of the app
+thinks in: which state, which values, `is` or `isn't`, and whether hiding
+takes the space.
+
+It is deliberately narrow. A node can carry any number of rules and several
+may hide it, but only one shape means *this element belongs to that case* — a
+single state condition, hiding, at every width, on the element itself. A hide
+that only applies on mobile is a responsive choice; a hide behind two
+conditions is not something a tab can be paired with. Both still work, they
+simply are not cases, and the runtime's tab-to-panel pairing depends on that
+distinction being drawn somewhere rather than guessed at three call sites.
 
 ### What the lint had to learn
 
@@ -661,13 +672,42 @@ on that state, which is exactly when "anything else" cannot matter.
 
 ---
 
-## Next: one mechanism instead of four
+## One mechanism instead of four — stage 1
 
-`Visibility` is already outgrowing its name, and the evidence is in the
-generator: `states.pressed` and a visibility condition compile to the same
-selector shape from two separate code paths. The design for folding hover,
-parts, states, visibility — and later content and data — into a single
+`Visibility` outgrew its name, and the evidence was in the generator:
+`states.pressed` and a visibility condition compiled to the same selector
+shape from two separate code paths. The design for folding hover, parts,
+states, visibility — and later content and data — into a single
 `WHEN … APPLY …` rule is in [STATE-AND-CONDITIONS.md](STATE-AND-CONDITIONS.md).
+Stage 1 of it has landed.
+
+**One list where there were four mechanisms.** A node carries `rules: StyleRule[]`,
+each `{ when: Condition[]; part?; apply: StyleDecl; breakpoint? }`. Hover, the
+`::backdrop`, the selected-option style and "shown when" are all rules now,
+authored in one panel, and the four old spellings are gone from the model.
+
+**Order is precedence.** Because every condition is padded with `:where()`,
+nothing in the list can out-rank anything else on specificity, and the
+inspector shows the order the cascade uses. Before this a visibility rule
+scored `(0,3,0)` and a hover rule `(0,2,0)`, so a state silently beat a hover
+however they were written — tolerable while the two lived in separate panels
+and impossible once they sit in one list looking like peers.
+
+**Migration runs on load, in one place.** `hydrateDocument()` ends with
+`migrateDocument()`, so every path that reads a stored project — the editor,
+the collaboration client, the API, the publisher — is upgraded by the same
+code. It recognises the *shape* rather than trusting `version`, because that
+field was written from the beginning and read by nothing: a document saved
+last year and one saved last week both claim `1`. It is safe to run twice, and
+the static suite proves both.
+
+**What is stored versus what is shown.** A rule stores the literal — *when
+this, hide* — and the inspector presents the intent, *shown when this*. The
+operator flips at that boundary and nowhere else: `readCase()` and
+`migrateDocument()` are the two places that know.
+
+Stages 2 (`set` — content and attributes, expanded at publish time) and 3
+(data conditions) are still ahead.
 
 It should be read before any more stateful components are built, because the
 storage migration is the expensive part and it only gets more expensive.
