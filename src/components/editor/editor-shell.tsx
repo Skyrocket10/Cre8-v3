@@ -105,7 +105,7 @@ export function EditorShell({ projectId }: { projectId: string }) {
         'Publish',
         (draft) => {
           draft.lastPublished = {
-            publishedAt: result.site.publishedAt,
+            publishedAt: result.publishedAt,
             pageCount: result.pageCount,
             nodeCount: Object.keys(draft.nodes).length,
             bytes: result.bytes,

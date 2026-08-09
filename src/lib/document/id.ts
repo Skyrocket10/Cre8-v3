@@ -9,7 +9,11 @@ export function uid(prefix = ''): string {
   const size = 10;
   let out = '';
 
-  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  // The bare global rather than `globalThis.crypto`: a Worker declares
+  // `crypto` as a global but not as a property of `globalThis`, and this
+  // module is bundled into the Worker as well as the browser. The `typeof`
+  // guard keeps the fallback reachable where there is no Web Crypto at all.
+  const cryptoObj = typeof crypto !== 'undefined' ? crypto : undefined;
   if (cryptoObj?.getRandomValues) {
     const bytes = new Uint8Array(size);
     cryptoObj.getRandomValues(bytes);

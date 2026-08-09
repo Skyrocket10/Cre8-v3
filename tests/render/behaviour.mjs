@@ -27,9 +27,27 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } }
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('  [pageerror]', e.message));
 
-/** Every generated selector that tests a state, from a published page. */
-const conditionalSelectors = (html) =>
-  [...html.matchAll(/^(.*data-cre8-switch=.*?)\s*\{$/gm)].map((m) => m[1]);
+/**
+ * Every generated selector that tests a state, from a published page.
+ *
+ * Read out of the stylesheet, not out of the document, and that is the whole
+ * of the fix this once needed. It used to scan the file line by line for one
+ * ending in `{` — which worked on a pretty-printed stylesheet and found
+ * *nothing at all* on a published page, because a published page is one line.
+ * `.every()` over an empty list is true, so the check below reported a pass
+ * for as long as it existed and would have kept doing so.
+ *
+ * It surfaced when publishing moved to the Worker: the inlined runtime carries
+ * newlines, the first of them lands mid-document, and the pattern suddenly
+ * matched a "selector" that was the whole page. A check that only starts
+ * failing when something unrelated changes was never checking anything.
+ */
+const conditionalSelectors = (html) => {
+  const css = /<style>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? '';
+  // Each rule's selector is what sits between the previous `}` (or the start,
+  // or an at-rule's `{`) and this rule's `{`.
+  return [...css.matchAll(/(?:^|[{}])\s*([^{}]*\[data-cre8-switch[^{}]*?)\s*\{/g)].map((m) => m[1]);
+};
 
 /**
  * A selector with its `:where()` groups removed.
@@ -201,14 +219,45 @@ try {
   // rule list in the inspector mean what it says. Strip the `:where()` groups
   // out of every conditional selector and what is left must be the class
   // alone; anything else is specificity nobody asked for.
+  /*
+   * One class, and nothing else.
+   *
+   * `-v0` is part of it: a node whose rules change its content renders as one
+   * element per alternative, and each carries `c-<id>-v<n>` alongside the node
+   * class. That is still a single class and still weighs (0,1,0) — the point
+   * of the whole `:where()` discipline — so it belongs here. It was missing
+   * until the check above started running, which is what a vacuous check
+   * costs: the pattern had quietly been wrong since variants shipped.
+   *
+   * Merged rules name several elements at once, so each part is judged on its
+   * own — one compound out of ten carrying stray specificity is still the bug.
+   */
+  const ONE_CLASS = /^\s*\.c-[a-z0-9]+(-v[0-9]+)?(::[a-z-]+)?\s*$/;
+  const bare = (selector) => withoutWhere(selector).split(',').every((part) => ONE_CLASS.test(part));
+
+  const conditional = conditionalSelectors(html);
   report.check(
-    'and it weighs no more than the element’s own styles, so order is precedence',
-    conditionalSelectors(html).every((selector) =>
-      /^\s*\.c-[a-z0-9]+(::[a-z-]+)?$/.test(withoutWhere(selector))
-    ),
-    conditionalSelectors(html)
-      .map(withoutWhere)
-      .find((rest) => !/^\s*\.c-[a-z0-9]+(::[a-z-]+)?$/.test(rest)) ?? 'all padded'
+    'there are conditional selectors to weigh in the first place',
+    conditional.length >= 4,
+    `${conditional.length} found`
+  );
+  report.check(
+    'and each weighs no more than the element’s own styles, so order is precedence',
+    conditional.length > 0 && conditional.every(bare),
+    conditional.map(withoutWhere).find((rest) => !bare(rest)) ?? 'all padded'
+  );
+  // The rules that keep the one above honest: it has to accept what it should
+  // and reject what it should, and neither is obvious from reading it.
+  report.check(
+    'a variant class counts as one class, because it is one',
+    bare(':where([data-cre8-switch="billing"]) .c-abc123-v1'),
+    'accepted'
+  );
+  report.check(
+    'a selector carrying real specificity would be caught',
+    !bare(':where([data-cre8-switch="billing"]) .c-abc123[data-cre8-value~="annual"]') &&
+      !bare(':where([data-cre8-switch="billing"]) .c-abc123, .c-def456 span'),
+    'the check can fail'
   );
 
   /* --------------------------------- 4. it works, and it works without the script */

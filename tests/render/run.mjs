@@ -23,6 +23,7 @@ const SUITES = [
   ['behaviour', 'switches work, and the CSS does the work'],
   ['data', 'conditions on the visit, resolved before the first paint'],
   ['repeat', 'a bound list, on the canvas and in the file'],
+  ['worker-publish', 'the Worker publishes the same bytes the browser would'],
   ['forms', 'published forms reach the submissions endpoint'],
   ['assets', 'images survive publish and export'],
   ['bodyreset', 'the published page starts at the edge'],

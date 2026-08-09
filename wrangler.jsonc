@@ -31,6 +31,36 @@
     "enabled": true
   },
 
+  // Off, and load-bearing.
+  //
+  // esbuild's name-keeping rewrites `function own() {}` into that plus a
+  // `__name(own, "own")` call, where `__name` is a helper it defines at module
+  // scope. Harmless in ordinary code — and fatal here, because this Worker
+  // publishes two runtimes by serialising them with `Function.prototype
+  // .toString()`. The injected call travels into the published page, where
+  // `__name` does not exist, and the page's only script dies on its first
+  // statement.
+  //
+  // Name-keeping exists for code that reads `Function.prototype.name` at run
+  // time. Nothing here does; the Durable Object is bound by its export name,
+  // which esbuild preserves regardless. `tests/render/worker-publish.mjs`
+  // checks the published script for injected helpers, so flipping this back
+  // fails a test rather than a visitor's page.
+  "keep_names": false,
+
+  // On, and it reaches further than the Worker.
+  //
+  // The two runtimes a published page carries are this bundle's own source,
+  // read back with `Function.prototype.toString()`. Unminified that is about
+  // 3.9 KB on every page with a switch; minified it is 2.3 KB, which is what
+  // the browser publisher used to ship and what the render suite budgets for.
+  // Cheaper Worker cold starts are the incidental benefit.
+  //
+  // Safe only because those functions are self-contained: minification renames
+  // their locals consistently, and there is nothing outside them to point at.
+  // See the note on `keep_names` above, which is the half that makes that true.
+  "minify": true,
+
   "d1_databases": [
     {
       "binding": "DB",

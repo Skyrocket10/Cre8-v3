@@ -7,7 +7,7 @@
  * Cre8 account — visits it. The script tries to read the session three ways.
  */
 
-import { APP, ARTIFACTS, launch, READY_TIMEOUT } from './harness.mjs';
+import { APP, ARTIFACTS, getDocument, launch, node, READY_TIMEOUT, saveDocument } from './harness.mjs';
 
 const SITE = APP;
 const results = [];
@@ -22,10 +22,25 @@ const stamp = Date.now();
 const ATTACKER = { email: `atk${stamp}@cre8.test`, name: 'Mallory Evil', pw: 'correct-horse-battery' };
 const VICTIM = { email: `vic${stamp}@cre8.test`, name: 'Vera Victim', pw: 'correct-horse-battery' };
 
-const PAYLOAD = `<!doctype html><html><head><title>Totally normal site</title></head><body>
-<h1>Our lovely product</h1><pre id="out">running</pre>
-<script>
+/**
+ * The attacker's script, delivered the way one actually can be.
+ *
+ * It used to be a whole HTML file POSTed at the publish endpoint. Since D3 the
+ * Worker renders from the document and ignores anything a client sends, so the
+ * payload travels where a real one would: `settings.customHead`, which is the
+ * supported way to put a script on your own site. That is a better test of the
+ * same thing — the threat was never a broken API, it was a designer who can
+ * legitimately run code on a page other people visit.
+ *
+ * It writes its own output element, since the markup around it is now a real
+ * Cre8 document rather than a hand-written file.
+ */
+const PAYLOAD = `<script>
 (async () => {
+  const out = document.createElement('pre');
+  out.id = 'out';
+  out.textContent = 'running';
+  (document.body || document.documentElement).appendChild(out);
   const r = [];
   try { r.push('cookie=' + JSON.stringify(document.cookie)); } catch (e) { r.push('cookie=THREW'); }
   try { localStorage.setItem('x','1'); r.push('storage=READWRITE'); } catch (e) { r.push('storage=THREW'); }
@@ -33,9 +48,21 @@ const PAYLOAD = `<!doctype html><html><head><title>Totally normal site</title></
     const res = await fetch('/api/auth/me', { credentials: 'include', headers: { 'x-cre8-csrf': '1' } });
     r.push('api=' + res.status + ':' + (await res.text()).slice(0, 160));
   } catch (e) { r.push('api=THREW'); }
-  document.getElementById('out').textContent = r.join(' | ');
+  out.textContent = r.join(' | ');
 })();
-</script></body></html>`;
+</script>`;
+
+/** Puts one heading on the page, so there is something to look at. */
+function headed(doc, text) {
+  const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
+  const root = doc.nodes[home.rootNodeId];
+  root.children = ['hdg0origin'];
+  doc.nodes.hdg0origin = node('hdg0origin', 'heading', 'Headline', {
+    parentId: root.id,
+    props: { text, level: 1 },
+  });
+  return doc;
+}
 
 async function signUp(page, who) {
   await page.goto(`${SITE}/signup`, { waitUntil: 'networkidle' });
@@ -88,19 +115,20 @@ try {
   await atk.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
   await atk.waitForTimeout(2000);
 
-  const publish = await atk.evaluate(
-    async ({ id, html }) => {
-      const r = await fetch(`/api/projects/${id}/publish`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'x-cre8-csrf': '1', 'content-type': 'application/json' },
-        body: JSON.stringify({ files: [{ path: 'index.html', contents: html }] }),
-      });
-      return r.status;
-    },
-    { id: projectId, html: PAYLOAD }
-  );
-  check('attacker can publish arbitrary HTML (the threat is real)', publish === 200, `HTTP ${publish}`);
+  const hostile = headed(await getDocument(atk, projectId), 'Our lovely product');
+  hostile.settings.customHead = PAYLOAD;
+  await saveDocument(atk, hostile);
+
+  const publish = await atk.evaluate(async (id) => {
+    const r = await fetch(`/api/projects/${id}/publish`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'x-cre8-csrf': '1' },
+    });
+    return r.status;
+  }, projectId);
+  check('attacker can publish a page that runs a script (the threat is real)',
+    publish === 200, `HTTP ${publish}`);
 
   /* ------------------------------------------- 4. victim visits the published page */
 
@@ -130,19 +158,16 @@ try {
 
   /* --------------------------------------------------- 5. published output is fine */
 
-  await atk.evaluate(
-    async ({ id }) => {
-      await fetch(`/api/projects/${id}/publish`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'x-cre8-csrf': '1', 'content-type': 'application/json' },
-        body: JSON.stringify({
-          files: [{ path: 'index.html', contents: '<!doctype html><html><body><h1>Real page</h1><a href="/s/x/about">About</a></body></html>' }],
-        }),
-      });
-    },
-    { id: projectId }
-  );
+  const harmless = headed(await getDocument(atk, projectId), 'Real page');
+  harmless.settings.customHead = '';
+  await saveDocument(atk, harmless);
+  await atk.evaluate(async (id) => {
+    await fetch(`/api/projects/${id}/publish`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'x-cre8-csrf': '1' },
+    });
+  }, projectId);
   const plain = await browser.newContext();
   const anon = await plain.newPage();
   await anon.goto(`${SITE}/s/${projectId}/`, { waitUntil: 'networkidle' });

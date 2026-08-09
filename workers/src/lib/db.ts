@@ -196,3 +196,24 @@ export async function requireUser(user: SessionUser | null): Promise<SessionUser
   if (!user) throw unauthorised();
   return user;
 }
+
+/* --------------------------------------------------------------------------
+ * The room
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The Durable Object holding a project's live document.
+ *
+ * Here rather than in a route because three callers need it now: saving a
+ * whole document, reading one back, and publishing — which reads the live copy
+ * so that hitting Publish ships what is on screen rather than what D1 last
+ * caught up with.
+ */
+export function room(env: Env, projectId: string): DurableObjectStub {
+  return env.ROOMS.get(env.ROOMS.idFromName(projectId));
+}
+
+/** Durable Objects are addressed by URL; the host is arbitrary and unused. */
+export function roomUrl(projectId: string, path: string): string {
+  return `https://room/${path}?project=${encodeURIComponent(projectId)}`;
+}

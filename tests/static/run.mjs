@@ -12,8 +12,13 @@
  * commit.
  */
 
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createReport } from '../report.mjs';
 import { layers, loadBlocks, walk } from './load-blocks.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const report = createReport();
 const {
@@ -1700,6 +1705,71 @@ report.group('a bound list publishes as elements');
     'the repeating element is drawn once however many rows it holds',
     boxes(feed([])) === 2 && boxes(one) === 3 && boxes(plain) === 5,
     `${boxes(feed([]))} / ${boxes(one)} / ${boxes(plain)} boxes for 0 / 1 / 3 rows`
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * The Worker's platform
+ *
+ * D3 puts the renderer inside the Worker, which means `src/lib` is now
+ * type-checked twice: once by the app's compiler, with the DOM, and once by
+ * the Worker's, without it. The second one is load-bearing and easy to
+ * silence.
+ *
+ * The temptation, the first time a shared module fails on `document`, is to
+ * add `"DOM"` to the Worker's `lib`. It compiles. It also loses: the DOM lib
+ * beats `@cloudflare/workers-types`, so `Request`, `Response`, `FormData` and
+ * `caches` quietly become the browser's — the Worker would then be checked
+ * against a platform it is not running on, and the failures land at runtime.
+ *
+ * Cheap to check, and the check is the only thing standing between a tired
+ * afternoon and that outcome.
+ * ----------------------------------------------------------------------- */
+
+report.group('the Worker is checked against the platform it runs on');
+
+{
+  const read = (file) =>
+    readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8')
+      // The configs are JSONC; comments would break the parse and are not
+      // what any of this is about.
+      .replace(/^\s*\/\/.*$/gm, '');
+
+  for (const config of ['workers/tsconfig.json', 'workers/sites/tsconfig.json']) {
+    const parsed = JSON.parse(read(config));
+    const libs = (parsed.compilerOptions?.lib ?? []).map((l) => String(l).toLowerCase());
+    report.check(
+      `${config} does not pull in the DOM`,
+      !libs.some((l) => l.startsWith('dom')),
+      libs.join(', ') || '(none)'
+    );
+    report.check(
+      `${config} is typed against the Workers runtime`,
+      (parsed.compilerOptions?.types ?? []).some((t) => String(t).includes('workers-types')),
+      (parsed.compilerOptions?.types ?? []).join(', ') || '(none)'
+    );
+  }
+
+  /*
+   * One crossing, so "does the Worker depend on the app?" stays a question
+   * with a one-file answer. Everything imported over that line is bundled into
+   * every Worker invocation, which is a cost worth having to look at.
+   */
+  const crossings = [];
+  const walkDir = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walkDir(full);
+      else if (entry.name.endsWith('.ts') && /from '\.\.[./]*\/src\//.test(readFileSync(full, 'utf8'))) {
+        crossings.push(path.relative(ROOT, full));
+      }
+    }
+  };
+  walkDir(path.join(ROOT, 'workers'));
+  report.check(
+    'exactly one Worker file reaches into the app’s source',
+    crossings.length === 1 && crossings[0] === path.join('workers', 'src', 'lib', 'render.ts'),
+    crossings.join(', ') || 'none — has the renderer stopped being shared?'
   );
 }
 

@@ -13,10 +13,9 @@ import { LIMITS } from '../document/types';
 import type { CollectionRecord, Cre8Document, ProjectSummary } from '../document/types';
 import { api, ApiError } from './client';
 import type {
-  PublishedAssetRef,
-  PublishedFile,
   PublishedInfo,
   PublishedSite,
+  PublishedSummary,
   StorageAdapter,
 } from './storage';
 
@@ -68,25 +67,36 @@ export class CloudflareAdapter implements StorageAdapter {
   }
 
   /**
-   * Publishing uploads finished files. The Worker writes them to R2 and never
-   * renders, so serving a published page costs a cache lookup rather than CPU.
+   * Publishing is one request carrying a project id and nothing else.
    *
-   * The whole generated tree goes up, not just the pages — sitemap.xml and
-   * robots.txt are part of a published site, and a host that only receives
-   * pages silently drops them.
+   * The Worker reads the live document from the room, reads the rows its
+   * repeaters point at out of D1, and runs the same generator the editor used
+   * to run. Serving the result still costs a cache lookup rather than CPU —
+   * what moved is where the bytes are made, not where they are read.
    */
-  async savePublished(
-    projectId: string,
-    _site: PublishedSite,
-    files: PublishedFile[],
-    assets: PublishedAssetRef[]
-  ): Promise<PublishedInfo> {
-    const result = await api.publish(projectId, files, assets);
+  async publishSite(projectId: string): Promise<PublishedSummary> {
+    const result = await api.publish(projectId);
     return {
+      publishedAt: result.publishedAt,
+      bytes: result.bytes,
+      pageCount: result.pageCount,
+      pages: result.pages,
       url: result.url,
       subdomain: result.subdomain,
       siteDomain: result.siteDomain,
     };
+  }
+
+  /**
+   * Unreachable, and declared only because the interface requires it.
+   *
+   * `publishSite` above is what this adapter uses, and `publishProject`
+   * prefers it. Storing bytes a client generated is exactly the arrangement
+   * D3 removed: it is what forced every publish to download whole collections
+   * and what made republish-on-change impossible.
+   */
+  async savePublished(): Promise<PublishedInfo> {
+    throw new Error('This host publishes for itself — call publishSite');
   }
 
   /** Published sites are served by the Worker, not read back through the API. */

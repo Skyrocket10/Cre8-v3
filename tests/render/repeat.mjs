@@ -31,10 +31,13 @@
 import {
   APP,
   createReport,
+  getDocument,
   launch,
+  node,
   openProject,
   publish,
   READY_TIMEOUT,
+  saveDocument,
   signUp,
   toCanvasKeys,
   unbalanced,
@@ -114,26 +117,10 @@ try {
    * which does not. The second is the only reason the divergence below can be
    * checked at all — an assertion about the empty case needs an empty case.
    */
-  const wired = await page.evaluate(async ({ id }) => {
-    const got = await fetch(`/api/projects/${id}`, {
-      credentials: 'include',
-      headers: { 'x-cre8-csrf': '1' },
-    });
-    const { document: doc } = await got.json();
+  const doc = await getDocument(page, id);
+  {
     const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
     const root = doc.nodes[home.rootNodeId];
-
-    const node = (nodeId, type, name, extra) => ({
-      id: nodeId,
-      type,
-      name,
-      parentId: null,
-      children: [],
-      props: {},
-      styles: {},
-      meta: {},
-      ...extra,
-    });
 
     doc.collections = [
       {
@@ -197,19 +184,11 @@ try {
       }),
     });
     root.children.push('rpt0feedaa', 'rpt0nonexx');
-
-    // The same route the editor's own autosave uses. For a project that
-    // already exists it goes through the room, which broadcasts a resync — so
-    // the open canvas picks the repeater up without a reload, exactly as it
-    // would if a collaborator had made the change.
-    const saved = await fetch(`/api/projects`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'x-cre8-csrf': '1', 'content-type': 'application/json' },
-      body: JSON.stringify(doc),
-    });
-    return saved.status;
-  }, { id });
+  }
+  // Saving goes through the room, which broadcasts a resync — so the open
+  // canvas picks the repeater up without a reload, exactly as it would if a
+  // collaborator had made the change.
+  const wired = await saveDocument(page, doc);
 
   // Everything below measures a page with a repeater on it. If the seeding
   // failed there is no such page, and carrying on would report a screenful of

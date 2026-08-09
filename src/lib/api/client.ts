@@ -301,22 +301,25 @@ export const api = {
 
   deleteProject: (id: string) => call<{ ok: true }>(`/api/projects/${id}`, { method: 'DELETE' }),
 
-  publish: (
-    id: string,
-    files: { path: string; contents: string }[],
-    assets: { key: string; path: string }[] = []
-  ) =>
+  /**
+   * Publish. No body: the Worker renders from the live document and D1.
+   *
+   * What used to travel here was the finished site — every page, every byte,
+   * generated in the browser. Sending nothing is the whole of D3: the server
+   * decides what a published page contains, so it can publish again later
+   * with no browser involved.
+   */
+  publish: (id: string) =>
     call<{
       ok: true;
       publishedAt: number;
       bytes: number;
+      pageCount: number;
+      pages: { slug: string; title: string; path: string }[];
       url: string;
       subdomain: string;
       siteDomain: string;
-    }>(`/api/projects/${id}/publish`, {
-      method: 'POST',
-      body: JSON.stringify({ files, assets }),
-    }),
+    }>(`/api/projects/${id}/publish`, { method: 'POST' }),
 
   /** Rename a published site's address. Frees the old hostname immediately. */
   submissions: (id: string) =>

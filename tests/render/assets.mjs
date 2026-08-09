@@ -11,7 +11,15 @@
  */
 
 import zlib from 'node:zlib';
-import { APP, ARTIFACTS, launch, PUBLISH_TIMEOUT, READY_TIMEOUT } from './harness.mjs';
+import {
+  APP,
+  ARTIFACTS,
+  getDocument,
+  launch,
+  PUBLISH_TIMEOUT,
+  READY_TIMEOUT,
+  saveDocument,
+} from './harness.mjs';
 
 const results = [];
 let failed = 0;
@@ -292,22 +300,36 @@ try {
 
   /* ---------------------------- 7. one project cannot copy another's uploads */
 
-  const stolen = await page.evaluate(
-    async ({ id }) => {
-      const r = await fetch(`/api/projects/${id}/publish`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'x-cre8-csrf': '1', 'content-type': 'application/json' },
-        body: JSON.stringify({
-          files: [{ path: 'index.html', contents: '<html></html>' }],
-          assets: [{ key: 'someone-elses-project/secret.png', path: '_assets/secret.png' }],
-        }),
-      });
-      return r.status;
-    },
-    { id: projectId }
-  );
-  check("an asset key outside the project is refused", stolen === 403, `HTTP ${stolen}`);
+  /*
+   * The attack this closes changed shape when publishing moved to the Worker.
+   * A client used to send the asset keys to copy, and the check was that it
+   * could not name someone else's. It cannot name any now — the Worker scrapes
+   * them out of the project's own document.
+   *
+   * Which leaves the way in that still exists, and is the more realistic one:
+   * paste another project's asset URL into your design and press Publish.
+   * Nothing about that request is suspicious, so the prefix check has to hold
+   * on the derived key rather than on a supplied one.
+   */
+  const doc = await getDocument(page, projectId);
+  doc.settings.customHead =
+    '<style>.stolen{background:url(/api/assets/someone-elses-project%2Fsecret.png)}</style>';
+  const seeded = await saveDocument(page, doc);
+  check('a foreign asset URL can be put in a document', seeded === 200, `HTTP ${seeded}`);
+
+  const stolen = await page.evaluate(async (id) => {
+    const r = await fetch(`/api/projects/${id}/publish`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'x-cre8-csrf': '1' },
+    });
+    return r.status;
+  }, projectId);
+  check('but publishing refuses to copy it', stolen === 403, `HTTP ${stolen}`);
+
+  // Put it back, or the ZIP below publishes a project that cannot publish.
+  doc.settings.customHead = '';
+  await saveDocument(page, doc);
 
   /* ------------------------------------------- 8. the ZIP carries the bytes too */
 

@@ -287,7 +287,7 @@ than in a Worker log, is not.
 |---|---|---|
 | **D1** | Collections and records, headless. Schema on the document, records in D1, CRUD routes with the existing access checks. | Records survive a round-trip, and a hostile client cannot read or write another project's — proven in `security.mjs`, next to the checks that already prove it for assets. **landed** |
 | **D2** | The repeater and binding. `repeat`, `bind`, record-in-scope in both renderers, expansion at publish. | A bound list renders identically on canvas and published, with no script, and the stylesheet does not grow by a single rule as records are added. **landed** |
-| **D3** | Publishing moves to the Worker for the hosted path. | The same document publishes byte-identical output from the Worker as from the browser. That is a strong gate and the right one: it is the whole claim. |
+| **D3** | Publishing moves to the Worker for the hosted path. | The same document publishes byte-identical output from the Worker as from the browser. That is a strong gate and the right one: it is the whole claim. **landed** |
 | **D4** | Dynamic routes and static pagination. | A blog of thirty posts publishes thirty files plus a paginated index, every one reachable and every one in the sitemap. |
 | **D5** | The editor: collections panel, field editor, record table and form, binding in the inspector. | Someone creates a collection, adds a record and sees it on the canvas without leaving the editor or reading this document. |
 | **D6** | Republish on change. | Editing a record updates the live site with no manual publish, and republishing an unchanged collection writes nothing. |
@@ -363,6 +363,69 @@ the browser, so a publish downloads every collection the document repeats over
 first. Fine for fifty posts, five megabytes for five thousand products, and
 impossible for republish-on-change. That is D3, and it is now the constraint
 rather than the prediction.
+
+### What D3 held to
+
+Eighteen checks in `worker-publish.mjs`, over a fixture built to be awkward: a
+repeater over real records, a switch, a data condition, a form, an image, a
+second page and a `customHead`. Every file the renderer produces — markup,
+stylesheet, sitemap, robots — comes back byte-identical from the Worker and
+from a local render of the same document. A blank page would have passed
+for ever, which is why the fixture is not one.
+
+**The scope of "byte-identical", stated rather than assumed.** The two inline
+`<script>` blocks are excluded, and the reason is not a concession. They are
+not renderer output — they are the source text of two functions, obtained with
+`Function.prototype.toString()`, and that text is whatever compiled them. The
+Worker's bundler and the browser's disagree about quote style, comments and
+pure-annotations while agreeing entirely about the program. Requiring those
+bytes to match would require two compilers to agree, which is a different
+claim and not a useful one. They are held to three things instead: the same
+functions inlined and invoked the same way, no reference to anything the
+bundler kept to itself, and — the one that counts — loaded off the real
+published page in a real browser and made to work.
+
+**That last check exists because this suite found the failure it describes.**
+esbuild's name-keeping had been rewriting `function own() {}` into that plus
+`__name(own, "own")`, where `__name` is a helper it defines at module scope.
+Ordinarily invisible. Serialised into a published page it is a
+`ReferenceError` on the script's first statement, so every switch on every
+site would have quietly stopped working the moment publishing moved. The fix
+is `keep_names: false` in `wrangler.jsonc`; the guard is that flipping it back
+fails three checks by name.
+
+Moving the work also moved which bundler's output ships. Unminified that was
+3.9 KB of runtime on every page with a switch, against the 2.3 KB the browser
+used to send — so the Worker bundle is minified now, which the existing budget
+in `behaviour.mjs` caught and which pays for itself again in cold starts.
+
+**And it found a check that had never checked anything.** `behaviour.mjs`
+verified that no conditional selector carries specificity of its own — the
+property the whole `:where()` discipline exists for — by scanning the page
+line by line for one ending in `{`. A published page is a single line, so it
+matched nothing, and `.every()` over nothing is true. It reported a pass from
+the day it was written. The Worker's runtime carries newlines, which made the
+pattern match the whole document and the check finally speak. Fixed to read
+the stylesheet, it immediately found a second thing: the pattern had never
+allowed a variant class, `c-<id>-v0`, which has been the shape of half these
+selectors since stage 2. Both now have self-tests that must fail.
+
+Two decisions worth recording:
+
+**One file crosses into the app's source.** `workers/src/lib/render.ts`
+re-exports what the Worker needs and nothing else, so "does the Worker depend
+on the app?" has a one-file answer — and everything crossing that line is
+bundled into every invocation, which is a cost worth having to look at. A
+static check holds it to one.
+
+**The Worker must never be given the DOM lib.** The two serialised runtimes
+were the only shared modules that failed to typecheck without it, and the
+obvious fix is the wrong one: the DOM lib beats `@cloudflare/workers-types`,
+so `Request`, `Response`, `FormData` and `caches` silently become the
+browser's and the Worker is checked against a platform it is not running on.
+The runtimes now declare the handful of DOM members they touch — which is also
+more honest, since in a Worker the ambient name `Element` already means an
+`HTMLRewriter` element. Both Worker tsconfigs are checked for this.
 
 D3 before D4 is the ordering §6 argues for. D5 last is deliberate and slightly
 uncomfortable: it means D1–D4 are tested through fixtures rather than through

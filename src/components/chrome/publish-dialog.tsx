@@ -121,14 +121,19 @@ export function PublishDialog({
                 {result.pageCount} page{result.pageCount === 1 ? '' : 's'} published
               </p>
               <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-                {formatBytes(result.bytes)} of static HTML and CSS — no JavaScript runtime.
+                {/* Not "no JavaScript runtime", which stopped being true when
+                    switches shipped and is now false again for anything with a
+                    data condition. The claim worth making is the one that is
+                    still exactly true: these are files, and serving one costs a
+                    read. */}
+                {formatBytes(result.bytes)} of static files — nothing renders on the request path.
               </p>
             </div>
           </div>
 
           {result.siteDomain && address && (
             <SiteAddress
-              projectId={result.site.projectId}
+              projectId={result.projectId}
               subdomain={address}
               domain={result.siteDomain}
               onChange={setAddress}
@@ -136,13 +141,13 @@ export function PublishDialog({
           )}
 
           <div className="mx-4 mb-3 rounded-lg border border-[var(--border)] bg-[var(--panel)]">
-            {result.site.pages.map((page) => (
+            {result.pages.map((page) => (
               <a
                 key={page.slug}
                 href={
                   address && result.siteDomain
                     ? `https://${address}.${result.siteDomain}/${page.slug}`
-                    : routes.publishedSite(result.site.projectId, page.slug)
+                    : routes.publishedSite(result.projectId, page.slug)
                 }
                 target="_blank"
                 rel="noreferrer"

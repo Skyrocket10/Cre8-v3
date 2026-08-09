@@ -75,6 +75,9 @@ export function loadBlocks() {
     buildTree: require(path.join(OUT, 'document/factory.js')).buildTree,
     generateNodeCss: require(path.join(OUT, 'renderer/css.js')).generateNodeCss,
     renderPage: require(path.join(OUT, 'publishing/html.js')).renderPage,
+    // The whole site, not just a page: D3's gate is that the Worker's output
+    // matches this one's byte for byte, and a site is sitemap and robots too.
+    generateSite: require(path.join(OUT, 'publishing/html.js')).generateSite,
     createEmptyDocument: require(path.join(OUT, 'document/factory.js')).createEmptyDocument,
     hydrateDocument: require(path.join(OUT, 'document/factory.js')).hydrateDocument,
     buildInto: require(path.join(OUT, 'document/factory.js')).buildTree,

@@ -4,9 +4,19 @@
  * Publishing.
  *
  * Generate → store → serve. The stored artefact is finished HTML, so serving it
- * is a static read with no rendering on the request path. Swapping the storage
- * adapter for the Cloudflare one pushes the identical bytes to R2 and lets the
- * Worker in `workers/` stream them from cache — see docs/ARCHITECTURE.md.
+ * is a static read with no rendering on the request path.
+ *
+ * **Where the generating happens depends on whether there is a Worker.** With
+ * one, publishing is a single request: the Worker reads the live document and
+ * the rows from D1, runs the same generator this file used to run, and writes
+ * the result to R2. Nothing the browser sends decides what a published page
+ * contains, no collection crosses the wire to be rendered and thrown away, and
+ * a republish needs no browser at all — which is what D6 is built on.
+ *
+ * With no backend there is nowhere to move to, so the browser still generates.
+ * That path and the ZIP export below are two callers of `generateSite` that
+ * keep the shared module honest, and the render suite holds them to producing
+ * the same bytes as the Worker.
  */
 
 import { apiOrigin } from '../api/client';
@@ -18,10 +28,20 @@ import type { Cre8Document } from '../document/types';
 import { generateSite, pagePath, renderPage } from './html';
 import { createZip, downloadBlob } from './zip';
 
+/**
+ * What a publish reports back.
+ *
+ * A summary rather than the site: on the hosted path the browser never had the
+ * HTML, and a field carrying an empty string where the markup used to be would
+ * be a worse lie than not having the field.
+ */
 export interface PublishResult {
-  site: PublishedSite;
+  projectId: string;
+  publishedAt: number;
   bytes: number;
   pageCount: number;
+  /** Enough to list and link every page. */
+  pages: { slug: string; title: string }[];
   /** Where the published home page can be viewed. */
   url: string;
   /** Present when the deployment gives published sites their own domain. */
@@ -30,19 +50,40 @@ export interface PublishResult {
 }
 
 export async function publishProject(doc: Cre8Document): Promise<PublishResult> {
+  const adapter = getStorage();
+
+  if (adapter.publishSite) {
+    const published = await adapter.publishSite(doc.id);
+    return {
+      projectId: doc.id,
+      publishedAt: published.publishedAt,
+      bytes: published.bytes,
+      pageCount: published.pageCount,
+      pages: published.pages,
+      // The host is the authority on where a site lives — it may have given
+      // the project a domain of its own.
+      url: published.url || routes.publishedSite(doc.id),
+      ...(published.subdomain ? { subdomain: published.subdomain } : {}),
+      ...(published.siteDomain ? { siteDomain: published.siteDomain } : {}),
+    };
+  }
+
+  /* --- No backend: generate here, because there is nowhere else ---------- */
+
   // Forms post to the API, not to the site's own Worker — that one has no
-  // database and would answer 404.
+  // database and would answer 404. Null here, since there is no API at all.
   const formTarget = {
     apiOrigin: apiOrigin() ?? undefined,
     projectId: doc.id,
     records: await loadRecords(doc),
   };
   const generated = generateSite(doc, formTarget);
+  const publishedAt = Date.now();
 
   const site: PublishedSite = {
     projectId: doc.id,
     projectName: doc.settings.siteName || doc.name,
-    publishedAt: Date.now(),
+    publishedAt,
     bytes: generated.totalBytes,
     pages: [...doc.pages]
       .sort((a, b) => a.order - b.order)
@@ -53,7 +94,7 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
       })),
   };
 
-  const info = await getStorage().savePublished(
+  const info = await adapter.savePublished(
     doc.id,
     site,
     generated.files.map((f) => ({ path: f.path, contents: f.contents })),
@@ -61,11 +102,11 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
   );
 
   return {
-    site,
+    projectId: doc.id,
+    publishedAt,
     bytes: generated.totalBytes,
     pageCount: generated.pageCount,
-    // The host is the authority on where a site lives — it may have given the
-    // project a domain of its own. Only fall back to a local route if not.
+    pages: site.pages.map(({ slug, title }) => ({ slug, title })),
     url: info?.url ?? routes.publishedSite(doc.id),
     ...(info?.subdomain ? { subdomain: info.subdomain } : {}),
     ...(info?.siteDomain ? { siteDomain: info.siteDomain } : {}),

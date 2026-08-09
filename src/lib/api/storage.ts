@@ -55,6 +55,24 @@ export interface StorageAdapter {
    * else.
    */
   listRecords?(projectId: string, collectionId: string): Promise<CollectionRecord[]>;
+  /**
+   * Ask the host to render and store the site itself.
+   *
+   * Present only where there *is* a host. An adapter that implements this owns
+   * generating too, and `publishProject` hands it nothing but a project id:
+   * the whole point is that the browser stops deciding what a published page
+   * contains, so it must stop being able to. `savePublished` remains for the
+   * no-backend path, which has nowhere to move the work to.
+   */
+  publishSite?(projectId: string): Promise<PublishedSummary>;
+}
+
+/** What a host reports after publishing a project. */
+export interface PublishedSummary extends PublishedInfo {
+  publishedAt: number;
+  bytes: number;
+  pageCount: number;
+  pages: { slug: string; title: string }[];
 }
 
 export interface PublishedPage {

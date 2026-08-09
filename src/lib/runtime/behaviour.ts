@@ -26,11 +26,60 @@
  * bundler renames module-scope bindings; a renamed binding inside a serialised
  * function is a `ReferenceError` on somebody's live site.
  *
+ * That discipline is not only about what is written here. A bundler will
+ * *insert* module-scope references given the chance: esbuild's name-keeping
+ * rewrites `function own() {}` into that plus `__name(own, "own")`, and
+ * `__name` exists only inside the bundle. It shipped that way for exactly one
+ * afternoon — see `keep_names` in `wrangler.jsonc`, and the three checks in
+ * `tests/render/worker-publish.mjs` that now refuse it.
+ *
  * The constants below exist for the *rest of the codebase* to import. They are
  * deliberately not used inside `behaviourRuntime`, and the render suite drives
  * a real published page so that a mistake here fails a test rather than a
  * visitor.
+ *
+ * ## Why it declares its own DOM types
+ *
+ * The publisher that embeds this string also runs in a Cloudflare Worker,
+ * where there is no DOM lib — and where the ambient name `Element` is already
+ * taken by `HTMLRewriter`, which is a different thing with different members.
+ * Borrowing ambient names would make this file mean two different things on
+ * two platforms, and the alternative — giving the Worker the DOM lib — is
+ * worse than it sounds: it wins over `@cloudflare/workers-types`, so the
+ * Worker's own `Request`, `Response` and `FormData` would silently become the
+ * browser's.
+ *
+ * So the runtime names the handful of members it actually touches. Real DOM
+ * nodes satisfy these structurally, so every call site still passes a
+ * `Document` or an `HTMLElement` and gets checked.
  */
+
+/** The DOM this runtime touches, named so it means the same thing everywhere. */
+interface Tagged {
+  hasAttribute(name: string): boolean;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
+  querySelector(selectors: string): Tagged | null;
+  querySelectorAll(selectors: string): ArrayLike<Tagged>;
+  closest(selectors: string): Tagged | null;
+  readonly parentElement: Tagged | null;
+  focus?(): void;
+}
+
+/** What the runtime is mounted on: the page, or the editor's frame. */
+interface Host {
+  querySelectorAll(selectors: string): ArrayLike<Tagged>;
+  addEventListener(type: string, handler: (event: Fired) => void): void;
+  removeEventListener(type: string, handler: (event: Fired) => void): void;
+}
+
+/** The two events it listens for, and the only members it reads off them. */
+interface Fired {
+  readonly target: unknown;
+  readonly key?: string;
+  preventDefault(): void;
+}
 
 /** The group: names the switch and carries its current value. */
 export const SWITCH_ATTR = 'data-cre8-switch';
@@ -68,19 +117,19 @@ export const NOT_ATTR = 'data-cre8-not';
  *              trying to use it.
  * @returns A disposer, for surfaces that unmount.
  */
-export function behaviourRuntime(root: Document | HTMLElement, live: boolean): () => void {
+export function behaviourRuntime(root: Host, live: boolean): () => void {
   /** Descendants belonging to this group rather than to one nested inside. */
-  const own = function (group: Element, selector: string): Element[] {
+  function own(group: Tagged, selector: string): Tagged[] {
     const found = group.querySelectorAll(selector);
-    const mine: Element[] = [];
+    const mine: Tagged[] = [];
     for (let i = 0; i < found.length; i++) {
       if (found[i]!.closest('[data-cre8-switch]') === group) mine.push(found[i]!);
     }
     return mine;
-  };
+  }
 
   /** Roles and pairing: fixed for the life of the page, so done once. */
-  const upgrade = function (group: Element): void {
+  function upgrade(group: Tagged): void {
     if (!group.hasAttribute('data-cre8-tabs')) return;
     const key = group.getAttribute('data-cre8-switch') || '';
     // Quiet setters are excluded here rather than skipped inside the loop:
@@ -124,10 +173,10 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
         panel.setAttribute('tabindex', '0');
       }
     }
-  };
+  }
 
   /** Everything that changes when the value does. */
-  const sync = function (group: Element): void {
+  function sync(group: Tagged): void {
     const value = group.getAttribute('data-cre8-value') || '';
     const isTabs = group.hasAttribute('data-cre8-tabs');
     const setters = own(group, '[data-cre8-set]');
@@ -144,7 +193,7 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
         setter.setAttribute('aria-pressed', on ? 'true' : 'false');
       }
     }
-  };
+  }
 
   const groups = root.querySelectorAll('[data-cre8-switch]');
   for (let g = 0; g < groups.length; g++) {
@@ -154,13 +203,13 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
 
   if (!live) return function () {};
 
-  const choose = function (group: Element, setter: Element): void {
+  function choose(group: Tagged, setter: Tagged): void {
     group.setAttribute('data-cre8-value', setter.getAttribute('data-cre8-set') || '');
     sync(group);
-  };
+  }
 
-  const onClick = function (event: Event): void {
-    const target = event.target as Element | null;
+  function onClick(event: Fired): void {
+    const target = event.target as Tagged | null;
     if (!target || !target.closest) return;
     const setter = target.closest('[data-cre8-set]');
     if (!setter) return;
@@ -170,12 +219,12 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
     // designer can put one inside a form, where the default is a submit.
     event.preventDefault();
     choose(group, setter);
-  };
+  }
 
-  const onKeyDown = function (event: Event): void {
-    const key = (event as KeyboardEvent).key;
+  function onKeyDown(event: Fired): void {
+    const key = event.key;
     if (key !== 'ArrowRight' && key !== 'ArrowLeft' && key !== 'Home' && key !== 'End') return;
-    const target = event.target as Element | null;
+    const target = event.target as Tagged | null;
     if (!target || !target.closest) return;
     const setter = target.closest('[data-cre8-set]');
     if (!setter) return;
@@ -196,8 +245,8 @@ export function behaviourRuntime(root: Document | HTMLElement, live: boolean): (
     // Activated on arrival rather than on Enter. Showing a panel here costs a
     // class flip, so making someone press twice buys nothing.
     choose(group, tabs[next]!);
-    (tabs[next] as HTMLElement).focus();
-  };
+    tabs[next]!.focus?.();
+  }
 
   root.addEventListener('click', onClick);
   root.addEventListener('keydown', onKeyDown);

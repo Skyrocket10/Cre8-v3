@@ -258,6 +258,8 @@ adding them is additive.
 interface StorageAdapter {
   listProjects(); loadProject(id); saveProject(doc); deleteProject(id);
   savePublished(projectId, site); loadPublished(projectId);
+  publishSite?(projectId);        // a host that renders for itself
+  listRecords?(projectId, collectionId);
 }
 ```
 
@@ -333,12 +335,45 @@ because an invented row in a file somebody serves is a lie.
 
 Records are read once before generating, not inside the renderer — that module
 is framework-free and has no network, which is what lets the same code run in
-a Worker. Today the browser does the reading, so a publish downloads every
-collection the document repeats over. That is the constraint moving publishing
-to the Worker exists to remove.
+a Worker.
 
-The rest of the data layer — dynamic routes, publishing from the Worker, the
-collections UI — is scoped in [DATA-LAYER.md](DATA-LAYER.md).
+### Publishing runs where the data is
+
+With a backend, publishing is one request carrying a project id and nothing
+else. The Worker reads the live document from the room, reads the rows its
+repeaters point at out of D1, and runs the same generator the editor runs —
+the same files, bundled twice, not a port. It writes the result to R2, so
+serving a page is still a cache lookup rather than CPU. What moved is where
+the bytes are made.
+
+This is what the data layer needed. While the browser generated, expanding a
+repeater meant the *browser* needed the records, so every publish downloaded
+whole collections; and nothing on the server could render, so republishing
+when a record changed was impossible. Both are now questions of what the
+Worker does, not of what it can do.
+
+With no backend there is nowhere to move to, so the browser still generates.
+That path and the ZIP export are two callers of `generateSite` that keep the
+shared module honest, and the render suite holds all three to producing the
+same bytes.
+
+Two consequences worth knowing:
+
+**Nothing a client sends decides what a published page contains.** The publish
+route reads no body. Asset keys are scraped from the project's own document
+rather than supplied — though the project-prefix check stays, because a
+designer can paste another project's asset URL into a style and publishing
+must not become a way to lift someone else's uploads.
+
+**One file crosses from the Worker into the app's source**, and the Worker
+must never be given the DOM lib: it beats `@cloudflare/workers-types`, so
+`Request`, `Response` and `FormData` would silently become the browser's.
+The two serialised runtimes therefore declare the DOM members they touch
+instead of borrowing ambient names — in a Worker, `Element` already means an
+`HTMLRewriter` element. Both facts are checked in `tests/static`.
+
+The rest of the data layer — dynamic routes, the collections UI, republish on
+change — is scoped in [DATA-LAYER.md](DATA-LAYER.md).
 
 ---
 

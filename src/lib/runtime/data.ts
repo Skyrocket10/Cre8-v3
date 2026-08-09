@@ -145,6 +145,21 @@ export function designTokens(settings: ProjectSettings, sources: Iterable<string
   return out.join(' ');
 }
 
+/** The one element the resolver writes to, and the one member it uses. */
+interface Attributed {
+  setAttribute(name: string, value: string): void;
+}
+
+/**
+ * The two browser globals the resolver reads, shadowing the ambient ones.
+ *
+ * Module-scoped, so nothing outside this file sees them — and the file is
+ * checked against these rather than against the DOM lib on both platforms,
+ * which is the point: it must mean the same thing in the app and in a Worker.
+ */
+declare const document: { readonly referrer: string };
+declare const location: { readonly host: string; readonly search: string };
+
 /**
  * Resolve every source and write them onto the document element.
  *
@@ -158,11 +173,16 @@ export function designTokens(settings: ProjectSettings, sources: Iterable<string
  * makes it idempotent — the fallback the file shipped with is a guess, and
  * every guess it could have made is one this function also computes.
  *
+ * The browser globals it reads are declared just above rather than taken from
+ * the DOM lib, for the reason `behaviour.ts` sets out at length: the publisher
+ * that embeds this string also runs in a Worker, which has no DOM lib and
+ * where `Element` already means an `HTMLRewriter` element.
+ *
  * @param root `document.documentElement` on a published page, the frame in
  *   preview. Not called on the canvas at all: there the value is one the
  *   designer picked, the same way a switch's design-time case works.
  */
-export function dataRuntime(root: Element): void {
+export function dataRuntime(root: Attributed): void {
   var out: string[] = [];
 
   var hour = new Date().getHours();
@@ -195,13 +215,13 @@ export function dataRuntime(root: Element): void {
   // Slugged to the same alphabet the generator puts in a selector, because
   // that is where these end up. A parameter that slugs to nothing is dropped
   // rather than written as an empty token.
-  var slug = function (value: string): string {
+  function slug(value: string): string {
     return value
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 32);
-  };
+  }
 
   var seen = 0;
   var params = new URLSearchParams(location.search);

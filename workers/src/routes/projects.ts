@@ -7,8 +7,10 @@
  */
 
 import { newId } from '../lib/crypto';
-import { requireProjectAccess, requireTeamRole } from '../lib/db';
+import { requireProjectAccess, requireTeamRole, room, roomUrl } from '../lib/db';
 import { badRequest, conflict, forbidden, json, notFound, readJson } from '../lib/http';
+import { pagePath } from '../lib/render';
+import { buildSite } from '../lib/site';
 import type { Env, SessionUser } from '../types';
 
 /** Anything the client sends is untrusted; only the shape we rely on is checked. */
@@ -17,14 +19,6 @@ interface DocumentBody {
   name?: unknown;
   pages?: unknown;
   teamId?: unknown;
-}
-
-function room(env: Env, projectId: string): DurableObjectStub {
-  return env.ROOMS.get(env.ROOMS.idFromName(projectId));
-}
-
-function roomUrl(projectId: string, path: string): string {
-  return `https://room/${path}?project=${encodeURIComponent(projectId)}`;
 }
 
 export async function handleListProjects(
@@ -304,6 +298,22 @@ export async function handleSetSubdomain(
   return json({ subdomain: wanted }, 200, cors);
 }
 
+/**
+ * Publish: render here, store here.
+ *
+ * The Worker used to be a filing cabinet — the browser generated every byte
+ * and POSTed them. That worked, and it is what stood between this project and
+ * a collection worth having: expanding a repeater meant the *browser* needed
+ * the records, so every publish downloaded whole collections, and nothing on
+ * the server could republish when one changed.
+ *
+ * Now the same renderer the canvas uses runs here, over the live document from
+ * the room and the rows from D1. One implementation, bundled twice; the render
+ * suite holds the two to byte-identical output.
+ *
+ * The request body is no longer read. That is the point of D3 and not an
+ * oversight: nothing a client sends can decide what a published page contains.
+ */
 export async function handlePublish(
   request: Request,
   env: Env,
@@ -313,23 +323,27 @@ export async function handlePublish(
 ): Promise<Response> {
   await requireProjectAccess(env, projectId, user, 'editor');
 
-  const body = await readJson<{
-    files?: { path: string; contents: string }[];
-    assets?: { key: string; path: string }[];
-  }>(request);
-  if (!Array.isArray(body.files) || body.files.length === 0) throw badRequest('Nothing to publish');
+  // Where published forms post. The publish request came from the editor, so
+  // its origin *is* the API's — the two share one, which is the whole reason
+  // there is no build-time API URL to configure.
+  const built = await buildSite(env, projectId, new URL(request.url).origin);
+  if (!built) throw badRequest('Nothing to publish');
+  const { doc, site } = built;
 
   const prefix = `${projectId}/`;
   let bytes = 0;
 
   await Promise.all(
-    body.files.map((file) => {
+    site.files.map((file) => {
       // A path is a key here, so anything that could climb out of the prefix
       // has to be refused rather than sanitised into something surprising.
+      // The generator does not produce such a path — a page slug is slugged —
+      // but the cost of checking is a string scan and the cost of not is the
+      // whole bucket.
       if (file.path.includes('..') || file.path.startsWith('/')) {
         throw badRequest(`Unsafe file path: ${file.path}`);
       }
-      bytes += file.contents.length;
+      bytes += file.bytes;
       return env.SITES.put(prefix + file.path, file.contents, {
         httpMetadata: {
           contentType: contentTypeFor(file.path),
@@ -340,17 +354,19 @@ export async function handlePublish(
   );
 
   /* --- Uploaded assets ---------------------------------------------------
-     Copied bucket-to-bucket rather than re-uploaded: the browser only ever
-     held a URL for these. The copy is what makes a published site readable
-     without a session — `/api/assets/*` is authenticated by design, and a
-     visitor has no account. */
-  for (const asset of body.assets ?? []) {
+     Copied bucket-to-bucket rather than re-uploaded: nobody ever held these
+     bytes outside R2. The copy is what makes a published site readable without
+     a session — `/api/assets/*` is authenticated by design, and a visitor has
+     no account. */
+  for (const asset of site.assets) {
     if (asset.path.includes('..') || asset.path.startsWith('/')) {
       throw badRequest(`Unsafe asset path: ${asset.path}`);
     }
-    // The key names an object in someone's uploads bucket, and it arrives from
-    // the client. Without this, publishing a project would be a way to read any
-    // other project's files.
+    // These keys are now scraped from the project's own document rather than
+    // sent by a client, which removes most of the reason for this check —
+    // but not all of it. A designer can paste another project's asset URL
+    // into a style, and publishing must not be a way to lift someone else's
+    // uploads into a public bucket.
     if (!asset.key.startsWith(prefix)) {
       throw forbidden('That asset belongs to another project');
     }
@@ -371,7 +387,7 @@ export async function handlePublish(
 
   // Publishing is a mutation of something already cached at the edge. Without
   // this, hitting Publish and reloading shows the previous version.
-  await purgePublished(request, projectId, body.files.map((f) => f.path));
+  await purgePublished(request, projectId, site.files.map((f) => f.path));
 
   const project = await env.DB.prepare(`SELECT name, subdomain FROM projects WHERE id = ?1`)
     .bind(projectId)
@@ -387,7 +403,7 @@ export async function handlePublish(
     `INSERT INTO deployments (id, project_id, published_by, published_at, page_count, bytes, r2_prefix)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
   )
-    .bind(newId(), projectId, user.id, now, body.files.length, bytes, prefix)
+    .bind(newId(), projectId, user.id, now, site.pageCount, bytes, prefix)
     .run();
 
   return json(
@@ -395,6 +411,16 @@ export async function handlePublish(
       ok: true,
       publishedAt: now,
       bytes,
+      // The editor no longer knows what it published, because it no longer
+      // built it — so the counts and the page list come back from here.
+      pageCount: site.pageCount,
+      pages: [...doc.pages]
+        .sort((a, b) => a.order - b.order)
+        .map((page) => ({
+          slug: page.isHome ? '' : page.slug,
+          title: page.meta.title || page.name,
+          path: pagePath(page),
+        })),
       subdomain,
       siteDomain: env.PUBLIC_SITE_DOMAIN ?? '',
       // Absolute once a site domain is configured; the same-origin fallback

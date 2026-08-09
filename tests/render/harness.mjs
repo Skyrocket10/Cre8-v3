@@ -126,6 +126,60 @@ export async function publish(page) {
   await page.waitForTimeout(800);
 }
 
+/* --------------------------------------------------------------------------
+ * Seeding a document
+ *
+ * Some things a suite needs to check have no inspector control yet — a
+ * repeater, a custom head — and some have one that would take twenty
+ * interactions to drive. Both are reached the same way: read the document,
+ * change it as a plain object here in Node, write it back.
+ *
+ * Not a back door. It is the route a collaborator's whole-document change
+ * takes, so the room broadcasts a resync and an open canvas picks it up
+ * exactly as it would from another person.
+ * ----------------------------------------------------------------------- */
+
+/** Same-origin from the page, so the session cookie and CSRF header come free. */
+export function getDocument(page, projectId) {
+  return page.evaluate(async (id) => {
+    const response = await fetch(`/api/projects/${id}`, {
+      credentials: 'include',
+      headers: { 'x-cre8-csrf': '1' },
+    });
+    if (!response.ok) throw new Error(`GET project: HTTP ${response.status}`);
+    const { document: doc } = await response.json();
+    return doc;
+  }, projectId);
+}
+
+/** Returns the HTTP status, so a suite can assert the seed landed. */
+export function saveDocument(page, doc) {
+  return page.evaluate(async (body) => {
+    const response = await fetch(`/api/projects`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'x-cre8-csrf': '1', 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return response.status;
+  }, doc);
+}
+
+/** A scene node with the fields every one of them carries, and nothing else. */
+export function node(id, type, name, extra = {}) {
+  return {
+    id,
+    type,
+    name,
+    parentId: null,
+    children: [],
+    props: {},
+    styles: {},
+    meta: {},
+    ...extra,
+  };
+}
+
 /**
  * Re-key a published page's measurements into the canvas's class names.
  *
