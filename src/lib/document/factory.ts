@@ -312,6 +312,10 @@ export function hydrateDocument(input: Partial<Cre8Document> & { nodes?: NodeMap
     pages: input.pages?.length ? input.pages : base.pages,
     assets: input.assets ?? [],
     components: input.components ?? [],
+    // Absent on every document written before collections existed, and on
+    // every document that never uses one — so it stays optional rather than
+    // adding an empty array to a hundred stored projects.
+    ...(input.collections?.length ? { collections: input.collections } : {}),
   };
 
   for (const node of Object.values(doc.nodes)) {

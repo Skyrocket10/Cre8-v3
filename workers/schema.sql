@@ -164,3 +164,52 @@ CREATE INDEX IF NOT EXISTS submissions_project
 -- rather than scanning the project's history.
 CREATE INDEX IF NOT EXISTS submissions_rate
   ON form_submissions (ip_hash, created_at DESC);
+
+/* ----------------------------------------------------------------- records */
+
+/*
+ * Content, as opposed to design.
+ *
+ * A collection's *shape* — its fields, their types, which one names the URL —
+ * lives in the project document, because that is a design decision and belongs
+ * in the thing that is versioned, undone and exported. What lives here is the
+ * content: rows that change without the design changing, that run to
+ * thousands, and that must not travel through a Durable Object every time
+ * somebody types.
+ *
+ * One table rather than a table per collection. Real columns would be better
+ * at almost everything except the thing that actually happens, which is a
+ * designer adding a field on a Tuesday — per-collection tables mean
+ * per-project migrations, and that is a schema migration system living inside
+ * a website builder. `form_submissions` already stores its payload this way.
+ *
+ * Three fields are lifted out of the JSON because every query touches them:
+ * the slug a route is built from, the manual ordering every CMS eventually
+ * needs, and whether the record is published at all.
+ */
+CREATE TABLE IF NOT EXISTS records (
+  id            TEXT PRIMARY KEY,
+  project_id    TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+  collection_id TEXT NOT NULL,
+  slug          TEXT,
+  position      INTEGER NOT NULL DEFAULT 0,
+  published     INTEGER NOT NULL DEFAULT 1,
+  data          TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+
+-- Every listing is "this project's records in this collection, in order".
+CREATE INDEX IF NOT EXISTS records_collection
+  ON records (project_id, collection_id, position, created_at);
+
+/*
+ * A slug names a published URL, so two records cannot share one inside a
+ * collection. Scoped to the project as well as the collection because
+ * collection ids come from a document and are only unique within it.
+ *
+ * SQLite treats NULLs as distinct in a unique index, which is what is wanted:
+ * a collection that is not routed has no slugs and every row is NULL.
+ */
+CREATE UNIQUE INDEX IF NOT EXISTS records_slug
+  ON records (project_id, collection_id, slug);

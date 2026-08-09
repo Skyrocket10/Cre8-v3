@@ -279,6 +279,34 @@ and makes published output self-contained. The same pipeline hands bytes to R2
 instead of inlining them when the Cloudflare adapter is active — the document
 only ever sees a URL.
 
+### Content is not in the document
+
+Collections split in two, and the seam is the point. A collection's **shape** —
+its fields, their types, which one names the URL — is in the document, because
+a field list is a design decision and belongs with the thing that is versioned,
+undone and exported. Its **records** are in D1, because they change without the
+design changing, run to thousands of rows, and would otherwise travel through
+the collaboration socket every time somebody typed.
+
+Records are JSON in one `records` table rather than a table per collection.
+Real columns would be better at almost everything except what actually happens,
+which is a designer adding a field on a Tuesday: per-collection tables mean
+per-project migrations, and that is a schema migration system living inside a
+website builder. `slug`, `position` and `published` are lifted out as real
+columns because every query touches them, and `slug` carries a unique index
+per collection since it names a URL.
+
+The Worker treats a collection id as opaque, exactly as it treats an asset key
+— it never parses a document to validate one. What it does enforce is who may
+read and write, that **a record id belongs to the project the caller named**,
+and the two limits countable in a single query. That last check is the whole of
+record privacy: without it an account holder could read the table by guessing
+ids, and the access check would pass every time, because the project in the URL
+really would be theirs.
+
+The rest of the data layer — the repeater, dynamic routes, moving publishing to
+the Worker — is scoped in [DATA-LAYER.md](DATA-LAYER.md).
+
 ---
 
 ## 7. Cloudflare shape
@@ -293,7 +321,7 @@ cre8-sites        *.cre8.app
   └── /*          published sites, hostname → KV → R2
 
 Durable Objects  →  one live room per project
-D1               →  accounts, teams, project documents, deployments
+D1               →  accounts, teams, project documents, deployments, records
 KV               →  hostname → project id
 R2               →  uploaded assets, generated site files
 Cache            →  published pages

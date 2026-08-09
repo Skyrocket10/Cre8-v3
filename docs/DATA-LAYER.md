@@ -285,12 +285,38 @@ than in a Worker log, is not.
 
 | Stage | Scope | Gate |
 |---|---|---|
-| **D1** | Collections and records, headless. Schema on the document, records in D1, CRUD routes with the existing access checks. | Records survive a round-trip, and a hostile client cannot read or write another project's — proven in `security.mjs`, next to the checks that already prove it for assets. |
+| **D1** | Collections and records, headless. Schema on the document, records in D1, CRUD routes with the existing access checks. | Records survive a round-trip, and a hostile client cannot read or write another project's — proven in `security.mjs`, next to the checks that already prove it for assets. **landed** |
 | **D2** | The repeater and binding. `repeat`, `bind`, record-in-scope in both renderers, expansion at publish. | A bound list renders identically on canvas and published, with no script, and the stylesheet does not grow by a single rule as records are added. |
 | **D3** | Publishing moves to the Worker for the hosted path. | The same document publishes byte-identical output from the Worker as from the browser. That is a strong gate and the right one: it is the whole claim. |
 | **D4** | Dynamic routes and static pagination. | A blog of thirty posts publishes thirty files plus a paginated index, every one reachable and every one in the sitemap. |
 | **D5** | The editor: collections panel, field editor, record table and form, binding in the inspector. | Someone creates a collection, adds a record and sees it on the canvas without leaving the editor or reading this document. |
 | **D6** | Republish on change. | Editing a record updates the live site with no manual publish, and republishing an unchanged collection writes nothing. |
+
+### What D1 held to
+
+Seventeen checks in `security.mjs`, and the ones that matter are the four
+where B — a real account, signed in, with a project of their own — points it
+at A's records. The sharpest is the last: **a record must not be reachable by
+id through a project the caller does own**. Without `AND project_id = ?` on
+every statement, an account holder could read the whole table by guessing ids,
+and the access check would pass every time because the project named in the
+URL really is theirs. It is the same rule the publish route applies to asset
+keys, and it is checked the same way — by trying it.
+
+Two decisions worth recording because they are not obvious from the code:
+
+**The Worker does not know what a collection is.** A `collectionId` is an
+opaque string scoped to the project, exactly as an asset key is. Validating it
+against the document would mean parsing somebody's whole design on the path of
+every record write, to buy a check the editor makes for free. The consequence
+is that the limits split: the two the server can count in one query — records
+per collection, bytes per record — are enforced there, and the rest (25
+collections, 40 fields) are the editor's.
+
+**A slug collision is a 409 with a sentence.** It is the single most likely
+thing to go wrong here, and the person it happens to is a designer naming a
+second post "About". A unique index turns it into a SQLite error message;
+catching that one constraint by name turns it back into an answer.
 
 D3 before D4 is the ordering §6 argues for. D5 last is deliberate and slightly
 uncomfortable: it means D1–D4 are tested through fixtures rather than through

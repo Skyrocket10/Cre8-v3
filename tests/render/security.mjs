@@ -134,7 +134,167 @@ try {
     `@media:${html.includes('@media')} @container:${html.includes('@container')}`
   );
 
-  /* --------------------------------------- 5. viewer cannot mutate anything */
+  /* ------------------------------------------------------------ 5. records */
+
+  /*
+   * The data layer's content store, and the gate phase D1 was built against:
+   * records survive a round-trip, and a caller who holds an account cannot
+   * reach another project's rows.
+   *
+   * The second half is the one worth being careful about. A record is
+   * addressed by an opaque id, and the only thing standing between a signed-in
+   * stranger and every row in the database is `AND project_id = ?` on each
+   * query. That is the same rule the publish route applies to asset keys, and
+   * it is checked here the same way — by trying it.
+   */
+  const asA = (path, init) =>
+    a.evaluate(
+      async ({ api, path, init }) => {
+        const r = await fetch(`${api}${path}`, {
+          ...init,
+          credentials: 'include',
+          headers: { 'x-cre8-csrf': '1', 'content-type': 'application/json' },
+        });
+        return { status: r.status, body: await r.json().catch(() => ({})) };
+      },
+      { api: API, path, init }
+    );
+
+  const made = await asA(`/api/projects/${projectId}/records`, {
+    method: 'POST',
+    body: JSON.stringify({
+      collectionId: 'posts',
+      slug: 'Hello World',
+      data: { title: 'Hello', body: 'First post' },
+    }),
+  });
+  const recordId = made.body?.record?.id;
+  check('a record can be created', made.status === 200 && Boolean(recordId), `HTTP ${made.status}`);
+  check(
+    'its fields come back as an object, not the string they were stored as',
+    made.body?.record?.data?.title === 'Hello',
+    JSON.stringify(made.body?.record?.data ?? null)
+  );
+  check(
+    'and its slug is narrowed to something a URL can hold',
+    made.body?.record?.slug === 'hello-world',
+    made.body?.record?.slug ?? 'none'
+  );
+
+  const listed = await asA(`/api/projects/${projectId}/records?collection=posts`, {});
+  check(
+    'it is listed under its collection',
+    listed.body?.total === 1 && listed.body?.records?.[0]?.id === recordId,
+    `${listed.body?.total} record(s)`
+  );
+  check(
+    'and a collection nobody has written to is empty rather than an error',
+    (await asA(`/api/projects/${projectId}/records?collection=nothing`, {})).body?.total === 0
+  );
+
+  const patched = await asA(`/api/projects/${projectId}/records/${recordId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ published: false }),
+  });
+  check(
+    'a partial update leaves everything it did not mention alone',
+    patched.body?.record?.published === false && patched.body?.record?.data?.title === 'Hello',
+    JSON.stringify(patched.body?.record ?? null).slice(0, 90)
+  );
+
+  const clash = await asA(`/api/projects/${projectId}/records`, {
+    method: 'POST',
+    body: JSON.stringify({ collectionId: 'posts', slug: 'hello-world', data: {} }),
+  });
+  check(
+    'two records cannot claim the same slug in one collection',
+    clash.status === 409,
+    `HTTP ${clash.status} — ${clash.body?.error ?? ''}`
+  );
+
+  const tooBig = await asA(`/api/projects/${projectId}/records`, {
+    method: 'POST',
+    body: JSON.stringify({ collectionId: 'posts', data: { blob: 'x'.repeat(70 * 1024) } }),
+  });
+  check('an oversized record is refused rather than stored', tooBig.status === 400, `HTTP ${tooBig.status}`);
+
+  const notAnObject = await asA(`/api/projects/${projectId}/records`, {
+    method: 'POST',
+    body: JSON.stringify({ collectionId: 'posts', data: ['not', 'fields'] }),
+  });
+  check('so is one whose fields are not fields', notAnObject.status === 400, `HTTP ${notAnObject.status}`);
+
+  // B holds a perfectly good account. Everything below is B pointing it at A's
+  // project, which is the only thing keeping these rows private.
+  const asB = (path, init) =>
+    b.evaluate(
+      async ({ api, path, init }) => {
+        const r = await fetch(`${api}${path}`, {
+          ...init,
+          credentials: 'include',
+          headers: { 'x-cre8-csrf': '1', 'content-type': 'application/json' },
+        });
+        return r.status;
+      },
+      { api: API, path, init }
+    );
+
+  check(
+    'a stranger cannot list another project’s records',
+    (await asB(`/api/projects/${projectId}/records?collection=posts`, {})) === 404,
+    `HTTP ${await asB(`/api/projects/${projectId}/records?collection=posts`, {})}`
+  );
+  check(
+    'nor read one by id',
+    (await asB(`/api/projects/${projectId}/records/${recordId}`, {})) === 404
+  );
+  check(
+    'nor write one into it',
+    (await asB(`/api/projects/${projectId}/records`, {
+      method: 'POST',
+      body: JSON.stringify({ collectionId: 'posts', data: { title: 'theirs' } }),
+    })) === 404
+  );
+  check(
+    'nor delete one',
+    (await asB(`/api/projects/${projectId}/records/${recordId}`, { method: 'DELETE' })) === 404
+  );
+
+  // The sharper version: B has a project of their own, so the access check
+  // passes — and the record still must not be reachable through it, because
+  // the id belongs to somebody else's project.
+  await b.goto(`${SITE}/`, { waitUntil: 'networkidle' });
+  await b.locator('button:has-text("Blank")').first().click();
+  await b.waitForURL(/\/editor\?p=/, { timeout: READY_TIMEOUT });
+  const bProjectId = new URL(b.url()).searchParams.get('p');
+  await b.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
+
+  check(
+    'and cannot reach it by id through a project they do own',
+    (await asB(`/api/projects/${bProjectId}/records/${recordId}`, {})) === 404,
+    `HTTP ${await asB(`/api/projects/${bProjectId}/records/${recordId}`, {})}`
+  );
+  check(
+    'nor overwrite it that way',
+    (await asB(`/api/projects/${bProjectId}/records/${recordId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ data: { title: 'overwritten' } }),
+    })) === 404
+  );
+
+  const survived = await asA(`/api/projects/${projectId}/records/${recordId}`, {});
+  check(
+    'A’s record is exactly as A left it',
+    survived.body?.record?.data?.title === 'Hello' && survived.body?.record?.published === false,
+    JSON.stringify(survived.body?.record?.data ?? null)
+  );
+
+  check(
+    'and A can delete their own',
+    (await asA(`/api/projects/${projectId}/records/${recordId}`, { method: 'DELETE' })).status === 200
+  );
+
+  /* --------------------------------------- 6. viewer cannot mutate anything */
 
   // Invite B as a viewer to a shared team, then have B try to edit.
   await a.goto(`${SITE}/`, { waitUntil: 'networkidle' });

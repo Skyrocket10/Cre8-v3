@@ -40,6 +40,7 @@ import {
 } from './lib/http';
 import { handleMe, handleSignIn, handleSignOut, handleSignUp } from './routes/auth';
 import { handleFormSubmission, listSubmissions } from './routes/forms';
+import { recordRoutes } from './routes/records';
 import {
   contentTypeFor,
   handleDeleteProject,
@@ -197,7 +198,7 @@ function projectRoutes(
   cors: Record<string, string>,
   method: string
 ): Promise<Response> {
-  const [, projectId, section] = parts;
+  const [, projectId, section, item] = parts;
 
   if (!projectId) {
     if (method === 'GET') return handleListProjects(request, env, user, cors);
@@ -211,6 +212,8 @@ function projectRoutes(
     return handleSetSubdomain(request, env, projectId, user, cors);
   } else if (section === 'submissions' && method === 'GET') {
     return handleListSubmissions(env, projectId, user, cors);
+  } else if (section === 'records') {
+    return recordRoutes(request, env, projectId, item, user, cors, method);
   } else if (section === 'socket') {
     // A 101 upgrade carries no CORS headers, so this one skips them.
     return handleSocket(env, projectId, user);

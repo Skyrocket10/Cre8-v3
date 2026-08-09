@@ -428,6 +428,92 @@ export interface Page {
 
 export type AssetType = 'image' | 'svg' | 'video' | 'font' | 'icon';
 
+/* --------------------------------------------------------------------------
+ * Collections
+ * ----------------------------------------------------------------------- */
+
+/**
+ * What a field can hold.
+ *
+ * Eight, and the list is short on purpose — every type is a branch in the
+ * record form, the binding picker and eventually the renderer. `reference` and
+ * `image` are the two that earn their complexity: without them a post has no
+ * author and no cover, and every collection is a flat spreadsheet.
+ */
+export type FieldType =
+  | 'text'
+  | 'richtext'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'image'
+  | 'select'
+  | 'reference';
+
+export interface Field {
+  /** Stable across renames — bindings point at this. */
+  key: string;
+  label: string;
+  type: FieldType;
+  required?: boolean;
+  /** Which collection a `reference` points at. */
+  of?: string;
+  /** What a `select` may be. */
+  options?: string[];
+}
+
+/**
+ * The shape of a collection. Its *records* are not here.
+ *
+ * A field list is a design decision: it is versioned with the document, undone
+ * with the document, and exported with it. The content is not — it changes
+ * without the design changing, runs to thousands of rows, and would bloat a
+ * document that has to fit in IndexedDB and travel through a Durable Object on
+ * every keystroke. So the schema lives here and the records live in D1.
+ */
+export interface Collection {
+  id: string;
+  name: string;
+  /** Which field names the URL, once a page is routed at this collection. */
+  slugField?: string;
+  fields: Field[];
+}
+
+/**
+ * One row of content.
+ *
+ * Mirrors the `records` table rather than being derived from it, because this
+ * is what crosses the wire — `data` is the fields, and the four beside it are
+ * the ones every query touches.
+ */
+export interface CollectionRecord {
+  id: string;
+  collectionId: string;
+  slug?: string;
+  position: number;
+  published: boolean;
+  data: Record<string, string | number | boolean | null>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Ceilings, stated so they can be refused rather than discovered.
+ *
+ * Every one of these is a number somebody will reach. A builder that degrades
+ * quietly at the limit is worse than one that says no — so the editor checks
+ * before offering the button, and the Worker checks the two it can afford to
+ * count on every write.
+ */
+export const LIMITS = {
+  collections: 25,
+  fieldsPerCollection: 40,
+  recordsPerCollection: 5000,
+  recordsPerRepeat: 500,
+  /** Bytes of serialised `data`. */
+  recordBytes: 64 * 1024,
+} as const;
+
 /** One rung of a responsive image's ladder. */
 export interface AssetSource {
   /** Intrinsic width in pixels — the number a `srcset` entry is keyed on. */
@@ -576,9 +662,15 @@ export interface Cre8Document {
 
   lastPublished?: PublishRecord;
 
-  /* RESERVED — the CMS / database / logic layers land here. Present in the
+  /**
+   * Collection *shapes* — the reserved slot, now filled.
+   *
+   * The rows they describe live in D1, not here. See `Collection`.
+   */
+  collections?: Collection[];
+
+  /* RESERVED — the logic and integration layers land here. Present in the
      type so adding them is an additive change, never a migration. */
-  collections?: unknown[];
   actions?: unknown[];
   integrations?: Record<string, unknown>;
 }

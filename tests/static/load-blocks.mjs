@@ -76,6 +76,7 @@ export function loadBlocks() {
     generateNodeCss: require(path.join(OUT, 'renderer/css.js')).generateNodeCss,
     renderPage: require(path.join(OUT, 'publishing/html.js')).renderPage,
     createEmptyDocument: require(path.join(OUT, 'document/factory.js')).createEmptyDocument,
+    hydrateDocument: require(path.join(OUT, 'document/factory.js')).hydrateDocument,
     buildInto: require(path.join(OUT, 'document/factory.js')).buildTree,
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
   };

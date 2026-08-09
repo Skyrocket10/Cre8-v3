@@ -28,6 +28,7 @@ const {
   generateNodeCss,
   renderPage,
   createEmptyDocument,
+  hydrateDocument,
 } = loadBlocks();
 
 /** The selector of the first generated rule mentioning `needle`. */
@@ -1338,6 +1339,30 @@ report.group('the published stylesheet earns its size');
   report.check(
     'a document claiming to be current is converted on its shape',
     lying.nodes.a.rules?.length === 1 && lying.nodes.a.props.whenIs === undefined
+  );
+}
+
+{
+  /*
+   * Collection *shapes* travel with the document, because a field list is a
+   * design decision — versioned, undone and exported with everything else.
+   * The rows they describe do not: they live in D1, and a document that
+   * carried thousands of them would stop fitting in IndexedDB and stop
+   * travelling through the collaboration socket on every keystroke.
+   */
+  const collections = [
+    { id: 'posts', name: 'Posts', slugField: 'title', fields: [{ key: 'title', label: 'Title', type: 'text' }] },
+  ];
+  const loaded = hydrateDocument({ collections });
+  report.check(
+    'a collection’s shape survives loading',
+    loaded.collections?.[0]?.fields?.[0]?.key === 'title',
+    JSON.stringify(loaded.collections?.[0]?.fields ?? null)
+  );
+  report.check(
+    'and a document with none does not grow an empty list',
+    hydrateDocument({}).collections === undefined,
+    JSON.stringify(hydrateDocument({}).collections ?? null)
   );
 }
 

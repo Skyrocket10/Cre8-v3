@@ -18,7 +18,22 @@
  *     it and a cross-origin caller must survive a preflight to send it.
  */
 
-import type { Cre8Document } from '../document/types';
+import type { CollectionRecord, Cre8Document } from '../document/types';
+
+/**
+ * What a caller may set on a record.
+ *
+ * `collectionId` is required on creation and absent from updates: a record
+ * does not move between shapes, and letting it would leave rows keyed on a
+ * collection whose fields they were never written against.
+ */
+export interface RecordInput {
+  collectionId: string;
+  slug?: string | null;
+  position?: number;
+  published?: boolean;
+  data: Record<string, string | number | boolean | null>;
+}
 
 /** Empty means same-origin, which is the normal deployment. */
 export const API_URL = (process.env.NEXT_PUBLIC_CRE8_API_URL?.trim() ?? '').replace(/\/+$/, '');
@@ -312,6 +327,38 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ subdomain }),
     }),
+
+  /* --- Collection records ---------------------------------------------- */
+
+  listRecords: (
+    projectId: string,
+    collectionId: string,
+    options: { limit?: number; offset?: number; publishedOnly?: boolean } = {}
+  ) => {
+    const query = new URLSearchParams({ collection: collectionId });
+    if (options.limit !== undefined) query.set('limit', String(options.limit));
+    if (options.offset !== undefined) query.set('offset', String(options.offset));
+    if (options.publishedOnly) query.set('published', 'true');
+    return call<{ records: CollectionRecord[]; total: number }>(
+      `/api/projects/${projectId}/records?${query}`
+    );
+  },
+
+  createRecord: (projectId: string, input: RecordInput) =>
+    call<{ record: CollectionRecord }>(`/api/projects/${projectId}/records`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  /** Partial: anything left out keeps the value it had. */
+  updateRecord: (projectId: string, recordId: string, patch: Partial<RecordInput>) =>
+    call<{ record: CollectionRecord }>(`/api/projects/${projectId}/records/${recordId}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+
+  deleteRecord: (projectId: string, recordId: string) =>
+    call<{ ok: true }>(`/api/projects/${projectId}/records/${recordId}`, { method: 'DELETE' }),
 
   uploadAsset: async (projectId: string, blob: Blob, filename: string) => {
     const form = new FormData();
