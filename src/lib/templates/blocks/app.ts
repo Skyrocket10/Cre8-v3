@@ -27,6 +27,7 @@ import {
   cols,
   column,
   container,
+  dialog,
   divider,
   dropdown,
   fieldset,
@@ -1748,6 +1749,155 @@ export function uploadSpec(): NodeSpec {
           },
         ],
         { gap: '20px', alignItems: 'flex-start', maxWidth: '720px' }
+      ),
+    ],
+    { paddingTop: '56px', paddingBottom: '64px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Confirm dialog
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The one interaction every application needs and nobody enjoys building.
+ *
+ * A real `<dialog>`, so it is announced as a dialog and read out by its
+ * label. Opened and closed by the same `popovertarget` wiring the menu uses,
+ * which means the published page carries no script — Escape cancels, a click
+ * outside cancels, and focus goes back to the button that opened it.
+ *
+ * Cancel comes before Delete in the DOM so the safe choice is the first thing
+ * a keyboard reaches, and the destructive one carries the danger token rather
+ * than being the same button in a different colour.
+ */
+export function confirmDialogSpec(): NodeSpec {
+  return section(
+    'Confirm dialog',
+    [
+      container(
+        [
+          card(
+            'Danger zone',
+            [
+              column(
+                'Danger copy',
+                [
+                  heading('Delete this project', 3, { ...CARD_TITLE, fontSize: '16px' }),
+                  paragraph(
+                    'Everything in it goes: pages, assets, and every published version.',
+                    { ...CAPTION, color: 'var(--c-muted)' }
+                  ),
+                ],
+                { gap: '4px' }
+              ),
+              {
+                ...popoverButton('Delete project…', 'Confirm delete'),
+                name: 'Open confirm',
+                styles: {
+                  marginLeft: 'auto',
+                  flexShrink: '0',
+                  fontSize: '13.5px',
+                  ...pad('9px', '14px'),
+                  backgroundColor: 'transparent',
+                  color: 'var(--c-danger, #dc2626)',
+                  ...border('1px', 'var(--c-danger, #dc2626)'),
+                },
+                states: {
+                  hover: {
+                    backgroundColor: 'color-mix(in srgb, var(--c-danger, #dc2626) 10%, transparent)',
+                  },
+                },
+              },
+            ],
+            {
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: '20px',
+              ...border('1px', 'color-mix(in srgb, var(--c-danger, #dc2626) 35%, transparent)'),
+            },
+            { mobile: { flexDirection: 'column', alignItems: 'flex-start' } }
+          ),
+
+          dialog(
+            'Confirm delete',
+            'Delete this project?',
+            [
+              stack(
+                'Dialog head',
+                [
+                  frame(
+                    'Warning glyph',
+                    [
+                      icon('circle-alert', {
+                        width: '17px',
+                        height: '17px',
+                        color: 'var(--c-danger, #dc2626)',
+                      }),
+                    ],
+                    {
+                      width: '34px',
+                      height: '34px',
+                      ...pad('0px'),
+                      ...radius('var(--r-full)'),
+                      backgroundColor:
+                        'color-mix(in srgb, var(--c-danger, #dc2626) 12%, transparent)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: '0',
+                    }
+                  ),
+                  heading('Delete this project?', 3, { ...CARD_TITLE, fontSize: '17px' }),
+                ],
+                { gap: '12px', width: '100%', alignItems: 'center' }
+              ),
+              paragraph(
+                'This cannot be undone. Type of thing worth reading twice — every page, asset and published version goes with it.',
+                { ...SMALL, color: 'var(--c-muted)' }
+              ),
+              divider(),
+              stack(
+                'Dialog actions',
+                [
+                  // Cancel first in the DOM, so the safe choice is the one a
+                  // keyboard reaches first.
+                  {
+                    ...popoverButton('Cancel', 'Confirm delete', { action: 'hide' }),
+                    name: 'Cancel',
+                    styles: {
+                      marginLeft: 'auto',
+                      fontSize: '13.5px',
+                      ...pad('9px', '15px'),
+                      backgroundColor: 'transparent',
+                      color: 'var(--c-text)',
+                      ...border('1px', 'var(--c-border)'),
+                    },
+                  },
+                  {
+                    ...popoverButton('Delete', 'Confirm delete', { action: 'hide' }),
+                    name: 'Confirm delete button',
+                    styles: {
+                      fontSize: '13.5px',
+                      ...pad('9px', '15px'),
+                      backgroundColor: 'var(--c-danger, #dc2626)',
+                      color: 'var(--c-on-primary)',
+                    },
+                    states: {
+                      hover: {
+                        backgroundColor:
+                          'color-mix(in srgb, var(--c-danger, #dc2626) 85%, black)',
+                      },
+                    },
+                  },
+                ],
+                { gap: '9px', width: '100%', alignItems: 'center' },
+                { mobile: { flexDirection: 'column-reverse', alignItems: 'stretch' } }
+              ),
+            ],
+            { responsive: { mobile: { width: 'calc(100% - 24px)' } } }
+          ),
+        ],
+        { gap: '20px', alignItems: 'stretch', maxWidth: 'var(--w-content)' }
       ),
     ],
     { paddingTop: '56px', paddingBottom: '64px' }

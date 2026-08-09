@@ -271,7 +271,8 @@ export function describeElement(
       };
     }
 
-    case 'popover': {
+    case 'popover':
+    case 'dialog': {
       // Design time and published deliberately differ here, for the same
       // reason `<details>` does: a `[popover]` is `display: none` until it is
       // shown, and contents nobody can see are contents nobody can edit. The
@@ -280,12 +281,19 @@ export function describeElement(
       // style rather than something the renderer invents per surface.
       const showWhileEditing = props.showWhileEditing !== false;
       const live = mode !== 'edit' || !showWhileEditing;
+      const isDialog = node.type === 'dialog';
       return {
-        tag: 'div',
+        // A real `<dialog>`, opened through the popover attribute rather than
+        // `showModal()`. That keeps the page scriptless and still buys the
+        // element's implicit role, so the thing is announced as a dialog
+        // instead of as an anonymous box.
+        tag: isDialog ? 'dialog' : 'div',
         attrs: {
           ...base,
           id: popoverDomId(node.id),
           popover: live ? str(props.popoverMode, 'auto') : undefined,
+          // A dialog with no name is announced as "dialog" and nothing else.
+          'aria-label': isDialog ? str(props.label) || undefined : undefined,
         },
         void: false,
         acceptsChildren: true,

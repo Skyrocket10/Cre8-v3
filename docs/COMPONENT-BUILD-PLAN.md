@@ -269,7 +269,7 @@ inspector section. No runtime, and the same markup on all three surfaces.
 | `progress` | `<progress>`, track and fill as ordinary node styles | ✅ |
 | `fieldset` | `<fieldset>` + owned `<legend>` | ✅ |
 | date / time | `inputType` on the existing `input`, not a new type | ✅ |
-| `dialog` | `<dialog>` — deferred, see below | |
+| `dialog` | `<dialog popover>` + `::backdrop` — see the limit below | ✅ |
 
 ### Two things B added beyond the primitives
 
@@ -318,28 +318,72 @@ a placeholder is a pseudo-element and no selector in the document can name it.
 `tests/render/native.mjs` now compares those parts directly, and refuses to
 pass when it finds nothing to measure.
 
-### Design-time divergence, now twice
+### Design-time divergence, in one place and one shape
 
-`<details>` is forced open on the canvas and `[popover]` renders without the
-attribute, both so their contents can be reached and edited. These are the only
-two places in the product where design time and published differ on purpose,
+`<details>` is forced open on the canvas, and `[popover]` — which is both the
+popover and the dialog — renders without the attribute. Both so their contents
+can be reached and edited. These are the only places in the product where
+design time and published differ on purpose,
 each is one line in `describeElement`, each says so in the inspector, and each
 is asserted in both directions by `tests/render/native.mjs`. The block sweep
 skips closed popovers when it compares surfaces, and names them as the single
 exemption rather than filtering silently.
 
-### Deferred: `<dialog>`
+### `<dialog>`, and the one thing it does not do
 
-A modal is a popover that traps focus and blocks the page behind it. Everything
-about authoring it — showing it open on the canvas, the backdrop, the close
-affordance — is the popover work again, and `showModal()` needs a script where
-`popovertarget` does not. It waits for Phase C so the trigger is one mechanism
-rather than two.
+A dialog is opened by `popovertarget`, exactly as a popover is, so the page
+still ships no script. `<dialog popover>` is valid and works: it opens, Escape
+closes it, focus returns to the button, and it gets a `::backdrop`.
+
+What it buys over a `<div popover>` is one thing, and that thing is the whole
+reason it is a separate primitive: **it is announced as a dialog, by name.**
+The accessibility tree reads `dialog "Delete this project?"` where the div
+reads nothing at all. That is the same argument the table family makes — use
+the element that means what you mean — and it is checked with an aria
+snapshot rather than asserted.
+
+**It is not modal.** `showModal()` is the only thing that makes the page
+behind inert and traps the keyboard, and there is no attribute for it. So a
+keyboard user can still tab out of this dialog into the page underneath. Three
+ways that could have gone:
+
+1. Ship a small inline script that calls `showModal()`. That breaks the
+   zero-script property every render suite asserts, and — worse — it is
+   precisely the "hand-written script beside a React canvas" that
+   `ARCHITECTURE.md` §1 names as how a second renderer starts.
+2. Fake modality in CSS. `:has()` plus `pointer-events: none` blocks the
+   mouse and not the keyboard: a modal that looks complete and is not, which
+   is worse than one that is honestly partial.
+3. Ship the honest version and say so.
+
+This is 3. The limitation is written in the inspector where a designer will
+read it, and the native suite asserts the page behind is still reachable —
+so the day the runtime lands and that check starts failing is the day the
+dialog became modal.
+
+### Backdrop styling, and where it lives
+
+`::backdrop` is a pseudo-element hung off the node, which is mechanically the
+same thing `:hover` is — one more selector on the node's class. So it went
+into `states` rather than into a new field: one more path through the
+generator, the inspector and the patch stream, to say the same sentence, is
+not worth a cleaner label. The generator knows which keys take `::` instead
+of `:`; `:backdrop` matches nothing, so getting that wrong would have meant
+the page behind a dialog silently never dimming.
+
+`ElementDefinition` also gained `defaultStates`, deep-copied on insert, so a
+dialog arrives with its backdrop already on. A dialog that does not dim the
+page is a box floating over a document that still looks live, and "add a
+backdrop" is not a step anyone should have to know to take.
 
 ### B′ — the blocks these unlock
 
 Landed with B: **Navbar with menu**, **Command menu**, **Data table**,
 **Comparison table** rebuilt on real table markup, **Filter panel** (three
-fieldsets, a slider, checkboxes, radios and a select) and **Upload** (a real
-file input with per-file progress). The rest — drawer, accordion variants,
-richer form layouts — is composition work with no capability behind it.
+fieldsets, a slider, checkboxes, radios and a select), **Upload** (a real file
+input with per-file progress) and **Confirm dialog**. The rest — drawer,
+accordion variants, richer form layouts — is composition work with no
+capability behind it.
+
+Phase B is complete. What remains gated is modality, focus management and
+anchor positioning — all of which want the runtime, not another primitive.

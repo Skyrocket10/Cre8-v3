@@ -200,8 +200,20 @@ export type StyleProp = keyof StyleDecl;
 /** Style overrides keyed by breakpoint. `desktop` is the base layer. */
 export type ResponsiveStyles = Partial<Record<Breakpoint, StyleDecl>>;
 
-/** Interaction-state styles. Published as `:hover` / `:active` rules. */
-export type StyleState = 'hover' | 'active' | 'focus';
+/**
+ * Variants of a node's own rule.
+ *
+ * Three are interaction states, published as `:hover` / `:active` / `:focus`.
+ * `backdrop` is the odd one: it is a pseudo-*element*, the sheet the browser
+ * paints behind anything in the top layer, and it lives here because it is
+ * the same thing mechanically — one more selector hung off the node's class.
+ * A separate field would have meant a second path through the generator, the
+ * inspector and the patch stream to say the same sentence.
+ */
+export type StyleState = 'hover' | 'active' | 'focus' | 'backdrop';
+
+/** Which of those are `::` rather than `:`. */
+export const PSEUDO_ELEMENT_STATES: readonly StyleState[] = ['backdrop'] as const;
 export type StateStyles = Partial<Record<StyleState, StyleDecl>>;
 
 /* --------------------------------------------------------------------------
@@ -235,6 +247,7 @@ export type ElementType =
   | 'spacer'
   | 'details'
   | 'popover'
+  | 'dialog'
   // Tabular data
   | 'table'
   | 'tableRow'

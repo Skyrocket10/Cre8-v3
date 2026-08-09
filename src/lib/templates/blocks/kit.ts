@@ -721,10 +721,32 @@ export const popover = (
 });
 
 /**
+ * A dialog: the same top-layer surface, in the element that says so.
+ *
+ * Announced as a dialog and read out by its label, which a `div` never is.
+ * Opened by the popover attribute rather than `showModal()`, so the page
+ * still ships no script — at the price of the page behind staying reachable
+ * by keyboard, which is the one thing only `showModal()` can fix.
+ */
+export const dialog = (
+  name: string,
+  label: string,
+  children: NodeSpec[],
+  options: { mode?: 'auto' | 'manual'; styles?: StyleDecl; responsive?: ResponsiveStyles } = {}
+): NodeSpec => ({
+  type: 'dialog',
+  name,
+  props: { popoverMode: options.mode ?? 'auto', label },
+  styles: options.styles ?? {},
+  ...rsp(options.responsive ?? {}),
+  children,
+});
+
+/**
  * A button wired to a popover.
  *
- * `target` is the popover's *name*; `linkPopovers` resolves those to node ids
- * once the tree has been built, because a NodeSpec has no id to point at yet.
+ * `target` is the popover's or dialog's *name*; `buildTree` resolves those to
+ * node ids once the tree exists, because a NodeSpec has no id to point at yet.
  */
 export const popoverButton = (
   text: string,

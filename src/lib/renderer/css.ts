@@ -13,7 +13,16 @@
  * the cascade, the reset — is byte-for-byte identical between the two modes.
  */
 
-import { BREAKPOINT_DEFS, BREAKPOINT_ORDER, type Breakpoint, type SceneNode, type StyleDecl, type Cre8Document } from '../document/types';
+import {
+  BREAKPOINT_DEFS,
+  BREAKPOINT_ORDER,
+  PSEUDO_ELEMENT_STATES,
+  type Breakpoint,
+  type SceneNode,
+  type StyleDecl,
+  type StyleState,
+  type Cre8Document,
+} from '../document/types';
 
 export type QueryMode = 'media' | 'container';
 
@@ -115,7 +124,12 @@ function rulesFor(node: SceneNode, selectorPrefix: string): NodeRules {
   for (const [state, layer] of Object.entries(node.states ?? {})) {
     if (!layer || Object.keys(layer).length === 0) continue;
     const body = declarationsToCss(layer as StyleDecl);
-    if (body) stateChunks.push(`${selector}:${state} {\n${body}\n}`);
+    // `::backdrop` is a pseudo-element, and the single colon a pseudo-class
+    // takes is not merely old-fashioned spelling here — `:backdrop` matches
+    // nothing, so the rule would be dropped and the page behind a dialog
+    // would simply never dim.
+    const colons = PSEUDO_ELEMENT_STATES.includes(state as StyleState) ? '::' : ':';
+    if (body) stateChunks.push(`${selector}${colons}${state} {\n${body}\n}`);
   }
 
   const rules: NodeRules = {

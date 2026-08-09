@@ -563,6 +563,102 @@ try {
   );
 
   await controls.close();
+
+  /* ------------------------------------------------------- 11. the dialog */
+
+  // A dialog differs from the popover above in one thing that matters and is
+  // invisible on screen: it is announced as a dialog and read out by its
+  // label. So the checks are mostly about the accessibility tree, plus the
+  // one limitation stated honestly — this is not modal, and pretending
+  // otherwise in a test would be worse than not testing it.
+  await page.bringToFront();
+  await insert('Confirm dialog');
+
+  await publish(page);
+  const dialogHtml = await (await fetch(`${APP}/s/${id}/`)).text();
+
+  const dialogId = /<dialog[^>]*\sid="(p-[^"]+)"/.exec(dialogHtml)?.[1] ?? '';
+  report.check('it publishes as a real <dialog>', Boolean(dialogId), dialogId || 'no dialog element');
+  report.check(
+    'opened by the same attribute a popover is, so no script appears',
+    dialogHtml.includes(`popovertarget="${dialogId}"`) && !/<script/i.test(dialogHtml),
+    dialogId ? 'wired, scriptless' : 'unwired'
+  );
+  report.check(
+    'it carries a label to be announced by',
+    /<dialog[^>]*aria-label="[^"]+"/.test(dialogHtml),
+    /aria-label/.test(dialogHtml) ? 'labelled' : 'unlabelled'
+  );
+  report.check(
+    'the backdrop is a rule on the node’s own class',
+    // The class and the id share a node id, so one names the other. A plain
+    // string is enough — the selector has no whitespace for minification to
+    // move around.
+    dialogHtml.includes(`.c-${dialogId.slice(2)}::backdrop`),
+    `.c-${dialogId.slice(2)}::backdrop`
+  );
+
+  const modal = await ctx.newPage();
+  await modal.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+
+  const box = modal.locator(`#${dialogId}`);
+  const open = modal.locator(`button[popovertarget="${dialogId}"]`).first();
+
+  report.check('it starts closed', !(await box.isVisible()));
+  await open.click();
+  await modal.waitForTimeout(220);
+  report.check('the button opens it', await box.isVisible());
+
+  // The part a `<div popover>` cannot do, and the only reason this is a
+  // separate primitive at all.
+  const announced = await box.ariaSnapshot();
+  report.check(
+    'assistive technology is told it is a dialog, by name',
+    /^- dialog "Delete this project\?"/.test(announced.trim()),
+    announced.split('\n')[0]
+  );
+
+  const dimmed = await modal.evaluate((did) => {
+    const el = document.getElementById(did);
+    const backdrop = el ? getComputedStyle(el, '::backdrop').backgroundColor : 'none';
+    return {
+      backdrop,
+      // Not modal, and this is the check that keeps that honest rather than
+      // letting the suite imply otherwise. `showModal()` is what makes the
+      // page inert, and it needs a script these pages do not carry.
+      pageStillReachable: document.querySelector('a, button:not([popovertarget])') !== null,
+    };
+  }, dialogId);
+
+  report.check(
+    'the page behind is dimmed',
+    dimmed.backdrop !== 'rgba(0, 0, 0, 0)' && dimmed.backdrop !== 'none',
+    dimmed.backdrop
+  );
+  report.check(
+    'and is documented as still reachable — this is not showModal()',
+    dimmed.pageStillReachable,
+    'not modal, as stated'
+  );
+
+  await modal.keyboard.press('Escape');
+  await modal.waitForTimeout(220);
+  report.check('Escape cancels it', !(await box.isVisible()));
+
+  await open.click();
+  await modal.waitForTimeout(220);
+  await modal.locator(`#${dialogId} button:text-is("Cancel")`).click();
+  await modal.waitForTimeout(220);
+  report.check('so does Cancel', !(await box.isVisible()));
+  report.check(
+    'and focus lands back on the button that opened it',
+    await modal.evaluate(
+      (did) => document.activeElement?.getAttribute('popovertarget') === did,
+      dialogId
+    )
+  );
+
+  await modal.close();
 } catch (error) {
   report.check('native suite completed', false, error.message);
 } finally {

@@ -50,6 +50,8 @@ export function ContentSection() {
       return <LinkContent labelProp="text" title="Link" />;
     case 'popover':
       return <PopoverContent />;
+    case 'dialog':
+      return <DialogContent />;
     case 'table':
       return <TableContent />;
     case 'tableCell':
@@ -429,7 +431,7 @@ function usePopovers(): { id: string; name: string }[] {
     if (!rootId) return '';
     return collectSubtree(s.doc.nodes, rootId)
       .map((id) => s.doc.nodes[id])
-      .filter((node) => node?.type === 'popover')
+      .filter((node) => node?.type === 'popover' || node?.type === 'dialog')
       .map((node) => `${node!.id}${FIELD}${node!.name}`)
       .join(ENTRY);
   });
@@ -472,6 +474,51 @@ function PopoverContent() {
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         Published, it stays hidden until a button opens it. Turn this off and it hides on the canvas
         too — select it in Layers to bring it back.
+      </p>
+    </Section>
+  );
+}
+
+function DialogContent() {
+  const label = useNodeProp('label');
+  const mode = useNodeProp('popoverMode');
+  const showWhileEditing = useNodeProp('showWhileEditing');
+
+  return (
+    <Section title="Dialog" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Announced as" hint="Read out when the dialog opens">
+          <TextInput
+            className="flex-1"
+            value={String(label.value ?? '')}
+            onValueChange={(next) => label.set(next)}
+            placeholder="Delete project?"
+          />
+        </StyleRow>
+        <StyleRow label="Dismiss" hint="Automatic closes on Escape or a click outside">
+          <Segmented
+            full
+            value={String(mode.value ?? 'auto')}
+            onChange={(value) => mode.set(value)}
+            options={[
+              { value: 'auto', label: 'Automatic' },
+              { value: 'manual', label: 'Manual' },
+            ]}
+          />
+        </StyleRow>
+        <StyleRow label="On canvas">
+          <Switch
+            checked={showWhileEditing.value !== false}
+            onChange={(on) => showWhileEditing.set(on ? undefined : false)}
+            label="Show while editing"
+          />
+        </StyleRow>
+      </InspectorGroup>
+      {/* Said here rather than only in a document, because the difference is
+          invisible until a keyboard user finds it. */}
+      <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+        Opens over the page with a backdrop — style it under Backdrop above. The page behind stays
+        reachable by keyboard: making it inert needs a script, which these pages do not ship.
       </p>
     </Section>
   );

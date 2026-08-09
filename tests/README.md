@@ -54,7 +54,7 @@ preferring an installed copy over downloading one.
 | `blocks` | The same question of every block in the registry, alone, at 390 / 768 / 1440 |
 | `panel` | The Insert panel at library scale: grouping, search, live previews |
 | `nav` | Do page links work inside a published site |
-| `native` | Do `<details>`, the form controls and `[popover]` behave with no runtime |
+| `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime |
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
 | `assets` | Do images survive publish and ZIP export |
@@ -80,6 +80,8 @@ these caught so far was invisible in the editor and only wrong once published:
 - the page root inheriting the editor's 12px chrome font instead of 16px
 - a popover's own `display` beating the browser's rule for hiding a closed one,
   so the panel that should wait for a button was simply always on the page
+- a slider transparent on the canvas and white in production, because the
+  editor has Tailwind's preflight and a published page has nothing
 
 None of those would survive the sweep now. That is the point: the library can
 grow to a hundred blocks without the quality bar drifting, because drift fails

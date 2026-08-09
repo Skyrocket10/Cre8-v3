@@ -64,6 +64,13 @@ function InspectorHeader() {
   const styleState = useEditor((s) => s.styleState);
   const setStyleState = useEditor((s) => s.setStyleState);
   const selectionCount = useEditor((s) => s.selection.length);
+  // `::backdrop` only exists for something in the top layer. Offering it on
+  // every element would be a control that silently does nothing.
+  const hasBackdrop = useEditor((s) => {
+    const id = s.selection[0];
+    const type = id ? s.doc.nodes[id]?.type : undefined;
+    return type === 'dialog' || type === 'popover';
+  });
 
   const BreakpointIcon =
     breakpoint === 'desktop' ? Monitor : breakpoint === 'tablet' ? Tablet : Smartphone;
@@ -113,6 +120,15 @@ function InspectorHeader() {
             options={[
               { value: 'default', label: 'Default', title: 'Base style' },
               { value: 'hover', label: 'Hover', title: 'Styles applied on hover' },
+              ...(hasBackdrop
+                ? [
+                    {
+                      value: 'backdrop' as const,
+                      label: 'Backdrop',
+                      title: 'The sheet the browser paints behind it',
+                    },
+                  ]
+                : []),
             ]}
           />
         </div>
@@ -149,7 +165,9 @@ function SingleSelection() {
 
       {styleState !== 'default' && (
         <div className="border-b border-[var(--border-soft)] bg-[var(--accent-subtle)] px-3 py-1.5 text-[10.5px] text-[var(--accent)]">
-          Changes apply on {styleState}. Switch to Default for the base style.
+          {styleState === 'backdrop'
+            ? 'Changes apply to the backdrop behind it. Switch to Default for the panel itself.'
+            : `Changes apply on ${styleState}. Switch to Default for the base style.`}
         </div>
       )}
 

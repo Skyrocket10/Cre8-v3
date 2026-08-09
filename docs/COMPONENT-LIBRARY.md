@@ -43,10 +43,12 @@ The 9 blocks are good work and set the quality bar: 116 token references, 25
 responsive style layers, 9 interaction-state layers. Everything below has to
 meet that bar or it drags the product down rather than filling it out.
 
-**Since:** 34 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
-`table`, `tableRow`, `tableCell`, `range`, `file`, `progress`, `fieldset`
-added in B) and 66 blocks across nine categories, held to that bar by 893
-static checks and 14 browser suites.
+**Since:** 35 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
+`dialog`, `table`, `tableRow`, `tableCell`, `range`, `file`, `progress`,
+`fieldset` added in B) and 67 blocks across nine categories, held to that bar
+by 906 static checks and 14 browser suites. `◐` marks something that ships and
+is partly gated — the dialog is a real `<dialog>`, announced as one, but not
+modal until there is a runtime to call `showModal()`.
 
 ---
 
@@ -303,7 +305,7 @@ Charts are deliberately excluded — see §9.
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
-| Modal / dialog | P | | a |
+| Modal / dialog | P | ◐ | b for modality |
 | Drawer / sheet | B | | a |
 | Popover | P | ✅ | |
 | Dropdown menu | B | ✅ | |

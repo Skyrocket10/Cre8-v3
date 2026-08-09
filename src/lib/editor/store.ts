@@ -539,7 +539,16 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     }
 
     if (result.length === selection.length && result.every((id, i) => selection[i] === id)) return;
-    set({ selection: result, editingTextId: null });
+
+    // `::backdrop` only exists on something in the top layer. Left sticky, the
+    // next element selected would silently take backdrop styles it can never
+    // render — edits that appear to do nothing and are invisible in the panel.
+    const first = result[0];
+    const type = first ? doc.nodes[first]?.type : undefined;
+    const keepsBackdrop = type === 'dialog' || type === 'popover';
+    const styleState = get().styleState === 'backdrop' && !keepsBackdrop ? 'default' : undefined;
+
+    set({ selection: result, editingTextId: null, ...(styleState ? { styleState } : {}) });
   },
 
   selectParent() {

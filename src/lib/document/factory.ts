@@ -48,6 +48,7 @@ export function createNode(type: ElementType, options: CreateNodeOptions = {}): 
       desktop: { ...def.defaultStyles, ...options.styles, ...options.responsive?.desktop },
     },
     meta: {},
+    ...(def.defaultStates ? { states: structuredCloneCompat(def.defaultStates) } : {}),
   };
 }
 
@@ -110,7 +111,7 @@ const POPOVER_REF = 'popover@';
 function resolvePopoverRefs(nodes: NodeMap): void {
   const byName = new Map<string, NodeId>();
   for (const node of Object.values(nodes)) {
-    if (node.type === 'popover') byName.set(node.name, node.id);
+    if (node.type === 'popover' || node.type === 'dialog') byName.set(node.name, node.id);
   }
 
   for (const node of Object.values(nodes)) {

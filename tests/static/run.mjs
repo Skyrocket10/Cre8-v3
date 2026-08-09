@@ -276,7 +276,7 @@ function checkNesting(spec) {
 }
 
 /**
- * A popover reference has to name a popover in the same block.
+ * A popover reference has to name a popover — or a dialog — in the same block.
  *
  * `popoverButton` defers the link as a name, and `buildTree` resolves it once
  * the nodes have ids. A name with a typo in it resolves to nothing, the prop
@@ -287,7 +287,7 @@ function checkPopoverRefs(spec) {
   const bad = [];
   const names = new Set();
   for (const { node } of walk(spec)) {
-    if (node.type === 'popover') names.add(node.name);
+    if (node.type === 'popover' || node.type === 'dialog') names.add(node.name);
   }
   for (const { node, path } of walk(spec)) {
     const target = node.props?.popoverTarget;

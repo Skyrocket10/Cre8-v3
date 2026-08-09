@@ -7,7 +7,7 @@
  * an element type means adding a row — not touching six subsystems.
  */
 
-import type { ElementType, NodeProps, StyleDecl } from './types';
+import type { ElementType, NodeProps, StateStyles, StyleDecl } from './types';
 
 export type InsertCategory =
   | 'layout'
@@ -71,6 +71,15 @@ export interface ElementDefinition {
   defaultName: string;
   defaultProps: NodeProps;
   defaultStyles: StyleDecl;
+  /**
+   * Variant styles a fresh node ships with.
+   *
+   * A dialog with no backdrop is a box floating over a page that still looks
+   * live, and "add a backdrop" is not a step anyone should have to know to
+   * take. Deep-copied on insert, or every dialog in the document would share
+   * one object and editing any of them would edit all.
+   */
+  defaultStates?: StateStyles;
   /** Not offered in the insert panel (page root, component instances). */
   internal?: boolean;
   /**
@@ -642,6 +651,72 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
       borderBottomLeftRadius: 'var(--r-lg)',
       boxShadow: '0 24px 60px -12px rgba(15, 18, 28, 0.28)',
       zIndex: '50',
+    },
+  },
+
+  /**
+   * A dialog.
+   *
+   * A real `<dialog>` rather than a `div` that looks like one, because the
+   * difference is the whole point: assistive technology announces "dialog"
+   * and reads the label, where a styled box announces nothing at all.
+   *
+   * Opened the same way a popover is — the `popovertarget` on a button — so
+   * the published page still carries no script. That buys the top layer, a
+   * `::backdrop`, Escape, and focus returning to the button. What it does not
+   * buy is *modality*: `showModal()` is the only thing that makes the page
+   * behind inert and traps the keyboard, and there is no attribute for it.
+   * That waits for the behaviour runtime rather than being faked here, and
+   * the inspector says so where a designer will read it.
+   */
+  dialog: {
+    type: 'dialog',
+    label: 'Dialog',
+    description: 'Announced as a dialog, over a dimmed page.',
+    category: 'interactive',
+    icon: 'dialog',
+    tag: 'dialog',
+    container: true,
+    textual: false,
+    resize: { x: true, y: true },
+    defaultName: 'Dialog',
+    defaultProps: { popoverMode: 'auto', label: 'Dialog', showWhileEditing: true },
+    defaultStyles: {
+      position: 'fixed',
+      inset: '0px',
+      marginTop: 'auto',
+      marginRight: 'auto',
+      marginBottom: 'auto',
+      marginLeft: 'auto',
+      width: 'min(460px, calc(100% - 32px))',
+      height: 'fit-content',
+      maxHeight: 'calc(100% - 48px)',
+      overflowY: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '14px',
+      paddingTop: '22px',
+      paddingRight: '22px',
+      paddingBottom: '22px',
+      paddingLeft: '22px',
+      backgroundColor: 'var(--c-background)',
+      color: TEXT_COLOR,
+      borderTopLeftRadius: 'var(--r-lg)',
+      borderTopRightRadius: 'var(--r-lg)',
+      borderBottomRightRadius: 'var(--r-lg)',
+      borderBottomLeftRadius: 'var(--r-lg)',
+      boxShadow: '0 30px 70px -14px rgba(15, 18, 28, 0.38)',
+      zIndex: '60',
+    },
+    // A dialog that does not dim the page behind it is a box floating in the
+    // middle of a live-looking document. `black` rather than a theme colour
+    // on purpose: a scrim darkens what is behind it, which is not a brand
+    // decision and reads wrong when a dark theme inverts it.
+    defaultStates: {
+      backdrop: {
+        backgroundColor: 'color-mix(in srgb, black 46%, transparent)',
+        backdropFilter: 'blur(2px)',
+      },
     },
   },
 
