@@ -155,7 +155,7 @@ function ElementView({
   );
 
   const def = getElement(node.type);
-  const attrs = toReactAttrs(model.attrs) as Record<string, unknown>;
+  const attrs = toReactAttrs(model.attrs, model.tag) as Record<string, unknown>;
 
   if (engine.mode === 'edit') {
     if (exposed) {

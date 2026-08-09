@@ -210,6 +210,18 @@ export function generateNodeCss(
  * here rather than inherited from whatever stylesheet happens to be nearby,
  * and every surface loads this file.
  *
+ * That makes the form-control block below a *parity list*, not a taste
+ * decision: it is Tailwind's preflight, restated for the elements a document
+ * can contain. Preflight sets `background-color: transparent` on every
+ * control, so on the canvas a slider had none and in production it had the
+ * user agent's white — a white bar behind the track, invisible on a white page
+ * and obvious on a dark one. The placeholder colour, the search decoration,
+ * the number spinners and `summary { display: list-item }` are the same story.
+ * Anything preflight does that this does not is a difference between the two
+ * surfaces waiting to be found. Left out on purpose: the `::-webkit-datetime-*`
+ * padding rules, which only bite in Safari and cannot be verified by a suite
+ * running Chromium — worth revisiting with a browser that can prove it.
+ *
  * The root's own `font-size` and `line-height` are part of that. The canvas
  * renders inside the editor's chrome, which runs at 12px because that is a
  * sensible size for a tool; a published page inherits the browser's 16px. Left
@@ -234,12 +246,31 @@ export const DOCUMENT_RESET = `
 :where([data-cre8-root]) :is(img, video, svg) { max-width: 100%; }
 :where([data-cre8-root]) :is(img, video) { display: block; }
 :where([data-cre8-root]) a { color: inherit; text-decoration: none; }
-:where([data-cre8-root]) button { font: inherit; color: inherit; background: none; cursor: pointer; }
-:where([data-cre8-root]) :is(input, textarea, select) { font: inherit; color: inherit; }
-:where([data-cre8-root]) caption { text-align: inherit; padding-bottom: 10px; }
-[data-cre8-root] [popover]:not(:popover-open) { display: none; }
-:where([data-cre8-root]) textarea { resize: vertical; }
 :where([data-cre8-root]) :focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+
+/* Form controls — parity with the preflight the canvas gets and production does not. */
+:where([data-cre8-root]) button { font: inherit; color: inherit; background: none; cursor: pointer; }
+:where([data-cre8-root]) :is(input, textarea, select) { font: inherit; letter-spacing: inherit; color: inherit; background-color: transparent; border-radius: 0; }
+:where([data-cre8-root]) ::placeholder { opacity: 1; color: color-mix(in srgb, currentColor 45%, transparent); }
+:where([data-cre8-root]) ::-webkit-search-decoration { -webkit-appearance: none; }
+:where([data-cre8-root]) :is(::-webkit-inner-spin-button, ::-webkit-outer-spin-button) { height: auto; }
+:where([data-cre8-root]) textarea { resize: vertical; }
+:where([data-cre8-root]) summary { display: list-item; }
+
+/* Controls whose parts the page cannot otherwise reach. */
+:where([data-cre8-root]) input[type="file"]::file-selector-button { font: inherit; font-size: 0.92em; font-weight: 550; margin-right: 12px; padding: 6px 12px; border: 0; border-radius: var(--r-sm); background: var(--c-primary); color: var(--c-on-primary); cursor: pointer; }
+:where([data-cre8-root]) progress { appearance: none; -webkit-appearance: none; display: block; }
+:where([data-cre8-root]) progress::-webkit-progress-bar { background: transparent; }
+:where([data-cre8-root]) progress::-webkit-progress-value { background: currentColor; }
+:where([data-cre8-root]) progress::-moz-progress-bar { background: currentColor; }
+
+/* Elements that own a child the document does not: legend, caption, summary. */
+:where([data-cre8-root]) fieldset { min-width: 0; }
+:where([data-cre8-root]) legend { padding-left: 6px; padding-right: 6px; }
+:where([data-cre8-root]) caption { text-align: inherit; padding-bottom: 10px; }
+
+/* Not :where() — see above. This one has to outrank the node's own display. */
+[data-cre8-root] [popover]:not(:popover-open) { display: none; }
 `.trim();
 
 /**

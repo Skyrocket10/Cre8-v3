@@ -43,9 +43,10 @@ The 9 blocks are good work and set the quality bar: 116 token references, 25
 responsive style layers, 9 interaction-state layers. Everything below has to
 meet that bar or it drags the product down rather than filling it out.
 
-**Since:** 30 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
-`table`, `tableRow`, `tableCell` added in B) and 64 blocks across nine
-categories, held to that bar by 867 static checks and 14 browser suites.
+**Since:** 34 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
+`table`, `tableRow`, `tableCell`, `range`, `file`, `progress`, `fieldset`
+added in B) and 66 blocks across nine categories, held to that bar by 893
+static checks and 14 browser suites.
 
 ---
 
@@ -264,20 +265,20 @@ These are the honest primitives — real form semantics cannot be faked with a
 | Select | P | ✅ | |
 | Checkbox | P | ✅ | |
 | Radio | P | ✅ | |
-| Range slider | P | | a |
-| File upload | P | | a |
-| Date / time | P | | a |
-| Progress | P | | a |
-| Fieldset + legend | P | | a |
+| Range slider | P | ✅ | |
+| File upload | P | ✅ | |
+| Date / time | P | ✅ | |
+| Progress | P | ✅ | |
+| Fieldset + legend | P | ✅ | |
 
 ### 5.2 Form composition
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
-| Field — label + help + error | B | | |
+| Field — label + help + error | B | ✅ | |
 | Switch | B | | a |
 | Segmented control | B | | a |
-| Search field | B | | |
+| Search field | B | ✅ | |
 | Form layouts — one/two column, inline | B | | |
 | Sign in / sign up / reset | B | | form target |
 | Settings section | B | | |

@@ -435,6 +435,78 @@ export function describeElement(
       };
     }
 
+    case 'range': {
+      const num = (key: string, fallback: number): number => {
+        const value = Number(props[key]);
+        return Number.isFinite(value) ? value : fallback;
+      };
+      return {
+        tag: 'input',
+        attrs: {
+          ...base,
+          type: 'range',
+          name: str(props.name) || undefined,
+          min: num('min', 0),
+          max: num('max', 100),
+          step: num('step', 1),
+          value: num('value', 50),
+          // A slider jumps to wherever it is pressed, so a click meant to
+          // select the node would also change its value — and then lose the
+          // change on the next render, because the document never heard about
+          // it. Cancelling the default leaves the click to the canvas.
+          onpointerdown: mode === 'edit' ? 'cancel' : undefined,
+          tabindex: mode === 'edit' ? -1 : undefined,
+        },
+        void: true,
+        acceptsChildren: false,
+      };
+    }
+
+    case 'file':
+      return {
+        tag: 'input',
+        attrs: {
+          ...base,
+          type: 'file',
+          name: str(props.name) || undefined,
+          accept: str(props.accept) || undefined,
+          multiple: Boolean(props.multiple) || undefined,
+          required: Boolean(props.required) || undefined,
+          // Otherwise selecting the field on the canvas opens the operating
+          // system's file picker over the editor.
+          onclick: mode === 'edit' ? 'cancel' : undefined,
+          tabindex: mode === 'edit' ? -1 : undefined,
+        },
+        void: true,
+        acceptsChildren: false,
+      };
+
+    case 'progress': {
+      const max = Number(props.max);
+      const value = Number(props.value);
+      return {
+        tag: 'progress',
+        attrs: {
+          ...base,
+          // No `value` at all is what makes a progress bar indeterminate;
+          // there is no attribute that says so.
+          value: props.indeterminate ? undefined : Number.isFinite(value) ? value : 0,
+          max: Number.isFinite(max) ? max : 100,
+        },
+        void: true,
+        acceptsChildren: false,
+      };
+    }
+
+    case 'fieldset':
+      return {
+        tag: 'fieldset',
+        attrs: base,
+        lead: { tag: 'legend', text: str(props.legend, 'Options') },
+        void: false,
+        acceptsChildren: true,
+      };
+
     case 'divider':
     case 'spacer':
       return {
@@ -469,7 +541,6 @@ const REACT_ATTR_MAP: Record<string, string> = {
   tabindex: 'tabIndex',
   playsinline: 'playsInline',
   autoplay: 'autoPlay',
-  onsubmit: 'onSubmit',
   colspan: 'colSpan',
   rowspan: 'rowSpan',
   popovertarget: 'popoverTarget',
@@ -479,12 +550,47 @@ const REACT_ATTR_MAP: Record<string, string> = {
   'stroke-linejoin': 'strokeLinejoin',
 };
 
-export function toReactAttrs(attrs: Record<string, AttrValue>): Record<string, unknown> {
+/**
+ * Handlers the canvas needs so a live control does not act on a click that was
+ * meant to select it.
+ *
+ * Written as attributes rather than as React props so `describeElement` stays
+ * framework-free — the string renderer never sees them, because they are only
+ * ever set in edit mode. Each cancels the default and nothing else: the event
+ * still reaches the canvas, which is what does the selecting.
+ */
+const CANCEL_HANDLERS: Record<string, string> = {
+  onsubmit: 'onSubmit',
+  onclick: 'onClick',
+  onpointerdown: 'onPointerDown',
+};
+
+/**
+ * Form controls whose `value` React reads as a controlled binding.
+ *
+ * `<input value>` without an `onChange` makes React declare the field
+ * read-only and warn about it. The document is the source of truth and the
+ * canvas is not a form, so the value is an initial one — which is exactly
+ * what `defaultValue` means. `<progress value>` is not a form control and
+ * keeps the plain attribute.
+ */
+const CONTROLLED_TAGS = new Set(['input', 'textarea', 'select']);
+
+export function toReactAttrs(
+  attrs: Record<string, AttrValue>,
+  tag?: string
+): Record<string, unknown> {
+  const controlled = tag !== undefined && CONTROLLED_TAGS.has(tag);
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(attrs)) {
     if (value === undefined) continue;
-    if (key === 'onsubmit') {
-      out.onSubmit = (e: { preventDefault: () => void }) => e.preventDefault();
+    const handler = CANCEL_HANDLERS[key];
+    if (handler) {
+      out[handler] = (e: { preventDefault: () => void }) => e.preventDefault();
+      continue;
+    }
+    if (controlled && (key === 'value' || key === 'checked')) {
+      out[key === 'value' ? 'defaultValue' : 'defaultChecked'] = value;
       continue;
     }
     out[REACT_ATTR_MAP[key] ?? key] = value;

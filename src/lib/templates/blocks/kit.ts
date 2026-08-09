@@ -753,3 +753,108 @@ export const popoverButton = (
  * same moment — when the spec becomes real nodes with real ids.
  */
 export const POPOVER_REF = 'popover@';
+
+/* --------------------------------------------------------------------------
+ * Native form controls
+ * ----------------------------------------------------------------------- */
+
+/**
+ * A named group of controls.
+ *
+ * The `<legend>` is the whole reason to reach for this: without it a screen
+ * reader announces "Monthly" with no idea what question it answers.
+ */
+export const fieldset = (
+  legendText: string,
+  children: NodeSpec[],
+  styles: StyleDecl = {},
+  responsive: ResponsiveStyles = {}
+): NodeSpec => ({
+  type: 'fieldset',
+  name: legendText,
+  props: { legend: legendText },
+  styles,
+  ...rsp(responsive),
+  children,
+});
+
+export const slider = (
+  name: string,
+  options: { min?: number; max?: number; step?: number; value?: number; styles?: StyleDecl } = {}
+): NodeSpec => ({
+  type: 'range',
+  name: `${name} slider`,
+  props: {
+    name,
+    min: options.min ?? 0,
+    max: options.max ?? 100,
+    step: options.step ?? 1,
+    value: options.value ?? 50,
+  },
+  styles: options.styles ?? {},
+});
+
+export const fileField = (
+  name: string,
+  options: { accept?: string; multiple?: boolean; styles?: StyleDecl } = {}
+): NodeSpec => ({
+  type: 'file',
+  name: `${name} upload`,
+  props: {
+    name,
+    ...(options.accept ? { accept: options.accept } : {}),
+    ...(options.multiple ? { multiple: true } : {}),
+  },
+  styles: options.styles ?? {},
+});
+
+/**
+ * A progress bar.
+ *
+ * The two colours are ordinary node styles — `color` fills it, the background
+ * is the track — because the reset strips the user-agent look. Pass no
+ * `value` for the indeterminate "still working" state.
+ */
+export const progress = (
+  name: string,
+  value: number | null,
+  options: { max?: number; styles?: StyleDecl } = {}
+): NodeSpec => ({
+  type: 'progress',
+  name,
+  props:
+    value === null
+      ? { indeterminate: true, max: options.max ?? 100 }
+      : { value, max: options.max ?? 100 },
+  styles: options.styles ?? {},
+});
+
+export const checkbox = (label: string, name: string, checked = false): NodeSpec => ({
+  type: 'checkbox',
+  name: label.slice(0, 24) || 'Checkbox',
+  props: { label, name, ...(checked ? { checked: true } : {}) },
+  styles: { fontSize: '14px' },
+});
+
+export const radio = (label: string, group: string, value: string, checked = false): NodeSpec => ({
+  type: 'radio',
+  name: label.slice(0, 24) || 'Radio',
+  props: { label, name: group, value, ...(checked ? { checked: true } : {}) },
+  styles: { fontSize: '14px' },
+});
+
+export const dropdown = (
+  name: string,
+  options: string[],
+  placeholder?: string,
+  styles: StyleDecl = {}
+): NodeSpec => ({
+  type: 'select',
+  name: `${name} select`,
+  props: {
+    name,
+    options: options.join('\n'),
+    ...(placeholder ? { placeholder } : {}),
+  },
+  styles,
+});

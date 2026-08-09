@@ -56,6 +56,26 @@ const COLLECT = () => {
   return out;
 };
 
+/**
+ * What each class turned into, for the failure message.
+ *
+ * Kept out of the comparison itself — a class naming a different tag on the
+ * two surfaces is a separate bug, and folding it in would report both as one.
+ * A diff that says only `c-ai4i29ufbj` sends you hunting; one that says
+ * `input[type=range]` is already half diagnosed.
+ */
+const TAGS = () => {
+  const out = {};
+  const root = document.querySelector('.cre8-frame.cre8-editing') ?? document.body;
+  for (const el of root.querySelectorAll('[class]')) {
+    const cls = [...el.classList].find((c) => c.startsWith('c-'));
+    if (!cls || out[cls]) continue;
+    const type = el.getAttribute('type');
+    out[cls] = el.tagName.toLowerCase() + (type ? `[type=${type}]` : '');
+  }
+  return out;
+};
+
 try {
   /* ---------------------------------------------- 1. what is in the registry */
 
@@ -104,6 +124,7 @@ try {
     await page.waitForTimeout(1400);
 
     const canvas = await page.evaluate(COLLECT);
+    const tags = await page.evaluate(TAGS);
     await publish(page);
 
     // 2a. Markup parses.
@@ -128,7 +149,9 @@ try {
       `${name}: canvas and published agree`,
       shared.length > 0 && diffs.length === 0,
       `${shared.length} shared, ${diffs.length} differ` +
-        (diffs.length ? ` — ${diffs[0]}: ${canvas[diffs[0]]} vs ${published[diffs[0]]}` : '')
+        (diffs.length
+          ? ` — <${tags[diffs[0]] ?? '?'}> ${diffs[0]}:\n      canvas    ${canvas[diffs[0]]}\n      published ${published[diffs[0]]}`
+          : '')
     );
 
     // 2c and 2d. Fits, at every width, inside and out.

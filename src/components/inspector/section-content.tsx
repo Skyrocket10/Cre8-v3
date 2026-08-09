@@ -16,6 +16,7 @@ import { detachInstance } from '@/lib/document/operations';
 import { collectSubtree } from '@/lib/document/tree';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
+import { ColorField } from '../ui/color-field';
 import { NumberField } from '../ui/number-field';
 import { Button, Popover, Section, Segmented, Select, Switch, TextInput, Tooltip } from '../ui/primitives';
 import { InspectorGroup, StyleRow } from './controls';
@@ -61,6 +62,14 @@ export function ContentSection() {
     case 'checkbox':
     case 'radio':
       return <ChoiceContent kind={type} />;
+    case 'range':
+      return <RangeContent />;
+    case 'file':
+      return <FileContent />;
+    case 'progress':
+      return <ProgressContent />;
+    case 'fieldset':
+      return <FieldsetContent />;
     case 'details':
       return <DisclosureContent />;
     case 'frame':
@@ -179,6 +188,192 @@ function ChoiceContent({ kind }: { kind: 'checkbox' | 'radio' }) {
         )}
         <StyleRow label="Checked">
           <Switch checked={Boolean(checked.value)} onChange={(on) => checked.set(on || undefined)} />
+        </StyleRow>
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+/**
+ * The colour a native control paints itself with.
+ *
+ * A slider's track and thumb are drawn by the browser and cannot be reached
+ * by any ordinary style, so without this row the theme stops at the edge of
+ * the control. It sets a style rather than a prop, the same way the image
+ * section sets `object-fit`, because that is what it is.
+ */
+function AccentRow({ hint }: { hint?: string }) {
+  const tokens = useEditor((s) => s.doc.theme.colors);
+  const value = useEditor((s) => {
+    const id = s.selection[0];
+    return id ? s.doc.nodes[id]?.styles.desktop?.accentColor : undefined;
+  });
+  return (
+    <StyleRow label="Accent" hint={hint}>
+      <ColorField
+        className="flex-1"
+        value={value}
+        tokens={tokens}
+        onChange={(next) => useEditor.getState().setStyle({ accentColor: next })}
+      />
+    </StyleRow>
+  );
+}
+
+function RangeContent() {
+  const name = useNodeProp('name');
+  const min = useNodeProp('min');
+  const max = useNodeProp('max');
+  const step = useNodeProp('step');
+  const value = useNodeProp('value');
+
+  return (
+    <Section title="Slider" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Range">
+          <div className="flex flex-1 gap-1.5">
+            <NumberField
+              value={String(min.value ?? 0)}
+              units={[]}
+              label="Min"
+              onChange={(next) => min.set(Number(next ?? 0))}
+            />
+            <NumberField
+              value={String(max.value ?? 100)}
+              units={[]}
+              label="Max"
+              onChange={(next) => max.set(Number(next ?? 100))}
+            />
+          </div>
+        </StyleRow>
+        <StyleRow label="Steps by">
+          <NumberField
+            value={String(step.value ?? 1)}
+            units={[]}
+            min={0}
+            onChange={(next) => step.set(Number(next ?? 1))}
+          />
+        </StyleRow>
+        <StyleRow label="Starts at">
+          <NumberField
+            value={String(value.value ?? 50)}
+            units={[]}
+            onChange={(next) => value.set(Number(next ?? 0))}
+          />
+        </StyleRow>
+        <StyleRow label="Name" hint="Submitted as the form field name">
+          <TextInput
+            className="flex-1"
+            value={String(name.value ?? '')}
+            onValueChange={(next) => name.set(next || undefined)}
+          />
+        </StyleRow>
+        <AccentRow hint="The browser paints the track and thumb with this" />
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+function FileContent() {
+  const name = useNodeProp('name');
+  const accept = useNodeProp('accept');
+  const multiple = useNodeProp('multiple');
+  const required = useNodeProp('required');
+
+  return (
+    <Section title="File upload" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Accepts" hint="Extensions or MIME types, comma separated">
+          <TextInput
+            className="flex-1"
+            value={String(accept.value ?? '')}
+            onValueChange={(next) => accept.set(next || undefined)}
+            placeholder="image/*, .pdf"
+          />
+        </StyleRow>
+        <StyleRow label="Name">
+          <TextInput
+            className="flex-1"
+            value={String(name.value ?? '')}
+            onValueChange={(next) => name.set(next || undefined)}
+          />
+        </StyleRow>
+        <div className="flex flex-col gap-2 pt-1">
+          <Switch
+            checked={Boolean(multiple.value)}
+            onChange={(on) => multiple.set(on || undefined)}
+            label="Allow several files"
+          />
+          <Switch
+            checked={Boolean(required.value)}
+            onChange={(on) => required.set(on || undefined)}
+            label="Required"
+          />
+        </div>
+      </InspectorGroup>
+      <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+        The picker is held back while editing, so selecting the field does not open it.
+      </p>
+    </Section>
+  );
+}
+
+function ProgressContent() {
+  const value = useNodeProp('value');
+  const max = useNodeProp('max');
+  const indeterminate = useNodeProp('indeterminate');
+  const unknown = Boolean(indeterminate.value);
+
+  return (
+    <Section title="Progress" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Unknown">
+          <Switch
+            checked={unknown}
+            onChange={(on) => indeterminate.set(on || undefined)}
+            label="Still working, no figure"
+          />
+        </StyleRow>
+        {!unknown && (
+          <StyleRow label="At">
+            <div className="flex flex-1 gap-1.5">
+              <NumberField
+                value={String(value.value ?? 0)}
+                units={[]}
+                min={0}
+                label="Now"
+                onChange={(next) => value.set(Number(next ?? 0))}
+              />
+              <NumberField
+                value={String(max.value ?? 100)}
+                units={[]}
+                min={1}
+                label="Of"
+                onChange={(next) => max.set(Number(next ?? 100))}
+              />
+            </div>
+          </StyleRow>
+        )}
+      </InspectorGroup>
+      <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+        Fill colour is Text, track is Background — both under Style.
+      </p>
+    </Section>
+  );
+}
+
+function FieldsetContent() {
+  const legend = useNodeProp('legend');
+  return (
+    <Section title="Field group" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Legend" hint="Names the group for a screen reader">
+          <TextInput
+            className="flex-1"
+            value={String(legend.value ?? '')}
+            onValueChange={(next) => legend.set(next)}
+            placeholder="What these controls decide"
+          />
         </StyleRow>
       </InspectorGroup>
     </Section>
@@ -891,6 +1086,10 @@ function FieldContent({ multiline }: { multiline: boolean }) {
                 { value: 'url', label: 'URL' },
                 { value: 'number', label: 'Number' },
                 { value: 'password', label: 'Password' },
+                { value: 'search', label: 'Search' },
+                { value: 'date', label: 'Date' },
+                { value: 'time', label: 'Time' },
+                { value: 'datetime-local', label: 'Date & time' },
               ]}
             />
           </StyleRow>

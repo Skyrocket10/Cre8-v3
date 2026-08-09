@@ -264,7 +264,11 @@ inspector section. No runtime, and the same markup on all three surfaces.
 | semantic tags | `tag` prop on the five layout boxes | ✅ |
 | `popover` | `<div popover>` + `popovertarget` on a button | ✅ |
 | `table` / `tableRow` / `tableCell` | `<table><tbody><tr><td\|th>` | ✅ |
-| range, file, date, progress, fieldset | native form controls | |
+| `range` | `<input type="range">`, themed with `accent-color` | ✅ |
+| `file` | `<input type="file">` | ✅ |
+| `progress` | `<progress>`, track and fill as ordinary node styles | ✅ |
+| `fieldset` | `<fieldset>` + owned `<legend>` | ✅ |
+| date / time | `inputType` on the existing `input`, not a new type | ✅ |
 | `dialog` | `<dialog>` — deferred, see below | |
 
 ### Two things B added beyond the primitives
@@ -283,6 +287,36 @@ block in the registry.
 **`ElementModel.wrapChildren`.** `<table>` emits its own `<tbody>` rather than
 leaving it to the parser, so the DOM React builds and the DOM the browser
 parses are the same tree.
+
+### Live controls on a canvas
+
+Two of these act on the click that was meant to select them: a slider jumps to
+wherever it is pressed, and a file field opens the operating system's picker
+over the editor. Both are held back in edit mode by an attribute that cancels
+the default and nothing else, so the event still reaches the canvas and does
+the selecting. The guards are set only in edit mode, so they never reach a
+published file — a check asserts that, because an inline handler in the output
+would be both a bug and a CSP problem.
+
+### The reset is a parity list
+
+The slider found the second instance of a bug the border reset found the
+first: **the canvas has Tailwind's preflight and a published page has
+nothing.** Preflight sets `background-color: transparent` on every form
+control, so on the canvas the slider had none and in production it had the
+user agent's white — a white bar behind the track, invisible on a white page
+and obvious on a dark one.
+
+The reset's form-control block is now written as parity with preflight rather
+than as a set of choices: placeholder colour and opacity, search decoration,
+number spinners, `summary { display: list-item }`, and the control
+background/radius/letter-spacing. Anything preflight does that the reset does
+not is a difference between the two surfaces waiting to be found.
+
+This class of bug is invisible to the block sweep, which compares elements —
+a placeholder is a pseudo-element and no selector in the document can name it.
+`tests/render/native.mjs` now compares those parts directly, and refuses to
+pass when it finds nothing to measure.
 
 ### Design-time divergence, now twice
 
@@ -304,7 +338,8 @@ rather than two.
 
 ### B′ — the blocks these unlock
 
-Landed with B so far: **Navbar with menu**, **Command menu**, **Data table**,
-and **Comparison table** rebuilt on real table markup. The rest — drawer,
-accordion variants, form composition, filter panels — are composition work
-once the remaining form controls land.
+Landed with B: **Navbar with menu**, **Command menu**, **Data table**,
+**Comparison table** rebuilt on real table markup, **Filter panel** (three
+fieldsets, a slider, checkboxes, radios and a select) and **Upload** (a real
+file input with per-file progress). The rest — drawer, accordion variants,
+richer form layouts — is composition work with no capability behind it.

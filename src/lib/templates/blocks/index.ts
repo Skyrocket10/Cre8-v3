@@ -57,6 +57,7 @@ export {
   dataTableSpec,
   emptyStateSpec,
   fileListSpec,
+  filterPanelSpec,
   formSpec,
   membersSpec,
   notificationsSpec,
@@ -64,6 +65,7 @@ export {
   settingsSpec,
   skeletonSpec,
   statCardsSpec,
+  uploadSpec,
 } from './app';
 export {
   cartSummarySpec,
@@ -111,6 +113,7 @@ import {
   dataTableSpec,
   emptyStateSpec,
   fileListSpec,
+  filterPanelSpec,
   formSpec,
   membersSpec,
   notificationsSpec,
@@ -118,6 +121,7 @@ import {
   settingsSpec,
   skeletonSpec,
   statCardsSpec,
+  uploadSpec,
 } from './app';
 import {
   cartSummarySpec,
@@ -715,6 +719,22 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'app',
     keywords: ['table', 'rows', 'orders', 'records', 'grid', 'list'],
     build: dataTableSpec,
+  },
+  {
+    id: 'app-filters',
+    name: 'Filter panel',
+    description: 'Sliders, checkboxes and radios in named groups',
+    category: 'app',
+    keywords: ['facets', 'refine', 'sidebar', 'catalogue', 'slider', 'fieldset'],
+    build: filterPanelSpec,
+  },
+  {
+    id: 'app-upload',
+    name: 'Upload',
+    description: 'File picker with per-file progress',
+    category: 'app',
+    keywords: ['import', 'files', 'drop zone', 'progress', 'attachment'],
+    build: uploadSpec,
   },
   {
     id: 'app-command-menu',

@@ -183,6 +183,13 @@ export interface StyleDecl {
   verticalAlign?: string;
 
   /* Misc */
+  /**
+   * Tints the parts of a native control the page cannot otherwise reach —
+   * a slider's track and thumb, a checkbox's tick. One property instead of
+   * four vendor pseudo-elements, and the only way to theme them at all
+   * without `appearance: none` and rebuilding the control by hand.
+   */
+  accentColor?: string;
   cursor?: string;
   pointerEvents?: string;
   listStyleType?: string;
@@ -239,6 +246,10 @@ export type ElementType =
   | 'select'
   | 'checkbox'
   | 'radio'
+  | 'range'
+  | 'file'
+  | 'progress'
+  | 'fieldset'
   // Composition
   | 'instance';
 

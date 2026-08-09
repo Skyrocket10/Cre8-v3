@@ -360,6 +360,209 @@ try {
     `${(wiredHtml.match(/popovertarget="/g) ?? []).length} references`
   );
   report.check('still no script', !/<script/i.test(wiredHtml));
+
+  /* ------------------------------------- 9. slider, file, progress, fieldset */
+
+  // The rest of the native controls. Two of these have to be held back on the
+  // canvas — a slider jumps to wherever it is pressed, and a file field opens
+  // the operating system's picker — so the checks are that they behave live
+  // and stay quiet while being designed.
+  await page.bringToFront();
+  await insert('Filter panel');
+  await insert('Upload');
+  // A field with a placeholder, for the pseudo-element comparison in 10.
+  await insert('Input');
+
+  const controlsOnCanvas = await page.evaluate(() => {
+    const frame = document.querySelector('.cre8-frame.cre8-editing');
+    const slider = frame?.querySelector('input[type="range"]');
+    const bars = [...(frame?.querySelectorAll('progress') ?? [])];
+    return {
+      sliders: frame?.querySelectorAll('input[type="range"]').length ?? 0,
+      files: frame?.querySelectorAll('input[type="file"]').length ?? 0,
+      fieldsets: frame?.querySelectorAll('fieldset').length ?? 0,
+      // `<legend>` has to be the first child or the browser does not treat it
+      // as the group's name.
+      legendsFirst: [...(frame?.querySelectorAll('fieldset') ?? [])].every(
+        (f) => f.firstElementChild?.tagName === 'LEGEND'
+      ),
+      legends: [...(frame?.querySelectorAll('legend') ?? [])].map((l) => l.textContent),
+      sliderValue: slider ? Number(slider.value) : -1,
+      progress: bars.map((p) => (p.hasAttribute('value') ? p.value : 'unknown')),
+      // The reset strips the user-agent look so the node's own two colours
+      // become the track and the fill.
+      barPainted: bars[0] ? getComputedStyle(bars[0]).appearance === 'none' : false,
+    };
+  });
+
+  report.check('the slider is a real range input', controlsOnCanvas.sliders === 1);
+  report.check('the file field is a real file input', controlsOnCanvas.files === 1);
+  report.check(
+    'the filter groups are fieldsets',
+    controlsOnCanvas.fieldsets === 3,
+    `${controlsOnCanvas.fieldsets} groups`
+  );
+  report.check(
+    'each one leads with its legend',
+    controlsOnCanvas.legendsFirst,
+    controlsOnCanvas.legends.join(' | ')
+  );
+  report.check(
+    'the slider starts where the block put it',
+    controlsOnCanvas.sliderValue === 220,
+    `value ${controlsOnCanvas.sliderValue}`
+  );
+  report.check(
+    'one progress bar is deliberately indeterminate',
+    controlsOnCanvas.progress.includes('unknown'),
+    controlsOnCanvas.progress.join(' ')
+  );
+  report.check('the progress bars take the document’s own colours', controlsOnCanvas.barPainted);
+
+  // Dragging the slider on the canvas must not move it: the document never
+  // hears about the change, so it would be undone by the next render and the
+  // designer would be left wondering which value is real.
+  const sliderBox = await page
+    .locator('.cre8-frame.cre8-editing input[type="range"]')
+    .first()
+    .boundingBox();
+  if (sliderBox) {
+    await page.mouse.move(sliderBox.x + 6, sliderBox.y + sliderBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sliderBox.x + sliderBox.width - 6, sliderBox.y + sliderBox.height / 2, {
+      steps: 6,
+    });
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+  }
+  const afterDrag = await page.evaluate(() =>
+    Number(
+      document.querySelector('.cre8-frame.cre8-editing input[type="range"]')?.value ?? -1
+    )
+  );
+  report.check(
+    'dragging it on the canvas does not silently change it',
+    afterDrag === 220,
+    `value ${afterDrag}`
+  );
+
+  await publish(page);
+  const controlsHtml = await (await fetch(`${APP}/s/${id}/`)).text();
+
+  report.check(
+    'the published slider carries its range',
+    /<input[^>]*type="range"[^>]*min="0"[^>]*max="500"/.test(controlsHtml),
+    /type="range"/.test(controlsHtml) ? 'present' : 'missing'
+  );
+  report.check(
+    'the file field says what it accepts',
+    /<input[^>]*type="file"[^>]*accept="[^"]+"[^>]*multiple/.test(controlsHtml)
+  );
+  report.check(
+    'the canvas-only guards never reach the file',
+    !/onclick=|onpointerdown=/.test(controlsHtml),
+    'no inline handlers'
+  );
+  const bars = controlsHtml.match(/<progress[^>]*>/g) ?? [];
+  report.check(
+    'the indeterminate bar ships with no value at all',
+    bars.length >= 3 && bars.some((tag) => !tag.includes('value=')),
+    bars.map((tag) => (tag.includes('value=') ? 'value' : 'none')).join(' ')
+  );
+  report.check('and still no script', !/<script/i.test(controlsHtml));
+
+  const controls = await ctx.newPage();
+  await controls.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+
+  const liveSlider = controls.locator('input[type="range"]').first();
+  await liveSlider.focus();
+  await controls.keyboard.press('ArrowRight');
+  await controls.waitForTimeout(150);
+  report.check(
+    'published, the keyboard moves it by one step',
+    Number(await liveSlider.inputValue()) === 230,
+    await liveSlider.inputValue()
+  );
+
+  const grouped = await controls.evaluate(() => {
+    const first = document.querySelector('fieldset');
+    const control = first?.querySelector('input');
+    // What a screen reader reads before the control: the legend is the group's
+    // accessible name, and it only works because the legend is inside.
+    return {
+      legend: first?.querySelector('legend')?.textContent ?? '',
+      contains: Boolean(control && first?.contains(control)),
+      // The user-agent `min-width: min-content` on a fieldset is a famous way
+      // to make a flex column refuse to shrink.
+      overflow:
+        document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  report.check('the legend names its group', grouped.legend.length > 0, grouped.legend);
+  report.check('and the controls are inside it', grouped.contains);
+  report.check('a fieldset does not stop the page shrinking', grouped.overflow <= 1);
+
+  await controls.setViewportSize({ width: 390, height: 900 });
+  await controls.waitForTimeout(250);
+  const narrow = await controls.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+  );
+  report.check('the controls fit a phone', narrow <= 1, `${narrow}px over`);
+
+  /* ------------------------------------------ 10. the parts of a control */
+
+  // Everything the block sweep compares is an element. A control is also made
+  // of parts no selector in the document can name — the placeholder, the
+  // slider's track — and those come from whichever stylesheet happens to be
+  // nearby. That is how a whole class of difference stayed invisible: the
+  // editor has Tailwind's preflight and a published page has nothing.
+  await controls.setViewportSize({ width: 1440, height: 1000 });
+  await controls.waitForTimeout(200);
+
+  const PARTS = () => {
+    const root = document.querySelector('.cre8-frame.cre8-editing') ?? document.body;
+    const field = root.querySelector('input[placeholder]');
+    const slider = root.querySelector('input[type="range"]');
+    const read = (el, pseudo) => (el ? getComputedStyle(el, pseudo).color : 'none');
+    return {
+      placeholder: read(field, '::placeholder'),
+      // The element's own background, which preflight zeroes and no user agent
+      // does — the difference that showed up as a white bar behind a slider.
+      sliderBackground: slider ? getComputedStyle(slider).backgroundColor : 'none',
+      fieldBackground: field ? getComputedStyle(field).backgroundColor : 'none',
+    };
+  };
+
+  const livePartsRemote = await controls.evaluate(PARTS);
+  await page.bringToFront();
+  const livePartsCanvas = await page.evaluate(PARTS);
+
+  // Both surfaces reporting "none" would agree perfectly and prove nothing,
+  // so the probe says up front whether it found anything to measure.
+  report.check(
+    'there is a field with a placeholder to compare',
+    livePartsCanvas.placeholder !== 'none' && livePartsRemote.placeholder !== 'none',
+    `canvas ${livePartsCanvas.placeholder}, published ${livePartsRemote.placeholder}`
+  );
+  report.check(
+    'the placeholder is the same colour on both surfaces',
+    livePartsCanvas.placeholder === livePartsRemote.placeholder,
+    `canvas ${livePartsCanvas.placeholder} vs published ${livePartsRemote.placeholder}`
+  );
+  report.check(
+    'and so is what sits behind a slider',
+    livePartsCanvas.sliderBackground !== 'none' &&
+      livePartsCanvas.sliderBackground === livePartsRemote.sliderBackground,
+    `canvas ${livePartsCanvas.sliderBackground} vs published ${livePartsRemote.sliderBackground}`
+  );
+  report.check(
+    'and behind a text field',
+    livePartsCanvas.fieldBackground !== 'none' &&
+      livePartsCanvas.fieldBackground === livePartsRemote.fieldBackground,
+    `canvas ${livePartsCanvas.fieldBackground} vs published ${livePartsRemote.fieldBackground}`
+  );
+
+  await controls.close();
 } catch (error) {
   report.check('native suite completed', false, error.message);
 } finally {

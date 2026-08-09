@@ -809,6 +809,151 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     },
   },
 
+  /**
+   * A slider.
+   *
+   * Themed with `accent-color`, which is the whole of it: the alternative is
+   * `appearance: none` plus a different vendor pseudo-element per browser for
+   * the track and the thumb, and a control rebuilt that way stops being
+   * keyboard-operable unless every part is rebuilt too.
+   */
+  range: {
+    type: 'range',
+    label: 'Slider',
+    description: 'Pick a number by dragging.',
+    category: 'forms',
+    icon: 'range',
+    tag: 'input',
+    container: false,
+    textual: false,
+    void: true,
+    resize: { x: true, y: false },
+    defaultName: 'Slider',
+    defaultProps: { name: 'amount', min: 0, max: 100, step: 1, value: 50 },
+    defaultStyles: {
+      width: '100%',
+      accentColor: 'var(--c-primary)',
+      cursor: 'pointer',
+    },
+  },
+
+  file: {
+    type: 'file',
+    label: 'File upload',
+    description: 'Choose a file to send with the form.',
+    category: 'forms',
+    icon: 'file',
+    tag: 'input',
+    container: false,
+    textual: false,
+    void: true,
+    resize: { x: true, y: false },
+    defaultName: 'File upload',
+    defaultProps: { name: 'attachment', accept: '', multiple: false },
+    defaultStyles: {
+      width: '100%',
+      fontFamily: 'var(--f-body)',
+      fontSize: '14px',
+      color: MUTED_COLOR,
+      paddingTop: '10px',
+      paddingBottom: '10px',
+      paddingLeft: '12px',
+      paddingRight: '12px',
+      backgroundColor: 'var(--c-surface)',
+      borderStyle: 'dashed',
+      borderTopWidth: '1px',
+      borderRightWidth: '1px',
+      borderBottomWidth: '1px',
+      borderLeftWidth: '1px',
+      borderColor: 'var(--c-border)',
+      borderTopLeftRadius: 'var(--r-md)',
+      borderTopRightRadius: 'var(--r-md)',
+      borderBottomRightRadius: 'var(--r-md)',
+      borderBottomLeftRadius: 'var(--r-md)',
+      cursor: 'pointer',
+    },
+  },
+
+  /**
+   * A progress bar.
+   *
+   * The reset strips the user-agent look so the two colours a progress bar
+   * has become ordinary node styles: `background-color` is the track,
+   * `color` is the fill. That is worth the four lines of reset — otherwise
+   * the fill is only reachable through a vendor pseudo-element the inspector
+   * has no way to address.
+   */
+  progress: {
+    type: 'progress',
+    label: 'Progress',
+    description: 'How far through something is.',
+    category: 'forms',
+    icon: 'progress',
+    tag: 'progress',
+    container: false,
+    textual: false,
+    void: true,
+    resize: { x: true, y: true },
+    defaultName: 'Progress',
+    defaultProps: { value: 60, max: 100, indeterminate: false },
+    defaultStyles: {
+      width: '100%',
+      height: '8px',
+      backgroundColor: 'var(--c-surface)',
+      color: 'var(--c-primary)',
+      borderTopLeftRadius: 'var(--r-full)',
+      borderTopRightRadius: 'var(--r-full)',
+      borderBottomRightRadius: 'var(--r-full)',
+      borderBottomLeftRadius: 'var(--r-full)',
+      overflow: 'hidden',
+    },
+  },
+
+  /**
+   * A named group of controls.
+   *
+   * The only way to tell a screen reader that four radios are one question:
+   * without the `<legend>`, "Monthly" is announced with no idea what it is an
+   * answer to.
+   */
+  fieldset: {
+    type: 'fieldset',
+    label: 'Field group',
+    description: 'Names a set of controls that belong together.',
+    category: 'forms',
+    icon: 'fieldset',
+    tag: 'fieldset',
+    container: true,
+    textual: false,
+    resize: { x: true, y: false },
+    defaultName: 'Field group',
+    defaultProps: { legend: 'Options' },
+    defaultStyles: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '10px',
+      width: '100%',
+      paddingTop: '14px',
+      paddingRight: '16px',
+      paddingBottom: '16px',
+      paddingLeft: '16px',
+      borderStyle: 'solid',
+      borderTopWidth: '1px',
+      borderRightWidth: '1px',
+      borderBottomWidth: '1px',
+      borderLeftWidth: '1px',
+      borderColor: 'var(--c-border)',
+      borderTopLeftRadius: 'var(--r-md)',
+      borderTopRightRadius: 'var(--r-md)',
+      borderBottomRightRadius: 'var(--r-md)',
+      borderBottomLeftRadius: 'var(--r-md)',
+      fontFamily: 'var(--f-body)',
+      fontSize: '13px',
+      fontWeight: '580',
+      color: TEXT_COLOR,
+    },
+  },
+
   textarea: {
     type: 'textarea',
     label: 'Text Area',

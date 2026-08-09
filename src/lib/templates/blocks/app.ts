@@ -23,21 +23,29 @@ import {
   borderSide,
   card,
   cell,
+  checkbox,
   cols,
   column,
   container,
   divider,
+  dropdown,
+  fieldset,
+  fileField,
   frame,
   grid,
   heading,
   icon,
   label,
   pad,
+  media,
   paragraph,
   popover,
   popoverButton,
+  progress,
+  radio,
   radius,
   section,
+  slider,
   stack,
   table,
   tableRow,
@@ -1450,5 +1458,298 @@ export function fileListSpec(): NodeSpec {
       ),
     ],
     { paddingTop: '48px', paddingBottom: '56px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Filter panel
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The sidebar of a catalogue, built from real controls.
+ *
+ * Three `<fieldset>`s, because "Availability" is a question and the two
+ * checkboxes under it are its answers — a screen reader reads the legend
+ * before each one, and without it the words arrive with nothing attached.
+ * Every control here is native, so the whole panel is keyboard-operable and
+ * the published page carries no script.
+ */
+export function filterPanelSpec(): NodeSpec {
+  return section(
+    'Filters',
+    [
+      container(
+        [
+          grid(
+            'Filter layout',
+            cols(1, 2.4),
+            [
+              {
+                type: 'form',
+                name: 'Filter form',
+                styles: { display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' },
+                children: [
+                  stack(
+                    'Filter head',
+                    [
+                      heading('Filters', 2, { ...CARD_TITLE, fontSize: '16px' }),
+                      textLink('Clear all', '#', { fontSize: '13px', marginLeft: 'auto' }),
+                    ],
+                    { gap: '12px', width: '100%', alignItems: 'center' }
+                  ),
+
+                  fieldset(
+                    'Price',
+                    [
+                      slider('price', { min: 0, max: 500, step: 10, value: 220 }),
+                      stack(
+                        'Price ends',
+                        [
+                          label('£0', { ...CAPTION, color: 'var(--c-muted)' }),
+                          label('£500', {
+                            ...CAPTION,
+                            color: 'var(--c-muted)',
+                            marginLeft: 'auto',
+                          }),
+                        ],
+                        { gap: '8px', width: '100%' }
+                      ),
+                    ],
+                    { gap: '8px' }
+                  ),
+
+                  fieldset(
+                    'Availability',
+                    [
+                      checkbox('In stock', 'availability', true),
+                      checkbox('Ships today', 'availability'),
+                      checkbox('Made to order', 'availability'),
+                    ],
+                    { gap: '9px' }
+                  ),
+
+                  fieldset(
+                    'Condition',
+                    [
+                      radio('Any', 'condition', 'any', true),
+                      radio('New', 'condition', 'new'),
+                      radio('Refurbished', 'condition', 'refurbished'),
+                    ],
+                    { gap: '9px' }
+                  ),
+
+                  column(
+                    'Sort',
+                    [
+                      label('Sort by', {
+                        ...CAPTION,
+                        fontSize: '13px',
+                        fontWeight: '560',
+                        color: 'var(--c-text)',
+                      }),
+                      dropdown('sort', ['Most relevant', 'Price, low to high', 'Newest'], undefined, {
+                        fontSize: '14px',
+                      }),
+                    ],
+                    { gap: '6px', width: '100%' }
+                  ),
+
+                  {
+                    type: 'button',
+                    name: 'Apply filters',
+                    props: { label: 'Apply filters', href: '' },
+                    styles: { width: '100%', ...pad('11px', '18px'), fontSize: '14px' },
+                    states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+                  },
+                ],
+              },
+
+              column(
+                'Results',
+                [
+                  stack(
+                    'Results head',
+                    [
+                      heading('124 results', 1, { ...SUBTITLE, fontSize: '22px' }, SUBTITLE_RESPONSIVE),
+                      label('Showing 1–12', {
+                        ...CAPTION,
+                        color: 'var(--c-muted)',
+                        marginLeft: 'auto',
+                      }),
+                    ],
+                    { gap: '12px', width: '100%', alignItems: 'baseline' }
+                  ),
+                  grid(
+                    'Result grid',
+                    2,
+                    RESULTS.map((item) =>
+                      card(
+                        item.name,
+                        [
+                          media('A product photograph', '4 / 3', {
+                            ...radius('var(--r-sm)'),
+                            marginBottom: '4px',
+                          }),
+                          label(item.name, {
+                            fontSize: '14.5px',
+                            fontWeight: '560',
+                            color: 'var(--c-text)',
+                          }),
+                          label(item.price, { ...CAPTION, color: 'var(--c-muted)' }),
+                        ],
+                        { gap: '8px', ...pad('12px') }
+                      )
+                    ),
+                    { gap: '16px' },
+                    { mobile: { gridTemplateColumns: cols(1) } }
+                  ),
+                ],
+                { gap: '16px', width: '100%' }
+              ),
+            ],
+            { gap: '36px', alignItems: 'start' },
+            { tablet: { gridTemplateColumns: cols(1), gap: '28px' } }
+          ),
+        ],
+        { gap: '20px', alignItems: 'flex-start', maxWidth: 'var(--w-content)' }
+      ),
+    ],
+    { paddingTop: '56px', paddingBottom: '64px' }
+  );
+}
+
+const RESULTS = [
+  { name: 'Field Notebook', price: '£18' },
+  { name: 'Brass Ruler', price: '£24' },
+  { name: 'Desk Mat', price: '£62' },
+  { name: 'Ink Refill Set', price: '£12' },
+];
+
+/* --------------------------------------------------------------------------
+ * Upload
+ * ----------------------------------------------------------------------- */
+
+const UPLOADS: { name: string; note: string; done: number | null }[] = [
+  { name: 'brand-assets.zip', note: '18.4 MB · uploading', done: 68 },
+  { name: 'photography/', note: '212 files · queued', done: null },
+  { name: 'typeface-licence.pdf', note: '340 KB · done', done: 100 },
+];
+
+/**
+ * A real `<input type="file">` and real `<progress>` bars.
+ *
+ * The drop-zone look is on the input itself rather than on a div behind it,
+ * so the whole panel is the hit target and the keyboard reaches it — a styled
+ * div with a hidden input beside it looks the same and is unusable without a
+ * mouse.
+ */
+export function uploadSpec(): NodeSpec {
+  return section(
+    'Upload',
+    [
+      container(
+        [
+          column(
+            'Head',
+            [
+              heading('Import your assets', 1, { ...SUBTITLE, fontSize: '24px' }, SUBTITLE_RESPONSIVE),
+              paragraph('Drag a folder in, or pick the files you want to bring across.', SMALL),
+            ],
+            { gap: '4px' }
+          ),
+
+          {
+            type: 'form',
+            name: 'Upload form',
+            styles: { display: 'flex', flexDirection: 'column', gap: '18px', width: '100%' },
+            children: [
+              fileField('assets', {
+                accept: 'image/*,.pdf,.zip',
+                multiple: true,
+                styles: { ...pad('22px', '20px'), fontSize: '14px' },
+              }),
+
+              column(
+                'Queue',
+                UPLOADS.map((item) =>
+                  column(
+                    item.name,
+                    [
+                      stack(
+                        'Row',
+                        [
+                          icon(item.done === 100 ? 'check' : 'file-text', {
+                            width: '15px',
+                            height: '15px',
+                            color: item.done === 100 ? 'var(--c-primary)' : 'var(--c-muted)',
+                            flexShrink: '0',
+                          }),
+                          label(item.name, {
+                            fontSize: '14px',
+                            fontWeight: '540',
+                            color: 'var(--c-text)',
+                          }),
+                          label(item.note, {
+                            ...CAPTION,
+                            color: 'var(--c-muted)',
+                            marginLeft: 'auto',
+                            flexShrink: '0',
+                          }),
+                        ],
+                        { gap: '10px', width: '100%', alignItems: 'center' }
+                      ),
+                      progress(`${item.name} progress`, item.done, {
+                        styles: {
+                          width: '100%',
+                          height: '6px',
+                          color:
+                            item.done === 100 ? 'var(--c-primary)' : 'var(--c-secondary)',
+                          backgroundColor: 'var(--c-surface)',
+                        },
+                      }),
+                    ],
+                    { gap: '8px', width: '100%', ...pad('12px', '2px') }
+                  )
+                ),
+                { gap: '0px', width: '100%' }
+              ),
+
+              divider(),
+
+              stack(
+                'Upload actions',
+                [
+                  {
+                    type: 'button',
+                    name: 'Start import',
+                    props: { label: 'Start import', href: '' },
+                    styles: { ...pad('11px', '18px'), fontSize: '14px' },
+                    states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+                  },
+                  {
+                    type: 'button',
+                    name: 'Cancel upload',
+                    props: { label: 'Cancel', href: '' },
+                    styles: {
+                      ...pad('11px', '18px'),
+                      fontSize: '14px',
+                      backgroundColor: 'transparent',
+                      color: 'var(--c-text)',
+                      ...border('1px', 'var(--c-border)'),
+                    },
+                    states: { hover: { backgroundColor: 'var(--c-surface)' } },
+                  },
+                ],
+                { gap: '10px' },
+                { mobile: { flexDirection: 'column', alignItems: 'stretch', width: '100%' } }
+              ),
+            ],
+            responsive: { mobile: { gap: '14px' } },
+          },
+        ],
+        { gap: '20px', alignItems: 'flex-start', maxWidth: '720px' }
+      ),
+    ],
+    { paddingTop: '56px', paddingBottom: '64px' }
   );
 }
