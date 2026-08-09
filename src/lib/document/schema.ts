@@ -1138,6 +1138,24 @@ export const SEMANTIC_TAGS = [
 /** Which element types offer the choice. */
 const RETAGGABLE = new Set<ElementType>(['frame', 'section', 'container', 'stack', 'grid']);
 
+/**
+ * Narrow a designer's string to something safe to put in markup and in a
+ * selector.
+ *
+ * Switch keys and case values reach both — the attribute in the HTML and the
+ * `[data-cre8-switch="…"]` in the generated stylesheet. A value containing a
+ * quote would close the selector early and turn the rest of the rule into
+ * something nobody wrote, so the allowlist is the whole defence rather than
+ * escaping at each of the four places it lands.
+ */
+export function slug(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
 export function resolveTag(type: ElementType, props: NodeProps): string {
   if (type === 'heading') {
     const level = Number(props.level ?? 2);
@@ -1146,7 +1164,10 @@ export function resolveTag(type: ElementType, props: NodeProps): string {
   if (type === 'button' || type === 'link') {
     // A popover invoker has to be a `<button>` — `popovertarget` does nothing
     // on an anchor — so opening a panel and going somewhere are exclusive.
-    return props.href && !props.popoverTarget ? 'a' : 'button';
+    // A switch setter is a button for a plainer reason: it does not navigate,
+    // and an anchor that goes nowhere is a link a screen reader announces and
+    // a keyboard user follows into nothing.
+    return props.href && !props.popoverTarget && !props.switchSet ? 'a' : 'button';
   }
   if (type === 'tableCell') return props.header ? 'th' : 'td';
   if (RETAGGABLE.has(type)) {

@@ -71,6 +71,11 @@ function InspectorHeader() {
     const type = id ? s.doc.nodes[id]?.type : undefined;
     return type === 'dialog' || type === 'popover';
   });
+  // Likewise "Selected": only a control that sets a switch has one.
+  const setsSwitch = useEditor((s) => {
+    const id = s.selection[0];
+    return Boolean(id && s.doc.nodes[id]?.props.switchSet);
+  });
 
   const BreakpointIcon =
     breakpoint === 'desktop' ? Monitor : breakpoint === 'tablet' ? Tablet : Smartphone;
@@ -129,6 +134,15 @@ function InspectorHeader() {
                     },
                   ]
                 : []),
+              ...(setsSwitch
+                ? [
+                    {
+                      value: 'pressed' as const,
+                      label: 'Selected',
+                      title: 'While the switch holds this value',
+                    },
+                  ]
+                : []),
             ]}
           />
         </div>
@@ -167,7 +181,9 @@ function SingleSelection() {
         <div className="border-b border-[var(--border-soft)] bg-[var(--accent-subtle)] px-3 py-1.5 text-[10.5px] text-[var(--accent)]">
           {styleState === 'backdrop'
             ? 'Changes apply to the backdrop behind it. Switch to Default for the panel itself.'
-            : `Changes apply on ${styleState}. Switch to Default for the base style.`}
+            : styleState === 'pressed'
+              ? 'Changes apply while this option is the selected one.'
+              : `Changes apply on ${styleState}. Switch to Default for the base style.`}
         </div>
       )}
 

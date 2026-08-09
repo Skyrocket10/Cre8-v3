@@ -13,10 +13,12 @@
  * the cascade, the reset — is byte-for-byte identical between the two modes.
  */
 
+import { slug } from '../document/schema';
 import {
   BREAKPOINT_DEFS,
   BREAKPOINT_ORDER,
   PSEUDO_ELEMENT_STATES,
+  SWITCH_STATES,
   type Breakpoint,
   type SceneNode,
   type StyleDecl,
@@ -123,6 +125,8 @@ function rulesFor(node: SceneNode, selectorPrefix: string): NodeRules {
   const stateChunks: string[] = [];
   for (const [state, layer] of Object.entries(node.states ?? {})) {
     if (!layer || Object.keys(layer).length === 0) continue;
+    // Handled by `switchRules`, which needs the node map to find the group.
+    if (SWITCH_STATES.includes(state as StyleState)) continue;
     const body = declarationsToCss(layer as StyleDecl);
     // `::backdrop` is a pseudo-element, and the single colon a pseudo-class
     // takes is not merely old-fashioned spelling here — `:backdrop` matches
@@ -155,6 +159,59 @@ export interface GenerateCssOptions {
   includeStates?: boolean;
 }
 
+/**
+ * The rules that make a switch work without a script.
+ *
+ * Two of them. A case is hidden whenever the group it belongs to holds some
+ * other value; a control that sets the group takes its selected styling
+ * whenever the group holds *its* value.
+ * Specificity is the whole trick: `[data-cre8-switch="k"]:not([…]) .c-id`
+ * scores (0,3,0) and the node's own rule scores (0,1,0), so hiding wins over
+ * whatever `display` the designer set, at every breakpoint, without an
+ * `!important` anywhere.
+ *
+ * Written from the node map rather than from the node, because a case only
+ * knows its value — the key belongs to an ancestor. That also means this
+ * cannot be memoised on node identity the way the rest is: renaming a group's
+ * key changes the rules of children that did not themselves change.
+ */
+function switchRules(nodes: Record<string, SceneNode>, node: SceneNode, prefix: string): string[] {
+  const kase = slug(node.props.switchCase);
+  const set = slug(node.props.switchSet);
+  const pressed = node.states?.pressed;
+  const wantsPressed = set && pressed && Object.keys(pressed).length > 0;
+  if (!kase && !wantsPressed) return [];
+
+  // Both rules hang off the nearest enclosing group, so the walk happens once.
+  let key = '';
+  let current: SceneNode | undefined = node.parentId ? nodes[node.parentId] : undefined;
+  let guard = 0;
+  while (current && guard++ < 200) {
+    key = slug(current.props.switchKey);
+    if (key) break;
+    current = current.parentId ? nodes[current.parentId] : undefined;
+  }
+  // No group above it. Emitting nothing leaves the node always visible, which
+  // is the honest reading of "belongs to no switch" — and the static check
+  // refuses to let a block ship in that state.
+  if (!key) return [];
+
+  const group = `${prefix}[data-cre8-switch="${key}"]`;
+  const out: string[] = [];
+  if (kase) {
+    out.push(
+      `${group}:not([data-cre8-value="${kase}"]) .${nodeClass(node.id)} {\n  display: none;\n}`
+    );
+  }
+  if (wantsPressed) {
+    const body = declarationsToCss(pressed as StyleDecl);
+    if (body) {
+      out.push(`${group}[data-cre8-value="${set}"] .${nodeClass(node.id)} {\n${body}\n}`);
+    }
+  }
+  return out;
+}
+
 export function generateNodeCss(
   nodes: Record<string, SceneNode>,
   options: GenerateCssOptions
@@ -164,6 +221,7 @@ export function generateNodeCss(
 
   const baseChunks: string[] = [];
   const stateChunks: string[] = [];
+  const caseChunks: string[] = [];
   const responsiveChunks: Partial<Record<Breakpoint, string[]>> = {};
 
   for (const id of ids) {
@@ -172,6 +230,9 @@ export function generateNodeCss(
     const rules = rulesFor(node, prefix);
     if (rules.base) baseChunks.push(rules.base);
     if (options.includeStates !== false && rules.states) stateChunks.push(rules.states);
+    if (node.props.switchCase !== undefined || node.props.switchSet !== undefined) {
+      caseChunks.push(...switchRules(nodes, node, prefix));
+    }
     for (const bp of BREAKPOINT_ORDER) {
       const chunk = rules.responsive[bp];
       if (!chunk) continue;
@@ -182,6 +243,7 @@ export function generateNodeCss(
   const out: string[] = [];
   if (baseChunks.length) out.push(baseChunks.join('\n'));
   if (stateChunks.length) out.push(stateChunks.join('\n'));
+  if (caseChunks.length) out.push(caseChunks.join('\n'));
 
   // Narrow breakpoints emitted last so they win at equal specificity.
   for (const bp of BREAKPOINT_ORDER) {

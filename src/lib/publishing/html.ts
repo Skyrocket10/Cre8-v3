@@ -7,10 +7,13 @@
  * second implementation of "what a Cre8 node looks like", which is what keeps
  * the published site honest.
  *
- * Output is plain HTML and CSS with no runtime: it drops straight onto a CDN.
+ * Output is plain HTML and CSS. A page that contains a switch also carries the
+ * ~30-line behaviour runtime inline; a page that does not carries nothing to
+ * execute. Either way it drops straight onto a CDN.
  */
 
 import { describeElement, type AttrValue } from '../renderer/element-model';
+import { behaviourRuntimeSource } from '../runtime/behaviour';
 import { generateStylesheet, minifyCss } from '../renderer/css';
 import { themeToCssVariables, usedWebFonts } from '../document/theme';
 import { collectSubtree } from '../document/tree';
@@ -316,6 +319,15 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
     .filter(Boolean)
     .join(options.pretty ? '\n    ' : '');
 
+  // The one script this project ships, and only onto pages that need it. A
+  // page with no switch on it stays exactly what it was before Phase C: HTML
+  // and CSS, nothing to execute. That is the invariant the suites assert now —
+  // not "never any script", which stopped being true, but "no script unless
+  // the page actually contains behaviour".
+  const script = nodeIds.some((id) => doc.nodes[id]?.props.switchKey)
+    ? `<script>${behaviourRuntimeSource()}</script>`
+    : '';
+
   const lang = escapeAttr(doc.settings.language || 'en');
   const html = options.pretty
     ? `<!doctype html>
@@ -325,10 +337,11 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
   </head>
   <body>
     ${body}
+    ${script}
   </body>
 </html>
 `
-    : `<!doctype html><html lang="${lang}"><head>${head}</head><body>${body}</body></html>`;
+    : `<!doctype html><html lang="${lang}"><head>${head}</head><body>${body}${script}</body></html>`;
 
   return rewriteAssetUrls(html, page);
 }

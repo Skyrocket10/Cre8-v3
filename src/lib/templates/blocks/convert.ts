@@ -4,6 +4,7 @@ import type { NodeSpec } from '../../document/factory';
 import {
   BODY,
   BODY_RESPONSIVE,
+  CAPTION,
   EYEBROW,
   ONE_COLUMN,
   TITLE,
@@ -27,6 +28,9 @@ import {
   section,
   sectionHeader,
   stack,
+  switchButton,
+  switchCase,
+  switchGroup,
   tint,
 } from './kit';
 
@@ -313,6 +317,144 @@ export function ctaSplitSpec(): NodeSpec {
         },
       ],
       { gap: '0px' }
+    ),
+  ]);
+}
+
+/* --------------------------------------------------------------------------
+ * Pricing with a billing switch
+ * ----------------------------------------------------------------------- */
+
+const BILLED: { name: string; monthly: string; annual: string; blurb: string; features: string[]; featured: boolean }[] = [
+  {
+    name: 'Starter',
+    monthly: '$19',
+    annual: '$15',
+    blurb: 'Everything one person needs.',
+    features: ['3 projects', 'Custom domain', 'Email support'],
+    featured: false,
+  },
+  {
+    name: 'Team',
+    monthly: '$49',
+    annual: '$39',
+    blurb: 'For a small team shipping weekly.',
+    features: ['Unlimited projects', 'Shared components', 'Roles and invites', 'Priority support'],
+    featured: true,
+  },
+  {
+    name: 'Business',
+    monthly: '$99',
+    annual: '$79',
+    blurb: 'When procurement gets involved.',
+    features: ['SSO and SCIM', 'Audit log', 'Uptime SLA', 'Named engineer'],
+    featured: false,
+  },
+];
+
+/**
+ * The block that made the runtime worth writing.
+ *
+ * Both prices are in the markup; a generated rule hides whichever one the
+ * switch is not on. So the toggle costs one attribute write, the selected pill
+ * is styled from the same attribute rather than applied by a script after
+ * first paint, and the whole interaction survives being screenshotted, printed
+ * or read by something that never ran the script — the monthly price is simply
+ * there.
+ */
+export function pricingSwitchSpec(): NodeSpec {
+  const price = (value: string, cadence: string, kase: string): NodeSpec =>
+    switchCase(
+      kase,
+      stack(
+        `${kase} price`,
+        [
+          label(value, { fontSize: '38px', fontWeight: '640', letterSpacing: '-0.03em', color: 'var(--c-text)' }),
+          label(cadence, { fontSize: '14px', color: 'var(--c-muted)' }),
+        ],
+        { gap: '4px', alignItems: 'baseline' }
+      )
+    );
+
+  return section('Pricing switch', [
+    container(
+      [
+        sectionHeader(
+          'Pricing',
+          'Pay monthly, or save by paying yearly',
+          'Same product either way. Switch whenever you like — we prorate the difference.'
+        ),
+
+        switchGroup(
+          'billing',
+          'monthly',
+          [
+            stack(
+              'Billing toggle',
+              [
+                switchButton('Monthly', 'monthly'),
+                switchButton('Yearly', 'annual'),
+                switchCase(
+                  'annual',
+                  label('Save 20%', {
+                    ...CAPTION,
+                    fontWeight: '580',
+                    color: 'var(--c-primary)',
+                    ...pad('0px', '4px'),
+                  })
+                ),
+              ],
+              {
+                gap: '4px',
+                alignItems: 'center',
+                width: 'fit-content',
+                marginLeft: 'auto',
+                marginRight: 'auto',
+                ...pad('4px'),
+                ...radius('var(--r-full)'),
+                backgroundColor: 'var(--c-surface)',
+                ...border('1px', 'var(--c-border)'),
+              }
+            ),
+
+            grid(
+              'Plans',
+              3,
+              BILLED.map((tier) =>
+                card(
+                  tier.name,
+                  [
+                    stack(
+                      `${tier.name} head`,
+                      [
+                        heading(tier.name, 3, { fontSize: '17px', fontWeight: '600' }),
+                        ...(tier.featured ? [badge('Most popular')] : []),
+                      ],
+                      { gap: '10px', alignItems: 'center' }
+                    ),
+                    paragraph(tier.blurb, { ...CAPTION, color: 'var(--c-muted)' }),
+                    price(tier.monthly, '/month', 'monthly'),
+                    price(tier.annual, '/month, billed yearly', 'annual'),
+                    button('Start free', tier.featured ? 'primary' : 'secondary'),
+                    divider(),
+                    bullets(tier.features),
+                  ],
+                  {
+                    gap: '14px',
+                    ...(tier.featured
+                      ? { ...border('1px', 'var(--c-primary)'), backgroundColor: tint('var(--c-primary)', 4) }
+                      : {}),
+                  }
+                )
+              ),
+              { gap: '20px', marginTop: '32px' },
+              ONE_COLUMN
+            ),
+          ],
+          { gap: '0px' }
+        ),
+      ],
+      { gap: '40px' }
     ),
   ]);
 }

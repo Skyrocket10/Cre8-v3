@@ -298,6 +298,60 @@ function checkPopoverRefs(spec) {
   return bad;
 }
 
+/**
+ * A switch has to be wired to itself.
+ *
+ * Every part of one fails quietly when it is wrong. A case with no group
+ * above it gets no generated rule, so it is simply always visible. A control
+ * that sets a value nothing listens for is a button that does nothing when
+ * clicked. A group whose default matches no case opens showing none of them.
+ * None of these throw, none of them look wrong in code, and all three are
+ * obvious the moment somebody uses the page.
+ */
+function checkSwitches(spec) {
+  const bad = [];
+
+  const walkGroup = (node, groupKey, groupCases) => {
+    for (const child of node.children ?? []) {
+      const key = child.props?.switchKey;
+      if (key) {
+        const cases = new Set();
+        collectCases(child, cases);
+        const initial = child.props?.switchDefault;
+        if (cases.size === 0) {
+          bad.push(`${child.name ?? child.type}: switch "${key}" has no cases beneath it`);
+        } else if (initial && !cases.has(initial)) {
+          bad.push(`${child.name ?? child.type}: ships as "${initial}", which is not one of its cases`);
+        }
+        walkGroup(child, key, cases);
+        continue;
+      }
+      if (!groupKey) {
+        if (child.props?.switchCase) {
+          bad.push(`${child.name ?? child.type}: shown when "${child.props.switchCase}", but no switch encloses it`);
+        }
+        if (child.props?.switchSet) {
+          bad.push(`${child.name ?? child.type}: sets "${child.props.switchSet}", but no switch encloses it`);
+        }
+      } else if (child.props?.switchSet && !groupCases.has(child.props.switchSet)) {
+        bad.push(`${child.name ?? child.type}: sets "${child.props.switchSet}", which no case listens for`);
+      }
+      walkGroup(child, groupKey, groupCases);
+    }
+  };
+
+  const collectCases = (node, into) => {
+    for (const child of node.children ?? []) {
+      if (child.props?.switchCase) into.add(child.props.switchCase);
+      // A nested group owns its own cases; stop before crossing into one.
+      if (!child.props?.switchKey) collectCases(child, into);
+    }
+  };
+
+  walkGroup(spec, spec.props?.switchKey ?? '', new Set());
+  return bad;
+}
+
 /** Every node needs a name, or the layer tree is a column of "Frame". */
 function checkNames(spec) {
   const bad = [];
@@ -318,6 +372,7 @@ const RULES = [
   ['children are only where an element can render them', checkContainerChildren],
   ['no nesting the HTML parser would rearrange', checkNesting],
   ['every popover button names a popover in its block', checkPopoverRefs],
+  ['every switch is wired to its own cases', checkSwitches],
   ['small images clear the empty-slot floor', checkPlaceholderFloor],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['every node is named for the layer tree', checkNames],
@@ -455,6 +510,46 @@ const VIOLATIONS = [
     checkPopoverRefs,
     'a button opening a popover that is not in the block',
     { type: 'frame', name: 'F', children: [{ type: 'button', name: 'B', props: { popoverTarget: 'popover@Ghost' } }] },
+  ],
+  [
+    checkSwitches,
+    'a case with no switch above it',
+    { type: 'frame', name: 'F', children: [{ type: 'text', name: 'T', props: { switchCase: 'annual' } }] },
+  ],
+  [
+    checkSwitches,
+    'a control setting a value nothing listens for',
+    {
+      type: 'frame',
+      name: 'Root',
+      children: [
+        {
+          type: 'frame',
+          name: 'G',
+          props: { switchKey: 'billing', switchDefault: 'monthly' },
+          children: [
+            { type: 'text', name: 'A', props: { switchCase: 'monthly' } },
+            { type: 'button', name: 'B', props: { switchSet: 'yearly' } },
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    checkSwitches,
+    'a switch that ships as a case it does not have',
+    {
+      type: 'frame',
+      name: 'Root',
+      children: [
+        {
+          type: 'frame',
+          name: 'G',
+          props: { switchKey: 'billing', switchDefault: 'weekly' },
+          children: [{ type: 'text', name: 'A', props: { switchCase: 'monthly' } }],
+        },
+      ],
+    },
   ],
   [
     checkIconNames,

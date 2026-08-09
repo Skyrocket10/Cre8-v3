@@ -20,6 +20,7 @@ const SUITES = [
   ['nav', 'page navigation inside a published site'],
   ['native', 'native primitives behave without a runtime'],
   ['tables', 'tabular markup survives the parser'],
+  ['behaviour', 'switches work, and the CSS does the work'],
   ['forms', 'published forms reach the submissions endpoint'],
   ['assets', 'images survive publish and export'],
   ['bodyreset', 'the published page starts at the edge'],

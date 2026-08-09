@@ -117,7 +117,13 @@ const VOID = new Set([
  * layout that looks subtly wrong far from the cause.
  */
 export function unbalanced(html) {
-  const body = html.slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'));
+  const body = html
+    .slice(html.indexOf('<body>') + 6, html.lastIndexOf('</body>'))
+    // `script` and `style` are raw-text elements: the parser does not look
+    // for tags inside them and neither should this. Without that, `i < n`
+    // in the behaviour runtime reads as an opening `<n>` that never closes,
+    // and every page carrying a switch looks broken.
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '<$1></$1>');
   const counts = new Map();
   for (const [, tag] of body.matchAll(/<([a-zA-Z][a-zA-Z0-9-]*)/g)) {
     const t = tag.toLowerCase();

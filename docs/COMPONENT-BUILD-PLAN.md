@@ -1,4 +1,4 @@
-# Cre8 — component build plan (Phases A and B)
+# Cre8 — component build plan (Phases A–C)
 
 `COMPONENT-LIBRARY.md` says *what* to build and *why*. This says *how*, in what
 order, and what has to exist before the bulk of it starts.
@@ -387,3 +387,106 @@ capability behind it.
 
 Phase B is complete. What remains gated is modality, focus management and
 anchor positioning — all of which want the runtime, not another primitive.
+
+
+---
+
+## Phase C — behaviour
+
+The gated one. `COMPONENT-LIBRARY.md` §6 names the failure mode: behaviour is
+where a second renderer grows, because the obvious shape is React state on the
+canvas and a hand-written script in the output, and from then on tabs behave
+differently in the editor than in production.
+
+The plan there was "write exactly one runtime module and import it on all
+three surfaces". What landed is a step further, and smaller.
+
+### CSS does the work
+
+A **switch** is three things:
+
+- a **group** — `switchKey` on any container, holding a current value;
+- **setters** — `switchSet` on a button, which set that value;
+- **cases** — `switchCase` on anything, which exist only while the value
+  matches.
+
+The generator writes one rule per case:
+
+```css
+[data-cre8-switch="billing"]:not([data-cre8-value="annual"]) .c-abc { display: none; }
+```
+
+Specificity is the trick — `(0,3,0)` against the node's own `(0,1,0)`, so
+hiding wins over whatever `display` the designer set, at every breakpoint,
+with no `!important` anywhere. Changing state is then **one attribute write**,
+and nothing has to agree about anything else: the canvas, preview and the
+published page run identical rules over identical markup because there is one
+mechanism, not one per surface.
+
+That leaves the script with two jobs — write the attribute on click, and keep
+`aria-pressed` honest. **725 bytes**, inlined only into pages that contain a
+switch.
+
+Consequences worth stating, because they are the argument for the design:
+
+- **It works with JavaScript off.** The default case is styled correctly and
+  both prices are in the markup. A crawler, a reader mode and a printed page
+  all get something true. Checked with a scripting-disabled browser context.
+- **No flash of the wrong state.** The selected pill is a generated rule keyed
+  on the group's value, not something the script paints on after first paint.
+  That is why `pressed` is not an ordinary interaction state — see below.
+- **The hidden case is present, not absent.** Nothing is conditionally
+  rendered away, so nothing has to be re-rendered to come back.
+
+### The invariant that changed
+
+"A published page ships no script" stopped being true, and pretending
+otherwise would be worse than useless. What is asserted now is the narrower,
+honest version, and it is checked in both directions: **a page with no
+behaviour on it still ships nothing to execute**, and a page with a switch
+carries exactly one inline script.
+
+### Design-time state
+
+An accordion is open or closed; a switch is on one case. Whichever case is not
+showing is invisible, therefore unselectable, therefore unstylable — and the
+obvious workaround, flipping the default to look at the other one, changes
+what visitors see.
+
+So there are two values. `switchDefault` ships. `switchDesign` is which case
+the canvas is showing and never reaches a published file — asserted, because
+"it does not leak" is exactly the kind of claim that quietly stops being true.
+
+### `pressed` is not an interaction state
+
+`StyleState` gained two members that are not pseudo-classes, and both are
+handled apart from the generic `selector:state` path:
+
+- `backdrop` → `::backdrop`, a pseudo-element (Phase B).
+- `pressed` → **a rule on the group**, `[data-cre8-switch="k"][data-cre8-value="v"] .c-id`.
+
+The second could have been `[aria-pressed="true"]`, which is simpler and
+wrong: `aria-pressed` is set by the script, so the correct option would look
+unselected until the script ran.
+
+### Serialising the runtime
+
+The published page gets the runtime through `Function.prototype.toString()`,
+so the editor runs the same source it ships rather than maintaining a copy in
+a template literal — which would be the second implementation this phase
+exists to avoid.
+
+The cost is a real constraint: the function must be **completely
+self-contained**, every attribute name a literal, no references to anything
+outside its own body. A bundler renames module-scope bindings, and a renamed
+binding inside a serialised function is a `ReferenceError` on somebody's live
+site. It is stated at the top of the file, and the render suite drives a real
+published page built by the production minifier so a mistake there fails a
+test rather than a visitor.
+
+### C′ — what this unlocks
+
+**Pricing with switch** landed with C as the proof. Tabs, steppers and
+filter-by-category are the same mechanism with different labels. A carousel is
+not — it wants transforms and gestures, and it should wait until there is a
+reason to build it rather than a slot in a table.

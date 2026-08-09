@@ -9,13 +9,14 @@
  * switcher genuinely re-evaluates the responsive rules.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Monitor, Smartphone, Tablet, X } from 'lucide-react';
 import { BREAKPOINT_DEFS, type Breakpoint, type Cre8Document } from '@/lib/document/types';
 import { themeToStyleObject } from '@/lib/document/theme';
 import { collectSubtree } from '@/lib/document/tree';
 import { generateNodeCss, DOCUMENT_RESET, PLACEHOLDER_CSS } from '@/lib/renderer/css';
 import { createSnapshotEngine, NodeView, RenderProvider } from '@/lib/renderer/render';
+import { behaviourRuntime } from '@/lib/runtime/behaviour';
 import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { Tooltip } from '../ui/primitives';
@@ -160,6 +161,15 @@ function PreviewSurface({
 
   const themeVars = useMemo(() => themeToStyleObject(doc.theme), [doc.theme]);
 
+  /* Preview is the surface that answers "what will a visitor get", so the
+     runtime runs live here — the same call the published page makes, with the
+     listener bound and cleaned up on the way out. */
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!frameRef.current) return;
+    return behaviourRuntime(frameRef.current, true);
+  }, [doc, pageId]);
+
   if (!page) return null;
   const isDesktop = device === 'desktop';
 
@@ -183,6 +193,7 @@ function PreviewSurface({
       }}
     >
       <div
+        ref={frameRef}
         className={cn(
           'cre8-frame mx-auto bg-white',
           !isDesktop && 'overflow-hidden rounded-xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.5)]'

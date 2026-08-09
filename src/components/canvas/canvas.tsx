@@ -19,6 +19,7 @@ import { collectSubtree, isEffectivelyLocked } from '@/lib/document/tree';
 import { themeToStyleObject } from '@/lib/document/theme';
 import { DOCUMENT_RESET, PLACEHOLDER_CSS, generateNodeCss } from '@/lib/renderer/css';
 import { NodeView, RenderProvider } from '@/lib/renderer/render';
+import { behaviourRuntime } from '@/lib/runtime/behaviour';
 import { hitTest } from '@/lib/editor/registry';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
@@ -48,6 +49,18 @@ export function Canvas() {
   const frameWidth = BREAKPOINT_DEFS[breakpoint].width;
 
   useEffect(() => setViewportEl(viewportRef.current), []);
+
+  /* --- Behaviour, in design mode ------------------------------------------
+     The same runtime the published page gets, with `live` false: it brings
+     `aria-pressed` in line with whichever case the designer is looking at and
+     binds nothing, because a click on the canvas is someone reaching for the
+     element, not reaching for the control. Which case is *shown* is not its
+     job on either surface — a generated CSS rule does that, from the same
+     attribute, which is why the two cannot disagree. */
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (frameRef.current) behaviourRuntime(frameRef.current, false);
+  });
 
   /* --- Stylesheet ---------------------------------------------------------
      Regenerated only when the node map changes; per-node rules are memoised
@@ -268,6 +281,7 @@ export function Canvas() {
           <FrameHeader width={frameWidth} zoom={zoom} />
 
           <div
+            ref={frameRef}
             className={cn(
               'cre8-frame cre8-doc cre8-editing relative overflow-hidden bg-white',
               showOutlines && 'cre8-outlines'

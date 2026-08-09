@@ -11,7 +11,8 @@
 import React, { useMemo, useState } from 'react';
 import { Component, ExternalLink, ImageIcon, Scissors, SquarePen } from 'lucide-react';
 import { ICON_NAMES, ICON_PATHS } from '@/lib/renderer/icons';
-import { SEMANTIC_TAGS } from '@/lib/document/schema';
+import { SEMANTIC_TAGS, getElement, slug } from '@/lib/document/schema';
+import type { ElementType } from '@/lib/document/types';
 import { detachInstance } from '@/lib/document/operations';
 import { collectSubtree } from '@/lib/document/tree';
 import { activeRootId, useEditor } from '@/lib/editor/store';
@@ -29,7 +30,23 @@ export function ContentSection() {
   });
 
   if (!type) return null;
+  const def = getElement(type);
 
+  return (
+    <>
+      {typeContent(type)}
+      {/* Anything that can hold children can be a switch. Collapsed, like
+          Semantics, because it is structural rather than something you reach
+          for on every element. */}
+      {def.container && !def.internal && <SwitchGroupContent />}
+      {/* And anything inside one can react to it — this returns nothing at
+          all when there is no switch above, so it never becomes noise. */}
+      <SwitchMemberSection canSet={type === 'button' || type === 'link'} />
+    </>
+  );
+}
+
+function typeContent(type: ElementType) {
   switch (type) {
     case 'heading':
       return <HeadingContent />;
@@ -573,6 +590,150 @@ function PopoverTargetRows() {
         </StyleRow>
       )}
     </>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Switches
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Every case value used beneath a group, in the order they appear.
+ *
+ * Read off the tree rather than kept as a list on the group, because the tree
+ * already knows and two records of the same fact drift. Encoded as a string
+ * for the same reason `usePopovers` is — a selector that builds an array is a
+ * new value on every read.
+ */
+function useSwitchCases(groupId: string | undefined): string[] {
+  const encoded = useEditor((s) => {
+    if (!groupId) return '';
+    const seen: string[] = [];
+    for (const id of collectSubtree(s.doc.nodes, groupId)) {
+      const value = slug(s.doc.nodes[id]?.props.switchCase);
+      if (value && !seen.includes(value)) seen.push(value);
+    }
+    return seen.join(ENTRY);
+  });
+  return useMemo(() => (encoded ? encoded.split(ENTRY) : []), [encoded]);
+}
+
+/**
+ * The group, and which of its cases the canvas is showing.
+ *
+ * The second one is the whole reason design-time state exists. A switch that
+ * always rendered its published default would leave every other case
+ * unreachable — invisible on the canvas, so unselectable, so unstylable — and
+ * the obvious workaround, changing the default to look at the other one,
+ * changes what visitors see. So there are two values: one that ships and one
+ * that does not.
+ */
+function SwitchGroupContent() {
+  const id = useEditor((s) => s.selection[0]);
+  const key = useNodeProp('switchKey');
+  const fallback = useNodeProp('switchDefault');
+  const design = useNodeProp('switchDesign');
+  const cases = useSwitchCases(id);
+
+  const current = slug(design.value) || slug(fallback.value) || cases[0] || '';
+
+  return (
+    <Section title="Switch" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Named" hint="Letters, numbers and dashes — it becomes an attribute">
+          <TextInput
+            className="flex-1"
+            value={String(key.value ?? '')}
+            onValueChange={(next) => key.set(slug(next) || undefined)}
+            placeholder="plan"
+          />
+        </StyleRow>
+
+        {cases.length > 0 && (
+          <>
+            <StyleRow label="Ships as" hint="What a visitor sees before touching anything">
+              <Select
+                className="flex-1"
+                value={slug(fallback.value) || cases[0] || ''}
+                onChange={(value) => fallback.set(value)}
+                options={cases.map((value) => ({ value, label: value }))}
+              />
+            </StyleRow>
+            <StyleRow label="Editing" hint="Which case the canvas shows. Never published.">
+              <Segmented
+                full
+                value={current}
+                onChange={(value) => design.set(value)}
+                options={cases.map((value) => ({ value, label: value }))}
+              />
+            </StyleRow>
+          </>
+        )}
+      </InspectorGroup>
+      <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+        {cases.length === 0
+          ? 'Nothing inside is tied to a case yet. Select a child and give it a “Shown when”.'
+          : 'Switching here only changes the canvas. Visitors start on “Ships as”.'}
+      </p>
+    </Section>
+  );
+}
+
+/**
+ * The two rows any node can carry: what it sets, and when it shows.
+ *
+ * Appended to whatever content section the element already has rather than
+ * replacing it — a button that switches a price table is still a button, and
+ * hiding its label field to make room for this would be a poor trade.
+ */
+function SwitchMemberSection({ canSet }: { canSet: boolean }) {
+  const id = useEditor((s) => s.selection[0]);
+  const set = useNodeProp('switchSet');
+  const kase = useNodeProp('switchCase');
+
+  // The group this node actually belongs to, so the pickers offer the values
+  // that exist rather than a free-text field that fails silently.
+  const groupId = useEditor((s) => {
+    let current = id ? s.doc.nodes[id]?.parentId : undefined;
+    let guard = 0;
+    while (current && guard++ < 200) {
+      if (slug(s.doc.nodes[current]?.props.switchKey)) return current;
+      current = s.doc.nodes[current]?.parentId ?? undefined;
+    }
+    return undefined;
+  });
+  const cases = useSwitchCases(groupId);
+
+  const groupName = useEditor((s) => (groupId ? slug(s.doc.nodes[groupId]?.props.switchKey) : ''));
+
+  if (!groupId) return null;
+
+  return (
+    <Section title={`In switch “${groupName}”`} defaultOpen>
+      <InspectorGroup>
+        {canSet && (
+          <StyleRow label="Switches to" hint="Clicking this sets the enclosing switch">
+            <Select
+              className="flex-1"
+              value={slug(set.value)}
+              onChange={(value) => set.set(value || undefined)}
+              options={[
+                { value: '', label: 'Nothing' },
+                ...cases.map((value) => ({ value, label: value })),
+              ]}
+            />
+          </StyleRow>
+        )}
+        <StyleRow label="Shown when" hint="Hidden unless the switch holds this value">
+          <TextInput
+            className="flex-1"
+            value={slug(kase.value)}
+            onValueChange={(value) => kase.set(slug(value) || undefined)}
+            placeholder="annual"
+          />
+        </StyleRow>
+      </InspectorGroup>
+    </Section>
   );
 }
 

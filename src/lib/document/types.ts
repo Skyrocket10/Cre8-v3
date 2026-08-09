@@ -210,10 +210,21 @@ export type ResponsiveStyles = Partial<Record<Breakpoint, StyleDecl>>;
  * A separate field would have meant a second path through the generator, the
  * inspector and the patch stream to say the same sentence.
  */
-export type StyleState = 'hover' | 'active' | 'focus' | 'backdrop';
+export type StyleState = 'hover' | 'active' | 'focus' | 'backdrop' | 'pressed';
 
 /** Which of those are `::` rather than `:`. */
 export const PSEUDO_ELEMENT_STATES: readonly StyleState[] = ['backdrop'] as const;
+
+/**
+ * `pressed` is not a selector on the node at all.
+ *
+ * It means "the switch this control sets is currently on my value", which is
+ * a fact about an *ancestor*, so the generator writes it as a descendant rule
+ * keyed on the group. Doing it that way rather than off `aria-pressed` is
+ * what stops the selected tab flashing unselected on every page load: the
+ * style is in the stylesheet, not applied by a script after first paint.
+ */
+export const SWITCH_STATES: readonly StyleState[] = ['pressed'] as const;
 export type StateStyles = Partial<Record<StyleState, StyleDecl>>;
 
 /* --------------------------------------------------------------------------

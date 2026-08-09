@@ -8,10 +8,11 @@
  * promise someone has to keep re-checking.
  */
 
-import { resolveTag } from '../document/schema';
+import { resolveTag, slug } from '../document/schema';
 import type { Cre8Document, SceneNode } from '../document/types';
 import { nodeClass } from './css';
 import { iconMarkup } from './icons';
+import { CASE_ATTR, SET_ATTR, SWITCH_ATTR, VALUE_ATTR } from '../runtime/behaviour';
 
 export type RenderMode = 'edit' | 'preview' | 'publish';
 
@@ -115,7 +116,42 @@ function str(value: unknown, fallback = ''): string {
   return value === undefined || value === null ? fallback : String(value);
 }
 
+/**
+ * Switch wiring, which every element type can carry.
+ *
+ * Bolted on after the per-type description rather than repeated inside it:
+ * any node can be a group, a setter or a case, and threading three attributes
+ * through thirty switch arms is how one of them ends up missing.
+ */
+function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): ElementModel {
+  const props = node.props;
+  const key = slug(props.switchKey);
+  const set = slug(props.switchSet);
+  const kase = slug(props.switchCase);
+  if (!key && !set && !kase) return model;
+
+  if (key) {
+    model.attrs[SWITCH_ATTR] = key;
+    // `switchDesign` is which case the designer is looking at; it never
+    // reaches a published file, so choosing one to style cannot change what
+    // visitors see first.
+    const design = mode === 'edit' ? slug(props.switchDesign) : '';
+    model.attrs[VALUE_ATTR] = design || slug(props.switchDefault);
+  }
+  if (set) model.attrs[SET_ATTR] = set;
+  if (kase) model.attrs[CASE_ATTR] = kase;
+  return model;
+}
+
 export function describeElement(
+  node: SceneNode,
+  doc: Cre8Document,
+  options: RenderOptions
+): ElementModel {
+  return applySwitch(describeBase(node, doc, options), node, options.mode);
+}
+
+function describeBase(
   node: SceneNode,
   doc: Cre8Document,
   options: RenderOptions

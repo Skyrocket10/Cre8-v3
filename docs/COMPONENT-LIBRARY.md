@@ -46,7 +46,7 @@ meet that bar or it drags the product down rather than filling it out.
 **Since:** 35 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
 `dialog`, `table`, `tableRow`, `tableCell`, `range`, `file`, `progress`,
 `fieldset` added in B) and 67 blocks across nine categories, held to that bar
-by 906 static checks and 14 browser suites. `◐` marks something that ships and
+by 991 static checks and 15 browser suites. `◐` marks something that ships and
 is partly gated — the dialog is a real `<dialog>`, announced as one, but not
 modal until there is a runtime to call `showModal()`.
 
@@ -324,7 +324,7 @@ backgrounds all come from the browser, correct on the first try.
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Accordion | P | | a |
-| Tabs | B | | b |
+| Tabs | B | | b — the switch is built, the roles are not |
 | Stepper / wizard | B | | b |
 | Pagination | B | | |
 | App shell — sidebar + topbar | B | | |
@@ -355,6 +355,13 @@ interaction with React state, the published page gets a hand-written script,
 and from then on tabs behave differently in the editor than in production. That
 is the same class of bug as the border reset fixed this week, except behavioural
 and much harder to see in a screenshot.
+
+> **Landed differently, and better — see COMPONENT-BUILD-PLAN.md, Phase C.**
+> Step 1 happened as written. Step 2 did not need a module on three surfaces:
+> a generated CSS rule per case does the showing and hiding, so the script is
+> 725 bytes that write one attribute, and there is nothing for the surfaces to
+> disagree about. Steps 3 and 4 landed as `switchDesign` and
+> `tests/render/behaviour.mjs`.
 
 **Recommendation — native first, then one shared module.**
 

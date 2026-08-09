@@ -880,3 +880,62 @@ export const dropdown = (
   },
   styles,
 });
+
+/* --------------------------------------------------------------------------
+ * Switches
+ *
+ * The one thing on a Cre8 page that needs a script, and it needs about thirty
+ * lines of one. A group holds a value; controls set it; anything tagged with
+ * a case is hidden by a generated CSS rule while the value is something else.
+ * Same mechanism on the canvas, in preview and in the published file — the
+ * editor simply chooses the value from the inspector instead of from a click.
+ * ----------------------------------------------------------------------- */
+
+/** Wraps children in a group that holds one of several named values. */
+export const switchGroup = (
+  key: string,
+  initial: string,
+  children: NodeSpec[],
+  styles: StyleDecl = {},
+  responsive: ResponsiveStyles = {}
+): NodeSpec => ({
+  type: 'frame',
+  name: `${key} switch`,
+  props: { switchKey: key, switchDefault: initial },
+  styles: { ...pad('0px'), width: '100%', gap: '0px', ...styles },
+  ...rsp(responsive),
+  children,
+});
+
+/** A control that sets the enclosing group. Always a button — it is one. */
+export const switchButton = (text: string, value: string, styles: StyleDecl = {}): NodeSpec => ({
+  type: 'button',
+  name: `${text} option`,
+  props: { label: text, switchSet: value },
+  styles: {
+    backgroundColor: 'transparent',
+    color: 'var(--c-muted)',
+    fontSize: '13.5px',
+    fontWeight: '560',
+    ...pad('7px', '15px'),
+    ...radius('var(--r-full)'),
+    ...styles,
+  },
+  states: {
+    hover: { color: 'var(--c-text)' },
+    // Not a `:hover`-style pseudo-class: the generator turns this into a rule
+    // keyed on the group's own value, so the selected option is styled by the
+    // stylesheet rather than painted on by the script after first paint.
+    pressed: {
+      backgroundColor: 'var(--c-background)',
+      color: 'var(--c-text)',
+      boxShadow: 'var(--sh-sm)',
+    },
+  },
+});
+
+/** Marks a node as belonging to one case of the enclosing group. */
+export const switchCase = (value: string, node: NodeSpec): NodeSpec => ({
+  ...node,
+  props: { ...node.props, switchCase: value },
+});

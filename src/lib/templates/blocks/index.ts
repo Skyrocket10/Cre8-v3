@@ -46,7 +46,7 @@ export {
   processStepsSpec,
   timelineSpec,
 } from './features';
-export { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
+export { ctaSpec, ctaSplitSpec, pricingSpec, pricingSwitchSpec } from './convert';
 export {
   alertsSpec,
   appShellSpec,
@@ -103,7 +103,7 @@ import {
   navbarSpec,
   subNavSpec,
 } from './chrome';
-import { ctaSpec, ctaSplitSpec, pricingSpec } from './convert';
+import { ctaSpec, ctaSplitSpec, pricingSpec, pricingSwitchSpec } from './convert';
 import {
   alertsSpec,
   appShellSpec,
@@ -705,6 +705,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'app',
     keywords: ['documents', 'uploads', 'attachments', 'downloads'],
     build: fileListSpec,
+  },
+  {
+    id: 'pricing-switch',
+    name: 'Pricing with switch',
+    description: 'Monthly and yearly prices, one click apart',
+    category: 'convert',
+    keywords: ['toggle', 'billing', 'annual', 'plans', 'tabs', 'switch'],
+    build: pricingSwitchSpec,
   },
   {
     id: 'comparison',

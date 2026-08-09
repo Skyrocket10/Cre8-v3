@@ -540,13 +540,19 @@ export const useEditor = create<EditorStore>()((set, get) => ({
 
     if (result.length === selection.length && result.every((id, i) => selection[i] === id)) return;
 
-    // `::backdrop` only exists on something in the top layer. Left sticky, the
-    // next element selected would silently take backdrop styles it can never
-    // render — edits that appear to do nothing and are invisible in the panel.
+    // `::backdrop` only exists on something in the top layer, and "selected"
+    // only on a control that sets a switch. Left sticky, the next element
+    // selected would silently take styles it can never render — edits that
+    // appear to do nothing and are invisible in the panel.
     const first = result[0];
-    const type = first ? doc.nodes[first]?.type : undefined;
-    const keepsBackdrop = type === 'dialog' || type === 'popover';
-    const styleState = get().styleState === 'backdrop' && !keepsBackdrop ? 'default' : undefined;
+    const node = first ? doc.nodes[first] : undefined;
+    const keeps =
+      get().styleState === 'backdrop'
+        ? node?.type === 'dialog' || node?.type === 'popover'
+        : get().styleState === 'pressed'
+          ? Boolean(node?.props.switchSet)
+          : true;
+    const styleState = keeps ? undefined : ('default' as const);
 
     set({ selection: result, editingTextId: null, ...(styleState ? { styleState } : {}) });
   },
