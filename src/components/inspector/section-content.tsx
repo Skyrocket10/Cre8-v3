@@ -11,7 +11,7 @@
 import React, { useMemo, useState } from 'react';
 import { Component, ExternalLink, ImageIcon, Scissors, SquarePen } from 'lucide-react';
 import { ICON_NAMES, ICON_PATHS } from '@/lib/renderer/icons';
-import { SEMANTIC_TAGS, getElement, slug } from '@/lib/document/schema';
+import { SEMANTIC_TAGS, SWITCH_SHOW_ALL, getElement, slug } from '@/lib/document/schema';
 import type { ElementType } from '@/lib/document/types';
 import { detachInstance } from '@/lib/document/operations';
 import { collectSubtree } from '@/lib/document/tree';
@@ -675,9 +675,16 @@ function SwitchGroupContent() {
             <StyleRow label="Editing" hint="Which case the canvas shows. Never published.">
               <Segmented
                 full
-                value={current}
+                value={design.value === SWITCH_SHOW_ALL ? SWITCH_SHOW_ALL : current}
                 onChange={(value) => design.set(value)}
-                options={cases.map((value) => ({ value, label: value }))}
+                options={[
+                  ...cases.map((value) => ({ value, label: value })),
+                  {
+                    value: SWITCH_SHOW_ALL,
+                    label: 'All',
+                    title: 'Lay every case out at once, for comparing them',
+                  },
+                ]}
               />
             </StyleRow>
           </>
@@ -686,9 +693,11 @@ function SwitchGroupContent() {
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         {cases.length === 0
           ? 'Nothing inside is tied to a case yet. Select a child and give it a “Shown when”.'
-          : role.value === 'tabs'
-            ? 'Each case is a panel, paired to the option that shows it. Switching here only changes the canvas.'
-            : 'Switching here only changes the canvas. Visitors start on “Ships as”.'}
+          : design.value === SWITCH_SHOW_ALL
+            ? 'Every case is laid out at once — a working view, not how the page looks. Pick one to see the real layout.'
+            : role.value === 'tabs'
+              ? 'Each case is a panel, paired to the option that shows it. Switching here only changes the canvas.'
+              : 'Selecting anything inside a case brings it forward, so the layer tree reaches all of them.'}
       </p>
     </Section>
   );

@@ -549,3 +549,53 @@ common mistake in this pattern.
 A carousel is still not on this list. It wants transforms, gestures and a
 reduced-motion story, and it should wait until there is a reason to build it
 rather than a slot in a table.
+
+
+---
+
+## Editing a switch
+
+The switch created an editing problem the moment it worked, and it is worth
+writing down because it is the general shape of every "state" feature:
+**a state hides content, and hidden content cannot be edited.**
+
+A case that is not current is `display: none`, so it has no box. Selecting it
+from the layer tree put the selection outline around nothing, and the eye in
+the tree looked broken — dimming something already invisible changes nothing
+you can see. The tree was offering a node the canvas refused to draw.
+
+Three answers, in order of how much they matter.
+
+**Selection drives the switch.** Selecting a tab shows its panel; selecting
+anything inside a case brings that case forward, at every level of nesting.
+Both read as the same sentence — *show me that one* — and it makes the layer
+tree work as navigation, which is what it is for. Written with `record:
+false`, so Ctrl+Z walks back what you did rather than where you looked, and
+skipped entirely for a viewer, who would otherwise get a "view-only" toast on
+every click. A group already showing the case is left alone: clicking a card
+while a grid is filtered to Brand must not silently reset it to Everything.
+
+**Every case at once.** The `Editing` control gains an `All`, which lays the
+cases out side by side for comparing them. Done by *renaming* the group's
+attribute to `data-cre8-switch-all` rather than overriding `display`: the
+hiding rule is anchored on `[data-cre8-switch="…"]`, so a group that does not
+carry it matches nothing and each case renders with its own layout intact. An
+override would have had to guess what `display` to put back, and would have
+guessed wrong for anything that is not a flex box.
+
+**The tree says which case a row is on.** A small chip with the case value,
+dimmed when the switch is showing something else. It turns "why can I not see
+this" into "ah, it is on the other tab".
+
+### The eye
+
+`meta.hidden` used to dim to 30% on the canvas and vanish only on publish,
+which made the eye look half-broken and made the canvas disagree with the
+published page about something the designer had explicitly decided. It hides
+on both now.
+
+The cost is stated rather than hidden: a `display: none` element has no
+geometry, so selecting it from the tree outlines nothing. That is inherent to
+editing a DOM rather than a scene graph — Webflow and Framer behave the same
+way. The route back is the layer row, which stays put with a struck-through
+eye, and a notice in the inspector with a Show button.

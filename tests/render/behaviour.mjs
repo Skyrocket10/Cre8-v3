@@ -27,6 +27,36 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } }
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('  [pageerror]', e.message));
 
+/**
+ * A row in the layer tree, scrolled to.
+ *
+ * The list is virtualised, so a row far down does not exist in the DOM until
+ * it is near the viewport — which is also true for the person looking for it.
+ */
+const layerRow = async (name) => {
+  const row = page.locator(`[data-layer-row]:has-text("${name}")`).first();
+  await page.evaluate(() => {
+    const list = document.querySelector('[data-layers-scroll]');
+    if (list) list.scrollTop = 0;
+  });
+  await page.waitForTimeout(150);
+  for (let i = 0; i < 60; i++) {
+    if (await row.count()) return row;
+    const moved = await page.evaluate(() => {
+      const list = document.querySelector('[data-layers-scroll]');
+      if (!list) return false;
+      const before = list.scrollTop;
+      list.scrollTop += 240;
+      return list.scrollTop !== before;
+    });
+    await page.waitForTimeout(110);
+    if (!moved) break;
+  }
+  // Null rather than a locator that will time out on click: a check reading
+  // `Boolean(locator)` is always true and proves nothing.
+  return (await row.count()) ? row : null;
+};
+
 const insert = async (name) => {
   const card = page.locator(`button:has(span:text-is("${name}"))`).first();
   if (!(await card.isVisible().catch(() => false))) {
@@ -476,6 +506,122 @@ try {
     `${await flow.locator('form input').count()} inputs`
   );
   await flow.close();
+
+  /* --------------------------- 11. reaching a case that is not on screen */
+
+  // The editing problem the switch creates. A case that is not current is
+  // `display: none`, so it has no box — selecting it from the layer tree used
+  // to outline nothing, and the eye in the tree looked broken because dimming
+  // something already invisible changes nothing. Selection drives the switch
+  // now, in both directions.
+  await page.bringToFront();
+  await page.locator('button[aria-label="Layers"]').first().click();
+  await page.waitForTimeout(600);
+
+  const boxOf = (name) =>
+    page.evaluate((layerName) => {
+      const frame = document.querySelector('.cre8-frame.cre8-editing');
+      const match = [...(frame?.querySelectorAll('[data-cre8-case]') ?? [])].find((el) =>
+        (el.textContent ?? '').includes(layerName)
+      );
+      return match ? match.getBoundingClientRect().height : -1;
+    }, name);
+
+  report.check(
+    'the third step is off screen to begin with',
+    (await boxOf('Bring the team in')) === 0,
+    `height ${await boxOf('Bring the team in')}`
+  );
+
+  // Reached through the tree, which is the path that used to dead-end. The
+  // list is virtualised, so the row does not exist in the DOM until it is
+  // scrolled near — the same reason a person has to scroll to it.
+  const inviteRow = await layerRow('Invite step');
+  if (!report.check('the tree can be scrolled to a case that is not on screen', inviteRow !== null))
+    throw new Error('layer row "Invite step" never appeared');
+  await inviteRow.click();
+  await page.waitForTimeout(700);
+  report.check(
+    'selecting it in the layer tree brings it forward',
+    (await boxOf('Bring the team in')) > 0,
+    `height ${await boxOf('Bring the team in')}`
+  );
+
+  const outlined = await page.evaluate(() => {
+    const sel = document.querySelector('[data-cre8-selection]');
+    return sel ? sel.getBoundingClientRect().height : -1;
+  });
+  report.check(
+    'so the selection outline lands on something rather than nothing',
+    outlined > 0,
+    `outline ${outlined}px tall`
+  );
+
+  // The other direction: clicking a tab shows its panel, which is what a
+  // designer expects from clicking a tab.
+  const buildTab = page.locator('.cre8-frame.cre8-editing button:text-is("Build")').first();
+  await buildTab.click();
+  await page.waitForTimeout(700);
+  const tabShown = await page.evaluate(
+    () =>
+      document
+        .querySelector('.cre8-frame.cre8-editing [data-cre8-tabs], .cre8-frame.cre8-editing [data-cre8-switch-all]')
+        ?.getAttribute('data-cre8-value') ?? ''
+  );
+  report.check('selecting a tab on the canvas shows its panel', tabShown === 'build', tabShown);
+
+  /* ------------------------------------------- 12. all cases, side by side */
+
+  // The x-ray. Done by renaming the group's attribute rather than overriding
+  // `display`, so each case keeps its own layout — an override would have had
+  // to guess what to put back.
+  // Clicking the tab selected the tab, not the set, so the switch panel needs
+  // the group — which is what the layer tree is for.
+  const groupRow = await layerRow('stage tabs');
+  if (!report.check('the tab set is reachable in the tree', groupRow !== null))
+    throw new Error('layer row "stage tabs" never appeared');
+  await groupRow.click();
+  await page.waitForTimeout(600);
+
+  report.check(
+    'and offers a switch panel',
+    (await page.locator('button:has(.panel-title:text-is("Switch"))').count()) === 1
+  );
+  await page.locator('button:text-is("All")').last().click();
+  await page.waitForTimeout(700);
+
+  const all = await page.evaluate(() => {
+    const frame = document.querySelector('.cre8-frame.cre8-editing');
+    const group = frame?.querySelector('[data-cre8-switch-all]');
+    const cases = [...(group?.querySelectorAll('[data-cre8-case]') ?? [])];
+    return {
+      renamed: Boolean(group) && !group.hasAttribute('data-cre8-switch'),
+      visible: cases.filter((el) => el.getBoundingClientRect().height > 0).length,
+      total: cases.length,
+      // Each panel keeps the display its own rule gave it, which is the whole
+      // reason for renaming rather than overriding.
+      displays: [...new Set(cases.map((el) => getComputedStyle(el).display))].join(','),
+    };
+  });
+  report.check(
+    'every case is laid out at once',
+    all.visible === all.total && all.total === 3,
+    `${all.visible} of ${all.total}`
+  );
+  report.check('the group stops being a switch rather than being overridden', all.renamed);
+  report.check(
+    'and no case had its own display trampled to get there',
+    !all.displays.includes('block') || all.displays === 'grid',
+    all.displays
+  );
+
+  await publish(page);
+  const xray = await (await fetch(`${APP}/s/${id}/`)).text();
+  report.check(
+    'the working view never reaches a published file',
+    !xray.includes('data-cre8-switch-all') && xray.includes('data-cre8-switch="stage"'),
+    xray.includes('data-cre8-switch-all') ? 'leaked' : 'edit-only'
+  );
 } catch (error) {
   report.check('behaviour suite completed', false, error.message);
 } finally {

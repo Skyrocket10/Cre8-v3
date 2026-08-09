@@ -11,7 +11,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Eye, EyeOff, Lock, LockOpen } from 'lucide-react';
-import { canContain } from '@/lib/document/schema';
+import { SWITCH_SHOW_ALL, canContain, slug, slugList } from '@/lib/document/schema';
 import * as ops from '@/lib/document/operations';
 import { canReparent } from '@/lib/document/tree';
 import { hasAnyOverride } from '@/lib/renderer/styles';
@@ -31,6 +31,15 @@ interface Row {
   depth: number;
   expandable: boolean;
   expanded: boolean;
+  /**
+   * The case this row belongs to, and whether the switch is showing it.
+   *
+   * Without this the tree lies by omission: a row for a node the canvas is
+   * not drawing looks exactly like one it is, so the eye appears broken and
+   * the selection outline appears to land on nothing. Saying which case it is
+   * turns "why can I not see this" into "ah, it is on the other tab".
+   */
+  kase?: { value: string; current: boolean };
 }
 
 export function LayersPanel() {
@@ -52,18 +61,37 @@ export function LayersPanel() {
   const rows = useMemo(() => {
     if (!rootId) return [];
     const out: Row[] = [];
-    const walk = (id: NodeId, depth: number) => {
+    const walk = (id: NodeId, depth: number, showing: string | null) => {
       const node = nodes[id];
       if (!node) return;
       const expandable = node.children.length > 0;
       const expanded = expandable && !collapsed.has(id);
+
+      const values = slugList(node.props.switchCase);
+      const kase =
+        values && showing !== null
+          ? {
+              value: values.split(' ')[0]!,
+              current: showing === SWITCH_SHOW_ALL || values.split(' ').includes(showing),
+            }
+          : undefined;
+
       // The root itself is the page; its children are what people think of
       // as the top level.
-      if (depth >= 0) out.push({ node, depth, expandable, expanded });
-      if (expanded) for (const childId of node.children) walk(childId, depth + 1);
+      if (depth >= 0) out.push({ node, depth, expandable, expanded, kase });
+
+      // A group below resets what "current" means for everything inside it.
+      const key = slug(node.props.switchKey);
+      const inner = key
+        ? node.props.switchDesign === SWITCH_SHOW_ALL
+          ? SWITCH_SHOW_ALL
+          : slug(node.props.switchDesign) || slug(node.props.switchDefault)
+        : showing;
+
+      if (expanded) for (const childId of node.children) walk(childId, depth + 1, inner);
     };
     const root = nodes[rootId];
-    if (root) for (const childId of root.children) walk(childId, 0);
+    if (root) for (const childId of root.children) walk(childId, 0, null);
     return out;
   }, [nodes, rootId, collapsed]);
 
@@ -200,6 +228,7 @@ export function LayersPanel() {
   return (
     <div
       ref={scrollRef}
+      data-layers-scroll
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       className="scroll-thin h-full overflow-y-auto overscroll-contain py-1"
     >
@@ -254,8 +283,10 @@ const LayerRow = React.memo(function LayerRow({
   onEndRename: () => void;
   onPointerDown: (e: React.PointerEvent, id: NodeId) => void;
 }) {
-  const { node, depth, expandable, expanded } = row;
+  const { node, depth, expandable, expanded, kase } = row;
   const hidden = Boolean(node.meta.hidden);
+  // Dimmed for the same reason a hidden node is: the canvas is not drawing it.
+  const offstage = Boolean(kase && !kase.current);
   const locked = Boolean(node.meta.locked);
   const isInstance = node.type === 'instance';
 
@@ -269,7 +300,7 @@ const LayerRow = React.memo(function LayerRow({
           ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--field)]',
         dropZone === 'inside' && 'ring-1 ring-[var(--accent)] ring-inset',
-        hidden && 'opacity-45'
+        (hidden || offstage) && 'opacity-45'
       )}
       style={{ top, height: ROW_HEIGHT - 2, paddingLeft: 4 + depth * INDENT }}
       onPointerDown={(e) => onPointerDown(e, node.id)}
@@ -334,6 +365,28 @@ const LayerRow = React.memo(function LayerRow({
         />
       ) : (
         <span className="min-w-0 flex-1 truncate text-[11.5px]">{node.name}</span>
+      )}
+
+      {kase && !renaming && (
+        <Tooltip
+          content={
+            kase.current
+              ? `Shown when the switch is on “${kase.value}”`
+              : `On “${kase.value}” — select it to bring it forward`
+          }
+          side="left"
+        >
+          <span
+            className={cn(
+              'mr-1 max-w-[70px] shrink-0 truncate rounded-[3px] px-1 text-[9.5px] leading-[14px]',
+              kase.current
+                ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+                : 'bg-[var(--field)] text-[var(--text-faint)]'
+            )}
+          >
+            {kase.value}
+          </span>
+        </Tooltip>
       )}
 
       {hasOverride && !renaming && (

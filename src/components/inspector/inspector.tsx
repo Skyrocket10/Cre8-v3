@@ -13,7 +13,7 @@
  */
 
 import React from 'react';
-import { MousePointer2, Monitor, Smartphone, Tablet } from 'lucide-react';
+import { EyeOff, MousePointer2, Monitor, Smartphone, Tablet } from 'lucide-react';
 import { getElement } from '@/lib/document/schema';
 import { BREAKPOINT_DEFS } from '@/lib/document/types';
 import { useEditor } from '@/lib/editor/store';
@@ -176,6 +176,18 @@ function SingleSelection() {
         </div>
         <span className="shrink-0 text-[10px] text-[var(--text-faint)]">{def.label}</span>
       </div>
+
+      {node.meta.hidden && (
+        <button
+          type="button"
+          onClick={() => useEditor.getState().toggleHidden([node.id])}
+          className="flex w-full items-center gap-1.5 border-b border-[var(--border-soft)] bg-[var(--field)] px-3 py-1.5 text-left text-[10.5px] text-[var(--text-muted)] transition-colors hover:bg-[var(--field-hover)]"
+        >
+          <EyeOff size={11} className="shrink-0" />
+          <span className="flex-1">Hidden — not drawn here, and not published.</span>
+          <span className="font-medium text-[var(--accent)]">Show</span>
+        </button>
+      )}
 
       {styleState !== 'default' && (
         <div className="border-b border-[var(--border-soft)] bg-[var(--accent-subtle)] px-3 py-1.5 text-[10.5px] text-[var(--accent)]">

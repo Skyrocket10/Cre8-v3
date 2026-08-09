@@ -1157,6 +1157,16 @@ export function slug(value: unknown): string {
 }
 
 /**
+ * The design-time value that means "show every case at once".
+ *
+ * Not a case value — a case named `all` is an ordinary thing a filter has, so
+ * the sentinel has to be something `slug` would never produce. Checked before
+ * slugging, and it never reaches a published file because `switchDesign`
+ * never does.
+ */
+export const SWITCH_SHOW_ALL = '*';
+
+/**
  * The same, for a value that may name more than one case.
  *
  * A filter needs an "All" that shows everything, which means an item has to

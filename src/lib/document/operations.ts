@@ -11,7 +11,7 @@
 
 import { cloneSubtree, createNode, structuredCloneCompat, type NodeSpec, buildTree } from './factory';
 import { uid, slugify } from './id';
-import { canContain, getElement } from './schema';
+import { SWITCH_SHOW_ALL, canContain, getElement, slug, slugList } from './schema';
 import {
   canReparent,
   collectSubtree,
@@ -637,4 +637,82 @@ export function resolveInsertTarget(
     selected = parent;
   }
   return atRoot;
+}
+
+/* --------------------------------------------------------------------------
+ * Switches
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Bring whatever was just selected into view.
+ *
+ * A case that is not current is `display: none`, so it has no box: selecting
+ * it from the layer tree used to put the selection outline around nothing,
+ * and the eye in the tree looked broken because dimming something already
+ * hidden changes nothing you can see. The tree was showing a node the canvas
+ * refused to draw.
+ *
+ * So selection drives the switch. Two directions, and both read as the same
+ * sentence — *show me that one*:
+ *
+ *   - selecting a tab shows the tab's panel;
+ *   - selecting anything inside a case shows that case, at every level of
+ *     nesting between it and the page.
+ *
+ * A group already showing the case is left alone, which matters for a filter:
+ * clicking a card while the grid is filtered to Brand must not silently reset
+ * it to Everything.
+ */
+export function revealSwitchPath(doc: Cre8Document, nodeId: NodeId): boolean {
+  const node = doc.nodes[nodeId];
+  if (!node) return false;
+  let changed = false;
+
+  const showing = (group: SceneNode, values: string[]): boolean => {
+    if (group.props.switchDesign === SWITCH_SHOW_ALL) return true;
+    const current = slug(group.props.switchDesign) || slug(group.props.switchDefault);
+    return values.includes(current);
+  };
+
+  const groupAbove = (from: NodeId | null): SceneNode | undefined => {
+    let current = from ? doc.nodes[from] : undefined;
+    let guard = 0;
+    while (current && guard++ < 200) {
+      if (slug(current.props.switchKey)) return current;
+      current = current.parentId ? doc.nodes[current.parentId] : undefined;
+    }
+    return undefined;
+  };
+
+  // Selecting a tab is the most direct way of saying which panel to work on.
+  const set = slug(node.props.switchSet);
+  if (set) {
+    const group = groupAbove(node.parentId);
+    if (group && !showing(group, [set])) {
+      group.props.switchDesign = set;
+      changed = true;
+    }
+  }
+
+  // And everything between the selection and the page root.
+  let pending = slugList(node.props.switchCase);
+  let current: SceneNode | undefined = node.parentId ? doc.nodes[node.parentId] : undefined;
+  let guard = 0;
+  while (current && guard++ < 200) {
+    if (slug(current.props.switchKey)) {
+      const values = pending ? pending.split(' ') : [];
+      if (values.length && !showing(current, values)) {
+        current.props.switchDesign = values[0]!;
+        changed = true;
+      }
+      pending = '';
+    } else {
+      // The outermost case below the group is the one that has to be current
+      // — an inner one is only reachable once its container is.
+      pending = slugList(current.props.switchCase) || pending;
+    }
+    current = current.parentId ? doc.nodes[current.parentId] : undefined;
+  }
+
+  return changed;
 }

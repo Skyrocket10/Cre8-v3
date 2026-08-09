@@ -105,6 +105,7 @@ function SelectionBox({
   return (
     <>
       <div
+        data-cre8-selection
         className={cn(
           'absolute outline-[1.5px] outline-offset-0',
           editing ? 'outline-[var(--success)]' : 'outline-[var(--selection)]'

@@ -364,9 +364,21 @@ select:focus {
   outline-offset: -1px;
 }
 
-/* Hidden elements stay visible but obviously inert while editing. */
+/* The eye means hidden, on both surfaces.
+   It used to dim to 0.3 here and vanish only on publish, which made the eye
+   look half-broken — and made the canvas disagree with the published page
+   about a thing the designer had explicitly decided. The way back is the
+   layer tree, whose row stays put with a struck-through eye, and the notice
+   the inspector shows when a hidden node is selected. */
 .cre8-editing [data-cre8-hidden] {
-  opacity: 0.3;
+  display: none;
+}
+
+/* Every case of a switch, laid out at once. A working view rather than a
+   truthful one, so each case says where it belongs. */
+.cre8-editing [data-cre8-switch-all] [data-cre8-case] {
+  outline: 1px dashed rgba(77, 141, 255, 0.45);
+  outline-offset: 3px;
 }
 
 /* "Outline all" — an x-ray of the layout, for spotting stray containers. */

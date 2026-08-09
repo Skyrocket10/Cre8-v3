@@ -8,7 +8,7 @@
  * promise someone has to keep re-checking.
  */
 
-import { resolveTag, slug, slugList } from '../document/schema';
+import { SWITCH_SHOW_ALL, resolveTag, slug, slugList } from '../document/schema';
 import type { Cre8Document, SceneNode } from '../document/types';
 import { nodeClass } from './css';
 import { iconMarkup } from './icons';
@@ -138,13 +138,24 @@ function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): El
   if (!key && !set && !kase) return model;
 
   if (key) {
-    model.attrs[SWITCH_ATTR] = key;
-    // `switchDesign` is which case the designer is looking at; it never
-    // reaches a published file, so choosing one to style cannot change what
-    // visitors see first.
-    const design = mode === 'edit' ? slug(props.switchDesign) : '';
-    model.attrs[VALUE_ATTR] = design || slug(props.switchDefault);
-    if (props.switchRole === 'tabs') model.attrs[TABS_ATTR] = 'true';
+    const showAll = mode === 'edit' && props.switchDesign === SWITCH_SHOW_ALL;
+    if (showAll) {
+      // Every case at once, for laying them out side by side. Done by
+      // *renaming* the attribute rather than by overriding `display`: the
+      // hiding rule is anchored on `[data-cre8-switch="…"]`, so a group that
+      // does not carry it matches nothing and each case renders with its own
+      // styles untouched. An override would have had to guess what `display`
+      // to put back, and guessed wrong for anything that is not a flex box.
+      model.attrs['data-cre8-switch-all'] = key;
+    } else {
+      model.attrs[SWITCH_ATTR] = key;
+      // `switchDesign` is which case the designer is looking at; it never
+      // reaches a published file, so choosing one to style cannot change what
+      // visitors see first.
+      const design = mode === 'edit' ? slug(props.switchDesign) : '';
+      model.attrs[VALUE_ATTR] = design || slug(props.switchDefault);
+      if (props.switchRole === 'tabs') model.attrs[TABS_ATTR] = 'true';
+    }
   }
   if (set) {
     model.attrs[SET_ATTR] = set;

@@ -555,6 +555,19 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     const styleState = keeps ? undefined : ('default' as const);
 
     set({ selection: result, editingTextId: null, ...(styleState ? { styleState } : {}) });
+
+    // A case that is not current has no box on the canvas, so selecting one
+    // would otherwise outline nothing. Recorded as `false`: revealing is the
+    // editor following the user, not an edit, and Ctrl+Z should walk back
+    // what they did rather than where they looked.
+    // Skipped for a viewer, who cannot write anything: `transact` would
+    // answer every click with a "view-only" toast.
+    if (first && !get().readOnly) {
+      get().transact('Reveal', (draft) => void ops.revealSwitchPath(draft, first), {
+        record: false,
+        quiet: true,
+      });
+    }
   },
 
   selectParent() {
