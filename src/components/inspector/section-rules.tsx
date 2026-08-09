@@ -49,13 +49,16 @@ export function describeRule(rule: StyleRule): string {
 /** What a rule changes, in the shortest form that is still true. */
 function summarise(rule: StyleRule): string {
   const keys = Object.keys(rule.apply);
-  if (keys.length === 0) return 'no changes yet';
+  // Content first, because it is the one with a cost the designer should be
+  // able to see: it makes the element ship twice.
+  const content = Object.keys(rule.set ?? {}).map(readable);
+  if (keys.length === 0) return content.length ? content.join(', ') : 'no changes yet';
   // A rule that only hides is the common one, and reading it back as
   // "display" would make the designer translate it every time.
   if (keys.length === 1 && (keys[0] === 'display' || keys[0] === 'visibility')) {
     return rule.apply.display === 'none' || rule.apply.visibility === 'hidden' ? 'Hidden' : 'Shown';
   }
-  return keys.slice(0, 3).map(readable).join(', ') + (keys.length > 3 ? '…' : '');
+  return [...content, ...keys.slice(0, 3).map(readable)].join(', ') + (keys.length > 3 ? '…' : '');
 }
 
 const title = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);

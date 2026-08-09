@@ -315,6 +315,33 @@ export function setRuleStyles(
   }
 }
 
+/**
+ * Write prop overrides into one of a node's rules.
+ *
+ * The mirror of `setRuleStyles`, and separate from it for the same reason the
+ * model keeps `set` separate from `apply`: styles compile to CSS and content
+ * compiles to extra elements, so they cost different things and the panel says
+ * so. Clearing the last override removes `set` rather than leaving an empty
+ * object, because an empty one would still make the node expand.
+ */
+export function setRuleProps(
+  doc: Cre8Document,
+  ids: NodeId[],
+  ruleId: string,
+  patch: NodeProps
+): void {
+  for (const id of ids) {
+    const rule = doc.nodes[id]?.rules?.find((r) => r.id === ruleId);
+    if (!rule) continue;
+    const set = (rule.set ??= {});
+    for (const [prop, value] of Object.entries(patch)) {
+      if (value === undefined || value === '') delete set[prop];
+      else set[prop] = value;
+    }
+    if (Object.keys(set).length === 0) delete rule.set;
+  }
+}
+
 export function addRule(doc: Cre8Document, id: NodeId, rule: StyleRule): string | null {
   const node = doc.nodes[id];
   if (!node) return null;

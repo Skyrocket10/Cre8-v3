@@ -25,6 +25,7 @@ import React, {
 import { getElement } from '../document/schema';
 import type { Cre8Document, NodeId, SceneNode } from '../document/types';
 import { describeElement, toReactAttrs, type RenderMode } from './element-model';
+import { activeVariant, variantsOf, type Variant } from './variants';
 
 export interface RenderEngine {
   mode: RenderMode;
@@ -34,7 +35,21 @@ export interface RenderEngine {
   useComponentRoot: (componentId: string) => NodeId | undefined;
   resolveHref: (href: string) => string;
   registerRef?: (id: NodeId, el: HTMLElement | null) => void;
-  commitText?: (id: NodeId, prop: string, value: string) => void;
+  commitText?: (id: NodeId, prop: string, value: string, ruleId?: string | null) => void;
+  /**
+   * Which of a node's variants is on screen. Must be a hook.
+   *
+   * A node whose rules change its content renders as one element per
+   * alternative and CSS picks between them, so nothing about the markup says
+   * which one a designer is looking at. The canvas needs to know, because
+   * selection and the text caret have to land on it.
+   *
+   * A hook rather than a plain call because the answer depends on an
+   * *ancestor's* state, and every other subscription in the renderer is to the
+   * node itself — so nothing would re-render when the switch moved, and the
+   * editor would stay attached to the copy that just went off screen.
+   */
+  useActiveVariantKey: (node: SceneNode) => string;
 }
 
 const EngineContext = createContext<RenderEngine | null>(null);
@@ -94,8 +109,57 @@ export const NodeView = memo(function NodeView({
   if (node.type === 'instance') {
     return <InstanceView node={node} depth={depth} />;
   }
-  return <ElementView node={node} identityId={identityId} inert={inert} depth={depth} />;
+
+  // A node whose rules change its content renders as one element per
+  // alternative, with CSS choosing between them. The single-element case is
+  // kept off the mapping path entirely: it is every node on every page but a
+  // handful, and an extra array walk per node per render is not free.
+  const variants = variantsOf(node);
+  if (variants.length === 1) {
+    return (
+      <ElementView
+        node={node}
+        variant={variants[0]!}
+        live
+        identityId={identityId}
+        inert={inert}
+        depth={depth}
+      />
+    );
+  }
+  return (
+    <>
+      {variants.map((variant) => (
+        <VariantView
+          key={variant.key}
+          node={node}
+          variant={variant}
+          identityId={identityId}
+          inert={inert}
+          depth={depth}
+        />
+      ))}
+    </>
+  );
 });
+
+/**
+ * A variant, and whether it is the one on screen.
+ *
+ * Its own component so the subscription exists only for nodes that have
+ * variants — every other node on the page is the branch above, which asks
+ * nothing and subscribes to nothing.
+ */
+function VariantView(props: {
+  node: SceneNode;
+  variant: Variant;
+  identityId?: NodeId;
+  inert: boolean;
+  depth: number;
+}) {
+  const active = useRenderEngine().useActiveVariantKey(props.node);
+  return <ElementView {...props} live={props.variant.key === active} />;
+}
 
 function InstanceView({ node, depth }: { node: SceneNode; depth: number }) {
   const engine = useRenderEngine();
@@ -114,13 +178,23 @@ function InstanceView({ node, depth }: { node: SceneNode; depth: number }) {
   return <NodeView id={rootId} identityId={node.id} inert depth={depth} />;
 }
 
+/**
+ * @param live Whether this is the variant currently on screen. Every surface
+ *   renders every variant, but only one of them has a box, and the editor's
+ *   attachments — the id it selects by, the ref it measures from, the caret —
+ *   all have to land on that one.
+ */
 function ElementView({
   node,
+  variant,
+  live,
   identityId,
   inert,
   depth,
 }: {
   node: SceneNode;
+  variant: Variant;
+  live: boolean;
   identityId?: NodeId;
   inert: boolean;
   depth: number;
@@ -128,15 +202,17 @@ function ElementView({
   const engine = useRenderEngine();
   const editingId = useContext(EditingContext);
   const identity = identityId ?? node.id;
-  const isEditing = engine.mode === 'edit' && editingId === identity;
+  const isEditing = engine.mode === 'edit' && editingId === identity && live;
 
   const model = useMemo(
     () =>
-      describeElement(node, EMPTY_DOC, {
-        mode: engine.mode,
-        hrefResolver: engine.resolveHref,
-      }),
-    [node, engine.mode, engine.resolveHref]
+      describeElement(
+        node,
+        EMPTY_DOC,
+        { mode: engine.mode, hrefResolver: engine.resolveHref },
+        variant
+      ),
+    [node, variant, engine.mode, engine.resolveHref]
   );
 
   /**
@@ -145,7 +221,7 @@ function ElementView({
    * measurement for the whole subtree. Only the element that carries the
    * identity registers a ref.
    */
-  const exposed = identityId !== undefined || !inert;
+  const exposed = (identityId !== undefined || !inert) && live;
 
   const setRef = useCallback(
     (el: HTMLElement | null) => {
@@ -179,7 +255,12 @@ function ElementView({
         attrs={attrs}
         initial={model.text ?? ''}
         setRef={setRef}
-        onCommit={(value) => engine.commitText?.(identity, model.editableProp!, value)}
+        // Typing over a variant edits what produced it: the rule's `set` when
+        // it came from one, the node's own props otherwise. Anything else and
+        // the change would appear to work and then vanish when the state moved.
+        onCommit={(value) =>
+          engine.commitText?.(identity, model.editableProp!, value, variant.ruleId)
+        }
       />
     );
   }
@@ -337,6 +418,9 @@ export function createSnapshotEngine(
     mode,
     useNode: (id) => doc.nodes[id],
     useComponentRoot: (componentId) => componentRoots.get(componentId),
+    // A snapshot has no design-time state to consult, so the base is the
+    // honest answer — and nothing outside the canvas uses what it decides.
+    useActiveVariantKey: (node) => activeVariant(doc.nodes, node).key,
     resolveHref: hrefResolver ?? ((href) => defaultHref(doc, href, mode)),
   };
 }

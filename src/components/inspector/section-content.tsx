@@ -42,6 +42,7 @@ export function ContentSection() {
 
   return (
     <>
+      <ContentModeNote />
       {typeContent(type)}
       {/* Anything that can hold children can be a switch. Collapsed, like
           Semantics, because it is structural rather than something you reach
@@ -52,6 +53,29 @@ export function ContentSection() {
           noise. When it shows is a rule, and lives in States & conditions. */}
       {(type === 'button' || type === 'link') && <SwitchSetterSection />}
     </>
+  );
+}
+
+/**
+ * What a rule can and cannot change about content.
+ *
+ * With a rule selected, the text and image fields write into it — the element
+ * then ships twice, once per alternative. Structure does not work that way:
+ * two copies with different headings would still be one node with one
+ * `switchKey`, and the fields say so rather than appearing to work.
+ */
+function ContentModeNote() {
+  const active = useEditor((s) => {
+    const id = s.selection[0];
+    if (!id || !s.activeRuleId) return false;
+    return Boolean(s.doc.nodes[id]?.rules?.some((rule) => rule.id === s.activeRuleId));
+  });
+  if (!active) return null;
+  return (
+    <p className="border-b border-[var(--border-soft)] px-3 py-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+      Text, links and images below change with this condition — the element ships once for each.
+      Anything structural stays on the element itself.
+    </p>
   );
 }
 

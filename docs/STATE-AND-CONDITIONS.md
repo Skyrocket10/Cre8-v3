@@ -216,6 +216,25 @@ The designer never sees the duplication. The document holds one node with
 `set` on its rules; **the publisher expands it** into one element per rule plus
 the base, each carrying the matching condition.
 
+> **As built** — the expansion is not the publisher's, it is the renderer's.
+> `variantsOf(node)` in `renderer/variants.ts` is framework-free and both
+> renderers loop over it, so the canvas DOM and the published DOM have the same
+> shape rather than the canvas taking a shortcut. Two consequences that had to
+> be designed rather than discovered:
+>
+> - **Each variant needs its own class.** `.c-id` still carries the node's base
+>   styles and reaches every variant; `.c-id-vN` carries the hiding rule and
+>   the producing rule's own `apply`. Both are one class, so everything still
+>   weighs (0,1,0) and §4 holds.
+> - **The editor has to know which one is on screen**, because selection
+>   outlines are measured from a real element and the text caret has to land in
+>   the copy the designer can see. That is `activeVariant`, and it is the only
+>   place in the codebase that evaluates a condition outside a stylesheet. It
+>   is exposed as a *hook*: the answer depends on an ancestor's state, every
+>   other subscription in the renderer is to the node itself, and a plain read
+>   left the editor attached to the copy that had just gone off screen — a bug
+>   the render suite caught rather than review.
+
 ### The combinatorial cost, and the constraint that removes it
 
 If two `set` rules can match at once, the expansion needs "show element *i*
@@ -229,6 +248,18 @@ genuine case is to nest an element and put the second condition there.
 
 Varying one string by two independent states at once is rare enough that
 paying for it everywhere is the wrong trade.
+
+> **As built** — the constraint is exactly *one plain `is` condition on one
+> state, values disjoint*, and it pays for itself immediately: each variant
+> hides on `state isNot its values` and the base hides on `state is the union`,
+> which are the two shapes the generator already compiled for a switch case. So
+> the generator learned nothing about variants beyond which class to put them
+> on.
+>
+> `variantsOf` skips a rule that does not fit rather than approximating it —
+> the same policy the generator uses for a condition it cannot resolve — and
+> `checkContentRules` refuses to let a block ship one, because a silently
+> skipped alternative looks exactly like a working page.
 
 ### Attributes
 
@@ -346,7 +377,7 @@ Worth listing, because a refactor that only adds is usually the wrong one.
 | Stage | Scope | Gate | |
 |---|---|---|---|
 | **1** | The rule model, the generator, migration at document load, the panel. Everything above except `set`. | Every existing block renders byte-identically, and the whole render suite passes untouched. | **landed** |
-| **2** | `set` — content and attributes — with publish-time expansion and the mutual-exclusion check. | A block that varies its text by state publishes both strings, indexed, with no script. | |
+| **2** | `set` — content and attributes — with publish-time expansion and the mutual-exclusion check. | A block that varies its text by state publishes both strings, indexed, with no script. | **landed** |
 | **3** | Data conditions and `{variables}`, with the data layer. | The state engine is not modified. | |
 
 Stage 1 is about the size of the switch itself. Its gate is deliberately
@@ -375,6 +406,29 @@ groups out of every conditional selector on a published page, and what is left
 must be the node's class alone. That fails the moment a condition is emitted
 unpadded, which is the regression that would quietly make order stop being
 precedence.
+
+### What stage 2 held to
+
+The gate is a property of the *output*, so the render suite checks the output:
+the published pricing page contains `$19` and `$15`, `$49` and `$39`, both
+cadences, and still exactly one inline script — the same one a switch has
+always carried, unchanged. The scripting-disabled check passes untouched.
+
+The block it proves it on is the one the mechanism exists for. **Pricing with
+switch** used to carry two price blocks per tier with opposite cases: six extra
+rows in the layer tree and two copies of one design to keep in step. It is now
+one price per tier that says something different when the state moves, and the
+published markup still contains every string. That is the whole trade — the
+duplication moved from the document to the render.
+
+Three assertions in the behaviour suite changed with it, and none of them was
+about behaviour. `data-cre8-case="monthly"` is no longer in the file, because
+the monthly copy is now the *base* of an expanded pair and is marked as "shown
+when not annual" rather than as a case of its own. So the check that used to
+read the attribute now reads the prices, which is both stronger and closer to
+what the gate actually says. `VISIBLE_PRICES` learned to resolve a negated case
+against the group's current value, and gained two checks on the editor
+attaching to the copy on screen — which is what caught the memoisation bug.
 
 ### Migration
 

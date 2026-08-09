@@ -8,9 +8,9 @@
  * promise someone has to keep re-checking.
  */
 
-import { SWITCH_SHOW_ALL, readCase, resolveTag, slug } from '../document/schema';
-import type { Cre8Document, SceneNode } from '../document/types';
-import { nodeClass } from './css';
+import { SWITCH_SHOW_ALL, resolveTag, slug } from '../document/schema';
+import type { Cre8Document, NodeProps, SceneNode } from '../document/types';
+import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
 import {
   CASE_ATTR,
@@ -133,14 +133,19 @@ function str(value: unknown, fallback = ''): string {
  * any node can be a group, a setter or a case, and threading three attributes
  * through thirty switch arms is how one of them ends up missing.
  */
-function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): ElementModel {
+function applySwitch(
+  model: ElementModel,
+  node: SceneNode,
+  variant: Variant,
+  mode: RenderMode
+): ElementModel {
   const props = node.props;
   const key = slug(props.switchKey);
   const set = slug(props.switchSet);
   // Hiding is the stylesheet's job — these attributes exist so the *runtime*
   // can tell a tab's panel from a price that happens to answer to the same
   // value, which it cannot read out of a rule.
-  const when = readCase(node.rules);
+  const when = caseOf(node, variant);
   if (!key && !set && !when) return model;
 
   if (key) {
@@ -181,22 +186,28 @@ function applySwitch(model: ElementModel, node: SceneNode, mode: RenderMode): El
   return model;
 }
 
+/**
+ * @param variant Which of the node's elements to describe. Omitted means the
+ *   node renders as one element, which is the usual case.
+ */
 export function describeElement(
   node: SceneNode,
   doc: Cre8Document,
-  options: RenderOptions
+  options: RenderOptions,
+  variant: Variant = variantsOf(node)[0]!
 ): ElementModel {
-  return applySwitch(describeBase(node, doc, options), node, options.mode);
+  return applySwitch(describeBase(node, variant, doc, options), node, variant, options.mode);
 }
 
 function describeBase(
   node: SceneNode,
+  variant: Variant,
   doc: Cre8Document,
   options: RenderOptions
 ): ElementModel {
   const { mode } = options;
-  const props = node.props;
-  const base: Record<string, AttrValue> = { class: nodeClass(node.id) };
+  const props: NodeProps = variant.props;
+  const base: Record<string, AttrValue> = { class: variant.className };
 
   switch (node.type) {
     case 'heading':

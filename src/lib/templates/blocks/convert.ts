@@ -31,6 +31,7 @@ import {
   switchButton,
   switchCase,
   switchGroup,
+  switchSet,
   tint,
 } from './kit';
 
@@ -361,19 +362,36 @@ const BILLED: { name: string; monthly: string; annual: string; blurb: string; fe
  * first paint, and the whole interaction survives being screenshotted, printed
  * or read by something that never ran the script — the monthly price is simply
  * there.
+ *
+ * The duplication that buys all that used to be in the *document*: two price
+ * blocks per tier, opposite cases, six extra rows in the layer tree and two
+ * copies of one design to keep in step. `switchSet` moves it to render time.
+ * One price per tier now, saying something different when the state moves, and
+ * the published file still contains both strings — which is the whole point,
+ * so the render suite checks for the strings rather than for the mechanism.
  */
 export function pricingSwitchSpec(): NodeSpec {
-  const price = (value: string, cadence: string, kase: string): NodeSpec =>
-    switchCase(
-      kase,
-      stack(
-        `${kase} price`,
-        [
-          label(value, { fontSize: '38px', fontWeight: '640', letterSpacing: '-0.03em', color: 'var(--c-text)' }),
-          label(cadence, { fontSize: '14px', color: 'var(--c-muted)' }),
-        ],
-        { gap: '4px', alignItems: 'baseline' }
-      )
+  const price = (monthly: string, annual: string): NodeSpec =>
+    stack(
+      'Price',
+      [
+        switchSet(
+          'annual',
+          { text: annual },
+          label(monthly, {
+            fontSize: '38px',
+            fontWeight: '640',
+            letterSpacing: '-0.03em',
+            color: 'var(--c-text)',
+          })
+        ),
+        switchSet(
+          'annual',
+          { text: '/month, billed yearly' },
+          label('/month', { fontSize: '14px', color: 'var(--c-muted)' })
+        ),
+      ],
+      { gap: '4px', alignItems: 'baseline' }
     );
 
   return section('Pricing switch', [
@@ -433,8 +451,7 @@ export function pricingSwitchSpec(): NodeSpec {
                       { gap: '10px', alignItems: 'center' }
                     ),
                     paragraph(tier.blurb, { ...CAPTION, color: 'var(--c-muted)' }),
-                    price(tier.monthly, '/month', 'monthly'),
-                    price(tier.annual, '/month, billed yearly', 'annual'),
+                    price(tier.monthly, tier.annual),
                     button('Start free', tier.featured ? 'primary' : 'secondary'),
                     divider(),
                     bullets(tier.features),

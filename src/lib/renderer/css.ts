@@ -13,7 +13,7 @@
  * the cascade, the reset — is byte-for-byte identical between the two modes.
  */
 
-import { slug } from '../document/schema';
+import { nodeClass, stateOwner, variantClass, variantsOf } from './variants';
 import {
   BREAKPOINT_DEFS,
   BREAKPOINT_ORDER,
@@ -28,11 +28,6 @@ import {
 export type QueryMode = 'media' | 'container';
 
 export const FRAME_CONTAINER = 'cre8';
-
-/** Stable, collision-free class name for a node. */
-export function nodeClass(id: string): string {
-  return `c-${id}`;
-}
 
 const CAMEL_RE = /[A-Z]/g;
 
@@ -199,7 +194,9 @@ function ruleSelector(
   nodes: Record<string, SceneNode>,
   node: SceneNode,
   rule: StyleRule,
-  prefix: string
+  prefix: string,
+  /** Which element the rule lands on: the node, or one of its variants. */
+  className: string
 ): string | null {
   let before = '';
   let after = '';
@@ -210,33 +207,7 @@ function ruleSelector(
     after += parts.compound;
   }
   const part = rule.part ? `::${rule.part}` : '';
-  return `${prefix}${before}.${nodeClass(node.id)}${after}${part}`;
-}
-
-/**
- * Which element owns the state a condition names.
- *
- * Named explicitly, a condition can reach past the nearest state to one
- * further up — a card inside a filtered grid reacting to the section's
- * billing switch. Unnamed it means the nearest, and *itself* first: a node
- * that declares a state and also depends on it is the dismissible case.
- */
-function stateOwner(
-  nodes: Record<string, SceneNode>,
-  node: SceneNode,
-  name: string
-): { key: string; self: boolean } | null {
-  const own = slug(node.props.switchKey);
-  if (own && (!name || own === name)) return { key: own, self: true };
-
-  let current: SceneNode | undefined = node.parentId ? nodes[node.parentId] : undefined;
-  let guard = 0;
-  while (current && guard++ < 200) {
-    const key = slug(current.props.switchKey);
-    if (key && (!name || key === name)) return { key, self: false };
-    current = current.parentId ? nodes[current.parentId] : undefined;
-  }
-  return null;
+  return `${prefix}${before}.${className}${after}${part}`;
 }
 
 /** True when nothing about the rule depends on where the pointer is. */
@@ -280,6 +251,31 @@ export function generateNodeCss(
       (responsiveChunks[bp] ??= []).push(chunk);
     }
 
+    /*
+     * A node that changes content by condition renders as several elements,
+     * and each needs the rule that hides it when its condition fails. Those
+     * rules are synthesised rather than stored, but they are ordinary rules
+     * and go through the same compiler — the generator learns nothing about
+     * variants beyond which class to put them on.
+     */
+    const variants = variantsOf(node);
+    const owners = new Map<string, string>();
+    if (variants.length > 1) {
+      for (const variant of variants) {
+        if (variant.ruleId) owners.set(variant.ruleId, variantClass(node.id, variant.key));
+        if (!variant.hide) continue;
+        const selector = ruleSelector(
+          nodes,
+          node,
+          variant.hide,
+          prefix,
+          variantClass(node.id, variant.key)
+        );
+        const body = selector && declarationsToCss(variant.hide.apply);
+        if (selector && body) ruleChunks.push(`${selector} {\n${body}\n}`);
+      }
+    }
+
     for (const rule of node.rules ?? []) {
       // The canvas suppresses interaction rules: hovering over the page while
       // designing it is aiming, not using, and watching every button light up
@@ -288,7 +284,11 @@ export function generateNodeCss(
       if (options.includeStates === false && isInteraction(rule)) continue;
       if (Object.keys(rule.apply).length === 0) continue;
 
-      const selector = ruleSelector(nodes, node, rule, prefix);
+      // A rule that produced a variant styles *that* element. Its condition is
+      // already what puts the variant on screen, so restating it would be
+      // redundant — but harmless, and leaving it in keeps one code path.
+      const className = owners.get(rule.id) ?? nodeClass(node.id);
+      const selector = ruleSelector(nodes, node, rule, prefix, className);
       if (!selector) continue;
 
       if (rule.breakpoint && rule.breakpoint !== 'desktop') {

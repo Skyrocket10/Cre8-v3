@@ -96,13 +96,19 @@ const insert = async (name) => {
 /** Which prices are actually on screen, on whichever surface is asked. */
 const VISIBLE_PRICES = () => {
   const root = document.querySelector('.cre8-frame.cre8-editing') ?? document.body;
+  const group = root.querySelector('[data-cre8-switch]');
+  const value = group?.getAttribute('data-cre8-value') ?? '';
+
   const shown = [];
   for (const el of root.querySelectorAll('[data-cre8-case]')) {
-    if (el.getBoundingClientRect().height > 0) shown.push(el.getAttribute('data-cre8-case'));
+    if (el.getBoundingClientRect().height === 0) continue;
+    // An element answering to "isn't annual" is on screen for whatever the
+    // state actually holds, so that is the case it is showing. Without this
+    // the base half of an expanded pair would report the value it is *not*.
+    shown.push(el.hasAttribute('data-cre8-not') ? value : el.getAttribute('data-cre8-case'));
   }
-  const group = root.querySelector('[data-cre8-switch]');
   return {
-    value: group?.getAttribute('data-cre8-value') ?? '',
+    value,
     cases: [...new Set(shown)].sort().join(','),
     // Every case in the markup, shown or not — the point being that the
     // hidden one is still *there*, not conditionally rendered away.
@@ -148,9 +154,33 @@ try {
 
   /* ----------------------------------- 3. both prices are in the file, always */
 
+  /*
+   * The stage-2 gate, stated as the property rather than the mechanism.
+   *
+   * One price node per tier now, saying something different when the state
+   * moves — `set` on a rule rather than two nodes with opposite cases. What
+   * has to survive that is exactly what the duplication bought: every string
+   * in the file, so a crawler indexes both, a printout is right, and a reader
+   * with no JavaScript sees prices rather than a gap.
+   */
+  const priced = (value) => new RegExp(`>\\${value}<`).test(html);
   report.check(
     'both prices are in the markup — the hidden one is styled away, not dropped',
-    html.includes('data-cre8-case="monthly"') && html.includes('data-cre8-case="annual"')
+    priced('$19') && priced('$15') && priced('$49') && priced('$39'),
+    [
+      ['$19', '$15', '$49', '$39'].filter(priced).join(' '),
+      'of $19 $15 $49 $39',
+    ].join(' ')
+  );
+  report.check(
+    'and so is the cadence that goes with each',
+    html.includes('/month, billed yearly') && /,?>\/month</.test(html),
+    'both cadences'
+  );
+  report.check(
+    'one node per price, not one per price per state — the duplication is at render',
+    (html.match(/data-cre8-case="annual"/g) ?? []).length === 13,
+    `${(html.match(/data-cre8-case="annual"/g) ?? []).length} conditional elements`
   );
   report.check(
     'the group states which case it ships on',
@@ -283,6 +313,37 @@ try {
     'choosing the other case on the canvas reveals it for editing',
     afterSwitch.cases === 'annual',
     afterSwitch.cases
+  );
+
+  /*
+   * A price is one node that renders as two elements, and only one of them has
+   * a box. The editor has to attach to that one — the id it selects by and the
+   * ref it measures from — or clicking the price on screen would select
+   * nothing and the outline would be drawn around a collapsed box.
+   */
+  const attached = await page.evaluate(() => {
+    const frame = document.querySelector('.cre8-frame.cre8-editing') ?? document.body;
+    const isVariant = (el) => /\bc-[a-z0-9]+-v[0-9]+\b/.test(el.className);
+    const all = [...frame.querySelectorAll('[class*="-v"]')].filter(isVariant);
+    const marked = all.filter((el) => el.hasAttribute('data-cre8-id'));
+    return {
+      elements: all.length,
+      marked: marked.length,
+      hidden: marked.filter((el) => el.getBoundingClientRect().height === 0).length,
+      text: marked.map((el) => el.textContent).join(' '),
+    };
+  });
+  // Three tiers, an amount and a cadence each: six nodes, twelve elements,
+  // and exactly six of them — one per node — carrying an id.
+  report.check(
+    'exactly one element of each expanded pair answers to the editor',
+    attached.elements === 12 && attached.marked === 6 && attached.hidden === 0,
+    `${attached.marked} of ${attached.elements} attached, ${attached.hidden} with no box`
+  );
+  report.check(
+    'and it is the copy the designer can actually see',
+    attached.text.includes('$15') && !attached.text.includes('$19'),
+    attached.text.trim().slice(0, 60)
   );
 
   await publish(page);

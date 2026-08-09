@@ -13,12 +13,13 @@
  */
 
 import { describeElement, type AttrValue } from '../renderer/element-model';
+import { variantsOf, type Variant } from '../renderer/variants';
 import { behaviourRuntimeSource } from '../runtime/behaviour';
 import { generateStylesheet, minifyCss } from '../renderer/css';
 import { themeToCssVariables, usedWebFonts } from '../document/theme';
 import { collectSubtree } from '../document/tree';
 import { getElement } from '../document/schema';
-import type { Cre8Document, NodeId, Page } from '../document/types';
+import type { Cre8Document, NodeId, Page, SceneNode } from '../document/types';
 
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source',
@@ -73,11 +74,35 @@ export function renderNodeToHtml(
     return renderNodeToHtml(doc, component.rootNodeId, { ...options, depth: depth + 1 });
   }
 
-  const model = describeElement(node, doc, {
-    mode: 'publish',
-    hrefResolver: options.hrefResolver,
-    formAction: options.formAction,
-  });
+  // A node whose rules change its content ships as one element per
+  // alternative, every string in the file, with a stylesheet rule choosing
+  // between them. That is what keeps conditional text indexed, selectable and
+  // correct with scripting off — a script writing `textContent` would give a
+  // crawler the default and nothing else.
+  const variants = variantsOf(node);
+  if (variants.length > 1) {
+    return variants.map((variant) => renderVariant(doc, node, variant, options, depth)).join('');
+  }
+  return renderVariant(doc, node, variants[0]!, options, depth);
+}
+
+function renderVariant(
+  doc: Cre8Document,
+  node: SceneNode,
+  variant: Variant,
+  options: RenderNodeOptions,
+  depth: number
+): string {
+  const model = describeElement(
+    node,
+    doc,
+    {
+      mode: 'publish',
+      hrefResolver: options.hrefResolver,
+      formAction: options.formAction,
+    },
+    variant
+  );
 
   const attrs = renderAttrs(model.attrs);
   const tag = model.tag;

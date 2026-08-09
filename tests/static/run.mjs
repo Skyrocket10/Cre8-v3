@@ -320,16 +320,24 @@ function checkSwitches(spec) {
   const at = (node) => node.name ?? node.type;
 
   /**
-   * The unnamed state conditions a node carries.
+   * The unnamed state conditions a node carries, split by what they do.
    *
-   * A rule stores the literal — *when this, hide* — so the operator reads the
-   * opposite way round from the intent. `isNot X` is "hide unless X", which
-   * makes X a value something depends on; `is X` is "hide when X", which does
-   * not.
+   * Both kinds store the literal, and the two read opposite ways round.
+   *
+   * A **hiding** rule says *when this, hide*, so `isNot X` is "hide unless X",
+   * which makes X a value something depends on, and `is X` is "hide when X",
+   * which does not.
+   *
+   * A **content** rule says *when this, read differently*, and it expands into
+   * two elements: one for the value and one for everything else. So `is X`
+   * makes X depended on, and — unlike the hiding case — guarantees that some
+   * other value is meaningful too, because the base element is exactly the
+   * "anything else" branch.
    */
-  const conditionsOf = (node) => {
+  const conditionsOf = (node, wanted) => {
     const out = [];
     for (const rule of node.rules ?? []) {
+      if (Boolean(rule.set) !== (wanted === 'content')) continue;
       for (const condition of rule.when ?? []) {
         if (condition.kind === 'state' && !condition.key) out.push(condition);
       }
@@ -344,25 +352,35 @@ function checkSwitches(spec) {
     const sets = [];
     const panelCounts = new Map();
 
-    const record = (conditions, counting) => {
-      for (const condition of conditions) {
+    const record = (node, counting) => {
+      for (const condition of conditionsOf(node, 'hiding')) {
         for (const value of condition.values) {
           (condition.op === 'isNot' ? depends : negated).add(value);
+          // A variant is not a panel: a tab opens one element, and content
+          // rules produce a pair that are the same element saying two things.
           if (counting && condition.op === 'isNot') {
             panelCounts.set(value, (panelCounts.get(value) ?? 0) + 1);
           }
+        }
+      }
+      for (const condition of conditionsOf(node, 'content')) {
+        for (const value of condition.values) {
+          depends.add(value);
+          // The base element covers every value this one does not, so a
+          // default outside the list is tested for rather than orphaned.
+          negated.add(value);
         }
       }
     };
 
     // The group's own condition, which is how a dismissible thing hides
     // itself — it belongs to this state, not to whatever encloses it.
-    const own = conditionsOf(group);
-    record(own, false);
+    record(group, false);
+    const own = conditionsOf(group, 'hiding');
 
     const walk = (node) => {
       for (const child of node.children ?? []) {
-        record(conditionsOf(child), true);
+        record(child, true);
         if (child.props?.switchSet) sets.push({ node: child, value: child.props.switchSet });
         // A nested state owns everything below it.
         if (!child.props?.switchKey) walk(child);
@@ -379,10 +397,12 @@ function checkSwitches(spec) {
         if (!enclosed) {
           // A condition naming a state explicitly may reach further up than
           // this walk has seen, so only an unnamed one is provably orphaned.
-          for (const condition of conditionsOf(child)) {
-            bad.push(
-              `${at(child)}: conditional on "${condition.values.join(' ')}", but no state encloses it`
-            );
+          for (const kind of ['hiding', 'content']) {
+            for (const condition of conditionsOf(child, kind)) {
+              bad.push(
+                `${at(child)}: conditional on "${condition.values.join(' ')}", but no state encloses it`
+              );
+            }
           }
           if (child.props?.switchSet) {
             bad.push(`${at(child)}: sets "${child.props.switchSet}", but no state encloses it`);
@@ -399,15 +419,17 @@ function checkSwitches(spec) {
         bad.push(`${at(child)}: state "${key}" has nothing that depends on it`);
       }
 
+      // A value nothing names is only meaningful when *some* condition is
+      // satisfied by "anything else" — a negated one, the state's owner hiding
+      // itself, or a content rule, whose base element is the "anything else"
+      // branch by construction. Otherwise it is a typo that blanks the group.
+      const anyOtherValueMatters = negated.size > 0 || selfCondition;
+
       const initial = child.props?.switchDefault;
-      if (initial && known.size && !known.has(initial)) {
+      if (initial && known.size && !known.has(initial) && !anyOtherValueMatters) {
         bad.push(`${at(child)}: ships as "${initial}", which nothing tests for`);
       }
 
-      // A value nothing names is only meaningful when *some* condition is
-      // satisfied by "anything else" — a negated one, or the state's owner
-      // hiding itself. Otherwise it is a typo that blanks the group.
-      const anyOtherValueMatters = negated.size > 0 || selfCondition;
       for (const { node: setter, value } of sets) {
         if (!known.has(value) && !anyOtherValueMatters) {
           bad.push(`${at(setter)}: sets "${value}", which nothing listens for`);
@@ -465,6 +487,70 @@ function checkRetiredProps(spec) {
   return bad;
 }
 
+/**
+ * A node that varies its content must vary it on one state, exclusively.
+ *
+ * `set` makes a node render as one element per alternative, all of them in the
+ * published file, with a rule hiding the ones that do not apply. If two of
+ * those rules could hold at once, each element would have to say "show me when
+ * mine matches and no later one does", and the number of generated conditions
+ * would grow with the square of the rules.
+ *
+ * Requiring one state and disjoint values keeps it linear. The escape hatch
+ * for the rare genuine case is to nest an element and put the second condition
+ * on that. The renderer skips a rule it cannot fit, so without this check a
+ * block would ship with its second alternative silently doing nothing.
+ */
+const SETTABLE = new Set([
+  'text', 'html', 'label', 'alt', 'src', 'href', 'name', 'caption', 'placeholder', 'value', 'title',
+]);
+
+function checkContentRules(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    const setting = (node.rules ?? []).filter(
+      (rule) => rule.set && Object.keys(rule.set).some((prop) => SETTABLE.has(prop))
+    );
+    if (!setting.length) continue;
+
+    // Every variant carries the node's id in its class, and a popover also
+    // carries it as a DOM id — which would then appear twice in one document.
+    if (node.type === 'popover' || node.type === 'dialog') {
+      bad.push(`${path}: ${node.type} content cannot vary — both copies would take the same id`);
+    }
+
+    let state = null;
+    const claimed = new Map();
+    for (const rule of setting) {
+      const unsettable = Object.keys(rule.set).filter((prop) => !SETTABLE.has(prop));
+      if (unsettable.length) {
+        bad.push(`${path}: "${unsettable.join(', ')}" is structure, not content — it cannot be set`);
+      }
+      if (rule.when.length !== 1 || rule.part || rule.breakpoint) {
+        bad.push(`${path}: a content rule takes exactly one plain state condition`);
+        continue;
+      }
+      const condition = rule.when[0];
+      if (condition.kind !== 'state' || condition.op !== 'is' || !condition.values?.length) {
+        bad.push(`${path}: content varies on "${condition.kind}", which is not a state value`);
+        continue;
+      }
+      if (state === null) state = condition.key;
+      else if (condition.key !== state) {
+        bad.push(
+          `${path}: content varies on both "${state || 'the nearest state'}" and ` +
+            `"${condition.key || 'the nearest state'}" — nest an element for the second`
+        );
+      }
+      for (const value of condition.values) {
+        if (claimed.has(value)) bad.push(`${path}: two alternatives both answer to "${value}"`);
+        claimed.set(value, true);
+      }
+    }
+  }
+  return bad;
+}
+
 const RULES = [
   ['every colour and font comes from a token', checkTokens],
   ['multi-column layouts have narrow-width behaviour', checkResponsive],
@@ -478,6 +564,7 @@ const RULES = [
   ['every popover button names a popover in its block', checkPopoverRefs],
   ['every switch is wired to its own cases', checkSwitches],
   ['no block still says when it shows in props', checkRetiredProps],
+  ['content varies on one state, exclusively', checkContentRules],
   ['small images clear the empty-slot floor', checkPlaceholderFloor],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['every node is named for the layer tree', checkNames],
@@ -540,6 +627,14 @@ const shownWhen = (value) => [
     apply: { display: 'none' },
   },
 ];
+
+/** "When the state is X, the text reads Y" — the shape `set` expands. */
+const saysWhen = (value, set, key = '') => ({
+  id: `set-${value}`,
+  when: [{ kind: 'state', key, op: 'is', values: value.split(' ') }],
+  apply: {},
+  set,
+});
 
 const VIOLATIONS = [
   [
@@ -724,6 +819,46 @@ const VIOLATIONS = [
     checkRetiredProps,
     'a block that still hides itself with a prop',
     { type: 'text', name: 'T', props: { whenIs: 'annual' } },
+  ],
+  [
+    checkContentRules,
+    'two alternatives that could both be on screen at once',
+    {
+      type: 'text',
+      name: 'T',
+      rules: [saysWhen('annual', { text: 'a' }), saysWhen('annual monthly', { text: 'b' })],
+    },
+  ],
+  [
+    checkContentRules,
+    'content varying on two different states',
+    {
+      type: 'text',
+      name: 'T',
+      rules: [
+        saysWhen('annual', { text: 'a' }),
+        saysWhen('pro', { text: 'b' }, 'plan'),
+      ],
+    },
+  ],
+  [
+    checkContentRules,
+    'a rule setting something structural rather than content',
+    { type: 'text', name: 'T', rules: [saysWhen('annual', { text: 'a', switchKey: 'oops' })] },
+  ],
+  [
+    checkContentRules,
+    'content varying on a hover, which cannot expand into elements',
+    {
+      type: 'text',
+      name: 'T',
+      rules: [{ id: 'r', when: [{ kind: 'pointer', pseudo: 'hover' }], apply: {}, set: { text: 'a' } }],
+    },
+  ],
+  [
+    checkContentRules,
+    'a popover whose content varies, so both copies take its id',
+    { type: 'popover', name: 'P', rules: [saysWhen('open', { title: 'a' })] },
   ],
   [
     checkIconNames,

@@ -23,7 +23,7 @@
  */
 
 import type { NodeSpec } from '../../document/factory';
-import type { ResponsiveStyles, StyleDecl } from '../../document/types';
+import type { NodeProps, ResponsiveStyles, StyleDecl } from '../../document/types';
 
 /* --------------------------------------------------------------------------
  * Links
@@ -974,6 +974,38 @@ const hideRule = (
       id: `r-${op}-${value.replace(/\s+/g, '-')}`,
       when: [{ kind: 'state', key: options.state ?? '', op, values: value.split(/\s+/) }],
       apply: options.keepSpace ? { visibility: 'hidden' } : { display: 'none' },
+    },
+  ],
+});
+
+/**
+ * What this says while a state holds one of these values.
+ *
+ * The other half of a condition. `switchCase` decides whether an element is on
+ * screen; this decides what it *reads*, which CSS cannot do — `content:` works
+ * only on pseudo-elements, so it is neither selectable nor indexed. So the
+ * node expands at render into one element per alternative, every string in the
+ * published file, with the same generated rules hiding the ones that do not
+ * apply. No script, no flash, and a crawler sees all of it.
+ *
+ * The alternative it replaces is two nodes with opposite cases, which works
+ * but doubles the layer tree and leaves the designer keeping two copies of one
+ * sentence in step.
+ */
+export const switchSet = (
+  value: string,
+  set: NodeProps,
+  node: NodeSpec,
+  options: { state?: string } = {}
+): NodeSpec => ({
+  ...node,
+  rules: [
+    ...(node.rules ?? []),
+    {
+      id: `s-${value.replace(/\s+/g, '-')}`,
+      when: [{ kind: 'state', key: options.state ?? '', op: 'is', values: value.split(/\s+/) }],
+      apply: {},
+      set,
     },
   ],
 });

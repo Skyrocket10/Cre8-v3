@@ -257,6 +257,16 @@ export interface StyleRule {
   when: Condition[];
   part?: Part;
   apply: StyleDecl;
+  /**
+   * Prop overrides — text, alt, src, href.
+   *
+   * Styles compile to CSS; content cannot, so a rule that changes content
+   * makes the node render as more than one element, each carrying the
+   * matching condition. See `renderer/variants.ts` — the constraint that keeps
+   * that linear lives there, not here, because it is about how many elements
+   * the expansion produces rather than about what a rule may say.
+   */
+  set?: NodeProps;
   /** Scope to one breakpoint. Absent means every breakpoint. */
   breakpoint?: Breakpoint;
 }

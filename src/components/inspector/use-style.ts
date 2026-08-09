@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
+import { isSettable } from '@/lib/renderer/variants';
 import { resolveValue } from '@/lib/renderer/styles';
 import type { StyleDecl, StyleProp } from '@/lib/document/types';
 import { useEditor } from '@/lib/editor/store';
@@ -135,38 +136,56 @@ export function useStyleProp(prop: StyleProp) {
   return { ...binding, set, clear };
 }
 
-/** Element-prop equivalent (text, src, href…). */
+/**
+ * Element-prop equivalent (text, src, href…).
+ *
+ * Rule-aware in exactly the way the style fields are: with a rule selected,
+ * a prop the rule is allowed to override reads and writes that rule's `set`,
+ * falling back to the node's own value while the rule says nothing. A prop it
+ * is not allowed to override — anything structural — keeps writing to the
+ * node, because there is one `switchKey` however many things it is true of.
+ */
 export function useNodeProp(name: string): {
   value: string | number | boolean | undefined;
   mixed: boolean;
+  /** True when the value shown belongs to the selected rule. */
+  overridden: boolean;
   set: (value: string | number | boolean | undefined) => void;
 } {
   const nodes = useEditor((s) => s.doc.nodes);
   const selection = useEditor((s) => s.selection);
+  const activeRuleId = useEditor((s) => s.activeRuleId);
+  const ruleId = activeRuleId && isSettable(name) ? activeRuleId : null;
 
-  const { value, mixed } = useMemo(() => {
+  const { value, mixed, overridden } = useMemo(() => {
     let result: string | number | boolean | undefined;
     let differs = false;
+    let own = false;
     let first = true;
     for (const id of selection) {
-      const candidate = nodes[id]?.props[name];
-      const normalised = candidate === null ? undefined : candidate;
+      const node = nodes[id];
+      const set = ruleId ? node?.rules?.find((r) => r.id === ruleId)?.set : undefined;
+      const raw = set && name in set ? set[name] : node?.props[name];
+      const normalised = raw === null ? undefined : raw;
       if (first) {
         result = normalised;
+        own = Boolean(set && name in set);
         first = false;
       } else if (normalised !== result) {
         differs = true;
       }
     }
-    return { value: result, mixed: differs };
-  }, [nodes, selection, name]);
+    return { value: result, mixed: differs, overridden: own };
+  }, [nodes, selection, name, ruleId]);
 
   const set = useCallback(
     (next: string | number | boolean | undefined) => {
-      useEditor.getState().setNodeProps({ [name]: next });
+      const store = useEditor.getState();
+      if (ruleId) store.setRuleProps(ruleId, { [name]: next });
+      else store.setNodeProps({ [name]: next });
     },
-    [name]
+    [name, ruleId]
   );
 
-  return { value, mixed, set };
+  return { value, mixed, overridden, set };
 }

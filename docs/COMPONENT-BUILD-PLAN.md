@@ -706,8 +706,44 @@ this, hide* — and the inspector presents the intent, *shown when this*. The
 operator flips at that boundary and nowhere else: `readCase()` and
 `migrateDocument()` are the two places that know.
 
-Stages 2 (`set` — content and attributes, expanded at publish time) and 3
-(data conditions) are still ahead.
+## Stage 2 — content that changes with a state
+
+Style overrides compile to CSS. Content overrides cannot: `content:` works only
+on pseudo-elements, so it is neither selectable nor indexed. A rule can now
+carry `set` — text, alt, src, href, label — and the node **renders as one
+element per alternative**, every string in the published file, with the same
+generated rules hiding the ones that do not apply. No script, no flash, and a
+crawler reads all of it.
+
+**The expansion is the renderer's, not the publisher's.** `variantsOf(node)` in
+`renderer/variants.ts` is framework-free and both renderers loop over it, so
+the canvas DOM and the published DOM have the same shape. Each variant carries
+`.c-id` — the node's own styles and any rule that does not `set` — plus
+`.c-id-vN`, which the hiding rule and the producing rule's `apply` key on. Both
+are one class, so everything still weighs (0,1,0).
+
+**Mutual exclusion is what keeps it linear.** All `set` rules on a node must
+name one state, with `is`, over disjoint values. Then each variant hides on
+`state isNot its values` and the base hides on `state is the union` — the two
+shapes the generator already compiled for a switch case, so it learned nothing
+new. Without the constraint each element would have to say "show me when mine
+matches and no later one does", and the conditions would grow with the square
+of the rules. `checkContentRules` enforces it; the renderer skips a rule that
+does not fit, and a silently skipped alternative looks exactly like a working
+page, which is why the lint is not optional.
+
+**The editor has to know which copy is on screen**, because selection outlines
+are measured from a real element and the caret has to land in the text the
+designer can see. `activeVariant` answers that from the design-time value, and
+it is exposed as a *hook*: the answer depends on an ancestor's state, and every
+other subscription in the renderer is to the node itself.
+
+**Pricing with switch** is the block this exists for. It used to carry two
+price blocks per tier with opposite cases — six extra rows in the layer tree
+and two copies of one design to keep in step. One price per tier now, and the
+published file still contains both strings.
+
+Stage 3 — data conditions — is still ahead.
 
 It should be read before any more stateful components are built, because the
 storage migration is the expensive part and it only gets more expensive.

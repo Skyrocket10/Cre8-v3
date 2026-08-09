@@ -18,6 +18,7 @@ width will never show you:
 - every tab has one panel and every panel has one tab
 - buttons and links respond to hover
 - no block still says when it shows in props, rather than as a rule
+- content varies on one state, exclusively, so the expansion stays linear
 - every node is named for the layer tree
 
 It also runs `migrateDocument()` over a hand-written older document. That

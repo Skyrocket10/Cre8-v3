@@ -265,6 +265,7 @@ interface EditorActions {
   setStyle(patch: StyleDecl, options?: TransactOptions & { ids?: NodeId[] }): void;
   clearStyle(props: StyleProp[], ids?: NodeId[]): void;
   setRuleStyle(ruleId: string, patch: StyleDecl, options?: TransactOptions): void;
+  setRuleProps(ruleId: string, patch: NodeProps): void;
   toggleHidden(ids?: NodeId[]): void;
   toggleLocked(ids?: NodeId[]): void;
   reorderInParent(id: NodeId, direction: 1 | -1): void;
@@ -916,6 +917,15 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       },
       options
     );
+  },
+
+  setRuleProps(ruleId, patch) {
+    const targets = get().selection;
+    if (!targets.length) return;
+    get().transact('Content', (draft) => {
+      ops.setRuleProps(draft, targets, ruleId, patch);
+      return targets;
+    });
   },
 
   addRule(when, part) {
