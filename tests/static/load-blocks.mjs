@@ -37,6 +37,9 @@ export function loadBlocks() {
       // can silently discard somebody's work.
       'src/lib/document/migrate.ts',
       'src/lib/renderer/css.ts',
+      // The publisher, so the checks can read a finished page rather than
+      // reason about what one would contain.
+      'src/lib/publishing/html.ts',
       '--outDir',
       OUT,
       // Pinned so the emitted path is predictable no matter which files tsc
@@ -71,6 +74,9 @@ export function loadBlocks() {
     // rather than on a description of what they are supposed to be.
     buildTree: require(path.join(OUT, 'document/factory.js')).buildTree,
     generateNodeCss: require(path.join(OUT, 'renderer/css.js')).generateNodeCss,
+    renderPage: require(path.join(OUT, 'publishing/html.js')).renderPage,
+    createEmptyDocument: require(path.join(OUT, 'document/factory.js')).createEmptyDocument,
+    buildInto: require(path.join(OUT, 'document/factory.js')).buildTree,
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
   };
 }

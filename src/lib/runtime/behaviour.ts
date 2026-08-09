@@ -52,12 +52,14 @@ export const CASE_ATTR = 'data-cre8-case';
 export const TABS_ATTR = 'data-cre8-tabs';
 /** A setter that changes the value without being a toggle: Back, Next. */
 export const QUIET_ATTR = 'data-cre8-quiet';
-/** Names the state a condition depends on, when it is not the nearest one. */
-export const WHEN_ATTR = 'data-cre8-when';
-/** The condition is `isn't` rather than `is`. */
+/**
+ * The condition is `isn't` rather than `is`.
+ *
+ * The only companion `data-cre8-case` needs. Which state, and whether hiding
+ * keeps the element's space, are both settled in the stylesheet — they were
+ * written here for a while and read by nothing.
+ */
 export const NOT_ATTR = 'data-cre8-not';
-/** Hiding leaves the element's space behind. */
-export const KEEP_ATTR = 'data-cre8-keep';
 
 /**
  * @param root  Document on a published page, the frame element in the editor.

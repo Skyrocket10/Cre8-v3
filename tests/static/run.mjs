@@ -26,6 +26,8 @@ const {
   migrateDocument,
   buildTree,
   generateNodeCss,
+  renderPage,
+  createEmptyDocument,
 } = loadBlocks();
 
 /** The selector of the first generated rule mentioning `needle`. */
@@ -669,6 +671,18 @@ const shownWhen = (value) => [
   },
 ];
 
+/** "Shown when the nearest state is X" on a spec, optionally naming the state. */
+const switchCaseSpec = (value, node, state = '') => ({
+  ...node,
+  rules: [
+    {
+      id: `case-${value}`,
+      when: [{ kind: 'state', key: state, op: 'isNot', values: [value] }],
+      apply: { display: 'none' },
+    },
+  ],
+});
+
 /** "When the state is X, the text reads Y" — the shape `set` expands. */
 const saysWhen = (value, set, key = '') => ({
   id: `set-${value}`,
@@ -1042,6 +1056,109 @@ report.group('a document saved before rules still opens');
  * A data condition must compile to the same shape a state condition does, at
  * the same weight, and must drive the same expansion into elements.
  * ----------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+ * What reaches a published file
+ *
+ * Two things the templates cannot check, because they have no components and
+ * name no states: that a page carries only the component styles it renders,
+ * and that the only attributes on it are ones something reads.
+ * ----------------------------------------------------------------------- */
+
+report.group('a published page carries only what it uses');
+
+{
+  /** A document with two components, one of them placed on the page. */
+  const withComponents = () => {
+    const doc = createEmptyDocument('Components');
+    const page = doc.pages[0];
+
+    const used = buildTree(
+      { type: 'frame', name: 'Used master', styles: { backgroundColor: '#abcdef' } },
+      doc.nodes
+    );
+    const spare = buildTree(
+      { type: 'frame', name: 'Spare master', styles: { backgroundColor: '#fedcba' } },
+      doc.nodes
+    );
+    doc.components = [
+      { id: 'c-used', name: 'Used', rootNodeId: used.rootId, createdAt: 0 },
+      { id: 'c-spare', name: 'Spare', rootNodeId: spare.rootId, createdAt: 0 },
+    ];
+
+    const instance = buildTree(
+      { type: 'instance', name: 'An instance', props: { componentId: 'c-used' } },
+      doc.nodes
+    );
+    doc.nodes[instance.rootId].parentId = page.rootNodeId;
+    doc.nodes[page.rootNodeId].children.push(instance.rootId);
+    return { doc, page };
+  };
+
+  const { doc, page } = withComponents();
+  const html = renderPage(doc, page, {});
+
+  report.check(
+    'the styles of a component it places are in the page',
+    html.includes('#abcdef'),
+    html.includes('#abcdef') ? 'present' : 'missing'
+  );
+  report.check(
+    'and the styles of one it does not place are not',
+    !html.includes('#fedcba'),
+    html.includes('#fedcba') ? 'every page pays for every component' : 'left out'
+  );
+
+  /*
+   * Every `data-` attribute on a published page has to be read by something —
+   * the runtime, or the generated CSS. Two were written here for a while that
+   * were read by neither, which costs bytes on every conditional element and
+   * makes the next person maintain a thing that does nothing.
+   */
+  const READ = new Set([
+    'data-cre8-root', // the reset's scope
+    'data-cre8-switch', // the group, read by the runtime and every state selector
+    'data-cre8-value', //   its current value
+    'data-cre8-set', // a control, read by the click handler
+    'data-cre8-quiet', //   and by the part that decides what to announce
+    'data-cre8-tabs', // upgrades a group to a tab set
+    'data-cre8-case', // which value an element answers to, for tab pairing
+    'data-cre8-not', //   and whether it answers by disappearing
+    'data-cre8-data', // the visit, read by every data selector
+  ]);
+
+  const switched = buildTree({
+    type: 'frame',
+    name: 'Group',
+    props: { switchKey: 'plan', switchDefault: 'free', switchRole: 'tabs' },
+    children: [
+      { type: 'button', name: 'Pro', props: { label: 'Pro', switchSet: 'pro' } },
+      switchCaseSpec('pro', { type: 'text', name: 'Panel', props: { text: 'Pro things' } }),
+      switchCaseSpec('free', { type: 'text', name: 'Other', props: { text: 'Free things' } }, 'plan'),
+    ],
+  }, doc.nodes);
+  doc.nodes[switched.rootId].parentId = page.rootNodeId;
+  doc.nodes[page.rootNodeId].children.push(switched.rootId);
+
+  const wired = renderPage(doc, page, {});
+  const shipped = [...new Set([...wired.matchAll(/\sdata-[a-z0-9-]+/g)].map((m) => m[0].trim()))];
+  const unread = shipped.filter((name) => !READ.has(name));
+  report.check(
+    'every data- attribute on the page is one something reads',
+    unread.length === 0,
+    unread.length ? unread.join(' ') : `${shipped.length} attributes, all read`
+  );
+
+  // A condition naming a state explicitly reaches past the group it sits in,
+  // so calling it a case of that group would let a tab set adopt it.
+  report.check(
+    'a condition on a state further up does not advertise itself as a case',
+    // On an element, not in the script: the runtime names the attribute in a
+    // selector of its own, and counting that would report one case too many.
+    (wired.match(/\sdata-cre8-case=/g) ?? []).length === 1,
+    `${(wired.match(/\sdata-cre8-case=/g) ?? []).length} cases on elements, expected 1`
+  );
+}
 
 report.group('a condition on the visit compiles like one on a state');
 

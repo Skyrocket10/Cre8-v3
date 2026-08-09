@@ -14,14 +14,12 @@ import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
 import {
   CASE_ATTR,
-  KEEP_ATTR,
   NOT_ATTR,
   QUIET_ATTR,
   SET_ATTR,
   SWITCH_ATTR,
   TABS_ATTR,
   VALUE_ATTR,
-  WHEN_ATTR,
 } from '../runtime/behaviour';
 
 export type RenderMode = 'edit' | 'preview' | 'publish';
@@ -213,14 +211,26 @@ function applySwitch(
     // one ("Next, toggle button, not pressed") is worse than saying nothing.
     if (props.switchQuiet) model.attrs[QUIET_ATTR] = 'true';
   }
-  if (when) {
+  /*
+   * Only a condition on the *nearest* state gets an attribute, and only these
+   * two, because between them they are all the runtime reads: which value an
+   * element answers to, and whether it answers by appearing or by disappearing.
+   *
+   * A condition that names a state explicitly reaches past the group it sits
+   * inside — a card in a filtered grid keyed on the section's billing switch.
+   * Announcing that as a case of the enclosing group is not merely redundant,
+   * it is wrong: a tab set pairs the first case holding a tab's value, and it
+   * would happily adopt an element that answers to a different state entirely.
+   * Hiding it is the stylesheet's job either way, so it says nothing.
+   *
+   * Two attributes used to be written here that nothing ever read — the state's
+   * name, and whether hiding keeps the element's space. Both are decided
+   * entirely in CSS. They cost bytes on every conditional element and, worse,
+   * read as load-bearing.
+   */
+  if (when && !when.state) {
     model.attrs[CASE_ATTR] = when.values.join(' ');
-    // Which state, when it is not simply the nearest one above — and the two
-    // flags, which the runtime reads to tell a tab panel from a node that
-    // merely happens to answer to the same value.
-    if (when.state) model.attrs[WHEN_ATTR] = when.state;
     if (when.negated) model.attrs[NOT_ATTR] = 'true';
-    if (when.keepSpace) model.attrs[KEEP_ATTR] = 'true';
   }
   return model;
 }

@@ -285,8 +285,7 @@ export interface RenderPageOptions {
 
 export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOptions = {}): string {
   const nodeIds = collectSubtree(doc.nodes, page.rootNodeId);
-  // Components referenced anywhere on this page still need their rules.
-  for (const component of doc.components) nodeIds.push(...collectSubtree(doc.nodes, component.rootNodeId));
+  nodeIds.push(...componentsUsedOn(doc, nodeIds));
 
   const dataSources = collectDataSources(doc.nodes, nodeIds);
 
@@ -452,6 +451,39 @@ function robots(doc: Cre8Document): GeneratedFile {
   const contents = `User-agent: *\nAllow: /\nSitemap: /sitemap.xml\n`;
   void doc;
   return { path: 'robots.txt', contents, bytes: byteLength(contents) };
+}
+
+/**
+ * The component masters this page actually puts on screen.
+ *
+ * An instance renders from its master's subtree, so those nodes need their
+ * rules in this page's stylesheet even though they are not in the page's own
+ * tree. What they do *not* need is every other component in the project: a
+ * library with a dozen components used one page each was putting all twelve
+ * into all twelve pages, and each page paid for eleven it never rendered.
+ *
+ * Transitive, because a master can contain an instance of another master, and
+ * `seen` closes the loop a component that somehow contains itself would open.
+ */
+function componentsUsedOn(doc: Cre8Document, pageNodes: NodeId[]): NodeId[] {
+  const out: NodeId[] = [];
+  const seen = new Set<string>();
+  const queue = [...pageNodes];
+
+  while (queue.length) {
+    const node = doc.nodes[queue.pop()!];
+    if (node?.type !== 'instance') continue;
+    const componentId = String(node.props.componentId ?? '');
+    if (!componentId || seen.has(componentId)) continue;
+    seen.add(componentId);
+
+    const component = doc.components.find((c) => c.id === componentId);
+    if (!component) continue;
+    const subtree = collectSubtree(doc.nodes, component.rootNodeId);
+    out.push(...subtree);
+    queue.push(...subtree);
+  }
+  return out;
 }
 
 /* --------------------------------------------------------------------------
