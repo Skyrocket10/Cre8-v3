@@ -148,18 +148,26 @@ const cache = new WeakMap<SceneNode, Variant[]>();
  * Memoised on node identity: Immer hands back a new object only for nodes that
  * actually changed, so this costs one allocation per edited node rather than
  * one per node per render.
+ *
+ * @param base What the variants start from. Defaults to the node's own props;
+ *   inside a repeater it is those props with the record's fields written over
+ *   them, which is how the documented order — base → bind → set — falls out
+ *   without a third merge. A caller-supplied base skips the cache: it changes
+ *   per row while the node does not, and one entry per node is the whole point
+ *   of keying on node identity.
  */
-export function variantsOf(node: SceneNode): Variant[] {
+export function variantsOf(node: SceneNode, base?: NodeProps): Variant[] {
+  if (base && base !== node.props) return build(node, base);
   const cached = cache.get(node);
   if (cached) return cached;
-  const built = build(node);
+  const built = build(node, node.props);
   cache.set(node, built);
   return built;
 }
 
-function build(node: SceneNode): Variant[] {
+function build(node: SceneNode, props: NodeProps): Variant[] {
   const single: Variant[] = [
-    { key: '', className: nodeClass(node.id), props: node.props, hide: null, ruleId: null },
+    { key: '', className: nodeClass(node.id), props, hide: null, ruleId: null },
   ];
 
   const setting = (node.rules ?? []).filter(setsContent);
@@ -202,7 +210,7 @@ function build(node: SceneNode): Variant[] {
     {
       key: 'v0',
       className: `${nodeClass(node.id)} ${variantClass(node.id, 'v0')}`,
-      props: node.props,
+      props,
       // The base is what shows when none of the alternatives do, which is one
       // condition rather than one per rule because they are exclusive.
       hide: hideRule(`${node.id}-v0`, [onAxis(kind, key, 'is', [...claimed])]),
@@ -215,7 +223,7 @@ function build(node: SceneNode): Variant[] {
     variants.push({
       key: key_,
       className: `${nodeClass(node.id)} ${variantClass(node.id, key_)}`,
-      props: merge(node.props, rule.set!),
+      props: merge(props, rule.set!),
       hide: hideRule(`${node.id}-${key_}`, [onAxis(kind, key, 'isNot', values)]),
       ruleId: rule.id,
     });

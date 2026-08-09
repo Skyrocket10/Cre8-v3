@@ -1364,6 +1364,343 @@ report.group('the published stylesheet earns its size');
     hydrateDocument({}).collections === undefined,
     JSON.stringify(hydrateDocument({}).collections ?? null)
   );
+
+  /*
+   * `repeat` and `bind` are node fields, and every stored document goes
+   * through `hydrateDocument` on the way in — which normalises nodes field by
+   * field. A normaliser that rebuilt a node instead of patching it would drop
+   * these two silently, and the symptom would be a designer's bound list
+   * turning back into placeholder copy on reload.
+   */
+  const bound = hydrateDocument({
+    nodes: {
+      a: {
+        id: 'a',
+        type: 'stack',
+        name: 'Feed',
+        parentId: null,
+        children: [],
+        props: {},
+        styles: {},
+        meta: {},
+        repeat: { collection: 'posts', limit: 3 },
+      },
+      b: { id: 'b', type: 'text', name: 'T', props: {}, bind: { text: 'title' } },
+    },
+  });
+  report.check(
+    'a repeater survives being loaded',
+    bound.nodes.a.repeat?.collection === 'posts' && bound.nodes.a.repeat?.limit === 3,
+    JSON.stringify(bound.nodes.a.repeat ?? null)
+  );
+  report.check(
+    'and so does a binding',
+    bound.nodes.b.bind?.text === 'title',
+    JSON.stringify(bound.nodes.b.bind ?? null)
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * The repeater
+ *
+ * D2's gate has three halves, and the third is the one that would kill the
+ * idea if it were false:
+ *
+ *   > A bound list renders identically on canvas and published, **with no
+ *   > script**, and **the stylesheet does not grow by a single rule** as
+ *   > records are added.
+ *
+ * The canvas half is checked in the browser, by `tests/render/repeat.mjs`,
+ * because it needs a canvas. The other two are properties of a generated file
+ * and are checked here — against the file, not against a description of it.
+ *
+ * The rest of this section is the behaviour the two renderers share, checked
+ * once at the point where it is observable: which rows appear, in what order,
+ * and what a record is allowed to overwrite.
+ * ----------------------------------------------------------------------- */
+
+report.group('a bound list publishes as elements');
+
+{
+  const row = (id, data, extra = {}) => ({
+    id,
+    collectionId: 'posts',
+    position: 0,
+    published: true,
+    data,
+    createdAt: 0,
+    updatedAt: 0,
+    ...extra,
+  });
+
+  const POSTS = [
+    row('r1', { title: 'Second', tag: 'news' }, { position: 1 }),
+    row('r2', { title: 'First', tag: 'news' }, { position: 0 }),
+    row('r3', { title: 'Third', tag: 'guide' }, { position: 2 }),
+    row('r4', { title: 'Draft', tag: 'news' }, { position: 3, published: false }),
+  ];
+
+  /** A page holding one repeater over `posts`, whose card shows the title. */
+  const blog = (repeat, card) => {
+    const doc = createEmptyDocument('Blog');
+    const page = doc.pages[0];
+    const list = buildTree(
+      {
+        type: 'grid',
+        name: 'Posts',
+        repeat,
+        children: [
+          {
+            type: 'frame',
+            name: 'Card',
+            styles: { backgroundColor: '#abcdef' },
+            children: [card ?? { type: 'paragraph', name: 'Title', props: { text: 'Untitled' }, bind: { text: 'title' } }],
+          },
+        ],
+      },
+      doc.nodes
+    );
+    doc.nodes[list.rootId].parentId = page.rootNodeId;
+    doc.nodes[page.rootNodeId].children.push(list.rootId);
+    return { doc, page };
+  };
+
+  /** One document, rendered against whatever rows it is handed. */
+  const site = (repeat, card) => {
+    const { doc, page } = blog(repeat, card);
+    return (records) =>
+      renderPage(doc, page, records === null ? {} : { records: { posts: records } });
+  };
+
+  const publish = (repeat, records = POSTS, card) => site(repeat, card)(records);
+
+  const bodyOf = (html) => html.slice(html.indexOf('<body>'), html.indexOf('</body>'));
+  const styleOf = (html) => /<style>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? '';
+  const titles = (html) => [...bodyOf(html).matchAll(/<p[^>]*>([^<]*)<\/p>/g)].map((m) => m[1]);
+  // Counted in the body, never in the stylesheet: the rules for a repeated
+  // subtree are emitted whether or not a single row exists, which is the
+  // property this section is about and would make a whole-file count read one
+  // card on an empty collection.
+  const boxes = (html) => (bodyOf(html).match(/<div[^>]*>/g) ?? []).length;
+
+  const plain = publish({ collection: 'posts' });
+
+  report.check(
+    'one element per published record, in the order the collection is in',
+    titles(plain).join(' › ') === 'First › Second › Third',
+    titles(plain).join(' › ') || 'nothing rendered'
+  );
+  report.check(
+    'and an unpublished record is not on the page at all',
+    !plain.includes('Draft'),
+    plain.includes('Draft') ? 'a draft was published' : 'left out'
+  );
+
+  /*
+   * The economy of the whole feature. Every copy of a repeated subtree carries
+   * the classes the node already had, because it *is* the same node — so the
+   * stylesheet for one row and the stylesheet for two hundred are the same
+   * bytes. Variants needed a class each because each could be styled
+   * differently; repeats cannot, which is what makes them repeats.
+   */
+  const feed = site({ collection: 'posts' });
+  const one = feed([POSTS[1]]);
+  const many = feed(
+    Array.from({ length: 200 }, (_, i) => row(`rec-${i}`, { title: `Post ${i}` }, { position: i }))
+  );
+  report.check(
+    'two hundred rows generate exactly the stylesheet one row does',
+    styleOf(one) === styleOf(many),
+    styleOf(one) === styleOf(many)
+      ? `${styleOf(one).length} bytes either way`
+      : `${styleOf(one).length} → ${styleOf(many).length} bytes`
+  );
+  report.check(
+    'and all two hundred are really there',
+    (many.match(/<p[^>]*>Post \d+<\/p>/g) ?? []).length === 200,
+    `${(many.match(/<p[^>]*>Post \d+<\/p>/g) ?? []).length} rows`
+  );
+  report.check(
+    'a bound list ships no script',
+    !many.includes('<script'),
+    many.includes('<script') ? 'a runtime was added' : 'HTML and CSS only'
+  );
+  // The rows are in the file as *elements*. Nothing that identifies a record —
+  // its id, its collection, its flags — has any business being there, and a
+  // record id is the sharpest test of that: it appears nowhere in the design,
+  // so if one turns up in the output something serialised the collection.
+  report.check(
+    'and no copy of the records for a script to have read',
+    !many.includes('rec-') && !many.includes('collectionId'),
+    /rec-\d+|collectionId/.exec(many)?.[0] ?? 'elements only'
+  );
+
+  /* --- Which rows, and in what order ------------------------------------ */
+
+  const filtered = publish({
+    collection: 'posts',
+    filter: [{ field: 'tag', op: 'is', value: 'guide' }],
+  });
+  report.check(
+    'a filter is applied before anything is rendered',
+    titles(filtered).join(' › ') === 'Third',
+    titles(filtered).join(' › ') || 'nothing rendered'
+  );
+
+  const contains = publish({
+    collection: 'posts',
+    filter: [{ field: 'title', op: 'has', value: 'IR' }],
+  });
+  report.check(
+    '“contains” reads the prose it is typed against, not a key',
+    contains.includes('First') && contains.includes('Third') && !contains.includes('Second'),
+    titles(contains).join(' › ') || 'nothing rendered'
+  );
+
+  const sorted = publish({ collection: 'posts', sort: { field: 'title', direction: 'desc' } });
+  report.check(
+    'a sort orders by the field rather than by the collection',
+    titles(sorted).join(' › ') === 'Third › Second › First',
+    titles(sorted).join(' › ') || 'nothing rendered'
+  );
+
+  // Not `localeCompare`: it consults ICU data that differs between a browser
+  // and a Worker, and D3's gate is that the two produce the same bytes.
+  const tied = publish({ collection: 'posts', sort: { field: 'tag', direction: 'asc' } });
+  report.check(
+    'records the sort cannot separate fall back to their position, not to chance',
+    titles(tied).join(' › ') === 'Third › First › Second',
+    titles(tied).join(' › ') || 'nothing rendered'
+  );
+
+  const capped = publish({ collection: 'posts', limit: 2 });
+  report.check(
+    'a limit is a count of elements, not a hint',
+    titles(capped).join(' › ') === 'First › Second',
+    titles(capped).join(' › ') || 'nothing rendered'
+  );
+
+  // Stated as a number in `LIMITS` and enforced where it can be seen. A
+  // repeater asked for ten thousand rows publishes five hundred, because the
+  // alternative is a designer discovering the ceiling as a slow page.
+  const flood = publish(
+    { collection: 'posts', limit: 10000 },
+    Array.from({ length: 600 }, (_, i) => row(`f${i}`, { title: `Flood ${i}` }, { position: i }))
+  );
+  report.check(
+    'and one past the ceiling is clamped rather than honoured',
+    titles(flood).length === 500,
+    `${titles(flood).length} rows, expected 500`
+  );
+
+  /* --- What a record may overwrite -------------------------------------- */
+
+  const partial = publish({ collection: 'posts' }, [row('r5', { tag: 'news' })]);
+  report.check(
+    'a field the record does not carry leaves the design-time copy alone',
+    titles(partial).join('') === 'Untitled',
+    titles(partial).join('') || 'nothing rendered'
+  );
+  const emptied = publish({ collection: 'posts' }, [row('r6', { title: '' })]);
+  report.check(
+    'but a field it carries empty really is empty — the record has said',
+    titles(emptied).join('') === '',
+    titles(emptied).join('') || '(empty)'
+  );
+
+  /*
+   * `level` rather than something like `switchKey`, and the difference matters:
+   * a check has to be able to fail. The switch attributes are read off the
+   * node, so binding one of those would be refused by code that has nothing to
+   * do with binding and the check would pass for the wrong reason. A heading's
+   * level is read off the *variant's* props — the same object `bind` writes
+   * into — so this really is `isSettable` doing the refusing.
+   */
+  const structural = publish({ collection: 'posts' }, [row('r8', { title: 'First', rank: 1 })], {
+    type: 'heading',
+    name: 'Title',
+    props: { text: 'Untitled', level: 3 },
+    bind: { text: 'title', level: 'rank' },
+  });
+  report.check(
+    'a record cannot bind structure, only content',
+    structural.includes('<h3') && !structural.includes('<h1'),
+    /<h\d/.exec(structural)?.[0] ?? 'no heading rendered'
+  );
+
+  // A `set` from a condition has to beat the record: "when out of stock, say
+  // Sold out" is a deliberate exception to what the row says, and it is the
+  // documented order — base → bind → set — read left to right.
+  const overridden = publish({ collection: 'posts' }, [POSTS[1]], {
+    type: 'paragraph',
+    name: 'Title',
+    props: { text: 'Untitled' },
+    bind: { text: 'title' },
+    rules: [
+      {
+        id: 'night',
+        when: [{ kind: 'data', source: 'time', op: 'is', values: ['night'] }],
+        apply: {},
+        set: { text: 'Closed for the night' },
+      },
+    ],
+  });
+  report.check(
+    'a condition still overrides what the record says',
+    overridden.includes('>Closed for the night<') && overridden.includes('>First<'),
+    'both alternatives in the file'
+  );
+
+  // The image case, which is the one that is wrong in a way nobody notices:
+  // `srcset` outranks `src`, so a bound picture with the uploaded one's ladder
+  // still attached shows the uploaded one.
+  const swapped = publish({ collection: 'posts' }, [row('r7', { cover: '/cover.webp' })], {
+    type: 'image',
+    name: 'Cover',
+    props: {
+      src: '/placeholder.webp',
+      srcset: '/placeholder-480.webp 480w, /placeholder-960.webp 960w',
+      width: 960,
+      height: 540,
+      alt: 'A post cover',
+    },
+    bind: { src: 'cover' },
+  });
+  report.check(
+    'binding an image drops the ladder the uploaded one came with',
+    swapped.includes('src="/cover.webp"') && !swapped.includes('srcset'),
+    swapped.includes('srcset') ? 'stale srcset outranks the bound src' : 'src only'
+  );
+
+  /* --- Nothing to show --------------------------------------------------- */
+
+  report.check(
+    'an empty collection publishes an empty list, not an invented row',
+    titles(feed([])).length === 0,
+    `${titles(feed([])).length} rows`
+  );
+  report.check(
+    'and so does a page published with no records loaded at all',
+    titles(feed(null)).length === 0,
+    `${titles(feed(null)).length} rows`
+  );
+  report.check(
+    'a repeater pointing at a collection that has gone renders nothing',
+    titles(publish({ collection: 'deleted' })).length === 0,
+    `${titles(publish({ collection: 'deleted' })).length} rows`
+  );
+
+  /*
+   * The repeating node itself is emitted once — the grid stays a grid, and it
+   * is what is inside it that multiplies. Counted structurally: the body holds
+   * the page root, the grid, and one card per row, so the total moves by
+   * exactly one as a record is added and by nothing else.
+   */
+  report.check(
+    'the repeating element is drawn once however many rows it holds',
+    boxes(feed([])) === 2 && boxes(one) === 3 && boxes(plain) === 5,
+    `${boxes(feed([]))} / ${boxes(one)} / ${boxes(plain)} boxes for 0 / 1 / 3 rows`
+  );
 }
 
 report.finish();

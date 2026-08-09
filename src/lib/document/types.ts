@@ -384,6 +384,24 @@ export interface SceneNode {
   /** Base + per-breakpoint overrides. */
   styles: ResponsiveStyles;
   /**
+   * Render `children` once per record.
+   *
+   * The second time the node tree stops being one-to-one with the DOM, and
+   * deliberately the same shape as the first: `set` already makes one node
+   * into several elements. This is that a level up — the subtree, not the
+   * element — and the thing it adds is a record in scope for everything below.
+   */
+  repeat?: RepeatSpec;
+
+  /**
+   * Read fields of the record in scope into props: `{ text: 'title' }`.
+   *
+   * Applied *under* `set`, so a condition can still override what a record
+   * says — "when out of stock, say Sold out" has to beat the bound price.
+   */
+  bind?: Record<string, string>;
+
+  /**
    * Conditional overrides, in the order they apply.
    *
    * Replaces the old `states` record. Authoring still accepts the shorthand —
@@ -495,6 +513,33 @@ export interface CollectionRecord {
   data: Record<string, string | number | boolean | null>;
   createdAt: number;
   updatedAt: number;
+}
+
+/** A test a record must pass to appear in a repeater. */
+export interface RecordFilter {
+  field: string;
+  /** `has` is substring-contains, for text. The other two are equality. */
+  op: 'is' | 'isNot' | 'has';
+  value: string;
+}
+
+/**
+ * What a repeating node repeats over.
+ *
+ * Filter, sort and limit live on the node rather than in a saved query because
+ * the same collection is nearly always shown two or three ways on one site —
+ * three featured on the home page, all of them paginated on the index, the
+ * rest in a sidebar. Making that a property of the *place* rather than of the
+ * collection is what stops every variation from needing its own collection.
+ */
+export interface RepeatSpec {
+  /** Collection id. A repeater whose collection has gone renders nothing. */
+  collection: string;
+  /** All of them must pass. "Either/or" is two repeaters, not a syntax. */
+  filter?: RecordFilter[];
+  sort?: { field: string; direction: 'asc' | 'desc' };
+  /** Rows to show, after filtering and sorting. Clamped to the limit below. */
+  limit?: number;
 }
 
 /**

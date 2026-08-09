@@ -22,6 +22,7 @@ const SUITES = [
   ['tables', 'tabular markup survives the parser'],
   ['behaviour', 'switches work, and the CSS does the work'],
   ['data', 'conditions on the visit, resolved before the first paint'],
+  ['repeat', 'a bound list, on the canvas and in the file'],
   ['forms', 'published forms reach the submissions endpoint'],
   ['assets', 'images survive publish and export'],
   ['bodyreset', 'the published page starts at the edge'],

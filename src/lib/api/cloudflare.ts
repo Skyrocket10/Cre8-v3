@@ -9,7 +9,8 @@
  */
 
 import { hydrateDocument } from '../document/factory';
-import type { Cre8Document, ProjectSummary } from '../document/types';
+import { LIMITS } from '../document/types';
+import type { CollectionRecord, Cre8Document, ProjectSummary } from '../document/types';
 import { api, ApiError } from './client';
 import type {
   PublishedAssetRef,
@@ -95,5 +96,22 @@ export class CloudflareAdapter implements StorageAdapter {
 
   async uploadAsset(projectId: string, file: Blob, filename: string): Promise<string> {
     return api.uploadAsset(projectId, file, filename);
+  }
+
+  /**
+   * Published rows only, and no more of them than a repeater may show.
+   *
+   * The clamp is the same number the renderer applies, asked for at the source
+   * instead of after the fact — a collection of five thousand should not cross
+   * the wire so the canvas can throw away four and a half. The record table
+   * (D5) pages against the same route with its own window; this is the
+   * renderer's view, not the editor's.
+   */
+  async listRecords(projectId: string, collectionId: string): Promise<CollectionRecord[]> {
+    const { records } = await api.listRecords(projectId, collectionId, {
+      limit: LIMITS.recordsPerRepeat,
+      publishedOnly: true,
+    });
+    return records;
   }
 }

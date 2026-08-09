@@ -304,8 +304,41 @@ record privacy: without it an account holder could read the table by guessing
 ids, and the access check would pass every time, because the project in the URL
 really would be theirs.
 
-The rest of the data layer — the repeater, dynamic routes, moving publishing to
-the Worker — is scoped in [DATA-LAYER.md](DATA-LAYER.md).
+### The repeater
+
+A node carrying `repeat` renders its children once per record; a node carrying
+`bind` reads fields of the record in scope into its props. That is the whole
+model addition, and both renderers walk it through the same two functions in
+`renderer/repeat.ts`, so a bound list has the same shape on the canvas as in
+the published file.
+
+It composes with §1 rather than sitting beside it. `variantsOf(node, base)`
+takes the bound props as the base a variant is built from, which makes the
+resolution order — the node's props, then the record, then a condition's `set`
+— fall out of code that already existed. A condition still wins, because "when
+out of stock, say Sold out" has to beat the price the record carries.
+
+**The stylesheet does not grow.** Every copy of a repeated subtree carries the
+classes the node already had, because it *is* the same node: a hundred products
+are a hundred DOM subtrees and zero extra rules. Variants needed a class each
+because each could be styled differently; repeats cannot, and that is precisely
+what makes them repeats. The published page has no script for this — the rows
+are elements in the file, so they are indexed, printed, and correct with
+scripting off.
+
+One divergence between the surfaces is deliberate. A repeater over an empty
+collection draws its subtree once on the canvas, unbound, because a card you
+cannot see is a card you cannot lay out. Preview and publish draw nothing,
+because an invented row in a file somebody serves is a lie.
+
+Records are read once before generating, not inside the renderer — that module
+is framework-free and has no network, which is what lets the same code run in
+a Worker. Today the browser does the reading, so a publish downloads every
+collection the document repeats over. That is the constraint moving publishing
+to the Worker exists to remove.
+
+The rest of the data layer — dynamic routes, publishing from the Worker, the
+collections UI — is scoped in [DATA-LAYER.md](DATA-LAYER.md).
 
 ---
 

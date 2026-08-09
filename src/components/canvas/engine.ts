@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { registerElement } from '@/lib/editor/registry';
 import { useEditor } from '@/lib/editor/store';
 import type { RenderEngine } from '@/lib/renderer/render';
@@ -22,6 +23,18 @@ export const editorEngine: RenderEngine = {
 
   useComponentRoot: (componentId) =>
     useEditor((s) => s.doc.components.find((c) => c.id === componentId)?.rootNodeId),
+
+  // Asking is what loads them. Only a repeater ever calls this, so a page with
+  // no bound list makes no request — and a page with three repeaters over one
+  // collection makes one, because `loadRecords` is idempotent and dedupes what
+  // is already in the air.
+  useRecords: (collectionId) => {
+    const rows = useEditor((s) => s.records[collectionId]);
+    useEffect(() => {
+      useEditor.getState().loadRecords(collectionId);
+    }, [collectionId]);
+    return rows;
+  },
 
   // Links must never navigate away from the editor.
   resolveHref: () => '#',

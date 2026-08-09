@@ -9,7 +9,7 @@
  */
 
 import { hydrateDocument } from '../document/factory';
-import type { Cre8Document, ProjectSummary } from '../document/types';
+import type { CollectionRecord, Cre8Document, ProjectSummary } from '../document/types';
 import { hasBackend } from './client';
 import { CloudflareAdapter } from './cloudflare';
 
@@ -43,6 +43,18 @@ export interface StorageAdapter {
    * documents small.
    */
   uploadAsset?(projectId: string, file: Blob, filename: string): Promise<string>;
+  /**
+   * Every published row of one collection, for the repeaters that read it.
+   *
+   * Optional for the same reason `uploadAsset` is: the local adapter has no
+   * record store, so a project built with no backend has collections it can
+   * shape and no content to put in them. That is the documented split — the
+   * schema is design and lives in the document, the records are content and
+   * live in D1 — and a repeater with nothing to repeat is a normal state, not
+   * an error: it draws its template row on the canvas and nothing anywhere
+   * else.
+   */
+  listRecords?(projectId: string, collectionId: string): Promise<CollectionRecord[]>;
 }
 
 export interface PublishedPage {

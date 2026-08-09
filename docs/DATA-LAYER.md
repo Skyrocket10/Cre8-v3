@@ -286,7 +286,7 @@ than in a Worker log, is not.
 | Stage | Scope | Gate |
 |---|---|---|
 | **D1** | Collections and records, headless. Schema on the document, records in D1, CRUD routes with the existing access checks. | Records survive a round-trip, and a hostile client cannot read or write another project's — proven in `security.mjs`, next to the checks that already prove it for assets. **landed** |
-| **D2** | The repeater and binding. `repeat`, `bind`, record-in-scope in both renderers, expansion at publish. | A bound list renders identically on canvas and published, with no script, and the stylesheet does not grow by a single rule as records are added. |
+| **D2** | The repeater and binding. `repeat`, `bind`, record-in-scope in both renderers, expansion at publish. | A bound list renders identically on canvas and published, with no script, and the stylesheet does not grow by a single rule as records are added. **landed** |
 | **D3** | Publishing moves to the Worker for the hosted path. | The same document publishes byte-identical output from the Worker as from the browser. That is a strong gate and the right one: it is the whole claim. |
 | **D4** | Dynamic routes and static pagination. | A blog of thirty posts publishes thirty files plus a paginated index, every one reachable and every one in the sitemap. |
 | **D5** | The editor: collections panel, field editor, record table and form, binding in the inspector. | Someone creates a collection, adds a record and sees it on the canvas without leaving the editor or reading this document. |
@@ -317,6 +317,52 @@ collections, 40 fields) are the editor's.
 thing to go wrong here, and the person it happens to is a designer naming a
 second post "About". A unique index turns it into a SQLite error message;
 catching that one constraint by name turns it back into an answer.
+
+### What D2 held to
+
+Twenty-three checks in `run.mjs` against generated files, and sixteen in
+`repeat.mjs` against a real canvas and a real published page. The gate has
+three halves and each is measured rather than described: the two surfaces
+agree on every shared class, the file contains no `<script>`, and publishing
+the same document with two records and then with five produces **the same
+stylesheet byte for byte** while the markup grows by three rows.
+
+The economy is worth restating because it is what makes the feature
+affordable at all: every copy of a repeated subtree carries the classes the
+node already had, because it *is* the same node. Variants needed a class each
+because each could be styled differently. Repeats cannot, which is exactly
+what makes them repeats.
+
+Four decisions worth recording:
+
+**A record is a base, not an override layer.** `boundProps` produces the props
+a variant is *built from*, so the documented order — base → bind → set — falls
+out of code stage 2 already had rather than needing a third merge. The one
+visible consequence is the right one: a condition still beats a bound value.
+
+**Only the first row belongs to the editor.** Rows two onward are the same
+node again, so a shared `data-cre8-id` would put two elements in the registry
+under one key and open a text caret in every card at once. That needed a flag
+distinct from `inert` — an inert component instance still exposes its own
+identity, which is how you select one.
+
+**Ordering is total, and deliberately not `localeCompare`.** Ties fall back to
+`position`, then `createdAt`, then id. ICU data differs between a browser and
+a Worker, and D3's gate is that the two produce identical bytes; a sort that
+disagreed across engines would break it in a way nobody would think to look
+for.
+
+**An empty collection diverges on purpose.** The canvas draws the subtree once
+with no record in scope, because a card you cannot see is a card you cannot
+lay out. Preview and publish draw nothing, because an invented row in a file
+somebody serves is a lie. It is the only place the two surfaces are allowed to
+differ, and it is checked as such rather than tolerated.
+
+What D2 did *not* do is the thing §6 warned about: publishing still runs in
+the browser, so a publish downloads every collection the document repeats over
+first. Fine for fifty posts, five megabytes for five thousand products, and
+impossible for republish-on-change. That is D3, and it is now the constraint
+rather than the prediction.
 
 D3 before D4 is the ordering §6 argues for. D5 last is deliberate and slightly
 uncomfortable: it means D1–D4 are tested through fixtures rather than through

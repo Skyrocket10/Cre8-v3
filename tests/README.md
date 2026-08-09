@@ -81,6 +81,7 @@ preferring an installed copy over downloading one.
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces |
 | `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |
+| `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added |
 | `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
 | `assets` | Do images survive publish and ZIP export — re-encoded, carrying their intrinsic size, offered at four widths, and eager where it matters |
 | `bodyreset` | Does the published page start at the viewport edge |

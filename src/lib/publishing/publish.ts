@@ -12,6 +12,7 @@
 import { apiOrigin } from '../api/client';
 import { getStorage, type PublishedSite } from '../api/storage';
 import { slugify } from '../document/id';
+import { collectionsUsedBy, type RecordSet } from '../renderer/repeat';
 import { routes } from '../routes';
 import type { Cre8Document } from '../document/types';
 import { generateSite, pagePath, renderPage } from './html';
@@ -31,7 +32,11 @@ export interface PublishResult {
 export async function publishProject(doc: Cre8Document): Promise<PublishResult> {
   // Forms post to the API, not to the site's own Worker — that one has no
   // database and would answer 404.
-  const formTarget = { apiOrigin: apiOrigin() ?? undefined, projectId: doc.id };
+  const formTarget = {
+    apiOrigin: apiOrigin() ?? undefined,
+    projectId: doc.id,
+    records: await loadRecords(doc),
+  };
   const generated = generateSite(doc, formTarget);
 
   const site: PublishedSite = {
@@ -67,6 +72,41 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
   };
 }
 
+/**
+ * Every collection the document repeats over, read once before generating.
+ *
+ * Read here rather than inside the renderer because the renderer has no
+ * network and should not grow one — it is the same framework-free module that
+ * has to run in a Worker, where these come straight out of D1. One
+ * implementation, two callers, no `fetch` in the middle.
+ *
+ * **This is the constraint D3 exists to remove.** Publishing runs in the
+ * browser today, so a publish downloads the collections first: fine for a blog
+ * of fifty posts, five megabytes for five thousand products, and impossible
+ * for republish-on-change because nothing on the server can render. Moving the
+ * publisher into the Worker turns this function into a D1 query.
+ */
+async function loadRecords(doc: Cre8Document): Promise<RecordSet> {
+  const adapter = getStorage();
+  const collections = collectionsUsedBy(doc.nodes, Object.keys(doc.nodes));
+  if (!adapter.listRecords || !collections.length) return {};
+
+  const loaded = await Promise.all(
+    collections.map(async (collectionId) => {
+      try {
+        return [collectionId, await adapter.listRecords!(doc.id, collectionId)] as const;
+      } catch {
+        // A collection that will not load publishes as an empty list rather
+        // than failing the whole site. The alternative is a designer unable to
+        // publish a typo fix because one repeater points at a collection that
+        // has been deleted.
+        return [collectionId, []] as const;
+      }
+    })
+  );
+  return Object.fromEntries(loaded);
+}
+
 export interface ExportResult {
   /** Assets that could not be read, so the archive is short of them. */
   missing: string[];
@@ -87,6 +127,9 @@ export async function exportProject(doc: Cre8Document): Promise<ExportResult> {
     pretty: true,
     apiOrigin: apiOrigin() ?? undefined,
     projectId: doc.id,
+    // A ZIP that dropped the bound rows would be a different site from the one
+    // that was published, which is exactly what an export must not be.
+    records: await loadRecords(doc),
   });
 
   const missing: string[] = [];

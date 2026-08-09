@@ -19,6 +19,7 @@ import {
   type NodeId,
   type NodeProps,
   type Page,
+  type RepeatSpec,
   type ResponsiveStyles,
   type SceneNode,
   type StateStyles,
@@ -72,6 +73,10 @@ export interface NodeSpec {
   states?: StateStyles;
   rules?: StyleRule[];
   meta?: SceneNode['meta'];
+  /** Render `children` once per record. */
+  repeat?: RepeatSpec;
+  /** Read fields of the record in scope into props. */
+  bind?: Record<string, string>;
   children?: NodeSpec[];
 }
 
@@ -102,6 +107,8 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
     node.rules = [...(node.rules ?? []), ...fromStates, ...(spec.rules ?? [])];
   }
   if (spec.meta) node.meta = { ...node.meta, ...spec.meta };
+  if (spec.repeat) node.repeat = structuredCloneCompat(spec.repeat);
+  if (spec.bind) node.bind = { ...spec.bind };
 
   into[node.id] = node;
   for (const childSpec of spec.children ?? []) {

@@ -14,6 +14,7 @@
 
 import { describeElement, type AttrValue } from '../renderer/element-model';
 import { variantsOf, type Variant } from '../renderer/variants';
+import { boundProps, repeatRows, type RecordSet } from '../renderer/repeat';
 import { behaviourRuntimeSource } from '../runtime/behaviour';
 import {
   DATA_ATTR,
@@ -25,7 +26,7 @@ import { generateStylesheet, minifyCss } from '../renderer/css';
 import { themeToCssVariables, usedWebFonts } from '../document/theme';
 import { collectSubtree } from '../document/tree';
 import { getElement } from '../document/schema';
-import type { Cre8Document, NodeId, Page, SceneNode } from '../document/types';
+import type { CollectionRecord, Cre8Document, NodeId, Page, SceneNode } from '../document/types';
 
 const VOID_TAGS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source',
@@ -59,6 +60,10 @@ export interface RenderNodeOptions {
   hrefResolver?: (href: string) => string;
   /** Give a form with no action of its own somewhere to post. */
   formAction?: (formId: string) => string;
+  /** Every collection's rows, for the repeaters on this page. */
+  records?: RecordSet;
+  /** The record in scope — set by the nearest repeater above this node. */
+  record?: CollectionRecord | null;
   /** Guard against a component that somehow contains itself. */
   depth?: number;
 }
@@ -80,12 +85,18 @@ export function renderNodeToHtml(
     return renderNodeToHtml(doc, component.rootNodeId, { ...options, depth: depth + 1 });
   }
 
+  // The record in scope, written over the node's own props. Everything below
+  // reads `variant.props`, so a bound `src` reaches the `srcset` logic and a
+  // bound `href` reaches the link resolver without either of them learning
+  // what a record is.
+  const props = boundProps(node, options.record ?? null);
+
   // A node whose rules change its content ships as one element per
   // alternative, every string in the file, with a stylesheet rule choosing
   // between them. That is what keeps conditional text indexed, selectable and
   // correct with scripting off — a script writing `textContent` would give a
   // crawler the default and nothing else.
-  const variants = variantsOf(node);
+  const variants = variantsOf(node, props);
   if (variants.length > 1) {
     return variants.map((variant) => renderVariant(doc, node, variant, options, depth)).join('');
   }
@@ -124,11 +135,7 @@ function renderVariant(
   if (model.html !== undefined) return `<${tag}${attrs}>${model.html}</${tag}>`;
   if (model.text !== undefined) return `<${tag}${attrs}>${escapeHtml(model.text)}</${tag}>`;
 
-  const rendered = getElement(node.type).container
-    ? node.children
-        .map((childId) => renderNodeToHtml(doc, childId, { ...options, depth: depth + 1 }))
-        .join('')
-    : '';
+  const rendered = getElement(node.type).container ? renderChildren(doc, node, options, depth) : '';
   const children = model.wrapChildren
     ? `<${model.wrapChildren}>${rendered}</${model.wrapChildren}>`
     : rendered;
@@ -138,6 +145,33 @@ function renderVariant(
     : '';
 
   return `<${tag}${attrs}>${lead}${children}</${tag}>`;
+}
+
+/**
+ * The subtree, once — or once per record.
+ *
+ * A repeater's element is emitted a single time; it is the *children* that
+ * repeat, so the grid stays a grid and only what is inside it multiplies. The
+ * template is normally one child, and several repeat as a group.
+ *
+ * The published page is the whole of the feature: these are real elements in
+ * the file, so the list is indexed, printed, and correct with scripting off.
+ * Nothing here writes a script and nothing here writes a rule.
+ */
+function renderChildren(
+  doc: Cre8Document,
+  node: SceneNode,
+  options: RenderNodeOptions,
+  depth: number
+): string {
+  const inside = (record: CollectionRecord | null) =>
+    node.children
+      .map((childId) => renderNodeToHtml(doc, childId, { ...options, record, depth: depth + 1 }))
+      .join('');
+
+  if (!node.repeat) return inside(options.record ?? null);
+  const pool = options.records?.[node.repeat.collection];
+  return repeatRows(node.repeat, pool, 'publish').map(inside).join('');
 }
 
 /* --------------------------------------------------------------------------
@@ -281,6 +315,15 @@ export interface RenderPageOptions {
   apiOrigin?: string;
   /** Which project the submissions belong to. Required with `apiOrigin`. */
   projectId?: string;
+  /**
+   * Every collection's rows, keyed by collection id.
+   *
+   * Passed in rather than fetched here because this module has no network and
+   * should not grow one: the browser publisher reads them through the API
+   * client, and the Worker will read them straight out of D1. One renderer,
+   * two callers, no `fetch` in the middle.
+   */
+  records?: RecordSet;
 }
 
 export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOptions = {}): string {
@@ -308,6 +351,7 @@ export function renderPage(doc: Cre8Document, page: Page, options: RenderPageOpt
 
   const body = applyShortClasses(renderNodeToHtml(doc, page.rootNodeId, {
     hrefResolver: hrefResolverFor(doc, page),
+    records: options.records,
     formAction:
       options.apiOrigin && options.projectId
         ? (formId) =>

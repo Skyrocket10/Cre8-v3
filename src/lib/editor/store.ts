@@ -25,6 +25,7 @@ import {
 } from '../document/tree';
 import type {
   Breakpoint,
+  CollectionRecord,
   Cre8Document,
   ElementType,
   NodeId,
@@ -38,6 +39,7 @@ import type {
 import { commit, emptyHistory, redo as redoHistory, undo as undoHistory, type HistoryState } from '../history/history';
 import { cloneSubtree } from '../document/factory';
 import { uid } from '../document/id';
+import { getStorage } from '../api/storage';
 
 /* --------------------------------------------------------------------------
  * UI types
@@ -162,6 +164,21 @@ interface EditorState {
   clipboard: { nodes: NodeMap; rootIds: NodeId[] } | null;
   styleSource: NodeId | null;
 
+  /**
+   * Collection rows the canvas has loaded, by collection id.
+   *
+   * Not part of `doc`, and that is the whole point of the split: a schema is
+   * design and belongs in the thing that is versioned, undone and
+   * collaborated on; records are content, arrive over the network, and must
+   * never enter the patch stream. An undo has to be unable to revert somebody
+   * else's blog post.
+   *
+   * An absent key means "not asked for yet", which is what makes the load
+   * lazy — a repeater asking is what fetches it. An empty array means asked
+   * and there is nothing, so nothing asks again.
+   */
+  records: Record<string, CollectionRecord[]>;
+
   /* Persistence */
   saveStatus: SaveStatus;
   lastSavedAt: number | null;
@@ -283,6 +300,9 @@ interface EditorActions {
   setGuides(guides: SnapGuide[]): void;
   invalidate(): void;
 
+  /* Collection records */
+  loadRecords(collectionId: string): void;
+
   /* Persistence & feedback */
   setSaveStatus(status: SaveStatus): void;
   markSaved(): void;
@@ -321,6 +341,15 @@ export function onLocalPatches(listener: PatchListener): () => void {
  */
 let applyingRemote = false;
 
+/**
+ * Collections with a load in the air.
+ *
+ * Module-level rather than store state because it is not something anything
+ * renders — and because a repeater asks on every render until the rows land,
+ * so without it a single canvas paint would fire one request per row.
+ */
+const inFlight = new Set<string>();
+
 function initialState(): EditorState {
   const doc = createEmptyDocument();
   return {
@@ -356,6 +385,7 @@ function initialState(): EditorState {
     measureToken: 0,
     clipboard: null,
     styleSource: null,
+    records: {},
     saveStatus: 'idle',
     lastSavedAt: null,
     toasts: [],
@@ -370,6 +400,10 @@ export const useEditor = create<EditorStore>()((set, get) => ({
 
   loadDocument(doc, pageId) {
     const home = getHomePage(doc);
+    // Anything still in the air belongs to the project being left. Its result
+    // is discarded on arrival, but the entry would otherwise stay claimed and
+    // a collection of the same id in the new project would never load.
+    inFlight.clear();
     set({
       doc,
       history: emptyHistory(),
@@ -382,10 +416,14 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       saveStatus: 'saved',
       lastSavedAt: Date.now(),
       fitRequest: get().fitRequest + 1,
+      // A different project's rows are a different project's content, and a
+      // collection id is only unique inside one document.
+      records: {},
     });
   },
 
   resetDocument() {
+    inFlight.clear();
     set(initialState());
   },
 
@@ -1094,6 +1132,37 @@ export const useEditor = create<EditorStore>()((set, get) => ({
   },
   invalidate() {
     set({ measureToken: get().measureToken + 1 });
+  },
+
+  /* -------------------------------------------------- collection records -- */
+
+  loadRecords(collectionId) {
+    if (!collectionId || collectionId in get().records) return;
+    if (inFlight.has(collectionId)) return;
+
+    const adapter = getStorage();
+    const projectId = get().doc.id;
+    if (!adapter.listRecords) {
+      // No record store behind this adapter — say so once, in the shape a
+      // repeater understands, so nothing asks again on every render.
+      set((state) => ({ records: { ...state.records, [collectionId]: [] } }));
+      return;
+    }
+
+    inFlight.add(collectionId);
+    void adapter
+      .listRecords(projectId, collectionId)
+      .then((rows) => {
+        // The project changed while this was in the air. Its rows belong to a
+        // document nobody is looking at any more.
+        if (get().doc.id !== projectId) return;
+        set((state) => ({ records: { ...state.records, [collectionId]: rows } }));
+      })
+      .catch(() => {
+        // A failed load must not become a permanent empty list — leaving the
+        // key absent is what lets the next render try again.
+      })
+      .finally(() => inFlight.delete(collectionId));
   },
 
   /* ------------------------------------------------- persistence & UI -- */

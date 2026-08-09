@@ -16,6 +16,7 @@ import { themeToStyleObject } from '@/lib/document/theme';
 import { collectSubtree } from '@/lib/document/tree';
 import { generateNodeCss, DOCUMENT_RESET, PLACEHOLDER_CSS } from '@/lib/renderer/css';
 import { createSnapshotEngine, NodeView, RenderProvider } from '@/lib/renderer/render';
+import { collectionsUsedBy } from '@/lib/renderer/repeat';
 import { behaviourRuntime } from '@/lib/runtime/behaviour';
 import { DATA_ATTR, collectDataSources, dataRuntime, fallbackTokens } from '@/lib/runtime/data';
 import { useEditor } from '@/lib/editor/store';
@@ -150,14 +151,41 @@ function PreviewSurface({
     ].join('\n');
   }, [doc, page]);
 
+  // The same rows the canvas is looking at, so preview cannot show a different
+  // list from the one being designed. Preview does *not* draw the template row
+  // an empty collection gets on the canvas: its job is to be the published
+  // page, and the published page would show nothing.
+  const records = useEditor((s) => s.records);
+
+  /*
+   * Every collection in the *document*, not just the page on screen.
+   *
+   * The canvas loads what it draws, which is one page — but preview navigates,
+   * so a repeater two pages away would render empty for no reason a designer
+   * could work out. Loading is idempotent, so asking for all of them costs one
+   * request per collection for the whole session.
+   */
+  const repeated = useMemo(
+    () => collectionsUsedBy(doc.nodes, Object.keys(doc.nodes)),
+    [doc.nodes]
+  );
+  useEffect(() => {
+    for (const collectionId of repeated) useEditor.getState().loadRecords(collectionId);
+  }, [repeated]);
+
   const engine = useMemo(
     () =>
-      createSnapshotEngine(doc, 'preview', (href) => {
-        // Internal links stay inside the preview rather than reloading the app.
-        if (href.startsWith('page:')) return `#${href.slice(5)}`;
-        return href;
-      }),
-    [doc]
+      createSnapshotEngine(
+        doc,
+        'preview',
+        (href) => {
+          // Internal links stay inside the preview rather than reloading the app.
+          if (href.startsWith('page:')) return `#${href.slice(5)}`;
+          return href;
+        },
+        records
+      ),
+    [doc, records]
   );
 
   const themeVars = useMemo(() => themeToStyleObject(doc.theme), [doc.theme]);

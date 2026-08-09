@@ -23,8 +23,9 @@ import React, {
   useRef,
 } from 'react';
 import { getElement } from '../document/schema';
-import type { Cre8Document, NodeId, SceneNode } from '../document/types';
+import type { CollectionRecord, Cre8Document, NodeId, SceneNode } from '../document/types';
 import { describeElement, toReactAttrs, type RenderMode } from './element-model';
+import { boundProps, repeatRows } from './repeat';
 import { activeVariant, variantsOf, type Variant } from './variants';
 
 export interface RenderEngine {
@@ -33,6 +34,14 @@ export interface RenderEngine {
   useNode: (id: NodeId) => SceneNode | undefined;
   /** Resolve a component id to its master root node. */
   useComponentRoot: (componentId: string) => NodeId | undefined;
+  /**
+   * The rows of one collection. Must be a hook.
+   *
+   * A hook because the editor loads them over the network — a repeater has to
+   * redraw when they land, and again when a record is edited, without the node
+   * itself having changed.
+   */
+  useRecords: (collectionId: string) => CollectionRecord[] | undefined;
   resolveHref: (href: string) => string;
   registerRef?: (id: NodeId, el: HTMLElement | null) => void;
   commitText?: (id: NodeId, prop: string, value: string, ruleId?: string | null) => void;
@@ -56,6 +65,16 @@ const EngineContext = createContext<RenderEngine | null>(null);
 
 /** Kept separate from the engine so entering text edit doesn't invalidate it. */
 const EditingContext = createContext<NodeId | null>(null);
+
+/**
+ * The record the nearest repeater above put in scope.
+ *
+ * A context rather than a prop threaded through `NodeView` because it has to
+ * survive `memo`: React re-renders a consumer when the context value changes
+ * whatever its props did, which is precisely the behaviour a repeated subtree
+ * needs and precisely what a prop would not give it.
+ */
+const RecordContext = createContext<CollectionRecord | null>(null);
 
 export function useRenderEngine(): RenderEngine {
   const engine = useContext(EngineContext);
@@ -89,6 +108,16 @@ interface NodeViewProps {
   identityId?: NodeId;
   /** Inside an instance: visible, measurable, but not individually selectable. */
   inert?: boolean;
+  /**
+   * A copy the editor must not attach to.
+   *
+   * Stronger than `inert`, and a separate flag for exactly that reason: an
+   * inert instance still exposes the instance's own identity, which is how you
+   * select one. Every row of a repeater after the first is the *same node*
+   * again, so a shared `data-cre8-id` would put two elements in the registry
+   * under one key and a text edit would open in all of them at once.
+   */
+  repeated?: boolean;
   depth?: number;
 }
 
@@ -98,46 +127,37 @@ export const NodeView = memo(function NodeView({
   id,
   identityId,
   inert = false,
+  repeated = false,
   depth = 0,
 }: NodeViewProps) {
   const engine = useRenderEngine();
   const node = engine.useNode(id);
+  // Unconditional, above the early returns: it is a hook, and a repeated
+  // subtree redraws through this rather than through `useNode` — the node has
+  // not changed, the record has.
+  const record = useContext(RecordContext);
 
   if (!node || depth > MAX_DEPTH) return null;
   if (node.meta.hidden && engine.mode !== 'edit') return null;
 
   if (node.type === 'instance') {
-    return <InstanceView node={node} depth={depth} />;
+    return <InstanceView node={node} repeated={repeated} depth={depth} />;
   }
+
+  const shared = { identityId, inert, repeated, depth };
 
   // A node whose rules change its content renders as one element per
   // alternative, with CSS choosing between them. The single-element case is
   // kept off the mapping path entirely: it is every node on every page but a
   // handful, and an extra array walk per node per render is not free.
-  const variants = variantsOf(node);
+  const variants = variantsOf(node, boundProps(node, record));
   if (variants.length === 1) {
-    return (
-      <ElementView
-        node={node}
-        variant={variants[0]!}
-        live
-        identityId={identityId}
-        inert={inert}
-        depth={depth}
-      />
-    );
+    return <ElementView node={node} variant={variants[0]!} live {...shared} />;
   }
   return (
     <>
       {variants.map((variant) => (
-        <VariantView
-          key={variant.key}
-          node={node}
-          variant={variant}
-          identityId={identityId}
-          inert={inert}
-          depth={depth}
-        />
+        <VariantView key={variant.key} node={node} variant={variant} {...shared} />
       ))}
     </>
   );
@@ -155,27 +175,43 @@ function VariantView(props: {
   variant: Variant;
   identityId?: NodeId;
   inert: boolean;
+  repeated: boolean;
   depth: number;
 }) {
   const active = useRenderEngine().useActiveVariantKey(props.node);
   return <ElementView {...props} live={props.variant.key === active} />;
 }
 
-function InstanceView({ node, depth }: { node: SceneNode; depth: number }) {
+function InstanceView({
+  node,
+  repeated,
+  depth,
+}: {
+  node: SceneNode;
+  repeated: boolean;
+  depth: number;
+}) {
   const engine = useRenderEngine();
   const componentId = String(node.props.componentId ?? '');
   const rootId = engine.useComponentRoot(componentId);
 
   if (!rootId) {
     return engine.mode === 'edit' ? (
-      <div className={`c-${node.id}`} data-cre8-id={node.id} data-cre8-placeholder>
+      <div
+        className={`c-${node.id}`}
+        {...(repeated ? {} : { 'data-cre8-id': node.id })}
+        data-cre8-placeholder
+      >
         Missing component
       </div>
     ) : null;
   }
   // The master root supplies the styling; the instance supplies the identity,
   // so clicking anywhere inside selects the instance rather than the master.
-  return <NodeView id={rootId} identityId={node.id} inert depth={depth} />;
+  // The instance's own inertness is deliberately not folded into `repeated`:
+  // an instance nested inside a master is inert and still selectable, which is
+  // the only way to reach it.
+  return <NodeView id={rootId} identityId={node.id} inert repeated={repeated} depth={depth} />;
 }
 
 /**
@@ -190,6 +226,7 @@ function ElementView({
   live,
   identityId,
   inert,
+  repeated,
   depth,
 }: {
   node: SceneNode;
@@ -197,12 +234,15 @@ function ElementView({
   live: boolean;
   identityId?: NodeId;
   inert: boolean;
+  repeated: boolean;
   depth: number;
 }) {
   const engine = useRenderEngine();
   const editingId = useContext(EditingContext);
   const identity = identityId ?? node.id;
-  const isEditing = engine.mode === 'edit' && editingId === identity && live;
+  // `!repeated` because rows two onward are the same node: without it, typing
+  // into the first card would open a caret in every card at once.
+  const isEditing = engine.mode === 'edit' && editingId === identity && live && !repeated;
 
   const model = useMemo(
     () =>
@@ -221,7 +261,7 @@ function ElementView({
    * measurement for the whole subtree. Only the element that carries the
    * identity registers a ref.
    */
-  const exposed = (identityId !== undefined || !inert) && live;
+  const exposed = (identityId !== undefined || !inert) && live && !repeated;
 
   const setRef = useCallback(
     (el: HTMLElement | null) => {
@@ -285,11 +325,16 @@ function ElementView({
   }
 
   /* --- Containers --------------------------------------------------------- */
-  const rendered = model.acceptsChildren
-    ? node.children.map((childId) => (
-        <NodeView key={childId} id={childId} inert={inert} depth={depth + 1} />
-      ))
-    : null;
+  // The repeating branch is its own component so the records subscription
+  // exists only for nodes that repeat. Every other container on the page takes
+  // the path it always took and asks nothing.
+  const rendered = !model.acceptsChildren ? null : node.repeat ? (
+    <RepeatedChildren node={node} inert={inert} repeated={repeated} depth={depth} />
+  ) : (
+    node.children.map((childId) => (
+      <NodeView key={childId} id={childId} inert={inert} repeated={repeated} depth={depth + 1} />
+    ))
+  );
 
   const children = model.wrapChildren
     ? React.createElement(model.wrapChildren, { key: '__wrap' }, rendered)
@@ -301,6 +346,58 @@ function ElementView({
 
   return React.createElement(Tag, { ...attrs, ref: setRef }, lead, children);
 }
+
+/**
+ * The subtree, once per record.
+ *
+ * The repeating node's own element is drawn once — the grid stays a grid — and
+ * its `children` are what multiply, each group with a record in scope. The
+ * template is normally a single child; several repeat together as a group.
+ *
+ * Nothing here writes a class, and that is the whole economy of the feature: a
+ * hundred rows are a hundred subtrees carrying the classes the node already
+ * had, so the stylesheet is exactly the size it was with one.
+ */
+function RepeatedChildren({
+  node,
+  inert,
+  repeated,
+  depth,
+}: {
+  node: SceneNode;
+  inert: boolean;
+  repeated: boolean;
+  depth: number;
+}) {
+  const engine = useRenderEngine();
+  const repeat = node.repeat!;
+  const pool = engine.useRecords(repeat.collection);
+  const rows = repeatRows(repeat, pool, engine.mode);
+
+  return (
+    <>
+      {rows.map((record, index) => (
+        <RecordContext.Provider key={record?.id ?? TEMPLATE_KEY} value={record}>
+          {node.children.map((childId) => (
+            <NodeView
+              key={childId}
+              id={childId}
+              inert={inert}
+              // Only the first row is the designer's; the rest are copies of
+              // it, and two elements answering to one node id would break
+              // selection, measurement and the text caret at once.
+              repeated={repeated || index > 0}
+              depth={depth + 1}
+            />
+          ))}
+        </RecordContext.Provider>
+      ))}
+    </>
+  );
+}
+
+/** React key for the design-time row an empty collection draws. */
+const TEMPLATE_KEY = '__cre8-template';
 
 /**
  * `describeElement` only needs the document to resolve internal page links,
@@ -411,13 +508,20 @@ function InlineTextEditor({
 export function createSnapshotEngine(
   doc: Cre8Document,
   mode: RenderMode,
-  hrefResolver?: (href: string) => string
+  hrefResolver?: (href: string) => string,
+  records?: Record<string, CollectionRecord[] | undefined>
 ): RenderEngine {
   const componentRoots = new Map(doc.components.map((c) => [c.id, c.rootNodeId]));
   return {
     mode,
     useNode: (id) => doc.nodes[id],
     useComponentRoot: (componentId) => componentRoots.get(componentId),
+    // A snapshot is a fixed set of rows, handed in rather than fetched.
+    // Preview is given the same ones the canvas is looking at, so the two
+    // agree. Anything else — a block thumbnail — is given none, and since a
+    // snapshot never runs in `edit` mode its repeaters draw nothing at all
+    // rather than a template row.
+    useRecords: (collectionId) => records?.[collectionId],
     // A snapshot has no design-time state to consult, so the base is the
     // honest answer — and nothing outside the canvas uses what it decides.
     useActiveVariantKey: (node) => activeVariant(doc.nodes, node, doc.settings).key,
