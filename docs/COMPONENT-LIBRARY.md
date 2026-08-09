@@ -437,11 +437,11 @@ not after.**
 |---|---|---|---|
 | **A** | 37 marketing + 12 application blocks; block categories + previews; the block harness; the token lint | none | Largest visible gain, zero architectural risk. Proves the pipeline before it carries weight. Broken down in [COMPONENT-BUILD-PLAN.md](COMPONENT-BUILD-PLAN.md) |
 | **A′** | Form submit target — Worker route + submissions table | small | Unblocks 6 blocks already built in A |
-| **B** | Native primitives: form controls, table family, `<details>`, `<dialog>`, popover, `tag` prop on container/section | a | All native. Each one is a schema row plus a renderer branch, and behaves identically on all three surfaces. Landed so far: `details`, `select`, `checkbox`, `radio`, semantic tags, `popover`, `table`/`tableRow`/`tableCell`. `<dialog>` deferred — see below |
+| **B** | Native primitives: form controls, table family, `<details>`, `<dialog>`, popover, `tag` prop on container/section | a | All native. Each one is a schema row plus a renderer branch, and behaves identically on all three surfaces. All landed, `<dialog>` included |
 | **B′** | The ~25 blocks those primitives unlock: accordion, overlays, form composition, comparison tables | a | Composition only, once B lands |
 | **C** | Behaviour runtime, design-time state, behavioural fidelity harness | b | The gated one. §6 |
 | **C′** | Tabs ✅, pricing toggle ✅, stepper ✅, filter ✅, install tabs ✅, command palette ✅ (native), toast, carousel | b | |
-| **D** | Data bindings + repeater | c | Unlocks real tables, blog indexes, product grids, CMS |
+| **D** | Data bindings + repeater | c | Unlocks real tables, blog indexes, product grids, CMS. Scoped in [DATA-LAYER.md](DATA-LAYER.md) — it makes eighteen existing blocks real rather than adding new ones |
 | **E** | Patterns: dashboard, settings, auth flow, docs site, changelog, store, help centre | — | Multi-page arrangements of everything above |
 
 ### Where the popover stops short
