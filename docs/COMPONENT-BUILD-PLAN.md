@@ -657,3 +657,17 @@ dismiss button sets `dismissed`, and nothing listens for it *positively* —
 the bar listens for `shown` and dismissing is simply anything else. The rule
 now flags an unnamed value only when no negated and no self condition exists
 on that state, which is exactly when "anything else" cannot matter.
+
+
+---
+
+## Next: one mechanism instead of four
+
+`Visibility` is already outgrowing its name, and the evidence is in the
+generator: `states.pressed` and a visibility condition compile to the same
+selector shape from two separate code paths. The design for folding hover,
+parts, states, visibility — and later content and data — into a single
+`WHEN … APPLY …` rule is in [STATE-AND-CONDITIONS.md](STATE-AND-CONDITIONS.md).
+
+It should be read before any more stateful components are built, because the
+storage migration is the expensive part and it only gets more expensive.
