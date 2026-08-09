@@ -60,6 +60,11 @@ export function PagesPanel() {
                 <input
                   autoFocus
                   defaultValue={page.name}
+                  // Selected on open, so the first keystroke names it. Without
+                  // this a freshly created "Page 3" has to be cleared by hand
+                  // before it can be called anything, which is the difference
+                  // between naming a thing and editing a placeholder.
+                  onFocus={(e) => e.currentTarget.select()}
                   onClick={(e) => e.stopPropagation()}
                   onBlur={(e) => {
                     useEditor.getState().transact('Rename page', (draft) => {

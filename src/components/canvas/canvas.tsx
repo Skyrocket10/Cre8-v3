@@ -18,7 +18,8 @@ import { getElement } from '@/lib/document/schema';
 import { collectSubtree, isEffectivelyLocked } from '@/lib/document/tree';
 import { themeToStyleObject } from '@/lib/document/theme';
 import { DOCUMENT_RESET, PLACEHOLDER_CSS, generateNodeCss } from '@/lib/renderer/css';
-import { NodeView, RenderProvider } from '@/lib/renderer/render';
+import { NodeView, RecordScope, RenderProvider } from '@/lib/renderer/render';
+import { designRecord as pickDesignRecord } from '@/lib/renderer/repeat';
 import { behaviourRuntime } from '@/lib/runtime/behaviour';
 import { DATA_ATTR, collectDataSources, designTokens } from '@/lib/runtime/data';
 import { hitTest } from '@/lib/editor/registry';
@@ -45,6 +46,25 @@ export function Canvas() {
   const spacePanning = useEditor((s) => s.spacePanning);
   const editingTextId = useEditor((s) => s.editingTextId);
   const rootId = useEditor((s) => activeRootId(s));
+
+  /*
+   * A page that is a template for a collection is drawn against a real record
+   * rather than the placeholder text it was laid out with. Editor-only, and
+   * the same shape as `switchDesign`: which record is a design-time choice
+   * that never reaches a published file.
+   */
+  const routeCollection = useEditor(
+    (s) => s.doc.pages.find((p) => p.id === s.activePageId)?.dynamic?.collection
+  );
+  const routeRows = useEditor((s) => (routeCollection ? s.records[routeCollection] : undefined));
+  const projectSettings = useEditor((s) => s.doc.settings);
+  const designRecord = useMemo(
+    () => pickDesignRecord(projectSettings, routeCollection, routeRows),
+    [projectSettings, routeCollection, routeRows]
+  );
+  useEffect(() => {
+    if (routeCollection) useEditor.getState().loadRecords(routeCollection);
+  }, [routeCollection]);
   const fitRequest = useEditor((s) => s.fitRequest);
 
   const frameWidth = BREAKPOINT_DEFS[breakpoint].width;
@@ -309,7 +329,9 @@ export function Canvas() {
             <style dangerouslySetInnerHTML={{ __html: css }} />
             {rootId && (
               <RenderProvider engine={editorEngine} editingId={editingTextId}>
-                <NodeView id={rootId} />
+                <RecordScope record={designRecord}>
+                  <NodeView id={rootId} />
+                </RecordScope>
               </RenderProvider>
             )}
           </div>

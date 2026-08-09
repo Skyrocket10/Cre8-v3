@@ -14,6 +14,7 @@ import { useEditor } from '@/lib/editor/store';
 import { ColorField } from '../ui/color-field';
 import { Section, Switch, TextInput } from '../ui/primitives';
 import { InspectorGroup, StyleRow } from './controls';
+import { PageRouteControls } from './section-data';
 
 export function PagePanel() {
   const page = useEditor((s) => s.doc.pages.find((p) => p.id === s.activePageId));
@@ -66,6 +67,7 @@ export function PagePanel() {
               }}
             />
           </StyleRow>
+          <PageRouteControls />
         </InspectorGroup>
       </Section>
 

@@ -20,11 +20,15 @@ import {
   topMostNodes,
   type NodeMap,
 } from './tree';
+import { LIMITS } from './types';
 import type {
   Breakpoint,
+  Collection,
   ComponentDefinition,
   Cre8Document,
   ElementType,
+  Field,
+  FieldType,
   NodeId,
   NodeProps,
   Page,
@@ -802,4 +806,165 @@ export function revealSwitchPath(doc: Cre8Document, nodeId: NodeId): boolean {
   }
 
   return changed;
+}
+
+/* --------------------------------------------------------------------------
+ * Collections
+ *
+ * The *shape* of a collection, which is design and lives in the document. Its
+ * records do not: they are content, they live in D1, and nothing here can
+ * touch them — which is the point. An undo has to be unable to revert somebody
+ * else's blog post.
+ * ----------------------------------------------------------------------- */
+
+/** Field types that can be safely read as one another, both ways. */
+const INTERCHANGEABLE: Partial<Record<FieldType, FieldType[]>> = {
+  text: ['richtext', 'select'],
+  richtext: ['text'],
+  select: ['text'],
+  number: [],
+  boolean: [],
+  date: ['text'],
+  image: ['text'],
+  reference: ['text'],
+};
+
+/**
+ * What retyping a field would cost, in a sentence, or null if it costs nothing.
+ *
+ * Nothing here converts anything: the values are in D1, there may be five
+ * thousand of them, and rewriting them all on a keystroke in the inspector is
+ * not a thing a design tool should do quietly. So the honest arrangement is
+ * that the *shape* changes, the stored values do not, and the editor says
+ * plainly which of them will stop making sense.
+ */
+export function retypeCost(from: FieldType, to: FieldType): string | null {
+  if (from === to) return null;
+  if (INTERCHANGEABLE[from]?.includes(to)) return null;
+  return `Existing values were saved as ${from}. They stay as they are, and any that a ${to} field cannot read will show as empty.`;
+}
+
+export function addCollection(doc: Cre8Document, name: string): Collection | null {
+  const collections = (doc.collections ??= []);
+  if (collections.length >= LIMITS.collections) return null;
+
+  const collection: Collection = {
+    id: uid('c'),
+    name,
+    fields: [{ key: 'title', label: 'Title', type: 'text' }],
+    slugField: 'title',
+  };
+  collections.push(collection);
+  return collection;
+}
+
+export function updateCollection(
+  doc: Cre8Document,
+  collectionId: string,
+  patch: Partial<Pick<Collection, 'name' | 'slugField'>>
+): void {
+  const collection = doc.collections?.find((c) => c.id === collectionId);
+  if (collection) Object.assign(collection, patch);
+}
+
+/**
+ * Forget the shape. The rows stay in D1, unreachable and unbilled-for.
+ *
+ * Deliberately not a cascade: deleting a collection in the editor is an undoable
+ * design change, and a delete that reached across into content would be an
+ * undoable design change that destroyed somebody's writing. Re-creating a
+ * collection with the same id brings the records back, which is the behaviour
+ * an undo needs.
+ */
+export function removeCollection(doc: Cre8Document, collectionId: string): void {
+  if (!doc.collections) return;
+  doc.collections = doc.collections.filter((c) => c.id !== collectionId);
+  if (!doc.collections.length) delete doc.collections;
+
+  // Anything pointing at it now points at nothing, and a repeater over a
+  // collection that has gone renders nothing rather than erroring — but a
+  // dangling reference in the document is a thing the layer tree cannot
+  // explain, so it goes too.
+  for (const node of Object.values(doc.nodes)) {
+    if (node.repeat?.collection === collectionId) delete node.repeat;
+  }
+  for (const page of doc.pages) {
+    if (page.dynamic?.collection === collectionId) delete page.dynamic;
+  }
+}
+
+/** A key that is unique in its collection and safe in a binding. */
+function uniqueKey(collection: Collection, wanted: string): string {
+  const base = slugify(wanted).replace(/-/g, '_') || 'field';
+  if (!collection.fields.some((f) => f.key === base)) return base;
+  for (let i = 2; i < 500; i++) {
+    const candidate = `${base}_${i}`;
+    if (!collection.fields.some((f) => f.key === candidate)) return candidate;
+  }
+  return `${base}_${uid()}`;
+}
+
+export function addField(
+  doc: Cre8Document,
+  collectionId: string,
+  label: string,
+  type: FieldType = 'text'
+): Field | null {
+  const collection = doc.collections?.find((c) => c.id === collectionId);
+  if (!collection || collection.fields.length >= LIMITS.fieldsPerCollection) return null;
+
+  const field: Field = { key: uniqueKey(collection, label), label, type };
+  if (type === 'select') field.options = ['One', 'Two'];
+  collection.fields.push(field);
+  return field;
+}
+
+/**
+ * Change a field, keeping its key stable across a rename.
+ *
+ * Bindings point at the key, so renaming "Title" to "Headline" must not empty
+ * every heading on the site. The key is generated once from the first label
+ * and never moves again.
+ */
+export function updateField(
+  doc: Cre8Document,
+  collectionId: string,
+  key: string,
+  patch: Partial<Omit<Field, 'key'>>
+): void {
+  const field = doc.collections
+    ?.find((c) => c.id === collectionId)
+    ?.fields.find((f) => f.key === key);
+  if (!field) return;
+  Object.assign(field, patch);
+  if (field.type !== 'select') delete field.options;
+  if (field.type !== 'reference') delete field.of;
+}
+
+export function removeField(doc: Cre8Document, collectionId: string, key: string): void {
+  const collection = doc.collections?.find((c) => c.id === collectionId);
+  if (!collection || collection.fields.length <= 1) return;
+  collection.fields = collection.fields.filter((f) => f.key !== key);
+  if (collection.slugField === key) delete collection.slugField;
+
+  // A binding to a field that no longer exists falls back to the node's own
+  // prop, which reads as "the placeholder came back" and is impossible to
+  // diagnose. Clearing it here makes the loss visible in the inspector, where
+  // the person who caused it is standing.
+  for (const node of Object.values(doc.nodes)) {
+    if (!node.bind) continue;
+    for (const [prop, field] of Object.entries(node.bind)) {
+      if (field === key) delete node.bind[prop];
+    }
+    if (!Object.keys(node.bind).length) delete node.bind;
+  }
+}
+
+export function reorderFields(doc: Cre8Document, collectionId: string, from: number, to: number): void {
+  const collection = doc.collections?.find((c) => c.id === collectionId);
+  if (!collection) return;
+  const fields = collection.fields;
+  if (from < 0 || from >= fields.length || to < 0 || to >= fields.length) return;
+  const [moved] = fields.splice(from, 1);
+  if (moved) fields.splice(to, 0, moved);
 }

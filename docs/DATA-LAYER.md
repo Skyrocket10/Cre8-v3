@@ -289,7 +289,7 @@ than in a Worker log, is not.
 | **D2** | The repeater and binding. `repeat`, `bind`, record-in-scope in both renderers, expansion at publish. | A bound list renders identically on canvas and published, with no script, and the stylesheet does not grow by a single rule as records are added. **landed** |
 | **D3** | Publishing moves to the Worker for the hosted path. | The same document publishes byte-identical output from the Worker as from the browser. That is a strong gate and the right one: it is the whole claim. **landed** |
 | **D4** | Dynamic routes and static pagination. | A blog of thirty posts publishes thirty files plus a paginated index, every one reachable and every one in the sitemap. **landed** |
-| **D5** | The editor: collections panel, field editor, record table and form, binding in the inspector. | Someone creates a collection, adds a record and sees it on the canvas without leaving the editor or reading this document. |
+| **D5** | The editor: collections panel, field editor, record table and form, binding in the inspector. | Someone creates a collection, adds a record and sees it on the canvas without leaving the editor or reading this document. **landed** |
 | **D6** | Republish on change. | Editing a record updates the live site with no manual publish, and republishing an unchanged collection writes nothing. |
 
 ### What D1 held to
@@ -481,6 +481,38 @@ repeat over page numbers, which is a different mechanism from a repeat over
 records. And **the editor half** — a record to design a dynamic page against,
 a control for any of this — is D5, so a dynamic page on the canvas shows its
 design-time copy exactly as a repeater's template row does.
+
+### What D5 held to
+
+Thirteen checks that never touch the API and never seed a document. Every step
+is a click or a keystroke in the running editor, in the order somebody would
+do it — make a collection, add a field, write a record, point a repeater at
+it, bind a heading — and the checks are what appears on the canvas afterwards.
+A suite that needed a fixture would have been proving something else.
+
+Three decisions worth recording:
+
+**The seam is visible in the UI, not only in the code.** Fields go through
+`transact`: they undo, they travel with the document, they are design.
+Records go straight to D1: they do not undo, and Ctrl+Z after writing a blog
+post must not eat the post. The two are deliberately never edited in the same
+control, and the suite presses Ctrl+Z after saving a record to prove it.
+
+**A field's key is generated once and never moves.** Bindings point at the
+key, so renaming "Title" to "Headline" must not empty every heading on the
+site. The panel shows the key under the field, because a binding that survives
+a rename is only reassuring if you can see why.
+
+**Retyping a field says what it costs and converts nothing.** The values are
+in D1, there may be thousands, and rewriting them on a keystroke in the
+inspector is not a thing a design tool should do quietly. The shape changes,
+the stored values stay, and the panel names which of them will stop reading.
+
+It also found a real bug in a panel that predates all of this: renaming
+anything — a page, and now a collection — opened an input with the cursor at
+the end, so typing appended to "Page 3" rather than replacing it. The canvas's
+own inline editor had got this right since Phase 3 and said why. Both panels
+now select on open.
 
 D3 before D4 is the ordering §6 argues for. D5 last is deliberate and slightly
 uncomfortable: it means D1–D4 are tested through fixtures rather than through

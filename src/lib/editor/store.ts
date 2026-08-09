@@ -40,6 +40,7 @@ import { commit, emptyHistory, redo as redoHistory, undo as undoHistory, type Hi
 import { cloneSubtree } from '../document/factory';
 import { uid } from '../document/id';
 import { getStorage } from '../api/storage';
+import { api, type RecordInput } from '../api/client';
 
 /* --------------------------------------------------------------------------
  * UI types
@@ -51,6 +52,7 @@ export type LeftTab =
   | 'pages'
   | 'assets'
   | 'components'
+  | 'collections'
   | 'theme'
   | 'submissions';
 export type InspectorTab = 'design' | 'page';
@@ -195,6 +197,9 @@ interface EditorState {
   readOnly: boolean;
 }
 
+/** A record as the form has it: no id yet when it is being created. */
+export type RecordDraft = Omit<RecordInput, 'collectionId'> & { id?: string };
+
 interface TransactOptions {
   /** Consecutive transactions with the same key merge into one undo step. */
   mergeKey?: string;
@@ -302,6 +307,12 @@ interface EditorActions {
 
   /* Collection records */
   loadRecords(collectionId: string): void;
+  /** Fetch again whether or not it is already cached. */
+  reloadRecords(collectionId: string): Promise<void>;
+  saveRecord(collectionId: string, input: RecordDraft): Promise<boolean>;
+  deleteRecord(collectionId: string, recordId: string): Promise<boolean>;
+  /** Which record a dynamic page is drawn against on the canvas. */
+  designAgainst(collectionId: string, recordId: string | null): void;
 
   /* Persistence & feedback */
   setSaveStatus(status: SaveStatus): void;
@@ -349,6 +360,15 @@ let applyingRemote = false;
  * so without it a single canvas paint would fire one request per row.
  */
 const inFlight = new Set<string>();
+
+/** What a record write actually said, when it bothered to say something. */
+function recordProblem(error: unknown): string {
+  const said = error instanceof Error ? error.message.trim() : '';
+  // The server explains the two that happen: a slug already taken, and a
+  // record over the size limit. Both are the author's to fix, and both are
+  // useless as "Could not save".
+  return said && said.length < 200 ? said : 'Could not save that record.';
+}
 
 function initialState(): EditorState {
   const doc = createEmptyDocument();
@@ -1163,6 +1183,74 @@ export const useEditor = create<EditorStore>()((set, get) => ({
         // key absent is what lets the next render try again.
       })
       .finally(() => inFlight.delete(collectionId));
+  },
+
+  async reloadRecords(collectionId) {
+    const adapter = getStorage();
+    const projectId = get().doc.id;
+    if (!collectionId || !adapter.listRecords) return;
+    try {
+      const rows = await adapter.listRecords(projectId, collectionId);
+      if (get().doc.id !== projectId) return;
+      set((state) => ({ records: { ...state.records, [collectionId]: rows } }));
+    } catch {
+      // Left as it was. A list that fails to refresh is better than one that
+      // empties itself because the network blinked.
+    }
+  },
+
+  /**
+   * Create or update one row, then reload the collection.
+   *
+   * Reloaded rather than patched in place because the server decides things
+   * the client cannot: the slug after cleaning, `updatedAt`, and whether the
+   * slug collided with another record's. Guessing any of those and being wrong
+   * shows a row that does not exist.
+   */
+  async saveRecord(collectionId, input) {
+    const projectId = get().doc.id;
+    try {
+      if (input.id) await api.updateRecord(projectId, input.id, { ...input, collectionId });
+      else await api.createRecord(projectId, { ...input, collectionId });
+    } catch (error) {
+      get().toast(recordProblem(error), 'error');
+      return false;
+    }
+    await get().reloadRecords(collectionId);
+    return true;
+  },
+
+  async deleteRecord(collectionId, recordId) {
+    const projectId = get().doc.id;
+    try {
+      await api.deleteRecord(projectId, recordId);
+    } catch (error) {
+      get().toast(recordProblem(error), 'error');
+      return false;
+    }
+    await get().reloadRecords(collectionId);
+    return true;
+  },
+
+  /**
+   * Editor-only, and stored with the other design-time choices.
+   *
+   * Exactly what `switchDesign` does for a state and what the data panel's
+   * "Designing" control does for the time of day: it changes what the canvas
+   * shows and nothing about what the site publishes. Looking at one post must
+   * not be a way to publish that post.
+   */
+  designAgainst(collectionId, recordId) {
+    get().transact(
+      'Design against a record',
+      (draft) => {
+        const against = (draft.settings.designRecord ??= {});
+        if (recordId) against[collectionId] = recordId;
+        else delete against[collectionId];
+        if (!Object.keys(against).length) delete draft.settings.designRecord;
+      },
+      { record: false, quiet: true }
+    );
   },
 
   /* ------------------------------------------------- persistence & UI -- */

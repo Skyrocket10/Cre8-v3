@@ -29,6 +29,7 @@ import { LIMITS } from '../document/types';
 import type {
   CollectionRecord,
   NodeProps,
+  ProjectSettings,
   RecordFilter,
   RepeatSpec,
   SceneNode,
@@ -228,6 +229,31 @@ export function repeatRows(
 
 /** What `repeatRows` yields for the design-time row: no record in scope. */
 const TEMPLATE_ROW = null;
+
+/**
+ * The record a design surface should draw a dynamic page against.
+ *
+ * A page that is a template for a collection has no record of its own, and
+ * drawing it with the placeholder text somebody typed once is a page they
+ * cannot lay out. So the canvas picks one: whichever the designer chose, or
+ * the first, or none if the collection is empty — in which case the
+ * placeholder is the honest answer after all.
+ *
+ * A stale choice falls through to the first rather than to nothing: a record
+ * can be deleted from the panel while a page is pointed at it, and the page
+ * going blank would be a puzzle rather than a message.
+ */
+export function designRecord(
+  settings: ProjectSettings,
+  collectionId: string | undefined,
+  pool: CollectionRecord[] | undefined
+): CollectionRecord | null {
+  if (!collectionId) return null;
+  const rows = recordsFor({ collection: collectionId }, pool);
+  if (!rows.length) return null;
+  const chosen = settings.designRecord?.[collectionId];
+  return rows.find((record) => record.id === chosen) ?? rows[0] ?? null;
+}
 
 /** Collection ids the given nodes repeat over, for prefetching. */
 export function collectionsUsedBy(

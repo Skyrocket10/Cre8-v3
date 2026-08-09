@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
 import { Segmented, TextInput, Tooltip } from '../ui/primitives';
 import { ContentSection } from './section-content';
+import { DataSection } from './section-data';
 import { RulesSection, describeRule } from './section-rules';
 import {
   FlexChildSection,
@@ -167,6 +168,7 @@ function SingleSelection() {
       )}
 
       <ContentSection />
+      <DataSection />
       <RulesSection />
       <LayoutSection />
       <SizeSection />

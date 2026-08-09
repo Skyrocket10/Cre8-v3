@@ -25,6 +25,7 @@ const SUITES = [
   ['repeat', 'a bound list, on the canvas and in the file'],
   ['worker-publish', 'the Worker publishes the same bytes the browser would'],
   ['routes', 'a collection becomes pages, and every one is reachable'],
+  ['collections', 'the whole data layer, driven from the editor'],
   ['forms', 'published forms reach the submissions endpoint'],
   ['assets', 'images survive publish and export'],
   ['bodyreset', 'the published page starts at the edge'],

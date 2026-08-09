@@ -705,6 +705,18 @@ export interface ProjectSettings {
    * in the morning.
    */
   data?: Record<string, { ships?: string; designing?: string }>;
+  /**
+   * Per collection: which record the canvas draws a dynamic page against.
+   *
+   * The third thing on this pattern, after `switchDesign` and `data.designing`,
+   * and for the third time the same reason: a template with nothing in scope
+   * is a page a designer cannot lay out, and the fix must be visible only in
+   * the editor. Looking at one post can never be a way to publish that post.
+   *
+   * Record *ids*, not content, so this stays a design decision the size of a
+   * string — and a stale id simply falls back to the first record.
+   */
+  designRecord?: Record<string, string>;
 }
 
 export interface PublishRecord {

@@ -76,6 +76,28 @@ const EditingContext = createContext<NodeId | null>(null);
  */
 const RecordContext = createContext<CollectionRecord | null>(null);
 
+/**
+ * Put a record in scope for a whole subtree.
+ *
+ * The surface equivalent of what a dynamic route does at publish: a page that
+ * is a template for a collection has one record in scope before the tree is
+ * entered, so `bind` on it reads exactly as it does inside a repeater.
+ *
+ * The canvas and preview use it to show a *real* record rather than the
+ * placeholder text a template was drawn with — a page nobody can lay out is
+ * not a design surface. Which record is an editor-only choice, the same as
+ * `switchDesign`, so looking at one post cannot change what the site says.
+ */
+export function RecordScope({
+  record,
+  children,
+}: {
+  record: CollectionRecord | null;
+  children: React.ReactNode;
+}) {
+  return <RecordContext.Provider value={record}>{children}</RecordContext.Provider>;
+}
+
 export function useRenderEngine(): RenderEngine {
   const engine = useContext(EngineContext);
   if (!engine) throw new Error('Cre8 renderer used outside of a RenderProvider');

@@ -15,8 +15,8 @@ import { BREAKPOINT_DEFS, type Breakpoint, type Cre8Document } from '@/lib/docum
 import { themeToStyleObject } from '@/lib/document/theme';
 import { collectSubtree } from '@/lib/document/tree';
 import { generateNodeCss, DOCUMENT_RESET, PLACEHOLDER_CSS } from '@/lib/renderer/css';
-import { createSnapshotEngine, NodeView, RenderProvider } from '@/lib/renderer/render';
-import { collectionsUsedBy } from '@/lib/renderer/repeat';
+import { createSnapshotEngine, NodeView, RecordScope, RenderProvider } from '@/lib/renderer/render';
+import { collectionsUsedBy, designRecord as pickDesignRecord } from '@/lib/renderer/repeat';
 import { behaviourRuntime } from '@/lib/runtime/behaviour';
 import { DATA_ATTR, collectDataSources, dataRuntime, fallbackTokens } from '@/lib/runtime/data';
 import { useEditor } from '@/lib/editor/store';
@@ -251,7 +251,12 @@ function PreviewSurface({
       >
         <style dangerouslySetInnerHTML={{ __html: css }} />
         <RenderProvider engine={engine}>
-          <NodeView id={page.rootNodeId} />
+          {/* A template page has n published files and preview shows one of
+              them: the record the designer is working against, so the two
+              surfaces never disagree about which post this is. */}
+          <RecordScope record={pickDesignRecord(doc.settings, page.dynamic?.collection, records[page.dynamic?.collection ?? ''])}>
+            <NodeView id={page.rootNodeId} />
+          </RecordScope>
         </RenderProvider>
       </div>
     </div>

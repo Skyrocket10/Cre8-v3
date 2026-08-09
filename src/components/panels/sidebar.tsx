@@ -8,11 +8,12 @@
  */
 
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Component, Image, Inbox, Layers, PanelLeftClose, Plus, Files, Palette } from 'lucide-react';
+import { Component, Database, Image, Inbox, Layers, PanelLeftClose, Plus, Files, Palette } from 'lucide-react';
 import { useEditor, type LeftTab } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { IconButton } from '../ui/primitives';
 import { AssetsPanel } from './assets-panel';
+import { CollectionsPanel } from './collections-panel';
 import { ComponentsPanel } from './components-panel';
 import { InsertPanel } from './insert-panel';
 import { LayersPanel } from './layers-panel';
@@ -25,6 +26,7 @@ const TABS: { id: LeftTab; label: string; icon: React.ReactNode; shortcut?: stri
   { id: 'layers', label: 'Layers', icon: <Layers size={15} />, shortcut: 'L' },
   { id: 'pages', label: 'Pages', icon: <Files size={15} />, shortcut: 'P' },
   { id: 'components', label: 'Components', icon: <Component size={15} /> },
+  { id: 'collections', label: 'Collections', icon: <Database size={15} /> },
   { id: 'assets', label: 'Assets', icon: <Image size={15} /> },
   { id: 'theme', label: 'Theme', icon: <Palette size={15} /> },
   { id: 'submissions', label: 'Submissions', icon: <Inbox size={15} /> },
@@ -78,6 +80,7 @@ export function Sidebar() {
             {tab === 'layers' && <LayersPanel />}
             {tab === 'insert' && <InsertPanel />}
             {tab === 'pages' && <PagesPanel />}
+            {tab === 'collections' && <CollectionsPanel />}
             {tab === 'components' && <ComponentsPanel />}
             {tab === 'assets' && <AssetsPanel />}
             {tab === 'theme' && <ThemePanel />}

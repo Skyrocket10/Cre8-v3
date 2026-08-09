@@ -401,8 +401,29 @@ most 1,000 files because a publish writing more is unmanageable. Both refuse
 with a sentence rather than degrading, as does a pair of pages that want the
 same URL.
 
-The rest of the data layer — the collections UI, republish on change — is
-scoped in [DATA-LAYER.md](DATA-LAYER.md).
+### Editing the two halves
+
+The seam is visible in the UI as well as the code, and deliberately so.
+**Fields** are edited through `transact`: they undo, they travel with the
+document, they are design. **Records** are written straight to D1 through the
+API: they do not undo, because Ctrl+Z after writing a blog post must not eat
+the post. The Collections panel keeps them in separate tabs for that reason
+and no other.
+
+A field's key is generated once from its first label and never moves again.
+Bindings point at the key, so renaming "Title" to "Headline" cannot empty every
+heading on the site — and the panel shows the key, because a rename that is
+safe is only reassuring if you can see why. Retyping a field converts nothing:
+the values are in D1, there may be thousands, and the panel says which of them
+will stop reading rather than rewriting them on a keystroke.
+
+Three design-time choices now use one pattern — `switchDesign` for a state,
+`settings.data.designing` for the visit, and `settings.designRecord` for which
+record a template page is drawn against. All three change only what the canvas
+shows. Looking at one post is never a way to publish that post.
+
+The rest of the data layer — republish on change — is scoped in
+[DATA-LAYER.md](DATA-LAYER.md).
 
 ---
 
