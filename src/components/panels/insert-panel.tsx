@@ -10,8 +10,13 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import { INSERTABLE, INSERT_CATEGORIES, type InsertCategory } from '@/lib/document/schema';
-import { insertSpec } from '@/lib/document/operations';
+import {
+  INSERTABLE,
+  INSERT_CATEGORIES,
+  getElement,
+  type InsertCategory,
+} from '@/lib/document/schema';
+import { insertSpec, resolveInsertTarget } from '@/lib/document/operations';
 import { BLOCKS, BLOCK_CATEGORIES, type BlockDefinition } from '@/lib/templates/blocks';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
@@ -279,16 +284,40 @@ const cardClass = cn(
   'active:cursor-grabbing active:scale-[0.98]'
 );
 
+/**
+ * Elements that only make sense somewhere specific.
+ *
+ * A table row has nowhere to go unless a table is selected, and a card that
+ * silently does nothing when clicked is worse than one that says why. It dims
+ * and explains rather than disappearing — a control that comes and goes is
+ * harder to learn than one that is sometimes unavailable — and stays
+ * draggable throughout, because a drag finds its own target and does not care
+ * what happens to be selected.
+ */
 function ElementCard({ element }: { element: (typeof INSERTABLE)[number] }) {
+  const placeable = useEditor((s) => {
+    const rootId = activeRootId(s);
+    if (!rootId) return false;
+    return resolveInsertTarget(s.doc, s.selection[0] ?? null, rootId, element.type) !== null;
+  });
+
+  const parents = element.allowedParents
+    ?.map((type) => getElement(type).label.toLowerCase())
+    .join(' or ');
+
   return (
     <button
       type="button"
-      title={element.description}
+      title={
+        placeable
+          ? element.description
+          : `${element.description} Drag it onto a ${parents ?? 'container'}, or select one first.`
+      }
       onPointerDown={(e) =>
         startDrag(e, { kind: 'new-element', elementType: element.type }, element.label)
       }
       onClick={() => useEditor.getState().insertElement(element.type)}
-      className={cardClass}
+      className={cn(cardClass, !placeable && 'opacity-40')}
     >
       <ElementIcon type={element.type} size={13} />
       <span className="truncate text-[11px] font-medium">{element.label}</span>

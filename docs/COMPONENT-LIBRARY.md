@@ -18,6 +18,9 @@ decision below is measured against.
 
 ## 1. Where we are
 
+> Written when the library was 9 blocks and 22 primitives. Statuses are kept
+> current; the reasoning is left as it was argued.
+
 **22 primitives** — the element types the renderer knows:
 
 ```
@@ -39,6 +42,10 @@ ecommerce  blog`.
 The 9 blocks are good work and set the quality bar: 116 token references, 25
 responsive style layers, 9 interaction-state layers. Everything below has to
 meet that bar or it drags the product down rather than filling it out.
+
+**Since:** 30 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
+`table`, `tableRow`, `tableCell` added in B) and 64 blocks across nine
+categories, held to that bar by 867 static checks and 14 browser suites.
 
 ---
 
@@ -123,7 +130,7 @@ In the tables that follow, the **Needs** column refers to these letters.
 |---|---|---|---|
 | Navbar — links + CTA | B | ✅ | |
 | Navbar — mega menu | B | | a |
-| Navbar — mobile drawer | B | | a |
+| Navbar — mobile drawer | B | ✅ | |
 | Announcement / promo bar | B | | |
 | Breadcrumbs | B | | |
 | Docs sidebar nav | B | | |
@@ -131,9 +138,12 @@ In the tables that follow, the **Needs** column refers to these letters.
 | Footer — minimal + social | B | | |
 | Back-to-top | B | | |
 
-The existing navbar has no mobile behaviour. At narrow widths the link row just
-shrinks. That is the most visible hole in the current set and it is the first
-thing (a) buys.
+The original navbar had no mobile behaviour — at narrow widths the link row
+simply disappeared. "Navbar with menu" is the same bar with a `[popover]`
+sheet behind the menu button: the browser handles the top layer, Escape, the
+click outside and returning focus, and the published page still ships no
+script. That was the most visible hole in the set, and it is the first thing
+(a) bought.
 
 ### 4.2 Hero
 
@@ -251,9 +261,9 @@ These are the honest primitives — real form semantics cannot be faked with a
 | Textarea | P | ✅ | |
 | Form | P | ✅ | form target |
 | Button | P | ✅ | |
-| Select | P | | a |
-| Checkbox | P | | a |
-| Radio | P | | a |
+| Select | P | ✅ | |
+| Checkbox | P | ✅ | |
+| Radio | P | ✅ | |
 | Range slider | P | | a |
 | File upload | P | | a |
 | Date / time | P | | a |
@@ -276,10 +286,10 @@ These are the honest primitives — real form semantics cannot be faked with a
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
-| Table family — `table`/`thead`/`tbody`/`tr`/`th`/`td` | P | | |
+| Table family — `table`/`tr`/`td`/`th` | P | ✅ | |
 | Repeater / collection list | P | | c |
 | Data table — sortable, filterable | B | | b, c |
-| Description list | P | | tag prop |
+| Description list | P | ✅ | |
 | Stat card | B | | |
 | Badge / tag / pill | B | | |
 | Avatar + avatar group | B | | |
@@ -294,8 +304,8 @@ Charts are deliberately excluded — see §9.
 |---|---|---|---|
 | Modal / dialog | P | | a |
 | Drawer / sheet | B | | a |
-| Popover | P | | a |
-| Dropdown menu | B | | a |
+| Popover | P | ✅ | |
+| Dropdown menu | B | ✅ | |
 | Tooltip | B | | a |
 | Toast | B | | b |
 | Command palette | B | | b |
@@ -417,15 +427,31 @@ not after.**
 |---|---|---|---|
 | **A** | 37 marketing + 12 application blocks; block categories + previews; the block harness; the token lint | none | Largest visible gain, zero architectural risk. Proves the pipeline before it carries weight. Broken down in [COMPONENT-BUILD-PLAN.md](COMPONENT-BUILD-PLAN.md) |
 | **A′** | Form submit target — Worker route + submissions table | small | Unblocks 6 blocks already built in A |
-| **B** | Native primitives: form controls, table family, `<details>`, `<dialog>`, popover, `tag` prop on container/section | a | All native. Each one is a schema row plus a renderer branch, and behaves identically on all three surfaces |
+| **B** | Native primitives: form controls, table family, `<details>`, `<dialog>`, popover, `tag` prop on container/section | a | All native. Each one is a schema row plus a renderer branch, and behaves identically on all three surfaces. Landed so far: `details`, `select`, `checkbox`, `radio`, semantic tags, `popover`, `table`/`tableRow`/`tableCell`. `<dialog>` deferred — see below |
 | **B′** | The ~25 blocks those primitives unlock: accordion, overlays, form composition, comparison tables | a | Composition only, once B lands |
 | **C** | Behaviour runtime, design-time state, behavioural fidelity harness | b | The gated one. §6 |
 | **C′** | Tabs, carousel, toast, pricing toggle, stepper, command palette | b | |
 | **D** | Data bindings + repeater | c | Unlocks real tables, blog indexes, product grids, CMS |
 | **E** | Patterns: dashboard, settings, auth flow, docs site, changelog, store, help centre | — | Multi-page arrangements of everything above |
 
-Phase A is the one to start now. It needs no decisions that have not already
-been made, and it is where the visible product gap is.
+### Where the popover stops short
+
+`[popover]` gives the top layer, light dismiss, Escape and focus return for
+nothing. What it does not give, without CSS anchor positioning, is a panel
+that sits *under the button that opened it*: a top-layer box with no anchor
+resolves against the viewport, so `top: 100%` means 100% of the screen. The
+primitive is therefore shipped as what it natively is — a centred or
+edge-anchored sheet — which covers command menus, mobile nav, cookie notices
+and filter panels, and does not pretend to cover an inline dropdown.
+
+Closing that gap properly means modelling the anchor as a relationship
+between two nodes and generating `anchor-name` / `position-anchor` from node
+ids, because a hand-written anchor name collides the moment a block is used
+twice on one page. That is a small feature in its own right, not a block
+detail, and it belongs with B′.
+
+Phase A is done. B is in progress and needs no decisions that have not already
+been made.
 
 ---
 

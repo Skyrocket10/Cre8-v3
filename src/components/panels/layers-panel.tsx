@@ -11,7 +11,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Eye, EyeOff, Lock, LockOpen } from 'lucide-react';
-import { getElement } from '@/lib/document/schema';
+import { canContain } from '@/lib/document/schema';
 import * as ops from '@/lib/document/operations';
 import { canReparent } from '@/lib/document/tree';
 import { hasAnyOverride } from '@/lib/renderer/styles';
@@ -137,7 +137,13 @@ export function LayersPanel() {
       }
       const rect = row.getBoundingClientRect();
       const store = useEditor.getState();
-      const canNest = getElement(store.doc.nodes[id]?.type ?? 'frame').container;
+      // Asked of the payload, not just the target: an "inside" indicator over a
+      // table that would then refuse the drop is a promise the drop breaks.
+      const targetType = store.doc.nodes[id]?.type ?? 'frame';
+      const canNest = state.ids.every((dragged) => {
+        const type = store.doc.nodes[dragged]?.type;
+        return type ? canContain(targetType, type) : false;
+      });
       setDrop({ id, zone: treeDropZone(e.clientY, rect.top, rect.height, canNest) });
     };
 

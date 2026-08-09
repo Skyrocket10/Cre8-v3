@@ -1,4 +1,4 @@
-# Cre8 — component build plan (Phase A)
+# Cre8 — component build plan (Phases A and B)
 
 `COMPONENT-LIBRARY.md` says *what* to build and *why*. This says *how*, in what
 order, and what has to exist before the bulk of it starts.
@@ -248,3 +248,63 @@ collection-driven anything for the data layer (Phase D). Those are planned in
 `COMPONENT-LIBRARY.md` §8 and should not be started early — pulling one forward
 means faking it, and a faked interaction on the canvas is exactly the second
 renderer this project exists to avoid.
+
+---
+
+## Phase B — native primitives (in progress)
+
+Each of these is a schema row, a `describeElement` branch, an icon and an
+inspector section. No runtime, and the same markup on all three surfaces.
+
+| Primitive | Renders | Landed |
+|---|---|---|
+| `details` | `<details>` + owned `<summary>` | ✅ |
+| `select` | `<select>` with options from a textarea | ✅ |
+| `checkbox` / `radio` | `<label>` wrapping the input | ✅ |
+| semantic tags | `tag` prop on the five layout boxes | ✅ |
+| `popover` | `<div popover>` + `popovertarget` on a button | ✅ |
+| `table` / `tableRow` / `tableCell` | `<table><tbody><tr><td\|th>` | ✅ |
+| range, file, date, progress, fieldset | native form controls | |
+| `dialog` | `<dialog>` — deferred, see below | |
+
+### Two things B added beyond the primitives
+
+**Containment.** `ElementDefinition` gained `allowedChildren` / `allowedParents`
+and `schema.ts` gained `canContain()`. Drop targeting on the canvas, the layer
+tree, the Insert panel and paste all resolve through it, so no gesture in the
+editor can build a tree the HTML parser would rearrange. The reason it has to
+be enforced rather than trusted: the canvas builds its DOM with React, which
+puts elements exactly where it is told, while publishing writes a string that
+the browser re-parses — and the parser moves a `<div>` out of a `<table>` and
+discards a `<td>` with no row. Both silently. Blocks are written in code and
+skip the editor entirely, so the same rule runs as a static check over every
+block in the registry.
+
+**`ElementModel.wrapChildren`.** `<table>` emits its own `<tbody>` rather than
+leaving it to the parser, so the DOM React builds and the DOM the browser
+parses are the same tree.
+
+### Design-time divergence, now twice
+
+`<details>` is forced open on the canvas and `[popover]` renders without the
+attribute, both so their contents can be reached and edited. These are the only
+two places in the product where design time and published differ on purpose,
+each is one line in `describeElement`, each says so in the inspector, and each
+is asserted in both directions by `tests/render/native.mjs`. The block sweep
+skips closed popovers when it compares surfaces, and names them as the single
+exemption rather than filtering silently.
+
+### Deferred: `<dialog>`
+
+A modal is a popover that traps focus and blocks the page behind it. Everything
+about authoring it — showing it open on the canvas, the backdrop, the close
+affordance — is the popover work again, and `showModal()` needs a script where
+`popovertarget` does not. It waits for Phase C so the trigger is one mechanism
+rather than two.
+
+### B′ — the blocks these unlock
+
+Landed with B so far: **Navbar with menu**, **Command menu**, **Data table**,
+and **Comparison table** rebuilt on real table markup. The rest — drawer,
+accordion variants, form composition, filter panels — are composition work
+once the remaining form controls land.

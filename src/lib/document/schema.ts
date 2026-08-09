@@ -41,6 +41,25 @@ export interface ElementDefinition {
   tag: string;
   /** Can hold children. Drives drop targeting and the layer tree. */
   container: boolean;
+  /**
+   * Child types this element may hold, when the browser is fussy about it.
+   *
+   * Almost nothing needs this — a `div` takes anything. Tables do: the HTML
+   * parser will not let a `<div>` sit between a `<table>` and its `<tr>`, and
+   * rather than erroring it *foster-parents* the stray element out in front of
+   * the table. The published page then shows content the canvas drew inside a
+   * cell floating above the whole thing, and nothing anywhere reported a
+   * problem. Undefined means "anything".
+   */
+  allowedChildren?: ElementType[];
+  /**
+   * The mirror: parent types this element may sit inside.
+   *
+   * A `<td>` outside a table context is not merely misplaced — the parser
+   * discards the token, so the element and everything in it vanish from the
+   * published page while still rendering perfectly on the canvas.
+   */
+  allowedParents?: ElementType[];
   /** Has directly editable text content. */
   textual: boolean;
   /** Which prop holds that text. */
@@ -568,6 +587,140 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     },
   },
 
+  /* ------------------------------------------------------------- popover -- */
+  /**
+   * A panel the browser puts in the top layer, opened by a button.
+   *
+   * `[popover]` is the whole of a menu, a cookie notice or a mobile nav sheet
+   * with no script at all: the browser handles the top layer, light dismiss,
+   * Escape, and returning focus to the invoker. Every one of those is a thing
+   * hand-rolled dropdowns get wrong.
+   */
+  popover: {
+    type: 'popover',
+    label: 'Popover',
+    description: 'Panel a button opens, over everything else.',
+    category: 'interactive',
+    icon: 'popover',
+    tag: 'div',
+    container: true,
+    textual: false,
+    resize: { x: true, y: true },
+    defaultName: 'Popover',
+    defaultProps: { popoverMode: 'auto' },
+    // Fixed and centred, which is what the user-agent sheet already does for
+    // `[popover]`. Stating it here means the node's own styles say where it
+    // sits, so the canvas and the top layer agree without the renderer having
+    // to invent anything.
+    defaultStyles: {
+      position: 'fixed',
+      inset: '0px',
+      marginTop: 'auto',
+      marginRight: 'auto',
+      marginBottom: 'auto',
+      marginLeft: 'auto',
+      width: 'min(420px, calc(100% - 32px))',
+      height: 'fit-content',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px',
+      paddingTop: '18px',
+      paddingRight: '18px',
+      paddingBottom: '18px',
+      paddingLeft: '18px',
+      backgroundColor: 'var(--c-background)',
+      color: TEXT_COLOR,
+      borderStyle: 'solid',
+      borderTopWidth: '1px',
+      borderRightWidth: '1px',
+      borderBottomWidth: '1px',
+      borderLeftWidth: '1px',
+      borderColor: 'var(--c-border)',
+      borderTopLeftRadius: 'var(--r-lg)',
+      borderTopRightRadius: 'var(--r-lg)',
+      borderBottomRightRadius: 'var(--r-lg)',
+      borderBottomLeftRadius: 'var(--r-lg)',
+      boxShadow: '0 24px 60px -12px rgba(15, 18, 28, 0.28)',
+      zIndex: '50',
+    },
+  },
+
+  /* --------------------------------------------------------------- table -- */
+  /**
+   * Real tabular data, in real table markup.
+   *
+   * A grid of divs looks identical and tells a screen reader nothing: no row
+   * and column relationships, no header association, no "row 3 of 12". The
+   * three types below exist so that a comparison table is announced as one.
+   */
+  table: {
+    type: 'table',
+    label: 'Table',
+    description: 'Rows and columns of real tabular data.',
+    category: 'structure',
+    icon: 'table',
+    tag: 'table',
+    container: true,
+    textual: false,
+    allowedChildren: ['tableRow'],
+    resize: { x: true, y: false },
+    defaultName: 'Table',
+    defaultProps: { caption: '' },
+    defaultStyles: {
+      width: '100%',
+      borderCollapse: 'collapse',
+      tableLayout: 'auto',
+      fontFamily: 'var(--f-body)',
+      fontSize: '14px',
+      color: TEXT_COLOR,
+      textAlign: 'left',
+    },
+  },
+  tableRow: {
+    type: 'tableRow',
+    label: 'Table row',
+    description: 'One row of cells.',
+    category: 'structure',
+    icon: 'tableRow',
+    tag: 'tr',
+    container: true,
+    textual: false,
+    allowedChildren: ['tableCell'],
+    allowedParents: ['table'],
+    resize: { x: false, y: false },
+    defaultName: 'Row',
+    defaultProps: {},
+    defaultStyles: {
+      borderStyle: 'solid',
+      borderBottomWidth: '1px',
+      borderColor: 'var(--c-border)',
+    },
+  },
+  tableCell: {
+    type: 'tableCell',
+    label: 'Table cell',
+    description: 'One cell. Header cells name their row or column.',
+    category: 'structure',
+    icon: 'tableCell',
+    tag: 'td',
+    container: true,
+    textual: false,
+    allowedParents: ['tableRow'],
+    resize: { x: false, y: false },
+    defaultName: 'Cell',
+    defaultProps: { header: false, scope: 'col' },
+    defaultStyles: {
+      paddingTop: '11px',
+      paddingRight: '14px',
+      paddingBottom: '11px',
+      paddingLeft: '14px',
+      verticalAlign: 'middle',
+      fontSize: '14px',
+      lineHeight: '1.5',
+      color: MUTED_COLOR,
+    },
+  },
+
   select: {
     type: 'select',
     label: 'Select',
@@ -715,6 +868,23 @@ export function getElement(type: ElementType): ElementDefinition {
   return ELEMENTS[type] ?? ELEMENTS.frame;
 }
 
+/**
+ * May a child of this type live inside a parent of that type?
+ *
+ * The one place the answer is decided, so drag-and-drop on the canvas, the
+ * layer tree and the block linter cannot disagree. Both directions are
+ * consulted: a `<table>` states what it takes, a `<td>` states where it can
+ * go, and either alone would leave half the illegal pairs allowed.
+ */
+export function canContain(parentType: ElementType, childType: ElementType): boolean {
+  const parent = getElement(parentType);
+  if (!parent.container) return false;
+  if (parent.allowedChildren && !parent.allowedChildren.includes(childType)) return false;
+  const child = getElement(childType);
+  if (child.allowedParents && !child.allowedParents.includes(parentType)) return false;
+  return true;
+}
+
 /** Elements offered in the insert panel, grouped by category. */
 export const INSERTABLE: ElementDefinition[] = Object.values(ELEMENTS).filter((e) => !e.internal);
 
@@ -754,8 +924,11 @@ export function resolveTag(type: ElementType, props: NodeProps): string {
     return `h${Math.min(6, Math.max(1, Number.isFinite(level) ? level : 2))}`;
   }
   if (type === 'button' || type === 'link') {
-    return props.href ? 'a' : 'button';
+    // A popover invoker has to be a `<button>` — `popovertarget` does nothing
+    // on an anchor — so opening a panel and going somewhere are exclusive.
+    return props.href && !props.popoverTarget ? 'a' : 'button';
   }
+  if (type === 'tableCell') return props.header ? 'th' : 'td';
   if (RETAGGABLE.has(type)) {
     const requested = String(props.tag ?? '');
     if ((SEMANTIC_TAGS as readonly string[]).includes(requested)) return requested;

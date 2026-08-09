@@ -11,7 +11,7 @@
 
 import { cloneSubtree, createNode, structuredCloneCompat, type NodeSpec, buildTree } from './factory';
 import { uid, slugify } from './id';
-import { getElement } from './schema';
+import { canContain, getElement } from './schema';
 import {
   canReparent,
   collectSubtree,
@@ -589,24 +589,52 @@ export function uniqueName(nodes: NodeMap, base: string): string {
   return `${stripped} ${n}`;
 }
 
-/** Where a newly inserted element should go, given the current selection. */
+/**
+ * Where a newly inserted element should go, given the current selection.
+ *
+ * `type` is optional so the caller can ask "where would anything go"; passed,
+ * the walk skips ancestors that could not legally hold it. Without that, a
+ * heading added while a table row is selected lands inside the row, renders
+ * fine on the canvas, and is moved out of the table by the parser on the
+ * published page.
+ *
+ * `null` means there is nowhere legal — a table row with no table anywhere
+ * above the selection. Refusing beats parking it at the page root, where it
+ * would look placed on the canvas and be discarded when the file is written.
+ */
 export function resolveInsertTarget(
   doc: Cre8Document,
   selectedId: NodeId | null,
-  pageRootId: NodeId
-): { parentId: NodeId; index: number } {
-  const selected = getNode(doc.nodes, selectedId);
-  if (!selected) {
-    const root = doc.nodes[pageRootId];
-    return { parentId: pageRootId, index: root?.children.length ?? 0 };
-  }
+  pageRootId: NodeId,
+  type?: ElementType
+): { parentId: NodeId; index: number } | null {
+  const accepts = (parentType: ElementType): boolean =>
+    type ? canContain(parentType, type) : getElement(parentType).container;
+
+  const root = doc.nodes[pageRootId];
+  const atRoot =
+    root && accepts(root.type) ? { parentId: pageRootId, index: root.children.length } : null;
+
+  let selected: SceneNode | undefined = getNode(doc.nodes, selectedId);
+  if (!selected) return atRoot;
+
   // Dropping into a container puts the element inside it; otherwise it lands
   // directly after the selection, which is what people expect.
-  if (getElement(selected.type).container) {
+  if (accepts(selected.type)) {
     return { parentId: selected.id, index: selected.children.length };
   }
-  const parentId = selected.parentId ?? pageRootId;
-  const parent = doc.nodes[parentId];
-  const index = parent ? parent.children.indexOf(selected.id) + 1 : 0;
-  return { parentId, index };
+
+  // Climb until something can hold it, so inserting from the panel always
+  // produces a legal tree rather than the nearest-looking one.
+  let guard = 0;
+  while (selected && guard++ < 200) {
+    const parentId: NodeId | null = selected.parentId;
+    const parent: SceneNode | undefined = parentId ? doc.nodes[parentId] : undefined;
+    if (!parent || !parentId) break;
+    if (accepts(parent.type)) {
+      return { parentId, index: parent.children.indexOf(selected.id) + 1 };
+    }
+    selected = parent;
+  }
+  return atRoot;
 }

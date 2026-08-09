@@ -11,6 +11,8 @@
 import type { NodeSpec } from '../../document/factory';
 import {
   CAPTION,
+  CARD_TITLE,
+  EYEBROW,
   SMALL,
   SUBTITLE,
   SUBTITLE_RESPONSIVE,
@@ -20,6 +22,7 @@ import {
   border,
   borderSide,
   card,
+  cell,
   cols,
   column,
   container,
@@ -31,9 +34,13 @@ import {
   label,
   pad,
   paragraph,
+  popover,
+  popoverButton,
   radius,
   section,
   stack,
+  table,
+  tableRow,
   textLink,
   tint,
 } from './kit';
@@ -1098,14 +1105,16 @@ const FEATURES: [string, string, string, string][] = [
   ['Support', 'Community', 'Priority', 'Named engineer'],
 ];
 
+/**
+ * Built on real table markup rather than a stack of grids.
+ *
+ * The two look identical. Only one of them tells a screen reader that "1 TB"
+ * is the Team plan's bandwidth — a grid of boxes reads out as a list of
+ * disconnected values, and the meaning of a comparison table is entirely in
+ * the connections.
+ */
 export function comparisonSpec(): NodeSpec {
-  const cell = (text: string, strong = false): NodeSpec =>
-    label(text, {
-      fontSize: '13.5px',
-      fontWeight: strong ? '580' : '450',
-      color: strong ? 'var(--c-text)' : 'var(--c-muted)',
-      textAlign: strong ? 'left' : 'center',
-    });
+  const centred = { textAlign: 'center' as const };
 
   return section(
     'Comparison',
@@ -1113,39 +1122,260 @@ export function comparisonSpec(): NodeSpec {
       container(
         [
           heading('Compare plans', 2, { ...SUBTITLE, fontSize: '26px' }, SUBTITLE_RESPONSIVE),
-          column(
-            'Table',
+          table(
+            'Plan comparison',
             [
-              grid(
+              tableRow(
                 'Header row',
-                cols(1.6, 1, 1, 1),
-                [cell('', true), ...PLANS.map((plan) => cell(plan, false))].map((node, i) =>
-                  i === 0
-                    ? node
-                    : { ...node, styles: { ...node.styles, fontWeight: '620', color: 'var(--c-text)' } }
-                ),
-                { gap: '12px', ...pad('0px', '4px', '12px', '4px'), ...borderSide('Bottom'), width: '100%' },
-                { mobile: { gridTemplateColumns: cols(1.4, 1, 1, 1), gap: '8px' } }
+                [
+                  cell('', { header: true }),
+                  ...PLANS.map((plan) =>
+                    cell(plan, {
+                      header: true,
+                      styles: { ...centred, fontSize: '14px', fontWeight: '620' },
+                    })
+                  ),
+                ],
+                { ...borderSide('Bottom') }
               ),
-              ...FEATURES.map(([name, ...values], i) =>
-                grid(
+              ...FEATURES.map(([name, ...values]) =>
+                tableRow(
                   name,
-                  cols(1.6, 1, 1, 1),
-                  [cell(name, true), ...values.map((value) => cell(value))],
-                  {
-                    gap: '12px',
-                    ...pad('12px', '4px'),
-                    width: '100%',
-                    ...(i < FEATURES.length - 1 ? borderSide('Bottom') : {}),
-                  },
-                  { mobile: { gridTemplateColumns: cols(1.4, 1, 1, 1), gap: '8px' } }
+                  [
+                    // `scope: 'row'` is what pairs the feature name with the
+                    // three values beside it.
+                    cell(name, {
+                      header: true,
+                      scope: 'row',
+                      styles: { fontSize: '13.5px', fontWeight: '580', width: '40%' },
+                    }),
+                    ...values.map((value) =>
+                      cell(value, { styles: { ...centred, fontSize: '13.5px' } })
+                    ),
+                  ],
+                  { ...borderSide('Bottom') }
                 )
               ),
             ],
-            { gap: '0px', width: '100%' }
+            { minWidth: '520px' }
           ),
         ],
         { gap: '24px', alignItems: 'flex-start', maxWidth: 'var(--w-content)' }
+      ),
+    ],
+    { paddingTop: '56px', paddingBottom: '64px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Data table
+ * ----------------------------------------------------------------------- */
+
+const ORDERS: { id: string; customer: string; status: string; tone: string; total: string }[] = [
+  { id: '#4021', customer: 'Ines García', status: 'Paid', tone: 'var(--c-primary)', total: '£248.00' },
+  { id: '#4020', customer: 'Marcus Bell', status: 'Pending', tone: 'var(--c-muted)', total: '£62.00' },
+  { id: '#4019', customer: 'Aiko Tanaka', status: 'Paid', tone: 'var(--c-primary)', total: '£1,140.00' },
+  {
+    id: '#4018',
+    customer: 'Tom Okafor',
+    status: 'Refunded',
+    tone: 'var(--c-danger, #dc2626)',
+    total: '£89.00',
+  },
+  { id: '#4017', customer: 'Priya Raman', status: 'Paid', tone: 'var(--c-primary)', total: '£415.00' },
+];
+
+export function dataTableSpec(): NodeSpec {
+  const status = (text: string, tone: string): NodeSpec =>
+    frame(
+      `${text} pill`,
+      [label(text, { fontSize: '12px', fontWeight: '560', color: tone })],
+      {
+        ...pad('4px', '10px'),
+        ...radius('var(--r-full)'),
+        backgroundColor: `color-mix(in srgb, ${tone} 12%, transparent)`,
+        alignItems: 'center',
+        width: 'fit-content',
+      }
+    );
+
+  return section(
+    'Data table',
+    [
+      container(
+        [
+          column(
+            'Head',
+            [
+              heading('Recent orders', 1, { ...SUBTITLE, fontSize: '24px' }, SUBTITLE_RESPONSIVE),
+              paragraph('Everything that came through in the last seven days.', SMALL),
+            ],
+            { gap: '4px' }
+          ),
+          table(
+            'Orders',
+            [
+              tableRow(
+                'Header row',
+                [
+                  cell('Order', { header: true }),
+                  cell('Customer', { header: true }),
+                  cell('Status', { header: true }),
+                  cell('Total', { header: true, styles: { textAlign: 'right' } }),
+                ],
+                {
+                  backgroundColor: 'var(--c-surface)',
+                  ...borderSide('Bottom'),
+                }
+              ),
+              ...ORDERS.map((order) =>
+                tableRow(
+                  order.id,
+                  [
+                    cell(order.id, {
+                      header: true,
+                      scope: 'row',
+                      styles: { fontSize: '13.5px', fontWeight: '560' },
+                    }),
+                    cell(order.customer, { styles: { color: 'var(--c-text)' } }),
+                    cell(status(order.status, order.tone)),
+                    cell(order.total, {
+                      styles: {
+                        textAlign: 'right',
+                        color: 'var(--c-text)',
+                        fontVariantNumeric: 'tabular-nums',
+                      },
+                    }),
+                  ],
+                  { ...borderSide('Bottom') }
+                )
+              ),
+            ],
+            { caption: 'Orders placed in the last seven days', minWidth: '560px' }
+          ),
+        ],
+        { gap: '20px', alignItems: 'flex-start', maxWidth: 'var(--w-content)' }
+      ),
+    ],
+    { paddingTop: '56px', paddingBottom: '64px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Command menu
+ * ----------------------------------------------------------------------- */
+
+const COMMANDS: { icon: string; label: string; hint: string }[] = [
+  { icon: 'plus', label: 'New project', hint: 'P' },
+  { icon: 'users', label: 'Invite a teammate', hint: 'I' },
+  { icon: 'settings', label: 'Workspace settings', hint: ',' },
+  { icon: 'file-text', label: 'Read the docs', hint: '?' },
+];
+
+/**
+ * A panel the browser opens, closes and focuses on its own.
+ *
+ * Everything a hand-built command palette has to get right — stacking above
+ * the page, Escape, a click outside, returning focus to the trigger — is what
+ * `[popover]` already is, and the published page carries no script for any of
+ * it. It opens centred because that is where the top layer puts a panel with
+ * no anchor, which happens to be exactly where a command menu belongs.
+ */
+export function commandMenuSpec(): NodeSpec {
+  const command = (item: { icon: string; label: string; hint: string }): NodeSpec =>
+    stack(
+      item.label,
+      [
+        icon(item.icon, { width: '15px', height: '15px', color: 'var(--c-muted)' }),
+        label(item.label, { fontSize: '14px', color: 'var(--c-text)' }),
+        label(item.hint, {
+          ...CAPTION,
+          color: 'var(--c-muted)',
+          marginLeft: 'auto',
+          ...pad('2px', '6px'),
+          ...radius('var(--r-sm)'),
+          backgroundColor: 'var(--c-surface)',
+        }),
+      ],
+      {
+        gap: '10px',
+        width: '100%',
+        alignItems: 'center',
+        ...pad('9px', '10px'),
+        ...radius('var(--r-sm)'),
+      }
+    );
+
+  return section(
+    'Command menu',
+    [
+      container(
+        [
+          card(
+            'Toolbar',
+            [
+              stack(
+                'Toolbar row',
+                [
+                  column(
+                    'Toolbar copy',
+                    [
+                      heading('Northwind', 3, { ...CARD_TITLE, fontSize: '17px' }),
+                      label('Everything, one keystroke away.', { ...CAPTION, color: 'var(--c-muted)' }),
+                    ],
+                    { gap: '2px' }
+                  ),
+                  {
+                    ...popoverButton('Search', 'Command menu'),
+                    name: 'Open command menu',
+                    styles: {
+                      marginLeft: 'auto',
+                      fontSize: '13.5px',
+                      ...pad('8px', '14px'),
+                      backgroundColor: 'transparent',
+                      color: 'var(--c-muted)',
+                      ...border('1px', 'var(--c-border)'),
+                    },
+                  },
+                ],
+                { gap: '16px', width: '100%', alignItems: 'center' }
+              ),
+            ],
+            { gap: '0px' }
+          ),
+
+          popover(
+            'Command menu',
+            [
+              label('Jump to', { ...EYEBROW, fontSize: '11px' }),
+              column('Commands', COMMANDS.map(command), { gap: '2px', width: '100%' }),
+              divider(),
+              stack(
+                'Menu footer',
+                [
+                  label('Esc closes it, and so does a click outside.', {
+                    ...CAPTION,
+                    color: 'var(--c-muted)',
+                  }),
+                  {
+                    ...popoverButton('Close', 'Command menu', { action: 'hide', variant: 'ghost' }),
+                    name: 'Close menu',
+                    styles: {
+                      marginLeft: 'auto',
+                      fontSize: '13px',
+                      ...pad('6px', '10px'),
+                      backgroundColor: 'transparent',
+                      color: 'var(--c-muted)',
+                    },
+                  },
+                ],
+                { gap: '12px', width: '100%', alignItems: 'center' }
+              ),
+            ],
+            { styles: { gap: '10px' }, responsive: { mobile: { width: 'calc(100% - 24px)' } } }
+          ),
+        ],
+        { gap: '20px', alignItems: 'stretch', maxWidth: 'var(--w-content)' }
       ),
     ],
     { paddingTop: '56px', paddingBottom: '64px' }

@@ -90,11 +90,14 @@ export function renderNodeToHtml(
   if (model.html !== undefined) return `<${tag}${attrs}>${model.html}</${tag}>`;
   if (model.text !== undefined) return `<${tag}${attrs}>${escapeHtml(model.text)}</${tag}>`;
 
-  const children = getElement(node.type).container
+  const rendered = getElement(node.type).container
     ? node.children
         .map((childId) => renderNodeToHtml(doc, childId, { ...options, depth: depth + 1 }))
         .join('')
     : '';
+  const children = model.wrapChildren
+    ? `<${model.wrapChildren}>${rendered}</${model.wrapChildren}>`
+    : rendered;
 
   const lead = model.lead
     ? `<${model.lead.tag}>${escapeHtml(model.lead.text)}</${model.lead.tag}>`

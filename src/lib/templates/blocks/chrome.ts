@@ -26,6 +26,8 @@ import {
   label,
   pad,
   paragraph,
+  popover,
+  popoverButton,
   radius,
   section,
   stack,
@@ -522,4 +524,162 @@ export function minimalFooterSpec(): NodeSpec {
       ...borderSide('Top'),
     }
   );
+}
+
+/* --------------------------------------------------------------------------
+ * Navbar with a menu that works on a phone
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The navbar above hides its links below 640px and puts nothing in their
+ * place, which is the honest thing to do without a runtime — a hamburger that
+ * opens nothing is worse than no hamburger. `[popover]` removes the excuse:
+ * the button opens a real sheet, Escape and a tap outside close it, focus
+ * returns to the button, and the published page still ships no script.
+ */
+export function navMenuSpec(links: (string | BlockLink)[] = DEFAULT_NAV_LINKS): NodeSpec {
+  const menuLinks = links.map(asLink);
+
+  return {
+    type: 'section',
+    name: 'Navbar with menu',
+    styles: {
+      ...pad('16px', '24px'),
+      position: 'sticky',
+      top: '0px',
+      zIndex: '50',
+      backgroundColor: tint('var(--c-background)', 82),
+      backdropFilter: 'saturate(180%) blur(14px)',
+      ...borderSide('Bottom'),
+    },
+    responsive: { mobile: { paddingLeft: '20px', paddingRight: '20px' } },
+    children: [
+      container(
+        [
+          brand('26px'),
+
+          {
+            type: 'navigation',
+            name: 'Nav links',
+            styles: { gap: '30px' },
+            responsive: { mobile: { display: 'none' } },
+            children: menuLinks.map(({ label: text, href }) => textLink(text, href ?? '#')),
+          },
+
+          stack(
+            'Nav actions',
+            [
+              {
+                ...textLink('Sign in'),
+                name: 'Sign in',
+                responsive: { mobile: { display: 'none' } },
+              },
+              {
+                type: 'button',
+                name: 'Start free button',
+                props: { label: 'Start free', href: '#' },
+                styles: { fontSize: '14px', ...pad('9px', '16px') },
+                states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+              },
+              // The one control that appears *only* when narrow.
+              {
+                ...popoverButton('Menu', 'Menu', { variant: 'secondary' }),
+                name: 'Menu button',
+                styles: {
+                  display: 'none',
+                  fontSize: '14px',
+                  ...pad('9px', '14px'),
+                  backgroundColor: 'transparent',
+                  color: 'var(--c-text)',
+                  ...border('1px', 'var(--c-border)'),
+                },
+                responsive: { mobile: { display: 'inline-flex' } },
+              },
+            ],
+            { gap: '20px' }
+          ),
+        ],
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '32px',
+          maxWidth: 'var(--w-wide)',
+        }
+      ),
+
+      // A sheet down from the top of the viewport, which is where a phone
+      // expects a menu to come from. Hidden on the canvas by default so the
+      // block reads as the navbar it is; the switch in the inspector brings
+      // it back when there is something inside to style.
+      {
+        ...popover(
+          'Menu',
+          [
+            stack(
+              'Menu head',
+              [
+                brand('22px'),
+                {
+                  ...popoverButton('Close', 'Menu', { action: 'hide', variant: 'ghost' }),
+                  name: 'Close menu',
+                  styles: {
+                    ...pad('6px', '10px'),
+                    fontSize: '13px',
+                    marginLeft: 'auto',
+                    backgroundColor: 'transparent',
+                    color: 'var(--c-muted)',
+                  },
+                },
+              ],
+              { gap: '12px', width: '100%', alignItems: 'center' }
+            ),
+            divider(),
+            {
+              type: 'navigation',
+              name: 'Menu links',
+              styles: { flexDirection: 'column', alignItems: 'stretch', gap: '2px', width: '100%' },
+              children: menuLinks.map(({ label: text, href }) => ({
+                ...textLink(text, href ?? '#'),
+                styles: {
+                  fontSize: '17px',
+                  color: 'var(--c-text)',
+                  ...pad('11px', '4px'),
+                  ...radius('var(--r-sm)'),
+                },
+                states: { hover: { backgroundColor: 'var(--c-surface)' } },
+              })),
+            },
+            {
+              type: 'button',
+              name: 'Menu CTA',
+              props: { label: 'Start free', href: '#' },
+              styles: { width: '100%', ...pad('12px', '18px') },
+              states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+            },
+          ],
+          {
+            styles: {
+              // Anchored to the top edge rather than centred: `inset: 0` with
+              // one margin fixed and the opposite one auto is how a top-layer
+              // box picks a side.
+              width: '100%',
+              marginTop: '0px',
+              marginBottom: 'auto',
+              marginLeft: '0px',
+              marginRight: '0px',
+              gap: '14px',
+              ...pad('18px', '20px', '22px'),
+              ...radius('0px'),
+              borderTopWidth: '0px',
+              borderRightWidth: '0px',
+              borderLeftWidth: '0px',
+            },
+            responsive: { mobile: { paddingLeft: '18px', paddingRight: '18px' } },
+          }
+        ),
+        props: { popoverMode: 'auto', showWhileEditing: false },
+      },
+    ],
+  };
 }

@@ -65,6 +65,18 @@ export interface ElementModel {
    * break the disclosure.
    */
   lead?: { tag: string; text: string };
+  /**
+   * A tag the element's children are nested inside.
+   *
+   * `<table>` needs it. Rows written directly inside a table are conforming
+   * markup, but the parser inserts a `<tbody>` around them anyway, so the DOM
+   * a browser builds never matches the DOM React was told to build — React
+   * says so, loudly, and any code walking the published tree finds a level
+   * that isn't in the document. Emitting the wrapper ourselves makes the two
+   * agree, and keeps `<tbody>` out of the layer tree where it would be a node
+   * a designer could delete.
+   */
+  wrapChildren?: string;
   /** Never receives children or a closing tag. */
   void: boolean;
   /** Whether child nodes should be rendered inside this element. */
@@ -75,6 +87,18 @@ export interface ElementModel {
 
 /** Internal page links are stored as `page:<id>` so renaming a page can't break them. */
 export const PAGE_HREF_PREFIX = 'page:';
+
+/**
+ * The DOM id a popover answers to.
+ *
+ * Nodes are otherwise addressed by class, because a class cannot collide with
+ * anything a designer typed into `customHead`. A popover needs a real id —
+ * `popovertarget` takes nothing else — so it gets one, prefixed the same way
+ * the class is so it stays a valid identifier whatever the node id looks like.
+ */
+export function popoverDomId(nodeId: string): string {
+  return `p-${nodeId}`;
+}
 
 export function resolveHref(doc: Cre8Document, href: string | undefined, mode: RenderMode): string {
   if (!href) return mode === 'publish' ? '#' : '#';
@@ -228,6 +252,14 @@ export function describeElement(
       } else {
         attrs.type = 'button';
       }
+      // Opening a popover is the browser's job, not a script's: name the panel
+      // and it handles the top layer, light dismiss, Escape and focus return.
+      const popoverTarget = str(props.popoverTarget);
+      if (popoverTarget && tag === 'button') {
+        attrs.popovertarget = popoverDomId(popoverTarget);
+        const action = str(props.popoverAction, 'toggle');
+        if (action !== 'toggle') attrs.popovertargetaction = action;
+      }
       const textProp = node.type === 'button' ? 'label' : 'text';
       return {
         tag,
@@ -236,6 +268,62 @@ export function describeElement(
         void: false,
         acceptsChildren: false,
         editableProp: textProp,
+      };
+    }
+
+    case 'popover': {
+      // Design time and published deliberately differ here, for the same
+      // reason `<details>` does: a `[popover]` is `display: none` until it is
+      // shown, and contents nobody can see are contents nobody can edit. The
+      // canvas therefore drops the attribute and draws the panel in place —
+      // still fixed and centred, because that positioning is the node's own
+      // style rather than something the renderer invents per surface.
+      const showWhileEditing = props.showWhileEditing !== false;
+      const live = mode !== 'edit' || !showWhileEditing;
+      return {
+        tag: 'div',
+        attrs: {
+          ...base,
+          id: popoverDomId(node.id),
+          popover: live ? str(props.popoverMode, 'auto') : undefined,
+        },
+        void: false,
+        acceptsChildren: true,
+      };
+    }
+
+    case 'table': {
+      const caption = str(props.caption).trim();
+      return {
+        tag: 'table',
+        attrs: base,
+        ...(caption ? { lead: { tag: 'caption', text: caption } } : {}),
+        wrapChildren: 'tbody',
+        void: false,
+        acceptsChildren: true,
+      };
+    }
+
+    case 'tableRow':
+      return { tag: 'tr', attrs: base, void: false, acceptsChildren: true };
+
+    case 'tableCell': {
+      const header = Boolean(props.header);
+      const colSpan = Number(props.colSpan ?? 0);
+      const rowSpan = Number(props.rowSpan ?? 0);
+      return {
+        tag: header ? 'th' : 'td',
+        attrs: {
+          ...base,
+          // Without a scope a header cell is a bold word: the association
+          // between it and the cells it describes is what a screen reader
+          // reads out when it lands three rows down.
+          scope: header ? str(props.scope, 'col') : undefined,
+          colspan: colSpan > 1 ? colSpan : undefined,
+          rowspan: rowSpan > 1 ? rowSpan : undefined,
+        },
+        void: false,
+        acceptsChildren: true,
       };
     }
 
@@ -382,6 +470,10 @@ const REACT_ATTR_MAP: Record<string, string> = {
   playsinline: 'playsInline',
   autoplay: 'autoPlay',
   onsubmit: 'onSubmit',
+  colspan: 'colSpan',
+  rowspan: 'rowSpan',
+  popovertarget: 'popoverTarget',
+  popovertargetaction: 'popoverTargetAction',
   'stroke-width': 'strokeWidth',
   'stroke-linecap': 'strokeLinecap',
   'stroke-linejoin': 'strokeLinejoin',

@@ -15,6 +15,7 @@ import {
   Menu,
   Minus,
   MoveVertical,
+  PictureInPicture2,
   Pilcrow,
   RectangleEllipsis,
   Rows3,
@@ -23,6 +24,9 @@ import {
   SquareCheck,
   SquareMousePointer,
   StretchHorizontal,
+  Table,
+  TableCellsMerge,
+  TableProperties,
   TextCursorInput,
   Type,
   Video,
@@ -57,6 +61,10 @@ const ICONS: Record<string, LucideIcon> = {
   checkbox: SquareCheck,
   radio: CircleDot,
   details: ChevronRight,
+  popover: PictureInPicture2,
+  table: Table,
+  tableRow: TableProperties,
+  tableCell: TableCellsMerge,
   component: Component,
 };
 

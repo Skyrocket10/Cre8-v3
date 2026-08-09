@@ -15,6 +15,7 @@ export {
   docsLayoutSpec,
   footerSpec,
   minimalFooterSpec,
+  navMenuSpec,
   navbarSpec,
   subNavSpec,
 } from './chrome';
@@ -51,7 +52,9 @@ export {
   appShellSpec,
   authSpec,
   badgesSpec,
+  commandMenuSpec,
   comparisonSpec,
+  dataTableSpec,
   emptyStateSpec,
   fileListSpec,
   formSpec,
@@ -93,6 +96,7 @@ import {
   docsLayoutSpec,
   footerSpec,
   minimalFooterSpec,
+  navMenuSpec,
   navbarSpec,
   subNavSpec,
 } from './chrome';
@@ -102,7 +106,9 @@ import {
   appShellSpec,
   authSpec,
   badgesSpec,
+  commandMenuSpec,
   comparisonSpec,
+  dataTableSpec,
   emptyStateSpec,
   fileListSpec,
   formSpec,
@@ -198,6 +204,14 @@ export interface BlockDefinition {
 }
 
 export const BLOCKS: BlockDefinition[] = [
+  {
+    id: 'nav-menu',
+    name: 'Navbar with menu',
+    description: 'Links collapse into a menu the browser opens',
+    category: 'chrome',
+    keywords: ['header', 'hamburger', 'mobile', 'popover', 'nav', 'responsive'],
+    build: navMenuSpec,
+  },
   {
     id: 'navbar',
     name: 'Navbar',
@@ -693,5 +707,21 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'convert',
     keywords: ['pricing', 'plans', 'matrix', 'table', 'versus'],
     build: comparisonSpec,
+  },
+  {
+    id: 'app-data-table',
+    name: 'Data table',
+    description: 'Records with headers a screen reader can follow',
+    category: 'app',
+    keywords: ['table', 'rows', 'orders', 'records', 'grid', 'list'],
+    build: dataTableSpec,
+  },
+  {
+    id: 'app-command-menu',
+    name: 'Command menu',
+    description: 'A button opens a panel — no script on the page',
+    category: 'app',
+    keywords: ['popover', 'palette', 'dialog', 'menu', 'shortcut', 'modal'],
+    build: commandMenuSpec,
   },
 ];

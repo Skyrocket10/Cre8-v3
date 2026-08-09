@@ -595,3 +595,161 @@ export const sectionHeader = (
       width: '100%',
     }
   );
+
+/* --------------------------------------------------------------------------
+ * Tables
+ *
+ * Real table markup, not a grid of boxes that looks like one. The difference
+ * is inaudible on screen and total in a screen reader: a `<td>` knows which
+ * column header describes it, so a blind user hears "Bandwidth, Team, 1 TB"
+ * instead of the bare word "1 TB" with nothing to attach it to.
+ * ----------------------------------------------------------------------- */
+
+/**
+ * A cell.
+ *
+ * Takes text or nodes, because half of what goes in a real table is a badge,
+ * a tick or an avatar. Text is wrapped in a `text` node rather than set as a
+ * prop on the cell so it can be selected and edited on its own, the same as
+ * text anywhere else.
+ */
+export const cell = (
+  content: string | NodeSpec | NodeSpec[],
+  options: {
+    header?: boolean;
+    scope?: 'col' | 'row';
+    colSpan?: number;
+    rowSpan?: number;
+    styles?: StyleDecl;
+    responsive?: ResponsiveStyles;
+  } = {}
+): NodeSpec => {
+  const children =
+    typeof content === 'string'
+      ? [label(content, { fontSize: 'inherit', fontWeight: 'inherit', color: 'inherit' })]
+      : Array.isArray(content)
+        ? content
+        : [content];
+
+  return {
+    type: 'tableCell',
+    name:
+      typeof content === 'string' ? content.slice(0, 24) || 'Cell' : options.header ? 'Header' : 'Cell',
+    props: {
+      ...(options.header ? { header: true, scope: options.scope ?? 'col' } : {}),
+      ...(options.colSpan && options.colSpan > 1 ? { colSpan: options.colSpan } : {}),
+      ...(options.rowSpan && options.rowSpan > 1 ? { rowSpan: options.rowSpan } : {}),
+    },
+    styles: {
+      ...(options.header
+        ? { fontWeight: '600', color: 'var(--c-text)', fontSize: '12.5px' }
+        : {}),
+      ...options.styles,
+    },
+    ...rsp(options.responsive ?? {}),
+    children,
+  };
+};
+
+export const tableRow = (
+  name: string,
+  cells: NodeSpec[],
+  styles: StyleDecl = {},
+  responsive: ResponsiveStyles = {}
+): NodeSpec => ({ type: 'tableRow', name, styles, ...rsp(responsive), children: cells });
+
+/**
+ * A table, inside the horizontal scroller it needs.
+ *
+ * A table does not reflow: six columns are six columns at 390px too, and the
+ * only honest options are to shrink the text until it is unreadable or to let
+ * the table scroll on its own. Scrolling is the one that still works, so it
+ * ships with the table rather than being left for the designer to remember.
+ */
+export const table = (
+  name: string,
+  rows: NodeSpec[],
+  options: {
+    caption?: string;
+    minWidth?: string;
+    styles?: StyleDecl;
+    responsive?: ResponsiveStyles;
+  } = {}
+): NodeSpec =>
+  frame(
+    `${name} scroller`,
+    [
+      {
+        type: 'table',
+        name,
+        props: options.caption ? { caption: options.caption } : {},
+        styles: { minWidth: options.minWidth ?? '560px', ...options.styles },
+        ...rsp(options.responsive ?? {}),
+        children: rows,
+      },
+    ],
+    { ...pad('0px'), width: '100%', overflowX: 'auto' },
+    // Nothing changes about the table when narrow — the scroller is the
+    // response. Stated so the check that every block declares narrow
+    // behaviour is answered deliberately rather than by omission.
+    { mobile: { width: '100%' } }
+  );
+
+/* --------------------------------------------------------------------------
+ * Popovers
+ * ----------------------------------------------------------------------- */
+
+/**
+ * A panel the browser opens, and the button that opens it.
+ *
+ * Everything a hand-rolled dropdown has to reimplement — stacking above the
+ * rest of the page, closing on Escape, closing on a click outside, putting
+ * focus back on the button afterwards — is what `[popover]` already is. The
+ * published page ships no script for any of it.
+ */
+export const popover = (
+  name: string,
+  children: NodeSpec[],
+  options: { mode?: 'auto' | 'manual'; styles?: StyleDecl; responsive?: ResponsiveStyles } = {}
+): NodeSpec => ({
+  type: 'popover',
+  name,
+  props: { popoverMode: options.mode ?? 'auto' },
+  styles: options.styles ?? {},
+  ...rsp(options.responsive ?? {}),
+  children,
+});
+
+/**
+ * A button wired to a popover.
+ *
+ * `target` is the popover's *name*; `linkPopovers` resolves those to node ids
+ * once the tree has been built, because a NodeSpec has no id to point at yet.
+ */
+export const popoverButton = (
+  text: string,
+  target: string,
+  options: {
+    action?: 'toggle' | 'show' | 'hide';
+    variant?: 'primary' | 'secondary' | 'ghost';
+    styles?: StyleDecl;
+  } = {}
+): NodeSpec => {
+  const base = button(text, options.variant ?? 'secondary');
+  return {
+    ...base,
+    props: {
+      label: text,
+      popoverTarget: `${POPOVER_REF}${target}`,
+      ...(options.action && options.action !== 'toggle' ? { popoverAction: options.action } : {}),
+    },
+    styles: { ...base.styles, ...options.styles },
+  };
+};
+
+/**
+ * Marks a `popoverTarget` that still names a popover rather than pointing at
+ * one. Same shape as the `page@` deferred link references, and resolved at the
+ * same moment — when the spec becomes real nodes with real ids.
+ */
+export const POPOVER_REF = 'popover@';

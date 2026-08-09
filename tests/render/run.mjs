@@ -19,6 +19,7 @@ const SUITES = [
   ['panel', 'the Insert panel at library scale'],
   ['nav', 'page navigation inside a published site'],
   ['native', 'native primitives behave without a runtime'],
+  ['tables', 'tabular markup survives the parser'],
   ['forms', 'published forms reach the submissions endpoint'],
   ['assets', 'images survive publish and export'],
   ['bodyreset', 'the published page starts at the edge'],

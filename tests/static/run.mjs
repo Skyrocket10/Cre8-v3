@@ -16,7 +16,8 @@ import { createReport } from '../report.mjs';
 import { layers, loadBlocks, walk } from './load-blocks.mjs';
 
 const report = createReport();
-const { BLOCKS, BLOCK_CATEGORIES, ICON_NAMES, ELEMENTS, PLACEHOLDER_MIN_HEIGHT } = loadBlocks();
+const { BLOCKS, BLOCK_CATEGORIES, ICON_NAMES, ELEMENTS, PLACEHOLDER_MIN_HEIGHT, canContain } =
+  loadBlocks();
 const KNOWN_ICONS = new Set(ICON_NAMES);
 
 const CATEGORY_IDS = new Set(BLOCK_CATEGORIES.map((c) => c.id));
@@ -251,6 +252,52 @@ function checkInteractiveStates(spec) {
   return bad;
 }
 
+/**
+ * No parent/child pair the HTML parser would rearrange.
+ *
+ * The canvas builds its DOM with React, which puts elements exactly where it
+ * is told. Publishing writes a string, and the browser parses that string
+ * under the HTML tree-construction rules — which move a `<div>` out of a
+ * `<table>` and drop a `<td>` that has no row. Both are silent, and both
+ * produce a published page that does not match the one on screen. Drag and
+ * drop refuses these pairs; a block is written in code, so nothing refuses
+ * them until here.
+ */
+function checkNesting(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    for (const child of node.children ?? []) {
+      if (!canContain(node.type, child.type)) {
+        bad.push(`${path}: <${node.type}> cannot hold <${child.type}>`);
+      }
+    }
+  }
+  return bad;
+}
+
+/**
+ * A popover reference has to name a popover in the same block.
+ *
+ * `popoverButton` defers the link as a name, and `buildTree` resolves it once
+ * the nodes have ids. A name with a typo in it resolves to nothing, the prop
+ * is dropped, and the button becomes an ordinary button that looks wired and
+ * is not.
+ */
+function checkPopoverRefs(spec) {
+  const bad = [];
+  const names = new Set();
+  for (const { node } of walk(spec)) {
+    if (node.type === 'popover') names.add(node.name);
+  }
+  for (const { node, path } of walk(spec)) {
+    const target = node.props?.popoverTarget;
+    if (typeof target !== 'string') continue;
+    const wanted = target.replace(/^popover@/, '');
+    if (!names.has(wanted)) bad.push(`${path}: opens "${wanted}", which is not in this block`);
+  }
+  return bad;
+}
+
 /** Every node needs a name, or the layer tree is a column of "Frame". */
 function checkNames(spec) {
   const bad = [];
@@ -269,6 +316,8 @@ const RULES = [
   ['images carry alt text worth reading', checkAltText],
   ['every icon name exists in the registry', checkIconNames],
   ['children are only where an element can render them', checkContainerChildren],
+  ['no nesting the HTML parser would rearrange', checkNesting],
+  ['every popover button names a popover in its block', checkPopoverRefs],
   ['small images clear the empty-slot floor', checkPlaceholderFloor],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['every node is named for the layer tree', checkNames],
@@ -387,6 +436,25 @@ const VIOLATIONS = [
     checkContainerChildren,
     'children nested inside a link, which renders none',
     { type: 'link', name: 'L', props: { text: '' }, children: [{ type: 'text', name: 'T' }] },
+  ],
+  [
+    checkNesting,
+    'a frame parked between a table and its rows',
+    {
+      type: 'table',
+      name: 'T',
+      children: [{ type: 'frame', name: 'F', children: [{ type: 'tableRow', name: 'R' }] }],
+    },
+  ],
+  [
+    checkNesting,
+    'a table cell with no row around it',
+    { type: 'frame', name: 'F', children: [{ type: 'tableCell', name: 'C' }] },
+  ],
+  [
+    checkPopoverRefs,
+    'a button opening a popover that is not in the block',
+    { type: 'frame', name: 'F', children: [{ type: 'button', name: 'B', props: { popoverTarget: 'popover@Ghost' } }] },
   ],
   [
     checkIconNames,

@@ -708,7 +708,8 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     const target =
       parentId !== undefined
         ? { parentId, index: index ?? Number.MAX_SAFE_INTEGER }
-        : ops.resolveInsertTarget(state.doc, state.selection[0] ?? null, rootId);
+        : ops.resolveInsertTarget(state.doc, state.selection[0] ?? null, rootId, type);
+    if (!target) return null;
 
     let created: NodeId | null = null;
     get().transact(`Add ${getElement(type).label}`, (draft) => {
@@ -725,7 +726,8 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     const target =
       parentId !== undefined
         ? { parentId, index: index ?? Number.MAX_SAFE_INTEGER }
-        : ops.resolveInsertTarget(state.doc, state.selection[0] ?? null, rootId);
+        : ops.resolveInsertTarget(state.doc, state.selection[0] ?? null, rootId, 'instance');
+    if (!target) return null;
 
     let created: NodeId | null = null;
     get().transact('Add component', (draft) => {
@@ -941,7 +943,15 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     const rootId = activeRootId(state);
     if (!clipboard || !rootId) return;
 
-    const target = ops.resolveInsertTarget(state.doc, state.selection[0] ?? null, rootId);
+    // Resolved for what is on the clipboard: pasting a table row looks for a
+    // table above the selection rather than dropping it wherever the caret is.
+    const target = ops.resolveInsertTarget(
+      state.doc,
+      state.selection[0] ?? null,
+      rootId,
+      clipboard.rootIds[0] ? clipboard.nodes[clipboard.rootIds[0]]?.type : undefined
+    );
+    if (!target) return;
 
     get().transact('Paste', (draft) => {
       const created: NodeId[] = [];

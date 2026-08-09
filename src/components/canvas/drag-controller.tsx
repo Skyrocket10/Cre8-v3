@@ -20,7 +20,7 @@ import * as ops from '@/lib/document/operations';
 import { collectSubtree } from '@/lib/document/tree';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { createNode } from '@/lib/document/factory';
-import type { NodeId } from '@/lib/document/types';
+import type { Cre8Document, ElementType, NodeId } from '@/lib/document/types';
 
 export function DragController() {
   const dragging = useEditor((s) => Boolean(s.drag));
@@ -53,6 +53,7 @@ export function DragController() {
         doc: state.doc,
         rootId,
         excludeIds: exclude,
+        payloadTypes: payloadTypes(drag.payload, state.doc),
       });
 
       state.setDropIndicator(
@@ -94,11 +95,33 @@ export function DragController() {
   return null;
 }
 
-function commitDrop(
-  payload: NonNullable<ReturnType<typeof useEditor.getState>['drag']>['payload'],
-  parentId: NodeId,
-  index: number
-): void {
+type DragPayload = NonNullable<ReturnType<typeof useEditor.getState>['drag']>['payload'];
+
+/**
+ * What the drop would put in the target, so the target can refuse it.
+ *
+ * Every branch answers in element types rather than in payload kinds, which is
+ * what lets one containment rule cover a fresh element, a moved subtree and a
+ * dragged asset alike.
+ */
+function payloadTypes(payload: DragPayload, doc: Cre8Document): ElementType[] {
+  switch (payload.kind) {
+    case 'new-element':
+      return [payload.elementType];
+    case 'new-component':
+      return ['instance'];
+    case 'asset': {
+      const asset = doc.assets.find((a) => a.id === payload.assetId);
+      return [asset?.type === 'video' ? 'video' : 'image'];
+    }
+    case 'move':
+      return payload.nodeIds
+        .map((id) => doc.nodes[id]?.type)
+        .filter((type): type is ElementType => Boolean(type));
+  }
+}
+
+function commitDrop(payload: DragPayload, parentId: NodeId, index: number): void {
   const store = useEditor.getState();
 
   switch (payload.kind) {

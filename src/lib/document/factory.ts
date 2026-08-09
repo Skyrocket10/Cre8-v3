@@ -72,6 +72,13 @@ export function buildTree(
   into: NodeMap = {},
   parentId: NodeId | null = null
 ): { rootId: NodeId; nodes: NodeMap } {
+  const rootId = buildSubtree(spec, into, parentId);
+  // Only once the whole tree exists do the popovers have ids to point at.
+  resolvePopoverRefs(into);
+  return { rootId, nodes: into };
+}
+
+function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): NodeId {
   const node = createNode(spec.type, {
     name: spec.name,
     props: spec.props,
@@ -84,10 +91,35 @@ export function buildTree(
 
   into[node.id] = node;
   for (const childSpec of spec.children ?? []) {
-    const { rootId } = buildTree(childSpec, into, node.id);
-    node.children.push(rootId);
+    node.children.push(buildSubtree(childSpec, into, node.id));
   }
-  return { rootId: node.id, nodes: into };
+  return node.id;
+}
+
+/**
+ * Point every deferred popover reference at the popover it names.
+ *
+ * A block describes its own wiring — "this button opens the Menu popover" —
+ * but a spec has no ids, so the reference travels as a name until the nodes
+ * exist. A name that matches nothing has the prop removed rather than left
+ * dangling: a `popovertarget` pointing at no element makes the button do
+ * nothing at all, which is worse than the button simply not being an invoker.
+ */
+const POPOVER_REF = 'popover@';
+
+function resolvePopoverRefs(nodes: NodeMap): void {
+  const byName = new Map<string, NodeId>();
+  for (const node of Object.values(nodes)) {
+    if (node.type === 'popover') byName.set(node.name, node.id);
+  }
+
+  for (const node of Object.values(nodes)) {
+    const target = node.props.popoverTarget;
+    if (typeof target !== 'string' || !target.startsWith(POPOVER_REF)) continue;
+    const id = byName.get(target.slice(POPOVER_REF.length));
+    if (id) node.props.popoverTarget = id;
+    else delete node.props.popoverTarget;
+  }
 }
 
 /** Deep-copy a subtree with fresh ids. Returns the new root id. */
@@ -96,6 +128,19 @@ export function cloneSubtree(
   rootId: NodeId,
   into: NodeMap,
   parentId: NodeId | null
+): NodeId | null {
+  const remap = new Map<NodeId, NodeId>();
+  const newRoot = copySubtree(source, rootId, into, parentId, remap);
+  if (newRoot) rewireInternalRefs(into, remap);
+  return newRoot;
+}
+
+function copySubtree(
+  source: NodeMap,
+  rootId: NodeId,
+  into: NodeMap,
+  parentId: NodeId | null,
+  remap: Map<NodeId, NodeId>
 ): NodeId | null {
   const original = source[rootId];
   if (!original) return null;
@@ -107,12 +152,32 @@ export function cloneSubtree(
     children: [],
   };
   into[copy.id] = copy;
+  remap.set(rootId, copy.id);
 
   for (const childId of original.children) {
-    const childCopy = cloneSubtree(source, childId, into, copy.id);
+    const childCopy = copySubtree(source, childId, into, copy.id, remap);
     if (childCopy) copy.children.push(childCopy);
   }
   return copy.id;
+}
+
+/**
+ * Re-point props that name another node in the same copied subtree.
+ *
+ * Duplicate a header whose button opens its menu and, without this, both
+ * copies open the *first* menu — the second one is unreachable and the bug
+ * only shows up when someone clicks. A reference that leaves the subtree is
+ * left pointing where it did, which is the right answer for copying a button
+ * out of a nav that stays where it is.
+ */
+function rewireInternalRefs(nodes: NodeMap, remap: Map<NodeId, NodeId>): void {
+  for (const id of remap.values()) {
+    const node = nodes[id];
+    const target = node?.props.popoverTarget;
+    if (!node || typeof target !== 'string') continue;
+    const moved = remap.get(target);
+    if (moved) node.props.popoverTarget = moved;
+  }
 }
 
 /** `structuredClone` isn't available on every runtime we target. */

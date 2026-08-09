@@ -59,6 +59,7 @@ export function loadBlocks() {
     ...require(path.join(OUT, 'templates/blocks/index.js')),
     ICON_NAMES: require(path.join(OUT, 'renderer/icons.js')).ICON_NAMES,
     ELEMENTS: require(path.join(OUT, 'document/schema.js')).ELEMENTS,
+    canContain: require(path.join(OUT, 'document/schema.js')).canContain,
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
   };
 }

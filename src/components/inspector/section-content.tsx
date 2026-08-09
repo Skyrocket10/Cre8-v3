@@ -13,7 +13,8 @@ import { Component, ExternalLink, ImageIcon, Scissors, SquarePen } from 'lucide-
 import { ICON_NAMES, ICON_PATHS } from '@/lib/renderer/icons';
 import { SEMANTIC_TAGS } from '@/lib/document/schema';
 import { detachInstance } from '@/lib/document/operations';
-import { useEditor } from '@/lib/editor/store';
+import { collectSubtree } from '@/lib/document/tree';
+import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { NumberField } from '../ui/number-field';
 import { Button, Popover, Section, Segmented, Select, Switch, TextInput, Tooltip } from '../ui/primitives';
@@ -43,9 +44,15 @@ export function ContentSection() {
     case 'icon':
       return <IconContent />;
     case 'button':
-      return <LinkContent labelProp="label" title="Button" />;
+      return <LinkContent labelProp="label" title="Button" canOpenPopover />;
     case 'link':
       return <LinkContent labelProp="text" title="Link" />;
+    case 'popover':
+      return <PopoverContent />;
+    case 'table':
+      return <TableContent />;
+    case 'tableCell':
+      return <TableCellContent />;
     case 'input':
     case 'textarea':
       return <FieldContent multiline={type === 'textarea'} />;
@@ -200,6 +207,208 @@ function DisclosureContent() {
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         Always shown open while editing. “Open” is how it ships.
       </p>
+    </Section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Popover
+ * ----------------------------------------------------------------------- */
+
+const FIELD = '\u0000';
+const ENTRY = '\u0001';
+
+/**
+ * Every popover on the surface being edited, for the invoker picker.
+ *
+ * Selected as one string rather than as the array it wants to be. A store
+ * selector that builds a fresh array is a new value on every read, so it never
+ * compares equal, and `useSyncExternalStore` treats that as "changed" on every
+ * store event — a re-render per keystroke anywhere in the document, and React
+ * warns about it. A string compares by value; `useMemo` turns it back into the
+ * array exactly when it actually differs.
+ */
+function usePopovers(): { id: string; name: string }[] {
+  const encoded = useEditor((s) => {
+    const rootId = activeRootId(s);
+    if (!rootId) return '';
+    return collectSubtree(s.doc.nodes, rootId)
+      .map((id) => s.doc.nodes[id])
+      .filter((node) => node?.type === 'popover')
+      .map((node) => `${node!.id}${FIELD}${node!.name}`)
+      .join(ENTRY);
+  });
+
+  return useMemo(() => {
+    if (!encoded) return [];
+    return encoded.split(ENTRY).map((entry) => {
+      const [id = '', name = ''] = entry.split(FIELD);
+      return { id, name };
+    });
+  }, [encoded]);
+}
+
+function PopoverContent() {
+  const mode = useNodeProp('popoverMode');
+  const showWhileEditing = useNodeProp('showWhileEditing');
+
+  return (
+    <Section title="Popover" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Dismiss" hint="Auto closes on Escape or a click outside">
+          <Segmented
+            full
+            value={String(mode.value ?? 'auto')}
+            onChange={(value) => mode.set(value)}
+            options={[
+              { value: 'auto', label: 'Automatic' },
+              { value: 'manual', label: 'Manual' },
+            ]}
+          />
+        </StyleRow>
+        <StyleRow label="On canvas">
+          <Switch
+            checked={showWhileEditing.value !== false}
+            onChange={(on) => showWhileEditing.set(on ? undefined : false)}
+            label="Show while editing"
+          />
+        </StyleRow>
+      </InspectorGroup>
+      <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+        Published, it stays hidden until a button opens it. Turn this off and it hides on the canvas
+        too — select it in Layers to bring it back.
+      </p>
+    </Section>
+  );
+}
+
+/**
+ * Which popover a button opens.
+ *
+ * Wiring rather than styling, and the browser does all of it: the top layer,
+ * closing on Escape, closing on a click outside, and putting focus back where
+ * it came from. The one rule to enforce is that an invoker is a `<button>`,
+ * so choosing a popover clears the link.
+ */
+function PopoverTargetRows() {
+  const target = useNodeProp('popoverTarget');
+  const action = useNodeProp('popoverAction');
+  const href = useNodeProp('href');
+  const popovers = usePopovers();
+
+  if (popovers.length === 0) return null;
+  const current = String(target.value ?? '');
+
+  return (
+    <>
+      <StyleRow label="Opens" hint="A popover on this page — clears the link">
+        <Select
+          className="flex-1"
+          value={current}
+          onChange={(value) => {
+            target.set(value || undefined);
+            if (value) href.set(undefined);
+            else action.set(undefined);
+          }}
+          options={[
+            { value: '', label: 'Nothing' },
+            ...popovers.map((p) => ({ value: p.id, label: p.name })),
+          ]}
+        />
+      </StyleRow>
+      {current && (
+        <StyleRow label="Action">
+          <Segmented
+            full
+            value={String(action.value ?? 'toggle')}
+            onChange={(value) => action.set(value === 'toggle' ? undefined : value)}
+            options={[
+              { value: 'toggle', label: 'Toggle' },
+              { value: 'show', label: 'Open' },
+              { value: 'hide', label: 'Close' },
+            ]}
+          />
+        </StyleRow>
+      )}
+    </>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Tables
+ * ----------------------------------------------------------------------- */
+
+function TableContent() {
+  const caption = useNodeProp('caption');
+  return (
+    <Section title="Table" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Caption" hint="Names the table for a screen reader">
+          <TextInput
+            className="flex-1"
+            value={String(caption.value ?? '')}
+            onValueChange={(value) => caption.set(value || undefined)}
+            placeholder="What this table shows"
+          />
+        </StyleRow>
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+function TableCellContent() {
+  const header = useNodeProp('header');
+  const scope = useNodeProp('scope');
+  const colSpan = useNodeProp('colSpan');
+  const rowSpan = useNodeProp('rowSpan');
+  const isHeader = Boolean(header.value);
+
+  return (
+    <Section title="Cell" defaultOpen>
+      <InspectorGroup>
+        <StyleRow label="Header">
+          <Switch
+            checked={isHeader}
+            onChange={(on) => header.set(on || undefined)}
+            label="Names other cells"
+          />
+        </StyleRow>
+        {isHeader && (
+          <StyleRow label="Describes" hint="Which cells this header belongs to">
+            <Segmented
+              full
+              value={String(scope.value ?? 'col')}
+              onChange={(value) => scope.set(value)}
+              options={[
+                { value: 'col', label: 'Column' },
+                { value: 'row', label: 'Row' },
+              ]}
+            />
+          </StyleRow>
+        )}
+        <StyleRow label="Spans">
+          <div className="flex flex-1 gap-1.5">
+            <NumberField
+              value={String(colSpan.value ?? 1)}
+              units={[]}
+              step={1}
+              min={1}
+              max={24}
+              label="C"
+              onChange={(value) => colSpan.set(Number(value ?? 1) > 1 ? Number(value) : undefined)}
+            />
+            <NumberField
+              value={String(rowSpan.value ?? 1)}
+              units={[]}
+              step={1}
+              min={1}
+              max={24}
+              label="R"
+              onChange={(value) => rowSpan.set(Number(value ?? 1) > 1 ? Number(value) : undefined)}
+            />
+          </div>
+        </StyleRow>
+      </InspectorGroup>
     </Section>
   );
 }
@@ -546,12 +755,22 @@ function IconPreview({ name }: { name: string }) {
  * Links
  * ----------------------------------------------------------------------- */
 
-function LinkContent({ labelProp, title }: { labelProp: string; title: string }) {
+function LinkContent({
+  labelProp,
+  title,
+  canOpenPopover = false,
+}: {
+  labelProp: string;
+  title: string;
+  canOpenPopover?: boolean;
+}) {
   const label = useNodeProp(labelProp);
   const href = useNodeProp('href');
   const target = useNodeProp('target');
+  const popoverTarget = useNodeProp('popoverTarget');
   const pages = useEditor((s) => s.doc.pages);
 
+  const opensPopover = Boolean(popoverTarget.value);
   const current = String(href.value ?? '');
   const isPageLink = current.startsWith('page:');
   const mode = isPageLink ? 'page' : 'url';
@@ -567,53 +786,66 @@ function LinkContent({ labelProp, title }: { labelProp: string; title: string })
           />
         </StyleRow>
 
-        <StyleRow label="Links to">
-          <Segmented
-            full
-            value={mode}
-            onChange={(value) => href.set(value === 'page' ? `page:${pages[0]?.id ?? ''}` : '#')}
-            options={[
-              { value: 'page', label: 'Page' },
-              { value: 'url', label: 'URL' },
-            ]}
-          />
-        </StyleRow>
+        {canOpenPopover && <PopoverTargetRows />}
 
-        {isPageLink ? (
-          <StyleRow label="Page">
-            <Select
-              className="flex-1"
-              value={current.slice(5)}
-              onChange={(value) => href.set(`page:${value}`)}
-              options={pages
-                .slice()
-                .sort((a, b) => a.order - b.order)
-                .map((p) => ({ value: p.id, label: p.name, hint: p.isHome ? '/' : `/${p.slug}` }))}
-            />
-          </StyleRow>
-        ) : (
-          <StyleRow label="URL">
-            <TextInput
-              className="flex-1"
-              value={current}
-              onValueChange={(v) => href.set(v)}
-              placeholder="https://…"
-              prefix={<ExternalLink size={11} />}
-            />
-          </StyleRow>
+        {/* A popover invoker has to be a <button>, so the two are exclusive —
+            and offering a URL that would silently stop working is worse than
+            not offering it. */}
+        {!opensPopover && (
+          <>
+            <StyleRow label="Links to">
+              <Segmented
+                full
+                value={mode}
+                onChange={(value) => href.set(value === 'page' ? `page:${pages[0]?.id ?? ''}` : '#')}
+                options={[
+                  { value: 'page', label: 'Page' },
+                  { value: 'url', label: 'URL' },
+                ]}
+              />
+            </StyleRow>
+
+            {isPageLink ? (
+              <StyleRow label="Page">
+                <Select
+                  className="flex-1"
+                  value={current.slice(5)}
+                  onChange={(value) => href.set(`page:${value}`)}
+                  options={pages
+                    .slice()
+                    .sort((a, b) => a.order - b.order)
+                    .map((p) => ({
+                      value: p.id,
+                      label: p.name,
+                      hint: p.isHome ? '/' : `/${p.slug}`,
+                    }))}
+                />
+              </StyleRow>
+            ) : (
+              <StyleRow label="URL">
+                <TextInput
+                  className="flex-1"
+                  value={current}
+                  onValueChange={(v) => href.set(v)}
+                  placeholder="https://…"
+                  prefix={<ExternalLink size={11} />}
+                />
+              </StyleRow>
+            )}
+
+            <StyleRow label="Opens">
+              <Segmented
+                full
+                value={String(target.value ?? '_self')}
+                onChange={(value) => target.set(value)}
+                options={[
+                  { value: '_self', label: 'Same tab' },
+                  { value: '_blank', label: 'New tab' },
+                ]}
+              />
+            </StyleRow>
+          </>
         )}
-
-        <StyleRow label="Opens">
-          <Segmented
-            full
-            value={String(target.value ?? '_self')}
-            onChange={(value) => target.set(value)}
-            options={[
-              { value: '_self', label: 'Same tab' },
-              { value: '_blank', label: 'New tab' },
-            ]}
-          />
-        </StyleRow>
       </InspectorGroup>
     </Section>
   );

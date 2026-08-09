@@ -5,7 +5,7 @@
  * against an immer draft, a published snapshot or a detached component tree.
  */
 
-import { getElement } from './schema';
+import { canContain } from './schema';
 import type { Cre8Document, NodeId, Page, SceneNode } from './types';
 
 export type NodeMap = Record<NodeId, SceneNode>;
@@ -72,13 +72,15 @@ export function getHomePage(doc: Cre8Document): Page | undefined {
 
 /**
  * Reject drops that would make a node its own descendant, target something
- * that can't hold children, or land inside a locked subtree.
+ * that can't hold children, land inside a locked subtree, or nest a pair the
+ * HTML parser would quietly rearrange.
  */
 export function canReparent(nodes: NodeMap, nodeId: NodeId, targetParentId: NodeId): boolean {
   if (nodeId === targetParentId) return false;
   const parent = nodes[targetParentId];
-  if (!parent) return false;
-  if (!getElement(parent.type).container) return false;
+  const node = nodes[nodeId];
+  if (!parent || !node) return false;
+  if (!canContain(parent.type, node.type)) return false;
   if (isAncestorOf(nodes, nodeId, targetParentId)) return false;
   if (isEffectivelyLocked(nodes, targetParentId)) return false;
   return true;

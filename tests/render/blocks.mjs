@@ -29,13 +29,24 @@ const ctx = await browser.newContext({ viewport: { width: 1500, height: 1000 } }
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('  [pageerror]', e.message));
 
-/** Computed styles keyed by the generated class, which both surfaces share. */
+/**
+ * Computed styles keyed by the generated class, which both surfaces share.
+ *
+ * A closed popover is skipped, and it is the only skip in here. Design time
+ * and published are supposed to differ for exactly one element: the canvas
+ * renders a popover without the attribute so its contents can be reached,
+ * while published it stays hidden until a button opens it. Comparing the two
+ * would report `flex` against `none` on every page that has one — a real
+ * difference, deliberately made, and asserted in both directions by the
+ * native suite rather than waved through here.
+ */
 const COLLECT = () => {
   const out = {};
   const root = document.querySelector('.cre8-frame.cre8-editing') ?? document.body;
   for (const el of root.querySelectorAll('[class]')) {
     const cls = [...el.classList].find((c) => c.startsWith('c-'));
     if (!cls || out[cls]) continue;
+    if (el.closest('[popover]:not(:popover-open)')) continue;
     const cs = getComputedStyle(el);
     out[cls] = [
       cs.display, cs.color, cs.backgroundColor, cs.flexDirection,
@@ -127,11 +138,26 @@ try {
       const fit = await site.evaluate((vw) => {
         const doc = document.documentElement;
         const over = [];
+
+        // Wider than the viewport is only a bug if the reader cannot get to
+        // it. Content inside a box that scrolls sideways — a table, a card
+        // rail — is reachable by design, and the whole point of putting it
+        // there. What this is looking for is content that has simply escaped.
+        const reachable = (el) => {
+          for (let node = el.parentElement; node; node = node.parentElement) {
+            const overflowX = getComputedStyle(node).overflowX;
+            if (overflowX !== 'auto' && overflowX !== 'scroll') continue;
+            if (node.scrollWidth > node.clientWidth) return true;
+          }
+          return false;
+        };
+
         for (const el of document.querySelectorAll('[class*="c-"]')) {
           const r = el.getBoundingClientRect();
           if (r.width === 0) continue;
           // 1px of tolerance: sub-pixel rounding is not a layout bug.
           if (r.right > vw + 1 || r.left < -1) {
+            if (reachable(el)) continue;
             over.push(`${el.tagName.toLowerCase()}@${Math.round(r.left)}..${Math.round(r.right)}`);
           }
         }

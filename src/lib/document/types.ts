@@ -134,6 +134,8 @@ export interface StyleDecl {
   textDecoration?: string;
   textWrap?: string;
   whiteSpace?: string;
+  /** `tabular-nums` is what stops a column of figures jittering as it changes. */
+  fontVariantNumeric?: string;
   color?: string;
   /** Renders text with a gradient fill; the generator expands this. */
   textGradient?: string;
@@ -172,6 +174,13 @@ export interface StyleDecl {
   /* Media */
   objectFit?: string;
   objectPosition?: string;
+
+  /* Tables */
+  borderCollapse?: string;
+  borderSpacing?: string;
+  tableLayout?: string;
+  captionSide?: string;
+  verticalAlign?: string;
 
   /* Misc */
   cursor?: string;
@@ -218,6 +227,11 @@ export type ElementType =
   | 'divider'
   | 'spacer'
   | 'details'
+  | 'popover'
+  // Tabular data
+  | 'table'
+  | 'tableRow'
+  | 'tableCell'
   // Forms
   | 'form'
   | 'input'

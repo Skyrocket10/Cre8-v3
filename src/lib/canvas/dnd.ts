@@ -11,9 +11,9 @@
  * inserts above/below.
  */
 
-import { getElement } from '../document/schema';
+import { canContain } from '../document/schema';
 import { isAncestorOf, type NodeMap } from '../document/tree';
-import type { Cre8Document, NodeId, SceneNode } from '../document/types';
+import type { Cre8Document, ElementType, NodeId, SceneNode } from '../document/types';
 import { getElementFor } from '../editor/registry';
 
 export interface DropResult {
@@ -31,6 +31,15 @@ export interface DropQuery {
   doc: Cre8Document;
   /** Nodes being moved — never drop inside themselves. */
   excludeIds?: NodeId[];
+  /**
+   * What is being dropped.
+   *
+   * Supplied so a container can refuse a payload it cannot legally hold: a
+   * frame dragged into a `<table>` is not a layout mistake the designer can
+   * see and undo, it is markup the parser silently moves out of the table on
+   * the published page. Omitted, any container will do.
+   */
+  payloadTypes?: ElementType[];
   /** Root of the surface being edited; drops never escape it. */
   rootId: NodeId;
 }
@@ -41,7 +50,7 @@ export function computeDrop(query: DropQuery): DropResult | null {
   const { clientX, clientY, doc, rootId } = query;
   const exclude = new Set(query.excludeIds ?? []);
 
-  const container = findContainer(clientX, clientY, doc.nodes, exclude, rootId);
+  const container = findContainer(clientX, clientY, doc.nodes, exclude, rootId, query.payloadTypes);
   if (!container) return null;
 
   const containerEl = getElementFor(container);
@@ -62,7 +71,10 @@ export function computeDrop(query: DropQuery): DropResult | null {
   const style = getComputedStyle(containerEl);
   const horizontal =
     (style.display.includes('flex') && style.flexDirection.startsWith('row')) ||
-    (style.display.includes('grid') && children.length > 1 && isRowish(children));
+    (style.display.includes('grid') && children.length > 1 && isRowish(children)) ||
+    // A table row lays its cells out across, and says so with a display value
+    // that is neither flex nor grid.
+    style.display === 'table-row';
 
   const orientation: DropResult['orientation'] = horizontal ? 'vertical' : 'horizontal';
 
@@ -175,8 +187,14 @@ function findContainer(
   clientY: number,
   nodes: NodeMap,
   exclude: Set<NodeId>,
-  rootId: NodeId
+  rootId: NodeId,
+  payloadTypes?: ElementType[]
 ): NodeId | null {
+  const accepts = (type: ElementType): boolean =>
+    payloadTypes?.length
+      ? payloadTypes.every((payload) => canContain(type, payload))
+      : canContain(type, 'frame');
+
   const stack = document.elementsFromPoint(clientX, clientY);
 
   for (const el of stack) {
@@ -191,7 +209,7 @@ function findContainer(
       if (!node) break;
 
       const usable =
-        getElement(node.type).container &&
+        accepts(node.type) &&
         !exclude.has(current) &&
         !node.meta.locked &&
         ![...exclude].some((id) => isAncestorOf(nodes, id, current!)) &&
@@ -203,8 +221,11 @@ function findContainer(
   }
 
   // Nothing usable under the pointer — fall back to the page itself so a drop
-  // anywhere on the canvas still lands somewhere sensible.
-  return nodes[rootId] ? rootId : null;
+  // anywhere on the canvas still lands somewhere sensible. Unless the page
+  // cannot hold it either, in which case no drop is the right answer: a `<tr>`
+  // parked in the page root disappears when the file is written.
+  const root = nodes[rootId];
+  return root && accepts(root.type) ? rootId : null;
 }
 
 /**

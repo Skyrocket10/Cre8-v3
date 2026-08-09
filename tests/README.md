@@ -12,6 +12,8 @@ width will never show you:
 - multi-column layouts declare narrow-width behaviour
 - heading levels do not skip
 - images carry alt text worth reading
+- no nesting the HTML parser would rearrange on the way out
+- every popover button names a popover that is in the same block
 - buttons and links respond to hover
 - every node is named for the layer tree
 
@@ -33,7 +35,7 @@ Needs a Worker and a browser. Start one in another terminal:
 ```
 npm run preview                    # builds, then serves on :8787
 npx serve out -l 3001              # the `local` suite needs this too
-npm run test:render                # all eleven suites
+npm run test:render                # every suite
 npm run test:render nav borders    # or just some
 ```
 
@@ -52,6 +54,8 @@ preferring an installed copy over downloading one.
 | `blocks` | The same question of every block in the registry, alone, at 390 / 768 / 1440 |
 | `panel` | The Insert panel at library scale: grouping, search, live previews |
 | `nav` | Do page links work inside a published site |
+| `native` | Do `<details>`, the form controls and `[popover]` behave with no runtime |
+| `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
 | `assets` | Do images survive publish and ZIP export |
 | `bodyreset` | Does the published page start at the viewport edge |
@@ -74,6 +78,8 @@ these caught so far was invisible in the editor and only wrong once published:
 - a reset rule outranking node classes, repainting every primary button
 - a border side with no width computing to `0` on the canvas and `3px` live
 - the page root inheriting the editor's 12px chrome font instead of 16px
+- a popover's own `display` beating the browser's rule for hiding a closed one,
+  so the panel that should wait for a button was simply always on the page
 
 None of those would survive the sweep now. That is the point: the library can
 grow to a hundred blocks without the quality bar drifting, because drift fails

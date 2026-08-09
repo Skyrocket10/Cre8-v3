@@ -209,6 +209,157 @@ try {
   );
 
   await site.close();
+
+  /* ------------------------------------------------------- 7. the popover */
+
+  // The last thing on this page a runtime would normally be needed for.
+  // Everything a hand-built menu has to reimplement — the top layer, Escape,
+  // a click outside, focus going back to the button — is checked here on a
+  // page carrying no script at all.
+  await page.bringToFront();
+  await insert('Command menu');
+
+  const onCanvasPopover = await page.evaluate(() => {
+    const frame = document.querySelector('.cre8-frame.cre8-editing');
+    const panel = [...(frame?.querySelectorAll('div') ?? [])].find((el) =>
+      (el.textContent ?? '').includes('Jump to')
+    );
+    return {
+      // Deliberately *not* a popover while editing, or its contents could
+      // not be reached — the same trade `<details>` makes.
+      attribute: panel?.getAttribute('popover') ?? null,
+      visible: (panel?.getBoundingClientRect().height ?? 0) > 0,
+      trigger: frame?.querySelector('button[popovertarget]') !== null,
+    };
+  });
+
+  report.check('the panel is editable on the canvas', onCanvasPopover.visible);
+  report.check(
+    'because it is not a popover there',
+    onCanvasPopover.attribute === null,
+    `popover=${onCanvasPopover.attribute}`
+  );
+
+  await publish(page);
+  const withPopover = await (await fetch(`${APP}/s/${id}/`)).text();
+
+  const popoverId = /<div[^>]*\sid="(p-[^"]+)"[^>]*\spopover="auto"/.exec(withPopover)?.[1] ?? '';
+  report.check(
+    'published, it is a real popover with an id',
+    Boolean(popoverId),
+    popoverId || 'no popover element'
+  );
+  report.check(
+    'and a button that names it',
+    withPopover.includes(`popovertarget="${popoverId}"`),
+    popoverId ? 'wired' : 'unwired'
+  );
+  report.check(
+    'the close button asks to hide rather than toggle',
+    withPopover.includes('popovertargetaction="hide"')
+  );
+  report.check('the page still ships no script', !/<script/i.test(withPopover));
+
+  const menu = await ctx.newPage();
+  await menu.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
+
+  const panel = menu.locator(`#${popoverId}`);
+  const trigger = menu.locator(`button[popovertarget="${popoverId}"]`).first();
+
+  report.check('it starts hidden', !(await panel.isVisible()));
+
+  await trigger.click();
+  await menu.waitForTimeout(220);
+  report.check('the button opens it, with no script on the page', await panel.isVisible());
+
+  // The top layer is the point: a panel that renders under a sticky header is
+  // a panel nobody can use.
+  const onTop = await menu.evaluate((pid) => {
+    const el = document.getElementById(pid);
+    if (!el) return false;
+    const box = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + 8);
+    return el.contains(hit);
+  }, popoverId);
+  report.check('it draws above everything else', onTop);
+
+  await menu.keyboard.press('Escape');
+  await menu.waitForTimeout(220);
+  report.check('Escape closes it', !(await panel.isVisible()));
+  report.check(
+    'and focus goes back to the button that opened it',
+    await menu.evaluate(
+      (pid) => document.activeElement?.getAttribute('popovertarget') === pid,
+      popoverId
+    )
+  );
+
+  await trigger.click();
+  await menu.waitForTimeout(220);
+  await menu.mouse.click(4, 4);
+  await menu.waitForTimeout(220);
+  report.check('a click outside closes it', !(await panel.isVisible()));
+
+  await trigger.click();
+  await menu.waitForTimeout(220);
+  await menu.locator(`button[popovertargetaction="hide"]`).first().click();
+  await menu.waitForTimeout(220);
+  report.check('the close button inside it closes it', !(await panel.isVisible()));
+
+  await menu.close();
+
+  /* --------------------------- 8. wiring one by hand, the way a designer does */
+
+  // Everything above came out of a block, where the wiring was written in
+  // code. This is the path with a person on it: drop a button, point it at a
+  // popover from the inspector, and get the same markup.
+  await page.bringToFront();
+  await insert('Button');
+
+  const opensTrigger = page
+    .locator('div:has(> div > label.field-label:text-is("Opens")) button')
+    .first();
+  report.check(
+    'a button offers the popovers on the page',
+    (await opensTrigger.count()) === 1,
+    `${await opensTrigger.count()} pickers`
+  );
+
+  await opensTrigger.click();
+  await page.waitForTimeout(300);
+  await page.locator('button:has(span:text-is("Command menu"))').first().click();
+  await page.waitForTimeout(700);
+
+  const wired = await page.evaluate(() => {
+    const frame = document.querySelector('.cre8-frame.cre8-editing');
+    const invokers = [...(frame?.querySelectorAll('button[popovertarget]') ?? [])];
+    return {
+      count: invokers.length,
+      // An anchor cannot invoke a popover, so choosing one has to change the
+      // tag as well as add the attribute.
+      anchors: frame?.querySelectorAll('a[popovertarget]').length ?? 0,
+    };
+  });
+  report.check(
+    'wiring it from the inspector adds a second invoker',
+    wired.count >= 2,
+    `${wired.count} invokers`
+  );
+  report.check('and none of them is an anchor', wired.anchors === 0);
+
+  // The URL field is gone rather than sitting there doing nothing: a link and
+  // a popover trigger are the same control in two mutually exclusive states.
+  const urlRow = page.locator('label.field-label:text-is("URL")');
+  report.check('the link fields step aside', (await urlRow.count()) === 0);
+
+  await publish(page);
+  const wiredHtml = await (await fetch(`${APP}/s/${id}/`)).text();
+  report.check(
+    'both invokers reach the published file',
+    (wiredHtml.match(/popovertarget="/g) ?? []).length >= 3,
+    `${(wiredHtml.match(/popovertarget="/g) ?? []).length} references`
+  );
+  report.check('still no script', !/<script/i.test(wiredHtml));
 } catch (error) {
   report.check('native suite completed', false, error.message);
 } finally {

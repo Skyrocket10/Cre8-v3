@@ -216,6 +216,15 @@ export function generateNodeCss(
  * to inherit, every unstyled run of text and every `em` in the document — the
  * `1.25em` list indent below included — resolved to a different number on each
  * surface. Production is the truth, so both are pinned to it.
+ *
+ * The one line that is deliberately *not* wrapped in `:where()` is the closed
+ * popover. A user-agent rule loses to any author rule regardless of
+ * specificity, so the browser's own `[popover]:not(:popover-open) { display:
+ * none }` is beaten by the `display: flex` on the popover's node class — and
+ * the panel that should stay hidden until a button opens it is simply always
+ * on the page. Restating it at (0,2,0) puts it back above the node rule at
+ * (0,1,0). It cannot match on the canvas, where the element is rendered
+ * without the attribute precisely so its contents can be edited.
  */
 export const DOCUMENT_RESET = `
 *, *::before, *::after { box-sizing: border-box; }
@@ -227,6 +236,8 @@ export const DOCUMENT_RESET = `
 :where([data-cre8-root]) a { color: inherit; text-decoration: none; }
 :where([data-cre8-root]) button { font: inherit; color: inherit; background: none; cursor: pointer; }
 :where([data-cre8-root]) :is(input, textarea, select) { font: inherit; color: inherit; }
+:where([data-cre8-root]) caption { text-align: inherit; padding-bottom: 10px; }
+[data-cre8-root] [popover]:not(:popover-open) { display: none; }
 :where([data-cre8-root]) textarea { resize: vertical; }
 :where([data-cre8-root]) :focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
 `.trim();

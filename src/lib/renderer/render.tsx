@@ -204,11 +204,15 @@ function ElementView({
   }
 
   /* --- Containers --------------------------------------------------------- */
-  const children = model.acceptsChildren
+  const rendered = model.acceptsChildren
     ? node.children.map((childId) => (
         <NodeView key={childId} id={childId} inert={inert} depth={depth + 1} />
       ))
     : null;
+
+  const children = model.wrapChildren
+    ? React.createElement(model.wrapChildren, { key: '__wrap' }, rendered)
+    : rendered;
 
   const lead = model.lead
     ? React.createElement(model.lead.tag, { key: '__lead' }, model.lead.text)
