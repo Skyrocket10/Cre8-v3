@@ -56,6 +56,10 @@ the capability named in its **Needs** column cannot deliver it, whatever gets
 built. Both are called out where they appear, because "not yet" invites
 somebody to try and these two would waste their afternoon.
 
+`✗` says *not with the capability this row named* — it has never meant "never".
+One of the two was later built by adding the thing its own diagnosis asked for;
+see §5.7, where the original note is kept and answered rather than rewritten.
+
 ---
 
 ## 2. Three tiers, and the rule for choosing between them
@@ -221,7 +225,7 @@ private helper to a reusable piece rather than rebuilding it per hero.
 | Masonry gallery | B | | |
 | Lightbox | B | ✅ | |
 | Carousel | B | ✅ | |
-| Before / after slider | B | ✗ | see §5.7 |
+| Before / after slider | B | ✅ | see §5.7 |
 
 ### 4.7 Editorial
 
@@ -360,13 +364,16 @@ anyway.
 ### 5.7 Three rows this document got wrong
 
 Every other row in this document is either built or waiting on a capability
-that is now named and understood. Three are not, in two different ways, and
+that is now named and understood. Three were not, in two different ways, and
 both mistakes were made *here* rather than in the implementation.
 
-Two rows promise a component to a capability that cannot deliver it. They are
-marked `✗`, meaning *not buildable as described* — a different thing from
+Two rows promised a component to a capability that could not deliver it. They
+were marked `✗`, meaning *not buildable as described* — a different thing from
 *not built yet*, and worth its own mark because the second invites somebody to
-spend an afternoon finding out.
+spend an afternoon finding out. **One of the two has since been built**, by
+adding the capability the row's own diagnosis called for; the note below is
+kept as written and then answered, because a planning document that quietly
+edits its wrong predictions is one nobody can calibrate against.
 
 The third shipped, in a shape this document did not predict. That is the
 quieter failure: nothing looks wrong, the row simply stays blank while the
@@ -385,6 +392,22 @@ would be a good block. It is not this block, and shipping it under this name
 would be the near-duplicate problem §7 warns about, so it is left unbuilt
 rather than quietly substituted.
 
+> **Built, and the diagnosis above is why it could be.** The row asked for one
+> of two things and got both halves of the first: a *continuous value* — a
+> number a box holds as a custom property, written into the markup so the page
+> has a position before any script runs — driven by a native
+> `<input type="range">`. The second option, "a native control whose value CSS
+> can read", is still not a thing the platform offers; what closed the gap is
+> that the script writing one custom property is about six lines, and
+> everything visible is still a rule the designer wrote.
+>
+> The paragraph was right about the model and right that composition would not
+> get there. It was wrong only in treating "the runtime is a state machine over
+> names" as fixed rather than as a thing that could grow one more kind of
+> state. Worth recording: the reason this row sat unbuilt for as long as it did
+> was a correct analysis of the *current* design read as a statement about the
+> *possible* one.
+
 **Repeater — built, but not as the row describes.** Listed here as a
 primitive, an element type you insert. It shipped as `repeat` on the node
 model: a *property* any container can carry, which turns that container into
@@ -395,7 +418,12 @@ because the row reads as pending and is not, and because "we predicted an
 element and built a property" is the sort of drift that quietly makes a
 planning document untrustworthy.
 
-**Data table, sortable — not (b, c) either.** The filterable half is done and
+**Data table, sortable — still not (b, c).** Unchanged by the continuous
+value above, and worth saying plainly because the two rows were marked with the
+same symbol: a sort order is not a number a slider moves, it is a different
+arrangement of the same rows.
+
+**The original note.** The filterable half is done and
 now marked as such: a filter is exactly a named value, which is what the
 switch is for. Sorting is not. Expressing it with switches means emitting one
 `<tbody>` per sort order, which multiplies the markup by the number of

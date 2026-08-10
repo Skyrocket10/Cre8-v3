@@ -20,6 +20,7 @@
  */
 
 import type { NodeSpec } from '../../document/factory';
+import type { StyleDecl } from '../../document/types';
 import {
   BODY,
   BODY_RESPONSIVE,
@@ -56,6 +57,7 @@ import {
   switchStep,
   textLink,
   toggle,
+  valueSlider,
 } from './kit';
 
 /** The surface every overlay in this file sits on. */
@@ -925,6 +927,169 @@ export function switchesSpec(): NodeSpec {
           ),
         ],
         { flexDirection: 'column', alignItems: 'flex-start', gap: '26px' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-background)' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Before / after
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The block `COMPONENT-LIBRARY.md` §5.7 recorded as *not buildable as
+ * described* — and the reason it now is.
+ *
+ * The switch is a state machine over named values, and a divider dragged
+ * across a photograph produces a continuous one. The document said what it
+ * would take: "pointer position written to a custom property, or a native
+ * control whose value CSS can read". It got the first, driven by the second.
+ *
+ * The whole thing is one number, `--cre8-split`, held on the frame. The upper
+ * image is clipped to it; the handle is positioned by it; a native range
+ * writes it. CSS does the drawing, as everywhere else here — the runtime's
+ * only contribution is one `setProperty` per pointer move.
+ *
+ * What that buys, and why the native control rather than a drag handler:
+ *
+ *   • It works with no script at all. The number is in the markup, so a page
+ *     opened from a ZIP shows the comparison frozen at the chosen split rather
+ *     than showing one image and a dead handle.
+ *   • Keyboard and touch come from the platform, correctly, including `step`
+ *     and the arrow keys.
+ *   • A screen reader announces a slider with a value, which is what it is.
+ */
+export function beforeAfterSpec(): NodeSpec {
+  const KEY = 'split';
+  const START = 50;
+  const SPLIT = `calc(var(--cre8-${KEY}) * 1%)`;
+
+  const layer = (alt: string, styles: StyleDecl = {}): NodeSpec =>
+    media(alt, '16 / 10', {
+      position: 'absolute',
+      top: '0px',
+      left: '0px',
+      width: '100%',
+      height: '100%',
+      borderTopLeftRadius: '0px',
+      borderTopRightRadius: '0px',
+      borderBottomRightRadius: '0px',
+      borderBottomLeftRadius: '0px',
+      ...styles,
+    });
+
+  const caption = (text: string, side: 'left' | 'right'): NodeSpec =>
+    paragraph(text, {
+      position: 'absolute',
+      bottom: '12px',
+      [side]: '12px',
+      ...CAPTION,
+      // An opaque chip rather than a translucent scrim. A scrim needs a
+      // literal colour — it has to stay dark whatever the theme does, because
+      // what it sits on is a photograph rather than the page — and a literal
+      // colour is exactly what the token rule refuses, rightly: a block that
+      // brings its own palette is a block that stops matching the site it was
+      // dropped into. The chip is legible over anything for the same reason a
+      // caption card is, and it is made of the same two tokens as the handle.
+      color: 'var(--c-text)',
+      backgroundColor: 'var(--c-surface)',
+      ...pad('4px', '9px'),
+      ...radius('var(--r-sm)'),
+      boxShadow: 'var(--s-md)',
+      pointerEvents: 'none',
+    });
+
+  return section(
+    'Before and after',
+    [
+      container(
+        [
+          column(
+            'Intro',
+            [
+              heading('See the difference', 2, { ...SUBTITLE, color: 'var(--c-text)' }, SUBTITLE_RESPONSIVE),
+              paragraph(
+                'Drag the handle. It works with the keyboard, and it still shows the comparison with scripting switched off.',
+                { ...BODY, color: 'var(--c-muted)', maxWidth: '58ch' },
+                BODY_RESPONSIVE
+              ),
+            ],
+            { gap: '10px' }
+          ),
+
+          {
+            ...frame('Comparison', [], {
+              position: 'relative',
+              width: '100%',
+              aspectRatio: '16 / 10',
+              overflow: 'hidden',
+              ...radius('var(--r-lg)'),
+            }),
+            // The box that holds the number. Everything below reads it, so it
+            // has to be an ancestor of all of them — which is also what the
+            // runtime's `closest()` walks to when the slider moves.
+            props: { rangeKey: KEY, rangeValue: START },
+            children: [
+            layer('After — the edited photograph'),
+            // Clipped from the left by the split, so what shows through is the
+            // "before" image up to the divider. One property, no wrapper, and
+            // it moves smoothly because nothing is being laid out again.
+            layer('Before — the original photograph', {
+              clipPath: `inset(0 0 0 ${SPLIT})`,
+            }),
+
+            caption('Before', 'left'),
+            caption('After', 'right'),
+
+            // The divider. Drawn, not interactive: the range below is what
+            // takes the pointer, and two things claiming the same gesture is
+            // how a drag ends up fighting itself.
+            frame('Divider', [], {
+              position: 'absolute',
+              top: '0px',
+              left: SPLIT,
+              width: '2px',
+              height: '100%',
+              marginLeft: '-1px',
+              backgroundColor: 'var(--c-surface)',
+              boxShadow: 'var(--s-md)',
+              pointerEvents: 'none',
+            }),
+            frame('Handle', [], {
+              position: 'absolute',
+              top: '50%',
+              left: SPLIT,
+              width: '34px',
+              height: '34px',
+              marginTop: '-17px',
+              marginLeft: '-17px',
+              backgroundColor: 'var(--c-surface)',
+              ...radius('999px'),
+              boxShadow: 'var(--s-md)',
+              pointerEvents: 'none',
+            }),
+
+            // Invisible and full-bleed: the handle a visitor sees is the box
+            // above, and this is the control that actually moves. Opacity
+            // rather than `display:none` or `visibility:hidden`, both of which
+            // take it out of the accessibility tree along with the pointer.
+            valueSlider('Split', KEY, START, {
+              label: 'Reveal the original photograph',
+              styles: {
+                position: 'absolute',
+                top: '0px',
+                left: '0px',
+                width: '100%',
+                height: '100%',
+                opacity: '0',
+                cursor: 'ew-resize',
+              },
+            }),
+            ],
+          },
+        ],
+        { gap: '28px' }
       ),
     ],
     { backgroundColor: 'var(--c-background)' }

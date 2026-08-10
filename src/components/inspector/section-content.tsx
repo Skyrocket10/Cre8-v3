@@ -33,6 +33,7 @@ import {
   exposeProperty,
   removeComponentProperty,
   renameComponentProperty,
+  setRangeValue,
 } from '@/lib/document/operations';
 import { exposableTargets, targetKey } from '@/lib/document/components';
 import { collectSubtree } from '@/lib/document/tree';
@@ -52,7 +53,7 @@ import {
   Tooltip,
 } from '../ui/primitives';
 import { InspectorGroup, StyleRow } from './controls';
-import { useStatesInScope } from './section-rules';
+import { useRangesInScope, useStatesInScope } from './section-rules';
 import { useNodeProp } from './use-style';
 
 export function ContentSection() {
@@ -72,6 +73,9 @@ export function ContentSection() {
           Semantics, because it is structural rather than something you reach
           for on every element. */}
       {def.container && !def.internal && <SwitchGroupContent />}
+      {/* Same gate as the switch, for the same reason: a value has to live on
+          something the things reading it sit inside. */}
+      {def.container && !def.internal && <RangeGroupContent />}
       {/* And anything inside one can drive it. `applySwitch` has always
           written `data-cre8-set` for whatever carries the prop, whatever type
           it is — the panel was the only thing insisting on a button or a link,
@@ -308,6 +312,7 @@ function RangeContent() {
   const max = useNodeProp('max');
   const step = useNodeProp('step');
   const value = useNodeProp('value');
+  const drives = slug(useNodeProp('drives').value);
 
   return (
     <Section title="Slider" defaultOpen>
@@ -336,13 +341,20 @@ function RangeContent() {
             onChange={(next) => step.set(Number(next ?? 1))}
           />
         </StyleRow>
-        <StyleRow label="Starts at">
-          <NumberField
-            value={String(value.value ?? 50)}
-            units={[]}
-            onChange={(next) => value.set(Number(next ?? 0))}
-          />
-        </StyleRow>
+        <RangeDriveRow />
+        {/* Where it starts belongs to the value it moves, not to the slider —
+            two fields for one number is two numbers that disagree. Hidden
+            rather than disabled, because a disabled field still reads as this
+            slider's setting. */}
+        {!drives && (
+          <StyleRow label="Starts at">
+            <NumberField
+              value={String(value.value ?? 50)}
+              units={[]}
+              onChange={(next) => value.set(Number(next ?? 0))}
+            />
+          </StyleRow>
+        )}
         <StyleRow label="Name" hint="Submitted as the form field name">
           <TextInput
             className="flex-1"
@@ -701,6 +713,94 @@ function useSwitchCases(groupId: string | undefined): string[] {
  * changes what visitors see. So there are two values: one that ships and one
  * that does not.
  */
+/**
+ * A number this box holds, for rules to read.
+ *
+ * Its own section rather than a corner of Switch, because it is a different
+ * kind of state and conflating them would invite "why can't my switch be 47".
+ * The hint carries the one thing nobody could guess — that the value arrives
+ * as a custom property and is used with `var()`.
+ */
+function RangeGroupContent() {
+  const id = useEditor((s) => s.selection[0]);
+  const key = useNodeProp('rangeKey');
+  const value = useNodeProp('rangeValue');
+  const named = slug(key.value);
+
+  return (
+    <Section title="Continuous value" defaultOpen={false}>
+      <InspectorGroup>
+        <StyleRow label="Named" hint="Letters, numbers and dashes — it becomes a CSS variable">
+          <TextInput
+            className="flex-1"
+            value={String(key.value ?? '')}
+            onValueChange={(next) => key.set(slug(next) || undefined)}
+            placeholder="split"
+          />
+        </StyleRow>
+
+        {named && (
+          <>
+            <StyleRow label="Starts at" hint="What the page shows before anything is dragged — and with no scripting at all">
+              <NumberField
+                value={String(value.value ?? 50)}
+                units={[]}
+                min={-9999}
+                max={9999}
+                onChange={(next) => {
+                  // Through the operation rather than the prop, because the
+                  // number lives in two places and this is the one that moves
+                  // both. Writing `rangeValue` alone leaves every slider
+                  // driving it sitting somewhere else with scripting off.
+                  if (!id) return;
+                  useEditor.getState().transact(
+                    'Starting value',
+                    (draft) => {
+                      setRangeValue(draft, id, Number(next ?? 50));
+                    },
+                    { mergeKey: `range:${id}` }
+                  );
+                }}
+              />
+            </StyleRow>
+            <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+              Use it in any style field as{' '}
+              <code className="text-[var(--text-secondary)]">var(--cre8-{named})</code> — usually
+              inside <code className="text-[var(--text-secondary)]">calc()</code>, so{' '}
+              <code className="text-[var(--text-secondary)]">
+                inset(0 0 0 calc(var(--cre8-{named}) * 1%))
+              </code>{' '}
+              clips an image to the split. Put a slider inside this box and point it at{' '}
+              <span className="text-[var(--text-secondary)]">{named}</span> to make it move.
+            </p>
+          </>
+        )}
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+/** Which continuous value this slider moves. Absent when there is none to move. */
+function RangeDriveRow() {
+  const drives = useNodeProp('drives');
+  const inScope = useRangesInScope();
+  if (!inScope.length) return null;
+
+  return (
+    <StyleRow label="Moves" hint="A continuous value declared on a box above this one">
+      <Select
+        className="flex-1"
+        value={slug(drives.value)}
+        onChange={(value) => drives.set(value || undefined)}
+        options={[
+          { value: '', label: 'Nothing — an ordinary field' },
+          ...inScope.map((key) => ({ value: key, label: key })),
+        ]}
+      />
+    </StyleRow>
+  );
+}
+
 function SwitchGroupContent() {
   const id = useEditor((s) => s.selection[0]);
   const key = useNodeProp('switchKey');

@@ -2990,6 +2990,201 @@ report.group('a checked control can be styled, and says it is a switch');
  * `exposeProperty` and `detachInstance` actually do.
  * ----------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------
+ * A value that is a number
+ *
+ * The switch is a state machine over named values, and no amount of composing
+ * named states produces a divider dragged across a photograph — a hundred
+ * positions would be a hundred cases and a hundred rules. So one more
+ * mechanism, held to the same two promises the switch is held to: the page
+ * looks right before any script runs, and the stylesheet does not grow.
+ * ----------------------------------------------------------------------- */
+
+report.group('a value that is a number, and a page that works without one');
+
+{
+  const html = (doc) =>
+    generateSite(doc).files.find((f) => f.path === 'index.html')?.contents ?? '';
+
+  /** A box holding a continuous value, with a slider inside driving it. */
+  const rig = ({ key = 'split', value = 40, drives = 'split' } = {}) => {
+    const doc = createEmptyDocument('Continuous');
+    const home = doc.pages[0];
+    const built = buildTree(
+      {
+        type: 'frame',
+        name: 'Comparison',
+        props: { rangeKey: key, rangeValue: value },
+        styles: { position: 'relative' },
+        children: [
+          {
+            type: 'image',
+            name: 'Top',
+            props: { src: '/after.webp', alt: 'After' },
+            styles: { clipPath: `inset(0 0 0 calc(var(--cre8-${key}) * 1%))` },
+          },
+          { type: 'range', name: 'Split', props: { drives, min: 0, max: 100, step: 1 } },
+        ],
+      },
+      doc.nodes
+    );
+    doc.nodes[built.rootId].parentId = home.rootNodeId;
+    doc.nodes[home.rootNodeId].children.push(built.rootId);
+    // Through the real operation, which is what keeps the group's number and
+    // the slider's `value` in step. Written by hand this fixture set one and
+    // not the other — and the check below caught it, which is the whole point
+    // of the number living in two places being *checked* rather than trusted.
+    ops.setRangeValue(doc, built.rootId, value);
+    return doc;
+  };
+
+  const out = html(rig());
+
+  report.check(
+    'the number ships in the markup, so the page has a position before any script',
+    /style="[^"]*--cre8-split:40/.test(out),
+    /<[^>]*data-cre8-range[^>]*>/.exec(out)?.[0]?.slice(0, 110) ?? 'no group'
+  );
+  report.check(
+    'the group says which value it holds, and the slider says which it moves',
+    /data-cre8-range="split"/.test(out) && /data-cre8-drive="split"/.test(out),
+    [/data-cre8-range="split"/.test(out) && 'group', /data-cre8-drive="split"/.test(out) && 'driver']
+      .filter(Boolean)
+      .join(' + ') || 'neither'
+  );
+  report.check(
+    'and the slider starts where the value does, so the two agree with no script',
+    /<input[^>]*type="range"[^>]*value="40"/.test(out),
+    /<input[^>]*type="range"[^>]*>/.exec(out)?.[0]?.slice(0, 130) ?? 'no slider'
+  );
+
+  /*
+   * The promise the switch makes and this has to make too. A continuous value
+   * is one custom property and a `var()` in a rule the designer already wrote
+   * — if it ever compiled to a rule per position, that is the check that would
+   * say so.
+   */
+  const sheet = (doc) =>
+    [...html(doc).matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+  const at40 = sheet(rig({ value: 40 }));
+  const at75 = sheet(rig({ value: 75 }));
+  report.check(
+    'moving the starting number does not change one byte of the stylesheet',
+    at40.replace(/c-[a-z0-9]+/g, 'c-x') === at75.replace(/c-[a-z0-9]+/g, 'c-x'),
+    `${at40.length} vs ${at75.length} bytes`
+  );
+  report.check(
+    'and the rule that reads it is the designer’s own, compiled unchanged',
+    at40.includes('clip-path:inset(0 0 0 calc(var(--cre8-split) * 1%))') ||
+      at40.includes('clip-path: inset(0 0 0 calc(var(--cre8-split) * 1%))'),
+    /clip-path:[^;}]*/.exec(at40)?.[0] ?? 'no clip-path in the sheet'
+  );
+
+  // A slider pointing at a value no ancestor holds is a slider, not a driver.
+  // Nothing to attach to, and saying otherwise would give the runtime a
+  // `closest()` that returns null on every input.
+  const orphan = html(rig({ drives: 'nothing-holds-this' }));
+  report.check(
+    'a slider naming a value nobody holds still publishes as an ordinary slider',
+    /data-cre8-drive="nothing-holds-this"/.test(orphan) &&
+      !/value="40"/.test(orphan) &&
+      /type="range"/.test(orphan),
+    'it keeps its own value rather than borrowing one'
+  );
+
+  /* --- The block that could not be built --------------------------------- */
+
+  const beforeAfter = BLOCKS.find((b) => b.id === 'app-before-after');
+  report.check(
+    'the block COMPONENT-LIBRARY.md recorded as unbuildable is in the registry',
+    Boolean(beforeAfter),
+    beforeAfter ? beforeAfter.name : 'missing'
+  );
+
+  if (beforeAfter) {
+    const spec = beforeAfter.build();
+    const nodes = [...walk(spec)].map((entry) => entry.node);
+    const group = nodes.find((n) => n.props?.rangeKey);
+    const driver = nodes.find((n) => n.props?.drives);
+    const readers = nodes.filter((n) =>
+      Object.values(n.styles ?? {}).some((v) => String(v).includes('var(--cre8-'))
+    );
+
+    report.check(
+      'and it is one value, one native control, and rules that read it',
+      Boolean(group) && driver?.type === 'range' && readers.length >= 2,
+      `key ${group?.props.rangeKey}, driver ${driver?.type}, ${readers.length} rules read it`
+    );
+    report.check(
+      'the control is the platform’s, so keyboard and touch are not reimplemented',
+      driver?.type === 'range' && !nodes.some((n) => n.props?.onpointerdown),
+      'a native range and no pointer handling of our own'
+    );
+    report.check(
+      'and it is described, because the handle is the divider and has no label',
+      typeof driver?.props.ariaLabel === 'string' && driver.props.ariaLabel.length > 8,
+      String(driver?.props.ariaLabel ?? 'unlabelled')
+    );
+  }
+
+  /* --- The number that lives in two places -------------------------------- */
+
+  /*
+   * The group holds the number as a custom property and the slider holds it as
+   * its `value`, and with no script running those are two different elements
+   * that both have to be right — the split *and* the handle sitting on it.
+   *
+   * Resolving one from the other at render time was tried first and taken out:
+   * the canvas hands the element model an empty document on purpose, so a walk
+   * up the tree finds nothing on one surface and the right answer on the
+   * other. The canvas went white. So they are kept in step in the document,
+   * and this is what makes that safe rather than hopeful.
+   */
+  {
+    const mismatched = [];
+    for (const block of BLOCKS) {
+      const nodes = [...walk(block.build())].map((entry) => entry.node);
+      for (const group of nodes.filter((n) => n.props?.rangeKey)) {
+        const key = String(group.props.rangeKey);
+        const held = Number(group.props.rangeValue ?? 50);
+        for (const driver of nodes.filter((n) => n.props?.drives === key)) {
+          if (Number(driver.props.value) !== held) {
+            mismatched.push(`${block.id}: ${key} holds ${held}, slider says ${driver.props.value}`);
+          }
+        }
+      }
+    }
+    const drivers = BLOCKS.flatMap((b) =>
+      [...walk(b.build())].map((e) => e.node).filter((n) => n.props?.drives)
+    );
+    report.check(
+      'every slider starts where the value it moves starts',
+      mismatched.length === 0,
+      mismatched.join('; ') || `${drivers.length} checked`
+    );
+    report.check(
+      'and there is a slider to check',
+      drivers.length > 0,
+      `${drivers.length} continuous controls in the library`
+    );
+  }
+
+  /* --- Falsification ------------------------------------------------------ */
+
+  report.check(
+    'the markup check would notice the number going missing',
+    !/--cre8-split:/.test(
+      html(rig({ key: '' })).replace(/data-cre8-range="[^"]*"/g, '')
+    ),
+    'a group with no key writes no custom property'
+  );
+  report.check(
+    'and the stylesheet check compares sheets with something in them',
+    at40.length > 200 && at40.includes('clip-path'),
+    `${at40.length} bytes`
+  );
+}
+
 report.group('an instance can say something for itself');
 
 {

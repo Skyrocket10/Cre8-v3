@@ -842,6 +842,112 @@ try {
       null
   );
   await notice.close();
+
+  /* ------------------------------------------------------------------------
+   * A value that is a number
+   *
+   * Everything above is a state machine over names. This is the one thing it
+   * could not hold, and the two promises it has to keep are the same: the page
+   * looks right before any script runs, and CSS does the drawing.
+   * --------------------------------------------------------------------- */
+
+  await insert('Before and after');
+  await publish(page);
+
+  /*
+   * The number, and what it is doing.
+   *
+   * `clip` is found by *asking every element* which one is clipped rather than
+   * by guessing which it is — the comparison stacks two identical images and
+   * the rule lands on the upper one through its class, so a selector picking
+   * "the image" picks the wrong one half the time. It did, on the first run,
+   * and reported the feature broken while it was working.
+   */
+  const readSplit = (target, selector) =>
+    target.evaluate((sel) => {
+      const group = document.querySelector(sel);
+      if (!group) return null;
+      let clip = '';
+      for (const el of group.querySelectorAll('*')) {
+        const value = getComputedStyle(el).clipPath;
+        if (value && value !== 'none') clip = value;
+      }
+      return { held: getComputedStyle(group).getPropertyValue('--cre8-split').trim(), clip };
+    }, selector);
+
+  const live = await ctx.newPage();
+  await live.setViewportSize({ width: 1200, height: 900 });
+  await live.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+  await live.waitForTimeout(300);
+
+  const start = await readSplit(live, '[data-cre8-range="split"]');
+  report.check(
+    'the published page holds the number before anything is touched',
+    start?.held === '50',
+    `--cre8-split: ${start?.held ?? 'absent'}`
+  );
+  report.check(
+    'and something on screen is actually using it',
+    /inset\(/.test(start?.clip ?? ''),
+    start?.clip || 'nothing clipped'
+  );
+
+  // Driven by the keyboard rather than a synthetic drag: the arrow keys are a
+  // real interaction, they fire the same `input` event a pointer does, and
+  // they are the half a hand-rolled drag handler would have got wrong.
+  const slider = live.locator('[data-cre8-drive="split"]');
+  await slider.focus();
+  for (let i = 0; i < 10; i++) await slider.press('ArrowRight');
+  await live.waitForTimeout(200);
+
+  const moved = await readSplit(live, '[data-cre8-range="split"]');
+  report.check(
+    'the keyboard moves it, because the control is the platform’s own',
+    moved?.held === '60',
+    `--cre8-split: ${moved?.held ?? 'absent'}`
+  );
+  report.check(
+    'and what is on screen moved with it',
+    moved?.clip !== start?.clip && /inset\(/.test(moved?.clip ?? ''),
+    `${start?.clip} → ${moved?.clip}`
+  );
+  report.check(
+    'the slider says what it is, since the handle is the divider',
+    ((await slider.getAttribute('aria-label')) ?? '').length > 8,
+    (await slider.getAttribute('aria-label')) ?? 'unlabelled'
+  );
+  await live.close();
+
+  /*
+   * And with nothing running at all. Not a degraded mode to apologise for —
+   * the number is in the markup, so a comparison opened from a ZIP is one
+   * frozen at the split the designer chose, with the handle sitting on it.
+   */
+  const dead = await ctx.newPage({ javaScriptEnabled: false });
+  await dead.setViewportSize({ width: 1200, height: 900 });
+  await dead.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+  const still = await readSplit(dead, '[data-cre8-range="split"]');
+  report.check(
+    'with scripting off the comparison still shows, at the chosen split',
+    still?.held === '50' && /inset\(/.test(still?.clip ?? ''),
+    `--cre8-split: ${still?.held ?? 'absent'}, ${still?.clip || 'nothing clipped'}`
+  );
+  report.check(
+    'and the handle sits on it rather than at one end',
+    (await dead.locator('[data-cre8-drive="split"]').inputValue()) === '50',
+    `slider at ${await dead.locator('[data-cre8-drive="split"]').inputValue()}`
+  );
+  await dead.close();
+
+  // The canvas holds the same number, from the same markup. Nothing here
+  // drives it — a drag on the canvas is somebody reaching for the element —
+  // but what is drawn has to match what will ship.
+  const onCanvas = await readSplit(page, '.cre8-frame.cre8-editing [data-cre8-range="split"]');
+  report.check(
+    'and the canvas draws the same split the file does',
+    onCanvas?.held === '50' && onCanvas?.clip === still?.clip,
+    `canvas ${onCanvas?.clip} / file ${still?.clip}`
+  );
 } catch (error) {
   report.check('behaviour suite completed', false, error.message);
 } finally {

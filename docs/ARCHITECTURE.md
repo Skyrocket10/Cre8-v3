@@ -302,6 +302,38 @@ draws the secondary look does not ship the default's rules; the canvas and
 preview collect every tree, because any instance on screen may be wearing any
 of them.
 
+### Continuous values
+
+The behaviour runtime is a state machine over *named* values, and that is the
+right shape for almost everything: a pricing toggle, a tab set, a filter. It has
+nothing to hold a divider dragged across a photograph, and composition does not
+get there — a hundred positions would be a hundred cases and a hundred rules.
+
+So one more kind of state. A box declares `rangeKey`, and the number it holds
+is written into the markup as an inline `--cre8-<key>`; rules read it with
+`var()`, usually inside `calc()`. A native `<input type="range">` carrying
+`drives` moves it, and the runtime's entire contribution is one `setProperty`
+per `input` event. Everything visible is still CSS the designer wrote.
+
+Two consequences worth stating, because both are the point rather than side
+effects. **The page has a position before any script runs** — a comparison
+opened from a ZIP is one frozen at the chosen split, not a broken one. And
+**the stylesheet does not grow**: moving the number changes no rule, which is
+the same promise the switch makes and is checked the same way.
+
+The control is the platform's, for the reason everything else here is:
+keyboard, touch, `step`, screen-reader announcement and form restoration all
+arrive correct and free. A pointer-drag handler would be a hundred lines to
+reimplement four of them badly.
+
+The number appears twice — the group's custom property and the slider's
+`value` — because with scripting off those are two different elements that both
+have to be right. Resolving one from the other while rendering was tried and
+removed: the canvas hands the element model an empty document on purpose, so
+the walk up the tree worked in the published file and returned nothing on the
+canvas. They are kept in step by `setRangeValue`, and a static check asserts
+they agree across the whole block library.
+
 ---
 
 ## 6. Storage

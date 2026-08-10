@@ -20,8 +20,11 @@ import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
 import {
   CASE_ATTR,
+  DRIVE_ATTR,
   NOT_ATTR,
   QUIET_ATTR,
+  RANGE_ATTR,
+  RANGE_VAR_PREFIX,
   SET_ATTR,
   SWITCH_ATTR,
   TABS_ATTR,
@@ -258,7 +261,58 @@ export function describeElement(
   options: RenderOptions,
   variant: Variant = variantsOf(node)[0]!
 ): ElementModel {
-  return applySwitch(describeBase(node, variant, doc, options), node, variant, options.mode);
+  return applyRange(
+    applySwitch(describeBase(node, variant, doc, options), node, variant, options.mode),
+    node
+  );
+}
+
+/**
+ * Continuous values: the group that holds one, and the control that moves it.
+ *
+ * Two attributes and an inline custom property, which between them are the
+ * whole feature on the markup side. Everything visible is done by rules the
+ * designer wrote against `var(--cre8-<key>)`; see `runtime/behaviour.ts` for
+ * why the number is unscaled and why the control is a native range.
+ *
+ * The number appears twice — as the group's custom property and as the driving
+ * slider's `value` — because with no script running those are two different
+ * elements that both have to be right: the page shows the split the designer
+ * chose *and* the handle sits on it.
+ *
+ * Nothing is looked up here to make that true, and that is deliberate. The
+ * canvas hands this function an empty document on purpose — the element model
+ * is memoised per node, and depending on the real one would invalidate every
+ * memo on every edit — so a walk up the tree finds nothing on one surface and
+ * the right answer on the other. It was written that way first, and the canvas
+ * went white.
+ *
+ * So the two are kept in step in the *document* instead, by `setRangeValue`,
+ * and a static check asserts they agree for every block in the registry. A
+ * disagreement fails the build rather than shipping a handle in the wrong
+ * place.
+ */
+function applyRange(model: ElementModel, node: SceneNode): ElementModel {
+  const key = slug(node.props.rangeKey);
+  if (key) {
+    const value = Number(node.props.rangeValue);
+    model.attrs[RANGE_ATTR] = key;
+    model.attrs.style = mergeStyle(
+      model.attrs.style,
+      `${RANGE_VAR_PREFIX}${key}:${Number.isFinite(value) ? value : 50}`
+    );
+  }
+
+  const drives = slug(node.props.drives);
+  if (drives && node.type === 'range') model.attrs[DRIVE_ATTR] = drives;
+  return model;
+}
+
+/** Inline declarations, kept as a string so both surfaces get the same one. */
+function mergeStyle(existing: AttrValue, addition: string): string {
+  const before = typeof existing === 'string' && existing.trim() ? existing.trim() : '';
+  if (!before) return addition;
+  return `${before.replace(/;$/, '')};${addition}`;
 }
 
 function describeBase(
@@ -652,6 +706,11 @@ function describeBase(
           ...base,
           type: 'range',
           name: str(props.name) || undefined,
+          // A slider that drives a continuous value is a control rather than a
+          // field, and it is often the only thing describing itself — a
+          // comparison handle *is* the divider, so there is nowhere to put a
+          // visible label.
+          'aria-label': str(props.ariaLabel) || undefined,
           min: num('min', 0),
           max: num('max', 100),
           step: num('step', 1),
@@ -799,6 +858,27 @@ export function toReactAttrs(
     }
     if (controlled && (key === 'value' || key === 'checked')) {
       out[key === 'value' ? 'defaultValue' : 'defaultChecked'] = value;
+      continue;
+    }
+    /*
+     * The one attribute the two surfaces cannot share verbatim.
+     *
+     * `ElementModel.attrs` is a string map because that is what the publisher
+     * writes into a file, and React refuses a string `style` outright. Parsed
+     * here rather than modelled as an object, so the published bytes stay the
+     * thing the model actually holds and only the surface that needs a
+     * different shape pays for it. Custom properties are passed through
+     * unchanged, which React supports precisely because it does not try to
+     * understand them.
+     */
+    if (key === 'style' && typeof value === 'string') {
+      const declarations: Record<string, string> = {};
+      for (const part of value.split(';')) {
+        const at = part.indexOf(':');
+        if (at <= 0) continue;
+        declarations[part.slice(0, at).trim()] = part.slice(at + 1).trim();
+      }
+      out.style = declarations;
       continue;
     }
     out[REACT_ATTR_MAP[key] ?? key] = value;

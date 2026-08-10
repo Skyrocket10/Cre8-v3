@@ -173,6 +173,17 @@ export interface StyleDecl {
   mixBlendMode?: string;
   transition?: string;
 
+  /**
+   * Clips the box to a shape.
+   *
+   * Here for the one thing the platform offers no other way to do: reveal part
+   * of an element from a number. A before/after comparison is two stacked
+   * images and `inset(0 0 0 calc(var(--cre8-split) * 1%))` on the upper one:
+   * no second wrapper, no measured widths, and it moves smoothly because it is
+   * one property rather than a layout change.
+   */
+  clipPath?: string;
+
   /* Media */
   objectFit?: string;
   objectPosition?: string;

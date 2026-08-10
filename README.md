@@ -36,6 +36,12 @@ second tree to wear, with its own styles, chosen per instance. Design
 tokens for colour, type, spacing, radius, shadow and width that compile to CSS
 custom properties.
 
+**Interaction**  Switches, tabs, filters and steppers, all of them a named
+value plus a generated CSS rule — the published page ships about 2 KB for the
+lot, and works with scripting off. Plus continuous values: a number a box holds
+as a CSS variable, moved by a native slider, for a before/after comparison or
+anything else that is a position rather than a choice.
+
 **Content**  Collections with typed fields, a record table and form in the
 editor, repeaters that draw one copy per record, and pages that become one
 published file per record with a paginated index beside them. Editing a record

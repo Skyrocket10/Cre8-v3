@@ -816,6 +816,39 @@ export const slider = (
   styles: options.styles ?? {},
 });
 
+/**
+ * A slider wired to a continuous value rather than to a form.
+ *
+ * The `name` is dropped on purpose: this one is a control, not a field, and a
+ * comparison position has no business arriving in somebody's contact-form
+ * submission. `aria-label` earns its keep here for the same reason a form
+ * field would have a visible label and this cannot — the handle *is* the
+ * divider, so there is nowhere to put one.
+ */
+export const valueSlider = (
+  name: string,
+  drives: string,
+  value: number,
+  options: { min?: number; max?: number; step?: number; label?: string; styles?: StyleDecl } = {}
+): NodeSpec => ({
+  type: 'range',
+  name,
+  props: {
+    drives,
+    min: options.min ?? 0,
+    max: options.max ?? 100,
+    step: options.step ?? 1,
+    // The same number the group holds, and required rather than defaulted so
+    // it cannot be forgotten. With no script the group's custom property puts
+    // the split somewhere and this puts the handle somewhere, and the two
+    // being different is a handle floating away from the line it draws. A
+    // static check asserts they match for every block in the registry.
+    value,
+    ariaLabel: options.label ?? name,
+  },
+  styles: options.styles ?? {},
+});
+
 export const fileField = (
   name: string,
   options: { accept?: string; multiple?: boolean; styles?: StyleDecl } = {}

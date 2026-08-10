@@ -65,6 +65,10 @@ interface Tagged {
   closest(selectors: string): Tagged | null;
   readonly parentElement: Tagged | null;
   focus?(): void;
+  /** Present on the form controls that drive a continuous value. */
+  readonly value?: string;
+  /** Where a continuous value is written. Absent on anything that is not an element. */
+  readonly style?: { setProperty(name: string, value: string): void };
 }
 
 /** What the runtime is mounted on: the page, or the editor's frame. */
@@ -109,6 +113,40 @@ export const QUIET_ATTR = 'data-cre8-quiet';
  * written here for a while and read by nothing.
  */
 export const NOT_ATTR = 'data-cre8-not';
+
+/**
+ * A value that is a *number* rather than a name.
+ *
+ * The switch is a state machine over named values, and it is the right shape
+ * for almost everything a page does — a pricing toggle, a tab set, a filter.
+ * It has nothing to hold a divider dragged across a photograph, and no amount
+ * of composing named states produces one: a hundred positions would be a
+ * hundred cases and a hundred rules.
+ *
+ * So: one more attribute, and the same discipline. The group carries the
+ * number as a **custom property written into the markup**, which means the
+ * page has a position before any script runs — a before/after comparison with
+ * scripting off is simply one frozen at whatever split the designer chose,
+ * rather than broken. CSS reads it with `var()` and does all of the drawing;
+ * the runtime's whole job is to write a new number when the control moves.
+ *
+ * The control is a native `<input type="range">`, and that is the point rather
+ * than a shortcut. Keyboard, touch, screen-reader announcement, `step`, and
+ * the value surviving a form submission all come from the platform, for free,
+ * and correctly. A bespoke pointer-drag would be a hundred lines here to
+ * reimplement four of those badly. Same reasoning as `[popover]`, `<dialog>`
+ * and `role="switch"` elsewhere in the library.
+ *
+ * The number is written **unscaled**. A slider with `min=0 max=100` gives a
+ * percentage; one with `min=0 max=20` gives a blur radius. Normalising here
+ * would throw away the second and buy nothing for the first — the designer's
+ * `min` and `max` already say what the number means.
+ */
+export const RANGE_ATTR = 'data-cre8-range';
+/** The control that moves it. Names the group it belongs to. */
+export const DRIVE_ATTR = 'data-cre8-drive';
+/** The custom property a continuous value lands in: `--cre8-<key>`. */
+export const RANGE_VAR_PREFIX = '--cre8-';
 
 /**
  * @param root  Document on a published page, the frame element in the editor.
@@ -195,13 +233,44 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
     }
   }
 
+  /**
+   * Push a continuous control's number onto the group it drives.
+   *
+   * The group already carries the number as an inline custom property — the
+   * renderer put it there, which is what makes the page look right before any
+   * of this runs. This is only what keeps it true afterwards.
+   */
+  function drive(control: Tagged): void {
+    const key = control.getAttribute('data-cre8-drive') || '';
+    if (!key) return;
+    // Built from a value read out of the DOM, which is safe for exactly the
+    // reason the tab pairing above is: `slug()` narrowed it to letters,
+    // digits, `_` and `-` before it was ever written.
+    const group = control.closest('[data-cre8-range="' + key + '"]');
+    if (!group || !group.style) return;
+    group.style.setProperty('--cre8-' + key, control.value || '0');
+  }
+
   const groups = root.querySelectorAll('[data-cre8-switch]');
   for (let g = 0; g < groups.length; g++) {
     upgrade(groups[g]!);
     sync(groups[g]!);
   }
 
+  // Run in both modes, and before the `live` gate. A browser restores form
+  // control values on a back-navigation without telling anybody, so a slider
+  // can arrive already moved while the group still says what was published.
+  const controls = root.querySelectorAll('[data-cre8-drive]');
+  for (let c = 0; c < controls.length; c++) drive(controls[c]!);
+
   if (!live) return function () {};
+
+  function onInput(event: Fired): void {
+    const target = event.target as Tagged | null;
+    if (!target || !target.closest) return;
+    const control = target.closest('[data-cre8-drive]');
+    if (control) drive(control);
+  }
 
   function choose(group: Tagged, setter: Tagged): void {
     group.setAttribute('data-cre8-value', setter.getAttribute('data-cre8-set') || '');
@@ -250,9 +319,14 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
 
   root.addEventListener('click', onClick);
   root.addEventListener('keydown', onKeyDown);
+  // `input` rather than `change`: a range fires `change` when the drag ends,
+  // and a comparison slider that only moves on release is not a comparison
+  // slider. Arrow keys fire both, so this covers the keyboard too.
+  root.addEventListener('input', onInput);
   return function () {
     root.removeEventListener('click', onClick);
     root.removeEventListener('keydown', onKeyDown);
+    root.removeEventListener('input', onInput);
   };
 }
 

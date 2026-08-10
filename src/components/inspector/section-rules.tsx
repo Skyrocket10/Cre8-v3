@@ -137,6 +137,37 @@ export function useStatesInScope(): { key: string; values: string[] }[] {
   }, [encoded]);
 }
 
+/**
+ * Continuous values the selection sits inside, nearest first.
+ *
+ * Ancestors only, unlike `useStatesInScope`, which starts with the node
+ * itself. A node cannot drive the value it declares: the driver is a slider
+ * and the group is the box the slider sits in, so the two are never the same
+ * element — and offering it would be offering to write a custom property onto
+ * the very element whose value it reads.
+ *
+ * Encoded into a string for the same reason the states hook does it: a fresh
+ * array out of a zustand selector re-renders the panel on every store update.
+ */
+export function useRangesInScope(): string[] {
+  const encoded = useEditor((s) => {
+    const nodeId = s.selection[0];
+    if (!nodeId) return '';
+    const found: string[] = [];
+
+    let current = s.doc.nodes[nodeId]?.parentId;
+    let guard = 0;
+    while (current && guard++ < 200) {
+      const key = slug(s.doc.nodes[current]?.props.rangeKey);
+      if (key && !found.includes(key)) found.push(key);
+      current = s.doc.nodes[current]?.parentId ?? undefined;
+    }
+    return found.join(' ');
+  });
+
+  return useMemo(() => (encoded ? encoded.split(' ') : []), [encoded]);
+}
+
 export function RulesSection() {
   const rules = useEditor((s) => {
     const id = s.selection[0];

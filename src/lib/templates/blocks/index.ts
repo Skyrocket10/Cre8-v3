@@ -82,6 +82,7 @@ import {
   drawerSpec,
   lightboxSpec,
   megaMenuSpec,
+  beforeAfterSpec,
   progressSpec,
   segmentedSpec,
   switchesSpec,
@@ -635,6 +636,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'commerce',
     keywords: ['delivery', 'returns', 'trust', 'guarantee'],
     build: shippingStripSpec,
+  },
+  {
+    id: 'app-before-after',
+    name: 'Before and after',
+    description: 'Drag to compare two photographs',
+    category: 'app',
+    keywords: ['compare', 'slider', 'reveal', 'split', 'retouch'],
+    build: beforeAfterSpec,
   },
   {
     id: 'app-progress',

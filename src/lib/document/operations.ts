@@ -689,6 +689,31 @@ export function renameComponentProperty(
   if (property) property.name = name.trim() || property.name;
 }
 
+/**
+ * Move a continuous value's starting number, and every slider that drives it.
+ *
+ * The number lives in two places because with no script running they are two
+ * different elements that both have to be right: the group's custom property
+ * puts the split somewhere, and the slider's `value` puts the handle there.
+ * Resolving one from the other when rendering was tried and taken out — the
+ * canvas gives the element model an empty document by design, so the lookup
+ * worked in the published file and returned nothing on the canvas.
+ *
+ * So they are kept in step here, in one operation, and a static check asserts
+ * they agree across the whole block library.
+ */
+export function setRangeValue(doc: Cre8Document, groupId: NodeId, value: number): void {
+  const group = doc.nodes[groupId];
+  const key = slug(group?.props.rangeKey);
+  if (!group || !key) return;
+
+  group.props.rangeValue = value;
+  for (const id of collectSubtree(doc.nodes, groupId)) {
+    const node = doc.nodes[id];
+    if (node?.type === 'range' && slug(node.props.drives) === key) node.props.value = value;
+  }
+}
+
 /** What one instance says. `undefined` puts it back to the master's value. */
 export function setInstanceOverride(
   doc: Cre8Document,
