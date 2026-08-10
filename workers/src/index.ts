@@ -39,6 +39,7 @@ import {
   unauthorised,
 } from './lib/http';
 import { contentTypeFor, SITE_CACHE_CONTROL } from './lib/publish';
+import { handleSchemaReport, handleSchemaUpgrade } from './routes/admin';
 import { handleMe, handleSignIn, handleSignOut, handleSignUp } from './routes/auth';
 import { handleFormSubmission, listSubmissions } from './routes/forms';
 import { recordRoutes } from './routes/records';
@@ -156,6 +157,13 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   }
   if (head === 'projects') return projectRoutes(request, env, parts, user, cors, method);
   if (head === 'assets') return assetRoutes(request, env, parts, user, cors, method);
+
+  // Bringing a deployed database up to the running code. Signed in to look,
+  // a team owner to act — see routes/admin.ts.
+  if (head === 'admin' && parts[1] === 'schema') {
+    if (method === 'GET') return handleSchemaReport(env, cors);
+    if (method === 'POST') return handleSchemaUpgrade(env, user, cors);
+  }
 
   throw notFound();
 }

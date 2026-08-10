@@ -217,18 +217,35 @@ it invalidates all existing passwords.
 `ALLOW_SIGNUP` closes open registration when set to `"false"`. Invites keep
 working.
 
-**Upgrading an existing database?** SQLite has no `ALTER TABLE ... IF NOT
-EXISTS`, so column additions run by hand, once each. Both are safe to attempt
-on a database that already has them — the error is `duplicate column name` and
-nothing happens:
+**Upgrading an existing database?** `npm run db:init` will not do it. Every
+statement in `schema.sql` is guarded, but `CREATE TABLE IF NOT EXISTS` does
+nothing to a table that already exists, and SQLite has no `ADD COLUMN IF NOT
+EXISTS` — so a column added to a shipped table cannot be in that file at all.
+
+Ask the deployment instead. It reads its own schema and adds only what it is
+missing:
 
 ```bash
-npx wrangler d1 execute cre8 --remote --command "ALTER TABLE projects ADD COLUMN subdomain TEXT"
-npx wrangler d1 execute cre8 --remote --command "ALTER TABLE projects ADD COLUMN site_manifest TEXT"
-npx wrangler d1 execute cre8 --remote --command "ALTER TABLE deployments ADD COLUMN document TEXT"
-npx wrangler d1 execute cre8 --remote --command "ALTER TABLE deployments ADD COLUMN changed TEXT"
-npm run db:init
+# what is missing
+curl -b cookies.txt https://<your-worker>/api/admin/schema
+
+# add it
+curl -b cookies.txt -X POST -H 'x-cre8-csrf: 1' https://<your-worker>/api/admin/schema
 ```
+
+A signed-in account is the whole bar, on purpose. Idempotent, additive, and it
+touches no rows: it issues `ALTER TABLE … ADD COLUMN` for a fixed list in
+`workers/src/lib/schema.ts` and nothing else, and every column on that list is
+one the running code already expects. The
+static suite checks that list against `schema.sql` in a real SQLite database on
+every commit, so a column added to one and forgotten in the other fails
+`npm run verify` rather than a deploy. Doing it by hand with
+`npx wrangler d1 execute cre8 --remote --command "ALTER TABLE …"` still works
+and is equivalent.
+
+A deploy that outran its database says so rather than returning `Internal
+error`: the failing request comes back `Database is behind this deployment`
+with the missing column named and this endpoint quoted.
 
 `site_manifest` is what lets a publish write only the files that changed and
 remove the ones a deleted record left behind. Without the column the publish

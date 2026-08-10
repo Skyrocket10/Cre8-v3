@@ -1,9 +1,8 @@
 -- Cre8 — D1 schema.
 --
--- Safe to re-run: every statement is guarded. If you applied the pre-accounts
--- version of this file, run migrations/0002_accounts_and_teams.sql instead of
--- editing tables by hand — `CREATE TABLE IF NOT EXISTS` will not add the new
--- columns to a table that already exists.
+-- Safe to re-run: every statement is guarded. That covers new tables and new
+-- indexes and nothing else — a *column* added to a table that already exists
+-- needs `/api/admin/schema`, for the reason spelled out above `deployments`.
 --
 -- Design notes
 --
@@ -114,25 +113,25 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE INDEX IF NOT EXISTS projects_team_updated ON projects (team_id, updated_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS projects_subdomain ON projects (subdomain);
 
--- Upgrading a database created before subdomains, the site manifest or the
--- publish history existed? `ALTER TABLE` has no IF NOT EXISTS in SQLite, so
--- none of them can live above. Run them once, by hand, ignoring "duplicate
--- column name" for any you already have:
+-- Upgrading a database that predates subdomains, the site manifest or the
+-- publish history? Re-running this file will not do it. `ALTER TABLE` has no
+-- IF NOT EXISTS in SQLite, so a column added to a table that already exists
+-- cannot live above — `CREATE TABLE IF NOT EXISTS` silently does nothing.
 --
---   npx wrangler d1 execute cre8 --remote \
---     --command "ALTER TABLE projects ADD COLUMN subdomain TEXT"
---   npx wrangler d1 execute cre8 --remote \
---     --command "ALTER TABLE projects ADD COLUMN site_manifest TEXT"
---   npx wrangler d1 execute cre8 --remote \
---     --command "ALTER TABLE deployments ADD COLUMN document TEXT"
---   npx wrangler d1 execute cre8 --remote \
---     --command "ALTER TABLE deployments ADD COLUMN changed TEXT"
+-- Ask the deployment instead. It knows what it has:
 --
--- then re-run this file to pick up the index. A missing manifest is safe on its
--- own terms — the next publish writes every file and starts one — so this is
--- about not losing the deletions, not about the site breaking. A missing
--- `document` column is not: publishing writes it, so the route fails until the
--- ALTER is run.
+--   GET  /api/admin/schema    what is missing
+--   POST /api/admin/schema    add it
+--
+-- Idempotent, additive, and it touches no rows. The list lives in
+-- workers/src/lib/schema.ts, and the static suite checks that list against
+-- this file in a real SQLite database — so a column added here and forgotten
+-- there fails `npm run verify` rather than a deploy.
+--
+-- Why it matters varies by column. A missing `site_manifest` degrades: the
+-- next publish writes every file and starts one, it just cannot subtract until
+-- then. A missing `deployments.document` does not — publishing writes it, so
+-- the route 500s until the column exists.
 
 /*
  * The publish log, and the thing that makes it a history rather than a list.

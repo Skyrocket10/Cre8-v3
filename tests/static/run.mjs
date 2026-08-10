@@ -17,6 +17,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createReport } from '../report.mjs';
 import { layers, loadBlocks, walk } from './load-blocks.mjs';
+import {
+  databaseWith,
+  indexesOf,
+  loadSchemaModule,
+  runnerFor,
+  shapeOf,
+} from './load-schema.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -2430,23 +2437,25 @@ report.group('a version is a design somebody published');
   /* --- The schema keeps up ------------------------------------------------ */
 
   /*
-   * Two columns were added to a table that already exists everywhere, and
-   * SQLite cannot add them from `CREATE TABLE IF NOT EXISTS`. An upgrade note
-   * nobody wrote is a deployment that fails on the first publish.
+   * Columns were added to tables that already exist everywhere, and SQLite
+   * cannot add them from `CREATE TABLE IF NOT EXISTS`. What closes that gap is
+   * `/api/admin/schema` — so the two places somebody deploying will look have
+   * to name it, and it has to be a route rather than a paragraph.
    */
   const schema = source(path.join('workers', 'schema.sql'));
   const readme = source('README.md');
-  const added = ['site_manifest', 'document', 'changed'];
-  const missing = added.filter((column) => !schema.includes(`ADD COLUMN ${column}`));
+  const router = source(path.join('workers', 'src', 'index.ts'));
   report.check(
-    'every column added to an existing table has an ALTER written down',
-    missing.length === 0,
-    missing.join(', ') || added.join(', ')
+    'the upgrade path is written where somebody deploying would look',
+    schema.includes('/api/admin/schema') && readme.includes('/api/admin/schema'),
+    [schema.includes('/api/admin/schema') ? 'schema.sql' : '', readme.includes('/api/admin/schema') ? 'README' : '']
+      .filter(Boolean)
+      .join(' and ') || 'neither'
   );
   report.check(
-    'and the README says to run them',
-    /ADD COLUMN site_manifest/.test(readme) && /ADD COLUMN document/.test(readme),
-    'documented where somebody deploying would look'
+    'and it is a route, not a paragraph',
+    /head === 'admin'/.test(router) && /parts\[1\] === 'schema'/.test(router),
+    'wired in workers/src/index.ts'
   );
 }
 
@@ -2946,6 +2955,242 @@ report.group('a checked control can be styled, and says it is a switch');
  * refuse to show the line, which is a bad thing to discover while looking for
  * something else.
  * ----------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+ * A deployed database can catch up with the code
+ *
+ * `schema.sql` is re-runnable, but `CREATE TABLE IF NOT EXISTS` does nothing to
+ * a table that already exists and SQLite has no `ADD COLUMN IF NOT EXISTS`. So
+ * every column added to a shipped table lives in `LATE_COLUMNS` instead, and
+ * `/api/admin/schema` applies it. Two lists that must agree, one of which is
+ * only ever exercised on somebody else's database — which is exactly the shape
+ * of thing to check here, in a real SQLite engine, on every commit.
+ * ----------------------------------------------------------------------- */
+
+report.group('a database that predates a column can still get it');
+
+{
+  const schemaSql = readFileSync(path.join(ROOT, 'workers/schema.sql'), 'utf8');
+  const { LATE_COLUMNS, LATE_INDEXES, ensureSchema, inspectSchema, looksLikeMissingColumn } =
+    loadSchemaModule();
+
+  const fresh = databaseWith(schemaSql);
+  const target = shapeOf(fresh);
+
+  /**
+   * `schema.sql` with the late columns taken back out — a stand-in for a
+   * database deployed before they existed.
+   *
+   * Comments go first so a stripped column cannot leave a trailing comma
+   * stranded behind two lines of prose, and the removal is per-table because
+   * `document` is a column on both `projects` and `deployments` and only one
+   * of them is late.
+   */
+  const stripColumn = (sql, table, column) => {
+    const start = sql.indexOf(`CREATE TABLE IF NOT EXISTS ${table} (`);
+    if (start < 0) throw new Error(`no CREATE TABLE for ${table}`);
+    const end = sql.indexOf(');', start);
+    const block = sql.slice(start, end);
+    const line = new RegExp(`^[ \\t]*${column}[ \\t]+(TEXT|INTEGER|REAL|BLOB)\\b[^\\n]*\\n`, 'm');
+    // Loud on purpose. A strip that quietly matched nothing would leave the
+    // column in place and make every check below pass without doing anything.
+    if (!line.test(block)) throw new Error(`no ${table}.${column} declaration to remove`);
+    return sql.slice(0, start) + block.replace(line, '') + sql.slice(end);
+  };
+
+  const asItWas = () => {
+    let sql = schemaSql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*--.*$/gm, '');
+    for (const { table, column } of LATE_COLUMNS) sql = stripColumn(sql, table, column);
+    for (const { name } of LATE_INDEXES) {
+      sql = sql.replace(new RegExp(`^CREATE[^;]*\\b${name}\\b[^;]*;`, 'm'), '');
+    }
+    return sql.replace(/,(\s*)\)/g, '$1)');
+  };
+
+  /**
+   * A shape, compared by name and type rather than by position.
+   *
+   * `ALTER TABLE … ADD COLUMN` appends, so an upgraded `projects` ends
+   * `…, created_at, updated_at, subdomain, site_manifest` where a fresh one has
+   * the two in the middle. Nothing reads a column by index — every query in the
+   * Worker names them — so the difference is real and does not matter, and
+   * pretending otherwise would leave a check that can never pass.
+   */
+  const canonical = (shape) =>
+    Object.keys(shape)
+      .sort()
+      .map((table) => {
+        const columns = Object.keys(shape[table]).sort();
+        return `${table}(${columns.map((c) => `${c} ${shape[table][c]}`).join(', ')})`;
+      })
+      .join('; ');
+
+  report.check(
+    'every late column is a column the schema file declares, at the same type',
+    LATE_COLUMNS.every((c) => target[c.table]?.[c.column] === c.type),
+    LATE_COLUMNS.map((c) => `${c.table}.${c.column} ${target[c.table]?.[c.column] ?? '—'}`).join(', ')
+  );
+
+  // Built once, from the full list, and reused by the falsification below —
+  // which shortens the list, and would otherwise stop stripping the very
+  // column it is trying to prove the absence of.
+  const OLD_SQL = asItWas();
+
+  const old = databaseWith(OLD_SQL);
+  const before = shapeOf(old);
+  const gap = LATE_COLUMNS.filter((c) => before[c.table]?.[c.column] === undefined);
+
+  report.check(
+    'the older database really is missing all four',
+    gap.length === LATE_COLUMNS.length,
+    `${gap.length}/${LATE_COLUMNS.length} absent`
+  );
+
+  // What a deploy would hit before anybody notices: the publisher writing a
+  // column that is not there. Caught by message, because D1 gives it no code —
+  // so the message is read off the engine rather than remembered.
+  let insertMessage = '';
+  let selectMessage = '';
+  try {
+    old.prepare(`SELECT site_manifest FROM projects`).all();
+  } catch (error) {
+    selectMessage = error.message;
+  }
+  try {
+    old.prepare(`INSERT INTO projects (id, site_manifest) VALUES ('x', 'y')`).run();
+  } catch (error) {
+    insertMessage = error.message;
+  }
+
+  report.check(
+    'and SQLite says so in a way the error handler recognises',
+    Boolean(selectMessage) &&
+      Boolean(insertMessage) &&
+      looksLikeMissingColumn(new Error(selectMessage)) &&
+      looksLikeMissingColumn(new Error(insertMessage)),
+    [selectMessage, insertMessage].filter(Boolean).join(' / ') || 'no error raised'
+  );
+  report.check(
+    'without matching an error that means something else',
+    !looksLikeMissingColumn(new Error('D1_ERROR: no such table: projects')) &&
+      !looksLikeMissingColumn(new Error('UNIQUE constraint failed: projects.subdomain')),
+    'no such table and a constraint failure both pass through'
+  );
+
+  const applied = await ensureSchema(runnerFor(old));
+
+  report.check(
+    'the upgrade lands the older database on the shipped schema exactly',
+    canonical(shapeOf(old)) === canonical(target),
+    applied.added.join(', ') || 'nothing added'
+  );
+  report.check(
+    'including the index that could not exist until its column did',
+    LATE_INDEXES.every((i) => indexesOf(old).includes(i.name)) &&
+      JSON.stringify(indexesOf(old)) === JSON.stringify(indexesOf(fresh)),
+    applied.indexes.join(', ') || 'no index created'
+  );
+  report.check(
+    'and it says it is done',
+    applied.ready && applied.pending.length === 0,
+    JSON.stringify({ ready: applied.ready, pending: applied.pending })
+  );
+
+  const again = await ensureSchema(runnerFor(old));
+  report.check(
+    'running it twice is running it once',
+    again.added.length === 0 && again.indexes.length === 0 && again.ready,
+    `${again.present.length} already present`
+  );
+
+  const onFresh = await inspectSchema(runnerFor(fresh));
+  report.check(
+    'a database built from the schema file needs nothing',
+    onFresh.ready && onFresh.pending.length === 0 && onFresh.missingTables.length === 0,
+    `${onFresh.present.length} present`
+  );
+
+  // A database with no tables is not a database behind by two columns, and
+  // patching columns onto tables that do not exist is not the fix.
+  const bare = await ensureSchema(runnerFor(databaseWith('SELECT 1')));
+  report.check(
+    'an uninitialised database is named as such, not patched',
+    bare.missingTables.length > 0 && bare.added.length === 0 && !bare.ready,
+    `missing ${bare.missingTables.join(', ')}`
+  );
+
+  /*
+   * The list that will actually rot.
+   *
+   * Everything above proves the mechanism works on the columns it knows about.
+   * The failure this is here for is the other one: somebody adds a column to a
+   * shipped table in `schema.sql` next year, fresh databases get it, every
+   * deployment does not, and nothing says a word. So the columns of every
+   * table that has already shipped are pinned here. A new *table* is safe and
+   * is ignored — `CREATE TABLE IF NOT EXISTS` handles those.
+   */
+  const SHIPPED = {
+    users: 'id email name verifier auth_version avatar_hue created_at updated_at',
+    sessions: 'token_hash user_id created_at expires_at user_agent',
+    teams: 'id name created_by created_at personal',
+    team_members: 'team_id user_id role created_at',
+    invites: 'id team_id email role token_hash invited_by created_at expires_at accepted_at',
+    projects: 'id team_id created_by name document page_count version created_at updated_at',
+    deployments: 'id project_id published_by published_at page_count bytes r2_prefix',
+    assets: 'id project_id name type r2_key bytes created_at',
+    form_submissions: 'id project_id form_id payload ip_hash user_agent created_at',
+    records: 'id project_id collection_id slug position published data created_at updated_at',
+  };
+
+  const late = new Set(LATE_COLUMNS.map((c) => `${c.table}.${c.column}`));
+  const unaccounted = [];
+  for (const [table, pinned] of Object.entries(SHIPPED)) {
+    const known = new Set(pinned.split(' '));
+    for (const column of Object.keys(target[table] ?? {})) {
+      if (!known.has(column) && !late.has(`${table}.${column}`)) {
+        unaccounted.push(`${table}.${column}`);
+      }
+    }
+  }
+
+  report.check(
+    'no shipped table has gained a column that deployments will never see',
+    unaccounted.length === 0,
+    unaccounted.length
+      ? `${unaccounted.join(', ')} — add to LATE_COLUMNS in workers/src/lib/schema.ts, ` +
+          'or to SHIPPED here if the table is new'
+      : `${Object.keys(SHIPPED).length} tables pinned`
+  );
+  report.check(
+    'and the pin describes tables that exist',
+    Object.keys(SHIPPED).every((t) => target[t]) &&
+      Object.keys(target).every((t) => SHIPPED[t]),
+    Object.keys(target).filter((t) => !SHIPPED[t]).join(', ') || 'every table accounted for'
+  );
+
+  /*
+   * Falsification. Both checks that matter are checks about convergence, and
+   * convergence between two lists derived from the same file is exactly the
+   * kind of thing that can be true by construction. So: take an entry out of
+   * the list and confirm the database stops arriving.
+   */
+  const crippled = databaseWith(OLD_SQL);
+  const dropped = LATE_COLUMNS.splice(2, 1)[0];
+  const partial = await ensureSchema(runnerFor(crippled));
+  LATE_COLUMNS.splice(2, 0, dropped);
+
+  report.check(
+    'a column missing from the list is a column the database never gets',
+    canonical(shapeOf(crippled)) !== canonical(target) &&
+      shapeOf(crippled)[dropped.table]?.[dropped.column] === undefined,
+    `dropped ${dropped.table}.${dropped.column}; upgrade added ${partial.added.join(', ')}`
+  );
+  report.check(
+    'and the list is back',
+    LATE_COLUMNS.length === 4 && LATE_COLUMNS[2] === dropped,
+    LATE_COLUMNS.map((c) => c.column).join(', ')
+  );
+}
 
 report.group('nothing in the tree reads as binary');
 

@@ -2,6 +2,7 @@
  * HTTP plumbing: responses, CORS, cookies, and the CSRF stance.
  */
 
+import { looksLikeMissingColumn } from './schema';
 import type { Env } from '../types';
 
 const JSON_TYPE = 'application/json; charset=utf-8';
@@ -34,6 +35,26 @@ export function errorResponse(error: unknown, cors: Record<string, string>): Res
     return json({ error: error.message, detail: error.detail }, error.status, cors);
   }
   console.error('[cre8-api]', error);
+
+  // The one internal error worth naming.
+  //
+  // A deploy that outran its database fails here, and "Internal error" sends
+  // whoever is looking into the logs of a Worker they may not be able to read.
+  // The column names are already in the repository, so saying which one is
+  // missing gives away nothing and turns a support ticket into one request.
+  if (looksLikeMissingColumn(error)) {
+    return json(
+      {
+        error: 'Database is behind this deployment',
+        detail:
+          `${error instanceof Error ? error.message : String(error)} — ` +
+          'POST /api/admin/schema to add the missing columns.',
+      },
+      500,
+      cors
+    );
+  }
+
   return json({ error: 'Internal error' }, 500, cors);
 }
 
