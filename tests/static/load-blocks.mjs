@@ -37,6 +37,10 @@ export function loadBlocks() {
       // can silently discard somebody's work.
       'src/lib/document/migrate.ts',
       'src/lib/renderer/css.ts',
+      // Every editor mutation, so component properties can be checked by
+      // driving the real operations rather than by hand-writing the document
+      // they are supposed to produce.
+      'src/lib/document/operations.ts',
       // The publisher, so the checks can read a finished page rather than
       // reason about what one would contain.
       'src/lib/publishing/html.ts',
@@ -84,6 +88,8 @@ export function loadBlocks() {
     hydrateDocument: require(path.join(OUT, 'document/factory.js')).hydrateDocument,
     buildInto: require(path.join(OUT, 'document/factory.js')).buildTree,
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
+    ops: require(path.join(OUT, 'document/operations.js')),
+    components: require(path.join(OUT, 'document/components.js')),
   };
 }
 

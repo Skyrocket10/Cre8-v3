@@ -42,6 +42,8 @@ const {
   generateSite,
   createEmptyDocument,
   hydrateDocument,
+  ops,
+  components: componentLib,
 } = loadBlocks();
 
 /** The selector of the first generated rule mentioning `needle`. */
@@ -2749,13 +2751,20 @@ report.group('the panel is not narrower than the model');
     wanted.filter((name) => !multi.has(name)).join(', ') || wanted.join(', ')
   );
   /*
-   * Content, Data and Rules are single-selection by nature — they write text,
-   * a binding or a condition to one node. Everything else that a single
-   * selection offers, several should.
+   * Four sections are single-selection by nature, and they share a criterion
+   * rather than being four separate exceptions: each writes to one node's own
+   * content or contract — its text, its binding, its conditions, the props it
+   * lets an instance change — rather than to how it is drawn. Everything that
+   * describes *drawing* applies to any number of nodes at once, and that is
+   * what this check is for.
    */
-  const singleOnly = [...single].filter(
-    (name) => !multi.has(name) && !['ContentSection', 'DataSection', 'RulesSection'].includes(name)
-  );
+  const OWN_CONTRACT = [
+    'ContentSection',
+    'DataSection',
+    'RulesSection',
+    'ComponentPropertySection',
+  ];
+  const singleOnly = [...single].filter((name) => !multi.has(name) && !OWN_CONTRACT.includes(name));
   report.check(
     'and there is nothing left that only one element can be given',
     singleOnly.length === 0,
@@ -2966,6 +2975,366 @@ report.group('a checked control can be styled, and says it is a switch');
  * only ever exercised on somebody else's database — which is exactly the shape
  * of thing to check here, in a real SQLite engine, on every commit.
  * ----------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+ * An instance can say something for itself
+ *
+ * Component properties, and the one claim everything else rests on: an
+ * override changes props, never styles. Two instances draw from the same
+ * master nodes and therefore carry the same classes — so the moment an
+ * override could touch a style, every instance would need a class of its own
+ * and the whole cascade would have to learn what an instance is.
+ *
+ * Driven through the real operations rather than by hand-writing the document
+ * they are supposed to produce: half of these are checks about what
+ * `exposeProperty` and `detachInstance` actually do.
+ * ----------------------------------------------------------------------- */
+
+report.group('an instance can say something for itself');
+
+{
+  const html = (doc) =>
+    generateSite(doc).files.find((f) => f.path === 'index.html')?.contents ?? '';
+  // Out of the page, not out of a file: a published site inlines its
+  // stylesheet, and looking for a `.css` that is not there compares one empty
+  // string with another — which is what the self-check below is for, and what
+  // it caught on the first run.
+  const css = (doc) => [...html(doc).matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+    .map((match) => match[1])
+    .join('\n');
+
+  /**
+   * A card component with a heading, a picture and a badge, plus `count`
+   * instances of it on the page.
+   *
+   * Built by promoting a real subtree, so the master is whatever
+   * `createComponentFromNode` makes rather than a shape hand-assembled to suit
+   * the checks below.
+   */
+  const withCard = (count = 2) => {
+    const doc = createEmptyDocument('Cards');
+    const home = doc.pages[0];
+    const root = doc.nodes[home.rootNodeId];
+
+    const built = buildTree(
+      {
+        type: 'stack',
+        name: 'Card',
+        children: [
+          { type: 'heading', name: 'Title', props: { text: 'Master title', level: 3 } },
+          {
+            type: 'image',
+            name: 'Shot',
+            props: {
+              src: '/master.webp',
+              alt: 'Master',
+              srcset: '/master-400.webp 400w, /master-800.webp 800w',
+              width: 800,
+              height: 600,
+            },
+          },
+          { type: 'text', name: 'Badge', props: { text: 'New' } },
+        ],
+      },
+      doc.nodes
+    );
+    doc.nodes[built.rootId].parentId = home.rootNodeId;
+    root.children.push(built.rootId);
+
+    const made = ops.createComponentFromNode(doc, built.rootId, 'Card');
+    const instances = [made.instanceId];
+    for (let n = 1; n < count; n++) {
+      instances.push(ops.insertInstance(doc, made.component.id, home.rootNodeId));
+    }
+
+    const master = doc.nodes[made.component.rootNodeId];
+    const inside = (name) => master.children.map((id) => doc.nodes[id]).find((n) => n.name === name);
+
+    return { doc, component: made.component, instances, inside };
+  };
+
+  const expose = (doc, component, node, kind) => {
+    const target = componentLib.exposableTargets(node).find((t) => t.type === kind);
+    return ops.exposeProperty(doc, component.id, node.id, target);
+  };
+
+  /* --- What an instance changes ------------------------------------------ */
+
+  {
+    const { doc, component, instances, inside } = withCard(2);
+    const title = expose(doc, component, inside('Title'), 'text');
+    ops.setInstanceOverride(doc, instances[0], title.id, 'First card');
+    ops.setInstanceOverride(doc, instances[1], title.id, 'Second card');
+
+    const out = html(doc);
+    report.check(
+      'two instances of one component can say two different things',
+      out.includes('First card') && out.includes('Second card'),
+      [out.includes('First card') && 'first', out.includes('Second card') && 'second']
+        .filter(Boolean)
+        .join(' and ') || 'neither'
+    );
+    report.check(
+      'and neither of them says what the master says',
+      !out.includes('Master title'),
+      out.includes('Master title') ? 'the master text is still in the file' : 'master text gone'
+    );
+  }
+
+  /* --- The claim the whole design rests on -------------------------------- */
+
+  {
+    const same = withCard(2);
+    const differing = withCard(2);
+    const property = expose(
+      differing.doc,
+      differing.component,
+      differing.inside('Title'),
+      'text'
+    );
+    ops.setInstanceOverride(differing.doc, differing.instances[0], property.id, 'One');
+    ops.setInstanceOverride(differing.doc, differing.instances[1], property.id, 'Two');
+
+    // Node ids are minted per document, so the two stylesheets can only be
+    // compared once the ids are taken out of the class names. What is left is
+    // the shape of the sheet — how many rules, in what order, saying what.
+    const shape = (text) => text.replace(/c-[a-z0-9]+/g, 'c-x');
+
+    report.check(
+      'a customised instance does not add one byte to the stylesheet',
+      shape(css(differing.doc)) === shape(css(same.doc)),
+      `${css(differing.doc).length} vs ${css(same.doc).length} bytes`
+    );
+    report.check(
+      'and the comparison is between sheets with something in them',
+      css(same.doc).length > 200,
+      `${css(same.doc).length} bytes`
+    );
+  }
+
+  /* --- Visibility --------------------------------------------------------- */
+
+  {
+    const { doc, component, instances, inside } = withCard(2);
+    const badge = expose(doc, component, inside('Badge'), 'visible');
+    ops.setInstanceOverride(doc, instances[1], badge.id, false);
+
+    const out = html(doc);
+    report.check(
+      'an instance can drop a node the others keep',
+      (out.match(/New/g) ?? []).length === 1,
+      `${(out.match(/New/g) ?? []).length} badges published`
+    );
+
+    // The mirror: a node the master hides, shown by one instance. Without it
+    // the property would only ever subtract, and "optional extra, off by
+    // default" is the commoner design of the two.
+    const back = withCard(2);
+    back.doc.nodes[back.inside('Badge').id].meta.hidden = true;
+    const shown = expose(back.doc, back.component, back.inside('Badge'), 'visible');
+    ops.setInstanceOverride(back.doc, back.instances[0], shown.id, true);
+
+    const hiddenOut = html(back.doc);
+    report.check(
+      'and can show one the master hides',
+      (hiddenOut.match(/New/g) ?? []).length === 1,
+      `${(hiddenOut.match(/New/g) ?? []).length} of 2 instances show it`
+    );
+  }
+
+  /* --- The srcset trap ---------------------------------------------------- */
+
+  /*
+   * The mistake this is here for was nearly shipped. An uploaded image carries
+   * a `srcset` ladder and an intrinsic size describing one file; override
+   * `src` and all three are about a different picture — and `srcset` outranks
+   * `src`, so the master's photo is what a visitor sees however carefully the
+   * property was set. Exactly the trap `boundProps` documents for records.
+   */
+  {
+    const { doc, component, instances, inside } = withCard(1);
+    const picture = expose(doc, component, inside('Shot'), 'image');
+    ops.setInstanceOverride(doc, instances[0], picture.id, '/mine.webp');
+
+    const out = html(doc);
+    report.check(
+      'overriding an image drops the ladder that described the old one',
+      out.includes('/mine.webp') && !out.includes('srcset') && !out.includes('master-800'),
+      /<img[^>]*>/.exec(out)?.[0]?.slice(0, 120) ?? 'no image'
+    );
+    report.check(
+      'and the ladder is there when nothing is overriding it',
+      html(withCard(1).doc).includes('srcset'),
+      'the master publishes its own srcset'
+    );
+  }
+
+  /* --- Detaching ---------------------------------------------------------- */
+
+  {
+    const { doc, component, instances, inside } = withCard(2);
+    const title = expose(doc, component, inside('Title'), 'text');
+    const badge = expose(doc, component, inside('Badge'), 'visible');
+    ops.setInstanceOverride(doc, instances[0], title.id, 'Kept through detach');
+    ops.setInstanceOverride(doc, instances[0], badge.id, false);
+
+    const rootId = ops.detachInstance(doc, instances[0]);
+    const detached = [rootId, ...(doc.nodes[rootId]?.children ?? [])].map((id) => doc.nodes[id]);
+
+    report.check(
+      'detaching keeps what the instance was saying',
+      detached.some((n) => n?.props.text === 'Kept through detach'),
+      detached.map((n) => n?.name).join(', ')
+    );
+    report.check(
+      'including what it was hiding',
+      detached.some((n) => n?.name === 'Badge' && n.meta.hidden === true),
+      detached.find((n) => n?.name === 'Badge')?.meta.hidden === true ? 'still hidden' : 'came back'
+    );
+    report.check(
+      'and the instance that was left alone is untouched',
+      html(doc).includes('Master title'),
+      'the second instance still follows the master'
+    );
+  }
+
+  /* --- Records still win -------------------------------------------------- */
+
+  /*
+   * An override is the node's props as far as everything downstream is
+   * concerned, which is what makes a record beat it. Inside a repeater it has
+   * to: every row is the same instance node, so an override that outranked the
+   * binding would print one row's text in all of them.
+   */
+  {
+    const { doc, component, instances, inside } = withCard(1);
+    doc.collections = [
+      {
+        id: 'posts',
+        name: 'Posts',
+        slug: 'posts',
+        fields: [{ id: 'title', name: 'Title', key: 'title', type: 'text' }],
+      },
+    ];
+    doc.nodes[inside('Title').id].bind = { text: 'title' };
+
+    const title = expose(doc, component, inside('Title'), 'text');
+    ops.setInstanceOverride(doc, instances[0], title.id, 'What the instance says');
+
+    const home = doc.pages[0];
+    const root = doc.nodes[home.rootNodeId];
+    root.repeat = { collection: 'posts' };
+
+    const records = {
+      posts: [
+        { id: 'a', collectionId: 'posts', slug: 'a', position: 0, published: true, createdAt: 1, updatedAt: 1, data: { title: 'Row one' } },
+        { id: 'b', collectionId: 'posts', slug: 'b', position: 1, published: true, createdAt: 2, updatedAt: 2, data: { title: 'Row two' } },
+      ],
+    };
+    const out = generateSite(doc, { records }).files.find((f) => f.path === 'index.html')?.contents ?? '';
+
+    report.check(
+      'a record beats an override, so every row says its own thing',
+      out.includes('Row one') && out.includes('Row two') && !out.includes('What the instance says'),
+      out.includes('What the instance says')
+        ? 'the override printed in every row'
+        : 'two rows, two titles'
+    );
+  }
+
+  /* --- Housekeeping ------------------------------------------------------- */
+
+  {
+    const { doc, component, instances, inside } = withCard(1);
+    const title = expose(doc, component, inside('Title'), 'text');
+
+    report.check(
+      'the same prop cannot be exposed twice',
+      expose(doc, component, inside('Title'), 'text') === null,
+      `${component.properties.length} property after a second attempt`
+    );
+    report.check(
+      'and a node outside the master cannot be exposed at all',
+      ops.exposeProperty(doc, component.id, doc.pages[0].rootNodeId, {
+        type: 'text',
+        prop: 'text',
+        label: 'Text',
+      }) === null,
+      'refused'
+    );
+
+    ops.setInstanceOverride(doc, instances[0], title.id, 'Something');
+    ops.removeComponentProperty(doc, component.id, title.id);
+    report.check(
+      'removing a property takes the values with it',
+      doc.nodes[instances[0]].overrides === undefined,
+      JSON.stringify(doc.nodes[instances[0]].overrides ?? null)
+    );
+
+    const gone = withCard(1);
+    const badge = expose(gone.doc, gone.component, gone.inside('Badge'), 'visible');
+    ops.removeNodes(gone.doc, [gone.inside('Badge').id]);
+    report.check(
+      'and deleting the node it pointed at prunes the property',
+      !(gone.component.properties ?? []).some((p) => p.id === badge.id),
+      `${(gone.component.properties ?? []).length} properties left`
+    );
+  }
+
+  /* --- Damage ------------------------------------------------------------- */
+
+  {
+    const { doc, component, instances, inside } = withCard(1);
+    expose(doc, component, inside('Title'), 'text');
+    doc.nodes[instances[0]].overrides = 'not an object';
+    doc.components[0].properties = ['nonsense', null, 42];
+
+    let drew = '';
+    let threw = null;
+    try {
+      drew = html(hydrateDocument(JSON.parse(JSON.stringify(doc))));
+    } catch (error) {
+      threw = error;
+    }
+    report.check(
+      'a document with damaged overrides still draws',
+      threw === null && drew.includes('Master title'),
+      threw ? String(threw.message).slice(0, 90) : 'repaired and drawn'
+    );
+  }
+
+  /* --- Falsification ------------------------------------------------------ */
+
+  /*
+   * The two checks above that could most easily be true by accident, made to
+   * fail on purpose. The stylesheet comparison is the one that matters: two
+   * empty strings are also identical.
+   */
+  {
+    const { doc, component, instances, inside } = withCard(2);
+    const title = expose(doc, component, inside('Title'), 'text');
+    ops.setInstanceOverride(doc, instances[0], title.id, 'Only here');
+    // Reach past the operation and put the value under a name no property has,
+    // which is what a stale key looks like after a property is removed.
+    doc.nodes[instances[1]].overrides = { 'no-such-property': 'Should not appear' };
+
+    const out = html(doc);
+    report.check(
+      'a value with no property behind it changes nothing',
+      !out.includes('Should not appear') && out.includes('Only here'),
+      out.includes('Should not appear') ? 'a stale key was rendered' : 'ignored'
+    );
+
+    const shape = (text) => text.replace(/c-[a-z0-9]+/g, 'c-x');
+    const withStyle = withCard(2);
+    withStyle.doc.nodes[withStyle.inside('Title').id].styles.desktop = { color: '#ff0000' };
+    report.check(
+      'and the stylesheet check would notice a sheet that did change',
+      shape(css(withStyle.doc)) !== shape(css(withCard(2).doc)),
+      'a style on the master moves the sheet, as it must'
+    );
+  }
+}
 
 report.group('a database that predates a column can still get it');
 

@@ -144,13 +144,19 @@ function resolvePopoverRefs(nodes: NodeMap): void {
 }
 
 /** Deep-copy a subtree with fresh ids. Returns the new root id. */
+/**
+ * @param remap Filled in with `original id → copy id`, for callers that have
+ *   something to say about the copies. Detaching a component instance is the
+ *   one that does: what the instance was overriding has to be written into the
+ *   new nodes, and the only thing connecting the two is this map.
+ */
 export function cloneSubtree(
   source: NodeMap,
   rootId: NodeId,
   into: NodeMap,
-  parentId: NodeId | null
+  parentId: NodeId | null,
+  remap: Map<NodeId, NodeId> = new Map()
 ): NodeId | null {
-  const remap = new Map<NodeId, NodeId>();
   const newRoot = copySubtree(source, rootId, into, parentId, remap);
   if (newRoot) rewireInternalRefs(into, remap);
   return newRoot;
@@ -354,6 +360,32 @@ export function hydrateDocument(input: Partial<Cre8Document> & { nodes?: NodeMap
       if (usable.length) node.rules = usable;
       else delete node.rules;
     }
+    // Same reasoning one field along: `scopeForInstance` iterates it, and a
+    // string or an array here would take the page down rather than lose a
+    // customisation nobody could see any more anyway.
+    if (node.overrides !== undefined) {
+      const values = node.overrides;
+      if (!values || typeof values !== 'object' || Array.isArray(values)) delete node.overrides;
+    }
+  }
+
+  /*
+   * A component whose properties are unreadable draws its master and nothing
+   * else, which is exactly what it did before properties existed. Dropping the
+   * list is therefore the safe repair — the instances keep their values, and
+   * re-exposing the prop is one click.
+   */
+  for (const component of doc.components) {
+    if (component.properties === undefined) continue;
+    const usable = (Array.isArray(component.properties) ? component.properties : []).filter(
+      (property) =>
+        Boolean(property) &&
+        typeof property === 'object' &&
+        typeof property.id === 'string' &&
+        typeof property.nodeId === 'string'
+    );
+    if (usable.length) component.properties = usable;
+    else delete component.properties;
   }
 
   // Re-derive parent links from children arrays; children are the source of

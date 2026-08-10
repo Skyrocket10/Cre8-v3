@@ -21,8 +21,8 @@ export const editorEngine: RenderEngine = {
 
   useNode: (id) => useEditor((s) => s.doc.nodes[id]),
 
-  useComponentRoot: (componentId) =>
-    useEditor((s) => s.doc.components.find((c) => c.id === componentId)?.rootNodeId),
+  useComponent: (componentId) =>
+    useEditor((s) => s.doc.components.find((c) => c.id === componentId)),
 
   // Asking is what loads them. Only a repeater ever calls this, so a page with
   // no bound list makes no request — and a page with three repeaters over one

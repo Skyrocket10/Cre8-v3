@@ -25,6 +25,12 @@ import {
 import { generateStylesheet, minifyCss } from '../renderer/css';
 import { themeToCssVariables, usedWebFonts } from '../document/theme';
 import { collectSubtree } from '../document/tree';
+import {
+  instanceHidden,
+  overriddenProps,
+  scopeForInstance,
+  type OverrideScope,
+} from '../document/components';
 import { getElement } from '../document/schema';
 import type { CollectionRecord, Cre8Document, NodeId, SceneNode } from '../document/types';
 import { depthOf, plan, relativePath, type Output, type PageWindow } from './routes';
@@ -73,6 +79,14 @@ export interface RenderNodeOptions {
   record?: CollectionRecord | null;
   /** Which slice of which repeater this file shows, on a paginated index. */
   window?: PageWindow | null;
+  /**
+   * What the component instance above this node fills in.
+   *
+   * Set when descending from an instance into its master, and replaced — never
+   * merged — at a nested instance: the inner master's node ids belong to the
+   * inner component, so an outer scope has nothing to say about them.
+   */
+  overrides?: OverrideScope | null;
   /** Guard against a component that somehow contains itself. */
   depth?: number;
 }
@@ -86,19 +100,33 @@ export function renderNodeToHtml(
   if (depth > 64) return '';
 
   const node = doc.nodes[nodeId];
-  if (!node || node.meta.hidden) return '';
+  const scope = options.overrides ?? null;
+  if (!node) return '';
+  // A property that says "visible" un-hides a node the master hid — that is
+  // what exposing it is for — so the instance is asked first and `meta` only
+  // answers when it has said nothing.
+  if (instanceHidden(node, scope) ?? node.meta.hidden) return '';
 
   if (node.type === 'instance') {
     const component = doc.components.find((c) => c.id === node.props.componentId);
     if (!component) return '';
-    return renderNodeToHtml(doc, component.rootNodeId, { ...options, depth: depth + 1 });
+    // Replaced, not merged. An instance nested inside a master still answers
+    // to the outer scope for its own visibility — that is the check above,
+    // which ran before this branch — but the nodes it is about to draw belong
+    // to another component, and the outer scope cannot address them.
+    return renderNodeToHtml(doc, component.rootNodeId, {
+      ...options,
+      overrides: scopeForInstance(component, node),
+      depth: depth + 1,
+    });
   }
 
-  // The record in scope, written over the node's own props. Everything below
-  // reads `variant.props`, so a bound `src` reaches the `srcset` logic and a
-  // bound `href` reaches the link resolver without either of them learning
-  // what a record is.
-  const props = boundProps(node, options.record ?? null);
+  // The record in scope, written over the node's own props — and over whatever
+  // the instance above filled in, which is why the override goes underneath
+  // rather than on top. Everything below reads `variant.props`, so a bound
+  // `src` reaches the `srcset` logic and a bound `href` reaches the link
+  // resolver without either of them learning what a record is.
+  const props = boundProps(node, options.record ?? null, overriddenProps(node, scope));
 
   // A node whose rules change its content ships as one element per
   // alternative, every string in the file, with a stylesheet rule choosing

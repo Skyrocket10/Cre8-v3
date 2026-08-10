@@ -296,6 +296,17 @@ interface EditorActions {
   clearStyle(props: StyleProp[], ids?: NodeId[]): void;
   setRuleStyle(ruleId: string, patch: StyleDecl, options?: TransactOptions): void;
   setRuleProps(ruleId: string, patch: NodeProps): void;
+  /**
+   * What one component instance says for itself. `undefined` resets it.
+   *
+   * Coalesced like a style scrub rather than recorded per keystroke: the
+   * control is a text field, and one undo per character is not an undo stack.
+   */
+  setInstanceOverride(
+    instanceId: NodeId,
+    propertyId: string,
+    value: string | number | boolean | null | undefined
+  ): void;
   toggleHidden(ids?: NodeId[]): void;
   toggleLocked(ids?: NodeId[]): void;
   reorderInParent(id: NodeId, direction: 1 | -1): void;
@@ -991,6 +1002,18 @@ export const useEditor = create<EditorStore>()((set, get) => ({
         return targets;
       },
       options
+    );
+  },
+
+  setInstanceOverride(instanceId, propertyId, value) {
+    get().transact(
+      'Component property',
+      (draft) => {
+        ops.setInstanceOverride(draft, instanceId, propertyId, value);
+      },
+      // Per property rather than per instance: typing into one field and then
+      // another should be two undo steps, because they are two decisions.
+      { mergeKey: `override:${instanceId}:${propertyId}` }
     );
   },
 

@@ -9,6 +9,14 @@
  * These functions never touch selection, viewport or any other UI concern.
  */
 
+import {
+  bakeOverrides,
+  exposableTargets,
+  livingProperties,
+  scopeForInstance,
+  targetKey,
+  type ExposableTarget,
+} from './components';
 import { cloneSubtree, createNode, structuredCloneCompat, type NodeSpec, buildTree } from './factory';
 import { uid, slugify } from './id';
 import { SWITCH_SHOW_ALL, canContain, getElement, readCase, slug } from './schema';
@@ -25,6 +33,7 @@ import type {
   Breakpoint,
   Collection,
   ComponentDefinition,
+  ComponentProperty,
   Cre8Document,
   ElementType,
   Field,
@@ -121,6 +130,7 @@ export function removeNodes(doc: Cre8Document, ids: NodeId[]): void {
     detachChild(doc.nodes, id);
     for (const descendant of collectSubtree(doc.nodes, id)) delete doc.nodes[descendant];
   }
+  pruneComponentProperties(doc);
 }
 
 export function moveNodes(
@@ -570,15 +580,138 @@ export function detachInstance(doc: Cre8Document, instanceId: NodeId): NodeId | 
   if (!parent) return null;
 
   const subtree: NodeMap = {};
-  const rootId = cloneSubtree(doc.nodes, component.rootNodeId, subtree, instance.parentId);
+  const remap = new Map<NodeId, NodeId>();
+  const rootId = cloneSubtree(doc.nodes, component.rootNodeId, subtree, instance.parentId, remap);
   if (!rootId) return null;
   for (const n of Object.values(subtree)) delete n.meta.componentId;
+  // What this instance was saying becomes what these nodes say. Without it,
+  // detaching quietly throws away every word the instance had customised.
+  bakeOverrides(subtree, remap, scopeForInstance(component, instance));
 
   const index = parent.children.indexOf(instanceId);
   detachChild(doc.nodes, instanceId);
   delete doc.nodes[instanceId];
   insertSubtree(doc, subtree, rootId, parent.id, index);
   return rootId;
+}
+
+/* --- Properties --------------------------------------------------------- */
+
+/**
+ * Open a hole in a master: this prop of this node is the instance's to fill.
+ *
+ * Refuses a second property on the same target, because two names for one prop
+ * is a fight over which of them wins that has no good answer.
+ *
+ * The default is read off the master *now*, which is what an instance shows
+ * until somebody changes it and what "Reset" puts back. Editing the master
+ * afterwards moves every unmodified instance with it — the stored default is
+ * only consulted by the inspector, never by a renderer, so the master stays the
+ * single source of what an unmodified instance says.
+ */
+export function exposeProperty(
+  doc: Cre8Document,
+  componentId: string,
+  nodeId: NodeId,
+  target: ExposableTarget,
+  name?: string
+): ComponentProperty | null {
+  const component = doc.components.find((c) => c.id === componentId);
+  const node = doc.nodes[nodeId];
+  if (!component || !node) return null;
+  if (node.meta.componentId !== componentId) return null;
+  if (!exposableTargets(node).some((t) => targetKey(t) === targetKey(target))) return null;
+
+  const properties = (component.properties ??= []);
+  if (properties.some((p) => p.nodeId === nodeId && targetKey(p) === targetKey(target))) return null;
+
+  const property: ComponentProperty = {
+    id: uid(),
+    name: name?.trim() || uniquePropertyName(properties, `${node.name} ${target.label.toLowerCase()}`),
+    type: target.type,
+    nodeId,
+    ...(target.prop ? { prop: target.prop } : {}),
+    defaultValue: target.type === 'visible' ? !node.meta.hidden : (node.props[target.prop!] ?? ''),
+  };
+  properties.push(property);
+  return property;
+}
+
+function uniquePropertyName(properties: ComponentProperty[], wanted: string): string {
+  const taken = new Set(properties.map((p) => p.name));
+  if (!taken.has(wanted)) return wanted;
+  for (let n = 2; ; n++) if (!taken.has(`${wanted} ${n}`)) return `${wanted} ${n}`;
+}
+
+/** Close the hole, and forget what every instance had put in it. */
+export function removeComponentProperty(
+  doc: Cre8Document,
+  componentId: string,
+  propertyId: string
+): void {
+  const component = doc.components.find((c) => c.id === componentId);
+  if (!component?.properties) return;
+  component.properties = component.properties.filter((p) => p.id !== propertyId);
+
+  // The values would be ignored either way — nothing names them any more — but
+  // leaving them behind grows the document for ever, and re-exposing the same
+  // prop mints a new id, so there is nothing they could ever be reunited with.
+  for (const node of Object.values(doc.nodes)) {
+    if (node.type !== 'instance' || !node.overrides) continue;
+    if (!(propertyId in node.overrides)) continue;
+    delete node.overrides[propertyId];
+    if (!Object.keys(node.overrides).length) delete node.overrides;
+  }
+}
+
+export function renameComponentProperty(
+  doc: Cre8Document,
+  componentId: string,
+  propertyId: string,
+  name: string
+): void {
+  const property = doc.components
+    .find((c) => c.id === componentId)
+    ?.properties?.find((p) => p.id === propertyId);
+  if (property) property.name = name.trim() || property.name;
+}
+
+/** What one instance says. `undefined` puts it back to the master's value. */
+export function setInstanceOverride(
+  doc: Cre8Document,
+  instanceId: NodeId,
+  propertyId: string,
+  value: string | number | boolean | null | undefined
+): void {
+  const instance = doc.nodes[instanceId];
+  if (!instance || instance.type !== 'instance') return;
+
+  if (value === undefined) {
+    if (!instance.overrides) return;
+    delete instance.overrides[propertyId];
+    if (!Object.keys(instance.overrides).length) delete instance.overrides;
+    return;
+  }
+  (instance.overrides ??= {})[propertyId] = value;
+}
+
+/**
+ * Drop properties whose node is no longer in the master.
+ *
+ * Deleting a node out of a component leaves anything pointing at it with
+ * nothing to fill, and a control that writes into a hole that is not there
+ * would be a silent no-op. Called after every removal rather than only the
+ * ones inside a master, because "was that node part of a component?" is a
+ * question with more wrong answers than this costs to skip.
+ */
+function pruneComponentProperties(doc: Cre8Document): void {
+  for (const component of doc.components) {
+    if (!component.properties?.length) continue;
+    const living = livingProperties(component, doc.nodes);
+    // Only written when it changed: an unconditional assignment would hand
+    // immer a new array on every delete anywhere in the document.
+    if (living.length !== component.properties.length) component.properties = living;
+  }
 }
 
 export function renameComponent(doc: Cre8Document, componentId: string, name: string): void {

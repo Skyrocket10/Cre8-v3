@@ -9,7 +9,15 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Component, ExternalLink, ImageIcon, Scissors, SquarePen } from 'lucide-react';
+import {
+  Component,
+  ExternalLink,
+  ImageIcon,
+  Plus,
+  RotateCcw,
+  Scissors,
+  SquarePen,
+} from 'lucide-react';
 import { ICON_NAMES, ICON_PATHS } from '@/lib/renderer/icons';
 import {
   SEMANTIC_TAGS,
@@ -20,13 +28,29 @@ import {
   slugList,
 } from '@/lib/document/schema';
 import type { Asset, ElementType } from '@/lib/document/types';
-import { detachInstance } from '@/lib/document/operations';
+import {
+  detachInstance,
+  exposeProperty,
+  removeComponentProperty,
+  renameComponentProperty,
+} from '@/lib/document/operations';
+import { exposableTargets, targetKey } from '@/lib/document/components';
 import { collectSubtree } from '@/lib/document/tree';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { ColorField } from '../ui/color-field';
 import { NumberField } from '../ui/number-field';
-import { Button, Popover, Section, Segmented, Select, Switch, TextInput, Tooltip } from '../ui/primitives';
+import {
+  Button,
+  IconButton,
+  Popover,
+  Section,
+  Segmented,
+  Select,
+  Switch,
+  TextInput,
+  Tooltip,
+} from '../ui/primitives';
 import { InspectorGroup, StyleRow } from './controls';
 import { useStatesInScope } from './section-rules';
 import { useNodeProp } from './use-style';
@@ -1012,6 +1036,42 @@ function chooseImage(asset: Asset): void {
   });
 }
 
+/**
+ * The project's images, to pick one from.
+ *
+ * Shared by the image element and by a component's image property, which want
+ * the same grid and different things from a click: the element takes the whole
+ * file — ladder, intrinsic size, and a name for the alt text if it has none —
+ * while a property is one value and takes the URL alone.
+ */
+function AssetGrid({ assets, onPick }: { assets: Asset[]; onPick: (asset: Asset) => void }) {
+  if (!assets.length) {
+    return (
+      <p className="px-1 py-3 text-center text-[11px] text-[var(--text-faint)]">
+        No assets yet — upload some in the Assets panel.
+      </p>
+    );
+  }
+  return (
+    <div className="scroll-thin grid max-h-[260px] grid-cols-3 gap-1.5 overflow-y-auto">
+      {assets.map((asset) => (
+        <button
+          key={asset.id}
+          type="button"
+          onClick={() => onPick(asset)}
+          className="aspect-square overflow-hidden rounded-md border border-[var(--border)] bg-[var(--field)] transition-transform hover:scale-[1.03]"
+          style={{
+            backgroundImage: `url("${asset.url}")`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+          title={asset.name}
+        />
+      ))}
+    </div>
+  );
+}
+
 function ImageContent() {
   const src = useNodeProp('src');
   const alt = useNodeProp('alt');
@@ -1060,32 +1120,14 @@ function ImageContent() {
             >
               {(close) => (
                 <div className="p-2">
-                  {assets.length === 0 ? (
-                    <p className="px-1 py-3 text-center text-[11px] text-[var(--text-faint)]">
-                      No assets yet — upload some in the Assets panel.
-                    </p>
-                  ) : (
-                    <div className="scroll-thin grid max-h-[260px] grid-cols-3 gap-1.5 overflow-y-auto">
-                      {assets.map((asset) => (
-                        <button
-                          key={asset.id}
-                          type="button"
-                          onClick={() => {
-                            chooseImage(asset);
-                            if (!alt.value) alt.set(asset.name);
-                            close();
-                          }}
-                          className="aspect-square overflow-hidden rounded-md border border-[var(--border)] bg-[var(--field)] transition-transform hover:scale-[1.03]"
-                          style={{
-                            backgroundImage: `url("${asset.url}")`,
-                            backgroundSize: 'cover',
-                            backgroundPosition: 'center',
-                          }}
-                          title={asset.name}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <AssetGrid
+                    assets={assets}
+                    onPick={(asset) => {
+                      chooseImage(asset);
+                      if (!alt.value) alt.set(asset.name);
+                      close();
+                    }}
+                  />
                 </div>
               )}
             </Popover>
@@ -1500,6 +1542,231 @@ function InstanceContent() {
         <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
           Edits to the main component update every instance. Detaching turns this copy into ordinary
           elements.
+        </p>
+      </InspectorGroup>
+      <InstanceProperties componentId={component.id} instanceId={instanceId} />
+    </Section>
+  );
+}
+
+/**
+ * What this instance is allowed to say for itself.
+ *
+ * Empty until somebody exposes something, and it says so rather than showing
+ * nothing — "instances are all identical" is a reasonable conclusion to draw
+ * from a blank panel, and the wrong one.
+ */
+function InstanceProperties({
+  componentId,
+  instanceId,
+}: {
+  componentId: string;
+  instanceId: string;
+}) {
+  const properties = useEditor(
+    (s) => s.doc.components.find((c) => c.id === componentId)?.properties
+  );
+  const overrides = useEditor((s) => s.doc.nodes[instanceId]?.overrides);
+  const allAssets = useEditor((s) => s.doc.assets);
+  const images = useMemo(
+    () => allAssets.filter((a) => a.type === 'image' || a.type === 'svg'),
+    [allAssets]
+  );
+
+  if (!properties?.length) {
+    return (
+      <InspectorGroup>
+        <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+          No properties yet. Open the main component, select something inside it, and expose a
+          property to let each instance say something different.
+        </p>
+      </InspectorGroup>
+    );
+  }
+
+  const set = (propertyId: string, value: string | number | boolean | null | undefined) =>
+    useEditor.getState().setInstanceOverride(instanceId, propertyId, value);
+
+  return (
+    <InspectorGroup>
+      {properties.map((property) => {
+        const current = overrides?.[property.id];
+        const shown = current !== undefined ? current : property.defaultValue;
+        const modified = current !== undefined;
+
+        return (
+          <StyleRow
+            key={property.id}
+            label={property.name}
+            hint={
+              modified
+                ? 'Changed on this instance. Reset to follow the main component again.'
+                : 'Following the main component'
+            }
+          >
+            {property.type === 'visible' ? (
+              <Switch checked={shown !== false} onChange={(on) => set(property.id, on)} />
+            ) : property.type === 'image' ? (
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                <Popover
+                  width={260}
+                  align="start"
+                  trigger={({ toggle, ref }) => (
+                    <button
+                      ref={ref}
+                      type="button"
+                      onClick={toggle}
+                      className="size-[26px] shrink-0 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--field)]"
+                      style={
+                        shown
+                          ? {
+                              backgroundImage: `url("${String(shown)}")`,
+                              backgroundSize: 'cover',
+                              backgroundPosition: 'center',
+                            }
+                          : undefined
+                      }
+                      title="Choose an image"
+                    >
+                      {!shown && <ImageIcon size={12} className="m-auto text-[var(--text-faint)]" />}
+                    </button>
+                  )}
+                >
+                  {(close) => (
+                    <div className="p-2">
+                      <AssetGrid
+                        assets={images}
+                        onPick={(asset) => {
+                          set(property.id, asset.url);
+                          close();
+                        }}
+                      />
+                    </div>
+                  )}
+                </Popover>
+                <TextInput
+                  className="min-w-0 flex-1"
+                  value={String(shown ?? '')}
+                  onValueChange={(v) => set(property.id, v)}
+                  placeholder="https://… or /image.png"
+                />
+              </div>
+            ) : (
+              <TextInput
+                className="flex-1"
+                value={String(shown ?? '')}
+                onValueChange={(v) => set(property.id, v)}
+                placeholder={property.type === 'link' ? '/page or https://…' : 'Say something'}
+              />
+            )}
+            {/* Only when there is something to undo. A reset that is always
+                there reads as "clear this", which is a different thing and
+                would leave the instance saying nothing rather than saying
+                what the main component says. */}
+            {modified && (
+              <IconButton
+                label="Follow the main component again"
+                onClick={() => set(property.id, undefined)}
+              >
+                <RotateCcw size={11} />
+              </IconButton>
+            )}
+          </StyleRow>
+        );
+      })}
+    </InspectorGroup>
+  );
+}
+
+/**
+ * Opening a hole in the master, from inside it.
+ *
+ * Only shown while the master is open on the canvas — the same node is
+ * reachable from a page through an instance, and offering "expose this" there
+ * would be offering to change every instance from inside one of them.
+ */
+export function ComponentPropertySection() {
+  const editingComponentId = useEditor((s) => s.editingComponentId);
+  const nodeId = useEditor((s) => (s.selection.length === 1 ? s.selection[0] : undefined));
+  const node = useEditor((s) => (nodeId ? s.doc.nodes[nodeId] : undefined));
+  const properties = useEditor(
+    (s) => s.doc.components.find((c) => c.id === editingComponentId)?.properties
+  );
+
+  const targets = useMemo(() => (node ? exposableTargets(node) : []), [node]);
+
+  if (!editingComponentId || !node || !nodeId) return null;
+  if (node.meta.componentId !== editingComponentId) return null;
+
+  const mine = (properties ?? []).filter((p) => p.nodeId === nodeId);
+  const taken = new Set(mine.map((p) => targetKey(p)));
+  const available = targets.filter((t) => !taken.has(targetKey(t)));
+
+  const store = () => useEditor.getState();
+
+  return (
+    <Section title="Component property">
+      <InspectorGroup>
+        {mine.map((property) => (
+          <StyleRow key={property.id} label={property.type === 'visible' ? 'Visible' : property.prop}>
+            <TextInput
+              className="flex-1"
+              value={property.name}
+              onValueChange={(name) =>
+                store().transact('Rename property', (draft) => {
+                  renameComponentProperty(draft, editingComponentId, property.id, name);
+                })
+              }
+            />
+            <IconButton
+              label="Stop exposing this"
+              onClick={() =>
+                store().transact('Remove property', (draft) => {
+                  removeComponentProperty(draft, editingComponentId, property.id);
+                })
+              }
+            >
+              <Scissors size={11} />
+            </IconButton>
+          </StyleRow>
+        ))}
+
+        {available.length > 0 && (
+          <Popover
+            width={200}
+            align="start"
+            trigger={({ toggle, ref }) => (
+              <Button ref={ref} onClick={toggle}>
+                <Plus size={11} />
+                Expose a property
+              </Button>
+            )}
+          >
+            {(close) => (
+              <div className="p-1">
+                {available.map((target) => (
+                  <button
+                    key={targetKey(target)}
+                    type="button"
+                    onClick={() => {
+                      store().transact('Expose property', (draft) => {
+                        exposeProperty(draft, editingComponentId, nodeId, target);
+                      });
+                      close();
+                    }}
+                    className="flex h-[26px] w-full items-center rounded-md px-2 text-left text-[11.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--field)] hover:text-[var(--text)]"
+                  >
+                    {target.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Popover>
+        )}
+
+        <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+          An exposed property can differ on every instance. Styles cannot — two instances share one
+          set of rules, so a different look means a second component, or Detach.
         </p>
       </InspectorGroup>
     </Section>

@@ -409,6 +409,17 @@ export interface SceneNode {
    * this by the factory — but nothing downstream reads anything else.
    */
   rules?: StyleRule[];
+
+  /**
+   * What this instance says, where its component let it differ.
+   *
+   * Keyed by `ComponentProperty.id`, and only ever set on a node of type
+   * `instance`. A key with no matching property is stale rather than wrong —
+   * it is ignored, which is what lets a property be removed and re-added
+   * without every instance losing what it said in between.
+   */
+  overrides?: Record<string, string | number | boolean | null>;
+
   meta: NodeMeta;
 
   /* Reserved extension points — declared so the format never has to change. */
@@ -623,6 +634,39 @@ export interface Asset {
  * ----------------------------------------------------------------------- */
 
 /**
+ * What kind of value a property carries, which is also what control it gets.
+ *
+ * Four, and the list is short on purpose: these are the things that differ
+ * between two cards on the same page. Anything else — a colour, a size, a
+ * different layout — is a change to the design, and a design that differs is
+ * a second component or a detached copy.
+ */
+export type ComponentPropertyType = 'text' | 'image' | 'link' | 'visible';
+
+/**
+ * A named hole in a component master, which each instance fills for itself.
+ *
+ * The one property worth stating outright: **an override changes props, never
+ * styles.** Two instances of a component render from the same master nodes and
+ * therefore carry the same classes, so a per-instance style would need a
+ * per-instance class and the whole cascade would have to learn about
+ * instances. Text, image, link and visibility need none of that — they change
+ * what an element says, not how it looks — which is why the stylesheet is
+ * untouched by this and the published bytes still come out of one generator.
+ */
+export interface ComponentProperty {
+  id: string;
+  name: string;
+  type: ComponentPropertyType;
+  /** The node inside the master this fills. */
+  nodeId: NodeId;
+  /** Which prop on it. Absent for `visible`, which is not a prop. */
+  prop?: string;
+  /** What the master says, kept so an instance can be put back to it. */
+  defaultValue?: string | number | boolean | null;
+}
+
+/**
  * A component master is a real subtree in `document.nodes`, parented to the
  * document's component library rather than to a page. Instances reference it
  * by id, so editing the master updates every instance — the behaviour that
@@ -634,9 +678,10 @@ export interface ComponentDefinition {
   rootNodeId: NodeId;
   category?: string;
   createdAt: number;
-  /** RESERVED — variants and exposed properties. */
+  /** RESERVED — alternate master trees, chosen per instance. */
   variants?: Array<{ id: string; name: string; rootNodeId: NodeId }>;
-  properties?: Array<{ id: string; name: string; type: string; defaultValue?: unknown }>;
+  /** What an instance may change about itself. Order is the order shown. */
+  properties?: ComponentProperty[];
 }
 
 /* --------------------------------------------------------------------------

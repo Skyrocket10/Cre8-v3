@@ -20,7 +20,7 @@ import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
 import { Segmented, TextInput, Tooltip } from '../ui/primitives';
-import { ContentSection } from './section-content';
+import { ComponentPropertySection, ContentSection } from './section-content';
 import { DataSection } from './section-data';
 import { RulesSection, describeRule } from './section-rules';
 import {
@@ -168,6 +168,11 @@ function SingleSelection() {
       )}
 
       <ContentSection />
+      {/* Above the data section, and only while the main component is open:
+          exposing a property is a decision about the component's shape, and it
+          belongs next to the content it is about rather than at the bottom of
+          a panel somebody has to scroll. */}
+      <ComponentPropertySection />
       <DataSection />
       <RulesSection />
       <LayoutSection />

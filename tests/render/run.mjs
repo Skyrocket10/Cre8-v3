@@ -28,6 +28,7 @@ const SUITES = [
   ['collections', 'the whole data layer, driven from the editor'],
   ['republish', 'the site follows its records, and writes only what moved'],
   ['history', 'every publish is kept, and a design can be put back'],
+  ['components', 'two instances of one component, saying different things'],
   ['schema', 'a deployment can read its own schema and catch up'],
   ['editor-perf', 'what the editor costs on a document big enough to hurt'],
   ['forms', 'published forms reach the submissions endpoint'],

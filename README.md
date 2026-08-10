@@ -27,8 +27,12 @@ a wider screen, and one click drops back to inherited.
 hide and component badges. Multiple pages with slugs and SEO metadata.
 
 **Reuse**  Components with live instances — editing the main component updates
-every instance, everywhere. Design tokens for colour, type, spacing, radius,
-shadow and width that compile to CSS custom properties.
+every instance, everywhere. Expose a property and each instance can say
+something different: its own text, its own picture, its own link, or nothing at
+all where another shows a badge. Properties change what an element says, never
+how it is drawn, so a page of customised instances costs no extra CSS. Design
+tokens for colour, type, spacing, radius, shadow and width that compile to CSS
+custom properties.
 
 **Content**  Collections with typed fields, a record table and form in the
 editor, repeaters that draw one copy per record, and pages that become one

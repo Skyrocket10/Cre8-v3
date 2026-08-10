@@ -23,7 +23,19 @@ import React, {
   useRef,
 } from 'react';
 import { getElement } from '../document/schema';
-import type { CollectionRecord, Cre8Document, NodeId, SceneNode } from '../document/types';
+import {
+  instanceHidden,
+  overriddenProps,
+  scopeForInstance,
+  type OverrideScope,
+} from '../document/components';
+import type {
+  CollectionRecord,
+  ComponentDefinition,
+  Cre8Document,
+  NodeId,
+  SceneNode,
+} from '../document/types';
 import { describeElement, toReactAttrs, type RenderMode } from './element-model';
 import { boundProps, repeatRows } from './repeat';
 import { activeVariant, variantsOf, type Variant } from './variants';
@@ -32,8 +44,14 @@ export interface RenderEngine {
   mode: RenderMode;
   /** Must be a hook — it is called unconditionally, once per node. */
   useNode: (id: NodeId) => SceneNode | undefined;
-  /** Resolve a component id to its master root node. */
-  useComponentRoot: (componentId: string) => NodeId | undefined;
+  /**
+   * Resolve a component id to its definition. Must be a hook.
+   *
+   * The definition rather than just its root, because an instance needs both
+   * halves at once: the tree to draw, and the properties that say which of it
+   * this instance gets to change.
+   */
+  useComponent: (componentId: string) => ComponentDefinition | undefined;
   /**
    * The rows of one collection. Must be a hook.
    *
@@ -75,6 +93,18 @@ const EditingContext = createContext<NodeId | null>(null);
  * needs and precisely what a prop would not give it.
  */
 const RecordContext = createContext<CollectionRecord | null>(null);
+
+/**
+ * What the component instance above filled in.
+ *
+ * A context for the same reason the record is one: the nodes it applies to are
+ * the *master's*, drawn under an instance that may be several levels up, and a
+ * prop would have to be threaded through every `NodeView` in between. It is
+ * `null` for every node not inside an instance, which is almost all of them,
+ * and a `null` context never changes — so the subscription costs nothing on
+ * the pages that do not use components.
+ */
+const OverrideContext = createContext<OverrideScope | null>(null);
 
 /**
  * Put a record in scope for a whole subtree.
@@ -158,9 +188,21 @@ export const NodeView = memo(function NodeView({
   // subtree redraws through this rather than through `useNode` — the node has
   // not changed, the record has.
   const record = useContext(RecordContext);
+  const scope = useContext(OverrideContext);
 
   if (!node || depth > MAX_DEPTH) return null;
-  if (node.meta.hidden && engine.mode !== 'edit') return null;
+
+  // Two kinds of hidden, and they are not the same kind.
+  //
+  // An instance that hides a node hides it here too, in edit mode included:
+  // the courtesy of drawing a hidden node dimmed exists so it can be found and
+  // brought back, and neither applies to this one — it is not this node that
+  // is hidden, and the control that would bring it back is the instance's, in
+  // the inspector. Drawing it would only make the canvas disagree with the
+  // file for a node nobody can click.
+  const forced = instanceHidden(node, scope);
+  if (forced === true) return null;
+  if (forced === undefined && node.meta.hidden && engine.mode !== 'edit') return null;
 
   if (node.type === 'instance') {
     return <InstanceView node={node} repeated={repeated} depth={depth} />;
@@ -172,7 +214,7 @@ export const NodeView = memo(function NodeView({
   // alternative, with CSS choosing between them. The single-element case is
   // kept off the mapping path entirely: it is every node on every page but a
   // handful, and an extra array walk per node per render is not free.
-  const variants = variantsOf(node, boundProps(node, record));
+  const variants = variantsOf(node, boundProps(node, record, overriddenProps(node, scope)));
   if (variants.length === 1) {
     return <ElementView node={node} variant={variants[0]!} live {...shared} />;
   }
@@ -215,8 +257,22 @@ function InstanceView({
 }) {
   const engine = useRenderEngine();
   const componentId = String(node.props.componentId ?? '');
-  const rootId = engine.useComponentRoot(componentId);
+  const component = engine.useComponent(componentId);
 
+  // Narrow on purpose: these two are the entire input. Depending on the whole
+  // definition or the whole node would hand every element below a new context
+  // value when the instance was merely renamed or moved, and the point of a
+  // memo here is that an instance nobody has customised keeps handing down the
+  // same `null`.
+  const properties = component?.properties;
+  const overrides = node.overrides;
+  const scope = useMemo(
+    () => (component ? scopeForInstance(component, node) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [properties, overrides]
+  );
+
+  const rootId = component?.rootNodeId;
   if (!rootId) {
     return engine.mode === 'edit' ? (
       <div
@@ -233,7 +289,16 @@ function InstanceView({
   // The instance's own inertness is deliberately not folded into `repeated`:
   // an instance nested inside a master is inert and still selectable, which is
   // the only way to reach it.
-  return <NodeView id={rootId} identityId={node.id} inert repeated={repeated} depth={depth} />;
+  //
+  // The provider goes on unconditionally, `null` included. An instance inside
+  // another component's master must *replace* the scope it inherited, not add
+  // to it — the nodes below belong to this component, and the outer scope is
+  // keyed by ids from a different one.
+  return (
+    <OverrideContext.Provider value={scope}>
+      <NodeView id={rootId} identityId={node.id} inert repeated={repeated} depth={depth} />
+    </OverrideContext.Provider>
+  );
 }
 
 /**
@@ -541,11 +606,11 @@ export function createSnapshotEngine(
   hrefResolver?: (href: string) => string,
   records?: Record<string, CollectionRecord[] | undefined>
 ): RenderEngine {
-  const componentRoots = new Map(doc.components.map((c) => [c.id, c.rootNodeId]));
+  const componentsById = new Map(doc.components.map((c) => [c.id, c]));
   return {
     mode,
     useNode: (id) => doc.nodes[id],
-    useComponentRoot: (componentId) => componentRoots.get(componentId),
+    useComponent: (componentId) => componentsById.get(componentId),
     // A snapshot is a fixed set of rows, handed in rather than fetched.
     // Preview is given the same ones the canvas is looking at, so the two
     // agree. Anything else — a block thumbnail — is given none, and since a

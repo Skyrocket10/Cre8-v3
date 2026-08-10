@@ -160,10 +160,22 @@ function text(value: FieldValue): string {
  * `level`, `popoverTarget` — would make each row a different *element* rather
  * than the same element saying something else, and two of them would then
  * fight over one DOM id.
+ *
+ * @param base What to bind over. Defaults to the node's own props, and is
+ *   passed by both renderers when the node sits inside a component instance
+ *   that has filled some of its props in — an override is the node's props as
+ *   far as everything downstream is concerned, which is what makes a record
+ *   beat it. Inside a repeater it has to: every row is the same instance node,
+ *   so an override that outranked the binding would print one row's text in
+ *   all of them.
  */
-export function boundProps(node: SceneNode, record: CollectionRecord | null): NodeProps {
+export function boundProps(
+  node: SceneNode,
+  record: CollectionRecord | null,
+  base: NodeProps = node.props
+): NodeProps {
   const bind = node.bind;
-  if (!record || !bind) return node.props;
+  if (!record || !bind) return base;
 
   let out: NodeProps | null = null;
   for (const [prop, field] of Object.entries(bind)) {
@@ -175,7 +187,7 @@ export function boundProps(node: SceneNode, record: CollectionRecord | null): No
     // said, and what it said is nothing.
     if (!(field in record.data)) continue;
 
-    out ??= { ...node.props };
+    out ??= { ...base };
     out[prop] = record.data[field];
 
     /*
@@ -197,7 +209,7 @@ export function boundProps(node: SceneNode, record: CollectionRecord | null): No
       delete out.height;
     }
   }
-  return out ?? node.props;
+  return out ?? base;
 }
 
 /* --------------------------------------------------------------------------

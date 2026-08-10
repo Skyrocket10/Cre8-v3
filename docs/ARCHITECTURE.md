@@ -247,8 +247,37 @@ instance; editing the master updates every instance on every page.
 The alternative — copying the subtree per instance — is easier and worthless,
 because it gives you duplication rather than reuse.
 
-`variants` and `properties` are declared on `ComponentDefinition` and unused, so
-adding them is additive.
+### Properties
+
+Sharing the master's nodes is what makes a component a component, and it is
+also the constraint the rest of this section is shaped by: two instances draw
+from the same nodes, so they carry the same classes.
+
+A **property** is a named hole in the master — one prop of one node — that each
+instance fills for itself. `ComponentProperty` records the node, the prop and a
+kind (`text`, `image`, `link`, `visible`); the instance carries an `overrides`
+map keyed by property id. Both renderers resolve the same scope from
+`scopeForInstance` and apply it in the same place: over the node's props,
+*under* any record binding, so inside a repeater the record still wins — every
+row is the same instance node, and an override that outranked the binding would
+print one row's text in all of them.
+
+> **An override changes props, never styles.** A per-instance style would need a
+> per-instance class, and the whole cascade would have to learn what an instance
+> is. Text, image, link and visibility change what an element *says* — the
+> stylesheet is untouched, and a customised instance adds no bytes to it. A
+> check compares the two sheets and says so.
+
+Overriding `src` drops the master's `srcset`, `width` and `height`, exactly as a
+record binding does: those three describe one uploaded file, and `srcset`
+outranks `src`, so keeping them would show the master's photo whatever the
+property said.
+
+Detaching bakes the values into the copies it makes — without that, Detach is
+data loss with a friendly label.
+
+`variants` is still declared on `ComponentDefinition` and unused, so adding
+alternate master trees remains additive.
 
 ---
 
