@@ -433,14 +433,28 @@ function describeBase(
         const action = str(props.popoverAction, 'toggle');
         if (action !== 'toggle') attrs.popovertargetaction = action;
       }
+      /*
+       * Children win over the text prop, and that is the whole of the
+       * compatibility story.
+       *
+       * Both renderers short-circuit on `text` and ignore children, so a
+       * button that has none behaves exactly as it always did — every existing
+       * document renders byte-identically. Add a child and the label steps
+       * aside, which is what lets a button hold an icon beside its words, a
+       * link wrap an image, and a whole card become clickable.
+       *
+       * Inline text editing follows the same rule: there is no text to edit
+       * once the element is showing a subtree.
+       */
       const textProp = node.type === 'button' ? 'label' : 'text';
+      const empty = node.children.length === 0;
       return {
         tag,
         attrs,
-        text: str(props[textProp]),
+        text: empty ? str(props[textProp]) : undefined,
         void: false,
-        acceptsChildren: false,
-        editableProp: textProp,
+        acceptsChildren: true,
+        ...(empty ? { editableProp: textProp } : {}),
       };
     }
 

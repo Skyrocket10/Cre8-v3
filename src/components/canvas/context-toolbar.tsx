@@ -287,6 +287,20 @@ function SingleTools({ id, editing }: { id: string; editing: boolean }) {
         </>
       )}
 
+      {/* Wrapping is how anything becomes clickable, and it is offered here
+          rather than as a "make this a link" toggle because the result is
+          different markup: an anchor around the content, which the browser
+          gives focus and keyboard behaviour for free. Not offered on a link or
+          a button, which may not hold another one. */}
+      {!getElement(node.type).interactive && (
+        <IconButton
+          label="Wrap in link"
+          side="top"
+          onClick={() => useEditor.getState().wrapInLink()}
+        >
+          <Link2 size={12} />
+        </IconButton>
+      )}
       <IconButton
         label="Select parent"
         shortcut="Esc"

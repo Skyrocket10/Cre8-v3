@@ -174,7 +174,14 @@ export function duplicateNodes(doc: Cre8Document, ids: NodeId[]): NodeId[] {
   return created;
 }
 
-/** Wrap a contiguous selection in a new frame, preserving order and position. */
+/**
+ * Wrap a contiguous selection in a new element, preserving order and position.
+ *
+ * `type` is not decoration. Wrapping in a `link` is how a whole card becomes
+ * clickable, and it produces the markup that should have been there — one
+ * anchor around the content, with the browser's own focus and keyboard
+ * behaviour — rather than a click handler on a `div`.
+ */
 export function groupNodes(doc: Cre8Document, ids: NodeId[], type: ElementType = 'frame'): NodeId | null {
   const roots = topMostNodes(doc.nodes, ids);
   if (!roots.length) return null;
@@ -192,7 +199,9 @@ export function groupNodes(doc: Cre8Document, ids: NodeId[], type: ElementType =
   const insertAt = parent.children.indexOf(ordered[0]!);
 
   const group = createNode(type, {
-    name: uniqueName(doc.nodes, 'Group'),
+    // Named for what it is. "Group 3" is right for a frame and useless in a
+    // layer tree where the thing is a link.
+    name: uniqueName(doc.nodes, type === 'frame' ? 'Group' : getElement(type).defaultName),
     styles: {
       display: 'flex',
       flexDirection: 'column',

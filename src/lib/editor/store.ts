@@ -281,6 +281,14 @@ interface EditorActions {
   moveSelection(parentId: NodeId, index: number): void;
   nudgeSelection(dx: number, dy: number): void;
   groupSelection(): void;
+  /**
+   * Wrap the selection in a link, which is how anything becomes clickable.
+   *
+   * A link that holds a subtree rather than text — the markup a clickable card
+   * should have had all along, and the reason this is a wrap rather than an
+   * `onClick` on whatever happens to be selected.
+   */
+  wrapInLink(): void;
   ungroupSelection(): void;
   renameNode(id: NodeId, name: string): void;
   setNodeProps(patch: NodeProps, ids?: NodeId[]): void;
@@ -910,6 +918,15 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     if (selection.length < 1) return;
     get().transact('Group', (draft) => {
       const id = ops.groupNodes(draft, selection);
+      return id ? [id] : undefined;
+    });
+  },
+
+  wrapInLink() {
+    const { selection } = get();
+    if (!selection.length) return;
+    get().transact('Wrap in link', (draft) => {
+      const id = ops.groupNodes(draft, selection, 'link');
       return id ? [id] : undefined;
     });
   },

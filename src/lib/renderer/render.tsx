@@ -302,7 +302,15 @@ function ElementView({
     }
     if (identityId !== undefined) attrs['data-cre8-instance'] = 'true';
     if (node.meta.hidden) attrs['data-cre8-hidden'] = 'true';
-    if (def.container && node.children.length === 0 && !hasExplicitSize(node)) {
+    // `model.text === undefined` rather than just "no children": a button with
+    // a label and no children is not an empty box, and drawing the empty-state
+    // outline over it would be a placeholder on top of finished work.
+    if (
+      def.container &&
+      model.text === undefined &&
+      node.children.length === 0 &&
+      !hasExplicitSize(node)
+    ) {
       attrs['data-cre8-empty'] = 'true';
     }
   }

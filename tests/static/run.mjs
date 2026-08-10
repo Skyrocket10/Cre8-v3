@@ -766,8 +766,16 @@ const VIOLATIONS = [
   ],
   [
     checkContainerChildren,
-    'children nested inside a link, which renders none',
-    { type: 'link', name: 'L', props: { text: '' }, children: [{ type: 'text', name: 'T' }] },
+    // Was a link, until a link became something that can hold children. An
+    // image cannot and never will — it is a void element, so a child of one is
+    // content that exists in the document and in no rendered page.
+    'children nested inside an image, which renders none',
+    {
+      type: 'image',
+      name: 'I',
+      props: { alt: 'A photo' },
+      children: [{ type: 'text', name: 'T' }],
+    },
   ],
   [
     checkNesting,
@@ -2439,6 +2447,127 @@ report.group('a version is a design somebody published');
     'and the README says to run them',
     /ADD COLUMN site_manifest/.test(readme) && /ADD COLUMN document/.test(readme),
     'documented where somebody deploying would look'
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Links and buttons hold things
+ *
+ * They did not, until they did, and the change has one property worth pinning
+ * down above all others: **every document that existed before it must render
+ * exactly as it did**. That works because both renderers short-circuit on the
+ * text prop — a button with no children still emits its label and nothing
+ * else. Break that and the regression is silent and total, so it is checked
+ * against generated markup rather than against the code that generates it.
+ * ----------------------------------------------------------------------- */
+
+report.group('a link can hold a subtree, and an empty one has not changed');
+
+{
+  const page = (children) => {
+    const doc = createEmptyDocument('Clickable');
+    const home = doc.pages[0];
+    const built = buildTree(children, doc.nodes);
+    doc.nodes[built.rootId].parentId = home.rootNodeId;
+    doc.nodes[home.rootNodeId].children.push(built.rootId);
+    return doc;
+  };
+
+  const htmlOf = (doc) =>
+    generateSite(doc).files.find((f) => f.path === 'index.html')?.contents ?? '';
+
+  /* --- The compatibility claim ------------------------------------------- */
+
+  const plain = htmlOf(
+    page({ type: 'link', name: 'Plain', props: { text: 'Learn more', href: '#' } })
+  );
+  report.check(
+    'a link with no children still publishes as its label and nothing else',
+    /<a[^>]*>Learn more<\/a>/.test(plain),
+    /<a[^>]*>[^<]*<\/a>/.exec(plain)?.[0] ?? 'no anchor'
+  );
+
+  const button = htmlOf(
+    page({ type: 'button', name: 'Plain', props: { label: 'Get started', href: '#' } })
+  );
+  report.check(
+    'and so does a button',
+    /<a[^>]*>Get started<\/a>/.test(button),
+    /<a[^>]*>[^<]*<\/a>/.exec(button)?.[0] ?? 'no anchor'
+  );
+
+  /* --- The new thing ------------------------------------------------------ */
+
+  const card = htmlOf(
+    page({
+      type: 'link',
+      name: 'Card',
+      props: { text: 'Ignored once there are children', href: '#' },
+      children: [
+        { type: 'heading', name: 'Title', props: { text: 'A whole card', level: 3 } },
+        { type: 'paragraph', name: 'Body', props: { text: 'Clickable end to end.' } },
+      ],
+    })
+  );
+  report.check(
+    'a link with children publishes them, inside the anchor',
+    /<a[^>]*>.*<h3[^>]*>A whole card<\/h3>.*<\/a>/s.test(card),
+    /<a[^>]*>.{0,60}/s.exec(card)?.[0] ?? 'no anchor'
+  );
+  report.check(
+    'and the label it is no longer showing is not published beside them',
+    !card.includes('Ignored once there are children'),
+    card.includes('Ignored once there are children') ? 'both rendered' : 'children only'
+  );
+
+  const icon = htmlOf(
+    page({
+      type: 'button',
+      name: 'Icon button',
+      props: { label: 'unused', href: '#' },
+      children: [
+        { type: 'icon', name: 'Glyph', props: { name: 'arrow-right' } },
+        { type: 'text', name: 'Words', props: { text: 'Continue' } },
+      ],
+    })
+  );
+  report.check(
+    'a button can hold an icon beside its words',
+    /<svg/.test(icon) && icon.includes('Continue'),
+    /<a[^>]*>.{0,40}/s.exec(icon)?.[0] ?? 'no anchor'
+  );
+
+  /* --- What is still refused ---------------------------------------------- */
+
+  /*
+   * The parser does not reject a control inside a link — it lifts it out and
+   * puts it beside the link, so the canvas and the published page disagree
+   * with nothing reporting a problem. Exactly the failure the table rules
+   * exist for, which is why this is a rule and not a guideline.
+   */
+  const refused = ['link', 'button', 'input', 'select', 'textarea', 'checkbox', 'details'];
+  const allowed = ['heading', 'paragraph', 'text', 'image', 'icon', 'frame', 'stack', 'grid'];
+  report.check(
+    'a link refuses every kind of control',
+    refused.every((type) => !canContain('link', type)),
+    refused.filter((type) => canContain('link', type)).join(', ') || 'all refused'
+  );
+  report.check(
+    'a button refuses them too',
+    refused.every((type) => !canContain('button', type)),
+    refused.filter((type) => canContain('button', type)).join(', ') || 'all refused'
+  );
+  report.check(
+    'and both take everything that is not one',
+    allowed.every((type) => canContain('link', type) && canContain('button', type)),
+    allowed.filter((type) => !canContain('link', type)).join(', ') || `${allowed.length} kinds`
+  );
+  // The rule is a single condition over a flag that is easy to forget on a new
+  // element type, so it is worth knowing it can still fire.
+  report.check(
+    'the refusal is real, not a vacuous truth about types nobody nests',
+    canContain('frame', 'button') && canContain('stack', 'link'),
+    'an ordinary container still takes a control'
   );
 }
 

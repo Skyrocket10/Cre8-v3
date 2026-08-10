@@ -42,6 +42,15 @@ export interface ElementDefinition {
   /** Can hold children. Drives drop targeting and the layer tree. */
   container: boolean;
   /**
+   * Interactive content, in the HTML sense: something a person can operate.
+   *
+   * Recorded because `<a>` and `<button>` may not contain any of it. That is
+   * not a style rule — the parser lifts the inner control out of the link, so
+   * a button inside a link renders perfectly on the canvas and arrives beside
+   * the link in the published file.
+   */
+  interactive?: boolean;
+  /**
    * Child types this element may hold, when the browser is fussy about it.
    *
    * Almost nothing needs this — a `div` takes anything. Tables do: the HTML
@@ -355,6 +364,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'video',
     tag: 'video',
     container: false,
+    interactive: true,
     textual: false,
     void: true,
     resize: { x: true, y: true },
@@ -402,7 +412,8 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     category: 'interactive',
     icon: 'button',
     tag: 'a',
-    container: false,
+    container: true,
+    interactive: true,
     textual: true,
     textProp: 'label',
     resize: { x: true, y: true },
@@ -441,7 +452,8 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     category: 'interactive',
     icon: 'link',
     tag: 'a',
-    container: false,
+    container: true,
+    interactive: true,
     textual: true,
     textProp: 'text',
     resize: { x: true, y: false },
@@ -543,6 +555,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'input',
     tag: 'input',
     container: false,
+    interactive: true,
     textual: false,
     void: true,
     resize: { x: true, y: true },
@@ -579,6 +592,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'details',
     tag: 'details',
     container: true,
+    interactive: true,
     textual: false,
     resize: { x: true, y: false },
     defaultName: 'Disclosure',
@@ -804,6 +818,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'select',
     tag: 'select',
     container: false,
+    interactive: true,
     textual: false,
     resize: { x: true, y: false },
     defaultName: 'Select',
@@ -846,6 +861,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'checkbox',
     tag: 'label',
     container: false,
+    interactive: true,
     textual: false,
     resize: { x: true, y: false },
     defaultName: 'Checkbox',
@@ -869,6 +885,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'radio',
     tag: 'label',
     container: false,
+    interactive: true,
     textual: false,
     resize: { x: true, y: false },
     defaultName: 'Radio',
@@ -900,6 +917,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'range',
     tag: 'input',
     container: false,
+    interactive: true,
     textual: false,
     void: true,
     resize: { x: true, y: false },
@@ -920,6 +938,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'file',
     tag: 'input',
     container: false,
+    interactive: true,
     textual: false,
     void: true,
     resize: { x: true, y: false },
@@ -1037,6 +1056,7 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
     icon: 'textarea',
     tag: 'textarea',
     container: false,
+    interactive: true,
     textual: false,
     void: true,
     resize: { x: true, y: true },
@@ -1102,6 +1122,15 @@ export function canContain(parentType: ElementType, childType: ElementType): boo
   if (parent.allowedChildren && !parent.allowedChildren.includes(childType)) return false;
   const child = getElement(childType);
   if (child.allowedParents && !child.allowedParents.includes(parentType)) return false;
+  /*
+   * A link or a button may hold anything except another control.
+   *
+   * The same class of failure the table rules exist for, and just as invisible:
+   * the parser does not reject a `<button>` inside an `<a>`, it re-parents it
+   * out, so the canvas shows a button inside a link and the published page
+   * shows them side by side with nothing reporting a problem.
+   */
+  if ((parentType === 'link' || parentType === 'button') && child.interactive) return false;
   return true;
 }
 

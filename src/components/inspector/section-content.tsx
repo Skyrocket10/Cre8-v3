@@ -1293,6 +1293,16 @@ function LinkContent({
   const target = useNodeProp('target');
   const popoverTarget = useNodeProp('popoverTarget');
   const pages = useEditor((s) => s.doc.pages);
+  /*
+   * Children replace the label rather than sitting beside it — both renderers
+   * short-circuit on the text prop. So once something has been dropped inside,
+   * the field is dead, and a live-looking input that changes nothing is worse
+   * than no input at all.
+   */
+  const hasChildren = useEditor((s) => {
+    const id = s.selection[0];
+    return id ? (s.doc.nodes[id]?.children.length ?? 0) > 0 : false;
+  });
 
   const opensPopover = Boolean(popoverTarget.value);
   const current = String(href.value ?? '');
@@ -1302,13 +1312,19 @@ function LinkContent({
   return (
     <Section title={title}>
       <InspectorGroup>
-        <StyleRow label="Label">
-          <TextInput
-            className="flex-1"
-            value={String(label.value ?? '')}
-            onValueChange={(v) => label.set(v)}
-          />
-        </StyleRow>
+        {hasChildren ? (
+          <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+            Showing what is inside it. The label is kept, and comes back if you empty it.
+          </p>
+        ) : (
+          <StyleRow label="Label">
+            <TextInput
+              className="flex-1"
+              value={String(label.value ?? '')}
+              onValueChange={(v) => label.set(v)}
+            />
+          </StyleRow>
+        )}
 
         {canOpenPopover && <PopoverTargetRows />}
 
