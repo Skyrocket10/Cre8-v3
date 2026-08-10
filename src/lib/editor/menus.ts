@@ -100,6 +100,16 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
       return prune(VARIANT_MENU, ctx);
     case 'asset':
       return prune(ASSET_MENU, ctx);
+    case 'collection':
+      return prune(COLLECTION_MENU, ctx);
+    case 'field':
+      return prune(FIELD_MENU, ctx);
+    case 'token':
+      return prune(TOKEN_MENU, ctx);
+    case 'block':
+      return prune(BLOCK_MENU, ctx);
+    case 'elementType':
+      return prune(ELEMENT_CARD_MENU, ctx);
     default:
       break;
   }
@@ -240,6 +250,42 @@ const VARIANT_MENU: MenuItem[] = [
   { kind: 'command', id: 'editComponentMain' },
   { kind: 'separator' },
   { kind: 'command', id: 'deleteVariant' },
+];
+
+const COLLECTION_MENU: MenuItem[] = [
+  { kind: 'command', id: 'addField' },
+  { kind: 'command', id: 'renameCollection' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'deleteCollection' },
+];
+
+const FIELD_MENU: MenuItem[] = [
+  { kind: 'heading', label: 'Field' },
+  { kind: 'command', id: 'toggleFieldRequired' },
+  { kind: 'command', id: 'setSlugField' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'moveField', arg: 'up' },
+  { kind: 'command', id: 'moveField', arg: 'down' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'addField' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'deleteField' },
+];
+
+const TOKEN_MENU: MenuItem[] = [
+  { kind: 'command', id: 'copyTokenReference' },
+  { kind: 'command', id: 'copyTokenValue' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'renameToken' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'deleteToken' },
+];
+
+const BLOCK_MENU: MenuItem[] = [{ kind: 'command', id: 'insertBlock' }];
+
+const ELEMENT_CARD_MENU: MenuItem[] = [
+  { kind: 'command', id: 'insertOnPage' },
+  { kind: 'command', id: 'insertInSelection' },
 ];
 
 const ASSET_MENU: MenuItem[] = [

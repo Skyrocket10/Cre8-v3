@@ -26,7 +26,9 @@ import {
 } from '../document/tree';
 import type {
   Breakpoint,
+  Collection,
   CollectionRecord,
+  Field,
   Cre8Document,
   ElementType,
   NodeId,
@@ -38,7 +40,8 @@ import type {
   StyleRule,
 } from '../document/types';
 import { commit, emptyHistory, redo as redoHistory, undo as undoHistory, type HistoryState } from '../history/history';
-import { cloneSubtree } from '../document/factory';
+import { cloneSubtree, type NodeSpec } from '../document/factory';
+import type { ThemeScaleGroup } from '../document/operations';
 import { uid } from '../document/id';
 import { getElementFor } from './registry';
 import { getStorage } from '../api/storage';
@@ -335,6 +338,22 @@ interface EditorActions {
   renameAsset(assetId: string, name: string): void;
   removeAsset(assetId: string): void;
   placeAsset(assetId: string, parentId?: NodeId, index?: number): NodeId | null;
+  insertSpec(spec: NodeSpec, label: string): NodeId | null;
+
+  /* Collections and their fields */
+  addCollection(name?: string): string | null;
+  updateCollection(collectionId: string, patch: Partial<Pick<Collection, 'name' | 'slugField'>>): void;
+  removeCollection(collectionId: string): void;
+  addField(collectionId: string, label?: string): string | null;
+  updateField(collectionId: string, key: string, patch: Partial<Omit<Field, 'key'>>): void;
+  removeField(collectionId: string, key: string): void;
+  moveField(collectionId: string, key: string, delta: 1 | -1): void;
+
+  /* Theme tokens */
+  setToken(group: ThemeScaleGroup, id: string, patch: { name?: string; value?: string }, options?: TransactOptions): void;
+  addToken(group: ThemeScaleGroup, name: string, value: string): string | null;
+  removeToken(group: ThemeScaleGroup, id: string): void;
+  setThemeFont(fontId: string, stack: string): void;
   editComponent(componentId: string | null, variantId?: string | null): void;
   /**
    * Enter or leave an overlay's editing context.
@@ -1067,6 +1086,109 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       return created ? [created] : undefined;
     });
     return created;
+  },
+
+  /**
+   * Insert a whole block, from the Insert panel or from anywhere else.
+   *
+   * Takes the built spec rather than a block id, because the block registry is
+   * a library the store has no business importing — but the *insertion* is an
+   * editor action like any other, and having the panel write its own meant a
+   * block landed by one route and an element by another.
+   */
+  insertSpec(spec, label) {
+    const rootId = activeRootId(get());
+    if (!rootId) return null;
+    let created: NodeId | null = null;
+    get().transact(`Add ${label}`, (draft) => {
+      // Appended to the page root, which is what a *block* means — it is a
+      // band across the page, not something to drop inside whatever happens to
+      // be selected. Elements go through `insertElement` and its target rules.
+      created = ops.insertSpec(draft, spec, rootId);
+      return created ? [created] : undefined;
+    });
+    return created;
+  },
+
+  /* ------------------------------------------------------- collections -- */
+
+  addCollection(name) {
+    let created: string | null = null;
+    get().transact('Add collection', (draft) => {
+      created =
+        ops.addCollection(draft, name ?? `Collection ${(draft.collections?.length ?? 0) + 1}`)?.id ??
+        null;
+    });
+    return created;
+  },
+
+  updateCollection(collectionId, patch) {
+    get().transact('Edit collection', (draft) => ops.updateCollection(draft, collectionId, patch), {
+      quiet: true,
+    });
+  },
+
+  removeCollection(collectionId) {
+    get().transact('Delete collection', (draft) => ops.removeCollection(draft, collectionId));
+  },
+
+  addField(collectionId, label) {
+    const collection = get().doc.collections?.find((c) => c.id === collectionId);
+    if (!collection) return null;
+    let created: string | null = null;
+    get().transact('Add field', (draft) => {
+      created =
+        ops.addField(draft, collectionId, label ?? `Field ${collection.fields.length + 1}`)?.key ??
+        null;
+    });
+    return created;
+  },
+
+  updateField(collectionId, key, patch) {
+    get().transact('Edit field', (draft) => ops.updateField(draft, collectionId, key, patch), {
+      quiet: true,
+    });
+  },
+
+  removeField(collectionId, key) {
+    get().transact('Delete field', (draft) => ops.removeField(draft, collectionId, key));
+  },
+
+  moveField(collectionId, key, delta) {
+    const fields = get().doc.collections?.find((c) => c.id === collectionId)?.fields ?? [];
+    const index = fields.findIndex((f) => f.key === key);
+    const next = index + delta;
+    if (index < 0 || next < 0 || next >= fields.length) return;
+    get().transact('Reorder fields', (draft) =>
+      ops.reorderFields(draft, collectionId, index, next)
+    );
+  },
+
+  /* ------------------------------------------------------------ theme -- */
+
+  setToken(group, id, patch, options) {
+    get().transact('Edit token', (draft) => ops.setToken(draft, group, id, patch), {
+      quiet: true,
+      ...options,
+    });
+  },
+
+  addToken(group, name, value) {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    let created: string | null = null;
+    get().transact('Add token', (draft) => {
+      created = ops.addToken(draft, group, trimmed, value);
+    });
+    return created;
+  },
+
+  removeToken(group, id) {
+    get().transact('Remove token', (draft) => ops.removeToken(draft, group, id));
+  },
+
+  setThemeFont(fontId, stack) {
+    get().transact('Set typeface', (draft) => ops.setThemeFont(draft, fontId, stack));
   },
 
   editComponent(componentId, variantId = null) {

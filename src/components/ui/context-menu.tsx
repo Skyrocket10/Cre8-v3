@@ -85,6 +85,7 @@ const ROW = 26;
 const ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>> = {
   alignLeft: AlignLeft,
   boxSelect: BoxSelect,
+  check: Check,
   clipboard: Clipboard,
   clipboardPlus: ClipboardPlus,
   component: Combine,

@@ -907,7 +907,7 @@ export function renameAsset(doc: Cre8Document, assetId: string, name: string): v
   if (asset) asset.name = name.trim() || asset.name;
 }
 
-type ThemeScaleGroup = 'colors' | 'spacing' | 'radii' | 'shadows' | 'widths';
+export type ThemeScaleGroup = 'colors' | 'spacing' | 'radii' | 'shadows' | 'widths';
 
 export function setToken(
   doc: Cre8Document,

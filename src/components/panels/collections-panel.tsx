@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import * as ops from '@/lib/document/operations';
 import { useEditor, type RecordDraft } from '@/lib/editor/store';
+import { openContextMenu } from '../ui/context-menu';
 import { hasBackend } from '@/lib/api/client';
 import { LIMITS, type Collection, type CollectionRecord, type Field, type FieldType } from '@/lib/document/types';
 import { cn } from '@/lib/utils/cn';
@@ -71,12 +72,16 @@ function CollectionList({
   const [renaming, setRenaming] = useState<string | null>(null);
   const full = collections.length >= LIMITS.collections;
 
+  const renameRequest = useEditor((s) => s.renameRequest);
+  useEffect(() => {
+    if (!renameRequest || !collections.some((c) => c.id === renameRequest)) return;
+    setRenaming(renameRequest);
+    useEditor.getState().requestRename(null);
+  }, [renameRequest, collections]);
+
   const add = () => {
     const store = useEditor.getState();
-    let created: string | null = null;
-    store.transact('Add collection', (draft) => {
-      created = ops.addCollection(draft, `Collection ${(draft.collections?.length ?? 0) + 1}`)?.id ?? null;
-    });
+    const created = store.addCollection();
     if (created) setRenaming(created);
     else store.toast(`A project holds at most ${LIMITS.collections} collections`, 'error');
   };
@@ -107,6 +112,14 @@ function CollectionList({
           collections.map((collection) => (
             <div
               key={collection.id}
+              data-collection-row={collection.id}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openContextMenu(e.clientX, e.clientY, {
+                  kind: 'collection',
+                  collectionId: collection.id,
+                });
+              }}
               onClick={() => onOpen(collection.id)}
               onDoubleClick={() => setRenaming(collection.id)}
               className={cn(
@@ -126,10 +139,8 @@ function CollectionList({
                   onFocus={(e) => e.currentTarget.select()}
                   onClick={(e) => e.stopPropagation()}
                   onBlur={(e) => {
-                    useEditor.getState().transact('Rename collection', (draft) => {
-                      ops.updateCollection(draft, collection.id, {
-                        name: e.target.value || collection.name,
-                      });
+                    useEditor.getState().updateCollection(collection.id, {
+                      name: e.target.value || collection.name,
                     });
                     setRenaming(null);
                   }}
@@ -178,9 +189,7 @@ function CollectionList({
                       label="Delete"
                       tone="danger"
                       onClick={() => {
-                        useEditor.getState().transact('Delete collection', (draft) => {
-                          ops.removeCollection(draft, collection.id);
-                        });
+                        useEditor.getState().removeCollection(collection.id);
                         close();
                       }}
                     />
@@ -268,9 +277,6 @@ function CollectionDetail({ collection, onBack }: { collection: Collection; onBa
 
 function FieldEditor({ collection }: { collection: Collection }) {
   const full = collection.fields.length >= LIMITS.fieldsPerCollection;
-  const write = (label: string, run: (draft: Parameters<typeof ops.addField>[0]) => void) =>
-    useEditor.getState().transact(label, run);
-
   return (
     <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-3">
       {collection.fields.map((field, index) => (
@@ -288,11 +294,7 @@ function FieldEditor({ collection }: { collection: Collection }) {
         variant="ghost"
         disabled={full}
         className="mt-1.5 w-full justify-start"
-        onClick={() =>
-          write('Add field', (draft) => {
-            ops.addField(draft, collection.id, `Field ${collection.fields.length + 1}`);
-          })
-        }
+        onClick={() => useEditor.getState().addField(collection.id)}
       >
         <Plus size={12} />
         {full ? `Limit is ${LIMITS.fieldsPerCollection}` : 'Add field'}
@@ -309,8 +311,8 @@ function FieldEditor({ collection }: { collection: Collection }) {
                 .map((f) => ({ value: f.key, label: f.label })),
             ]}
             onChange={(value) =>
-              write('Set URL field', (draft) => {
-                ops.updateCollection(draft, collection.id, { slugField: value || undefined });
+              useEditor.getState().updateCollection(collection.id, {
+                slugField: value || undefined,
               })
             }
           />
@@ -335,11 +337,20 @@ function FieldRow({
   count: number;
 }) {
   const [open, setOpen] = useState(false);
-  const write = (label: string, run: (draft: Parameters<typeof ops.addField>[0]) => void) =>
-    useEditor.getState().transact(label, run);
-
   return (
-    <div className="rounded-md border border-[var(--border-soft)] mt-1.5">
+    <div
+      data-field-row={field.key}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openContextMenu(e.clientX, e.clientY, {
+          kind: 'field',
+          collectionId: collection.id,
+          fieldKey: field.key,
+        });
+      }}
+      className="rounded-md border border-[var(--border-soft)] mt-1.5"
+    >
       <div className="flex h-[30px] items-center gap-1.5 px-1.5">
         <GripVertical size={11} className="shrink-0 text-[var(--text-faint)]" />
         <button
@@ -357,7 +368,7 @@ function FieldRow({
           size="xs"
           disabled={index === 0}
           onClick={() =>
-            write('Reorder fields', (draft) => ops.reorderFields(draft, collection.id, index, index - 1))
+            useEditor.getState().moveField(collection.id, field.key, -1)
           }
         >
           <ArrowUp size={11} />
@@ -367,7 +378,7 @@ function FieldRow({
           size="xs"
           disabled={index === count - 1}
           onClick={() =>
-            write('Reorder fields', (draft) => ops.reorderFields(draft, collection.id, index, index + 1))
+            useEditor.getState().moveField(collection.id, field.key, 1)
           }
         >
           <ArrowDown size={11} />
@@ -380,8 +391,8 @@ function FieldRow({
             <TextInput
               value={field.label}
               onValueChange={(value) =>
-                write('Rename field', (draft) => {
-                  ops.updateField(draft, collection.id, field.key, { label: value || field.label });
+                useEditor.getState().updateField(collection.id, field.key, {
+                  label: value || field.label,
                 })
               }
             />
@@ -391,9 +402,7 @@ function FieldRow({
               value={field.type}
               options={FIELD_TYPES}
               onChange={(type) =>
-                write('Change field type', (draft) => {
-                  ops.updateField(draft, collection.id, field.key, { type });
-                })
+                useEditor.getState().updateField(collection.id, field.key, { type })
               }
             />
           </Row>
@@ -411,13 +420,11 @@ function FieldRow({
               <TextInput
                 value={(field.options ?? []).join(', ')}
                 onValueChange={(value) =>
-                  write('Set choices', (draft) => {
-                    ops.updateField(draft, collection.id, field.key, {
-                      options: value
-                        .split(',')
-                        .map((o) => o.trim())
-                        .filter(Boolean),
-                    });
+                  useEditor.getState().updateField(collection.id, field.key, {
+                    options: value
+                      .split(',')
+                      .map((o) => o.trim())
+                      .filter(Boolean),
                   })
                 }
               />
@@ -434,8 +441,8 @@ function FieldRow({
                     .map((c) => ({ value: c.id, label: c.name })),
                 ]}
                 onChange={(of) =>
-                  write('Set reference', (draft) => {
-                    ops.updateField(draft, collection.id, field.key, { of: of || undefined });
+                  useEditor.getState().updateField(collection.id, field.key, {
+                    of: of || undefined,
                   })
                 }
               />
@@ -447,9 +454,7 @@ function FieldRow({
               checked={Boolean(field.required)}
               label="Required"
               onChange={(required) =>
-                write('Set required', (draft) => {
-                  ops.updateField(draft, collection.id, field.key, { required });
-                })
+                useEditor.getState().updateField(collection.id, field.key, { required })
               }
             />
             <Button
@@ -458,7 +463,7 @@ function FieldRow({
               className="text-[var(--danger)] hover:bg-[var(--danger-subtle)] hover:text-[var(--danger)]"
               disabled={count <= 1}
               onClick={() =>
-                write('Delete field', (draft) => ops.removeField(draft, collection.id, field.key))
+                useEditor.getState().removeField(collection.id, field.key)
               }
             >
               <Trash2 size={11} />

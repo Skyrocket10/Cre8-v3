@@ -155,6 +155,25 @@ const centreOf = (nodeId) =>
     return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
   }, nodeId);
 
+/**
+ * Right-click something in a panel, having first made sure it is on screen.
+ *
+ * The Insert panel scrolls a long way: the element cards sit at y=5295 in a
+ * 950px window, and `boundingBox()` hands back page coordinates without
+ * complaint. Clicking there hits nothing at all, which looks exactly like a
+ * menu that failed to open.
+ */
+const rightClickIn = async (locator, dx = 20, dy = 10) => {
+  await locator.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  const box = await locator.boundingBox();
+  if (!box) throw new Error('nothing to right-click');
+  await page.mouse.click(box.x + dx, box.y + dy, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  await page.waitForTimeout(120);
+  return box;
+};
+
 /** Right-click an element on the canvas, the way a person does. */
 const rightClick = async (nodeId) => {
   const at = await centreOf(nodeId);
@@ -179,6 +198,12 @@ const clickItem = async (label) => {
   if (await row.isDisabled()) throw new Error(`menu item "${label}" is disabled`);
   await row.click();
   await page.waitForTimeout(700);
+};
+
+/** Right-click something and choose an item from the menu it opens. */
+const useMenuOn = async (locator, label, dx = 30, dy = 10) => {
+  await rightClickIn(locator, dx, dy);
+  await clickItem(label);
 };
 
 const closeMenu = async () => {
@@ -900,6 +925,197 @@ try {
       placed?.alt === 'Seed picture',
     JSON.stringify(placed)
   );
+  /* -------------------------- 13. collections, theme and insert ---------- */
+
+  /* --- A token, and the reference nobody can guess ------------------------ */
+
+  await openPanel('Theme', '[data-token-row]');
+  const tokenRow = page.locator('[data-token-row]').first();
+  await tokenRow.waitFor({ state: 'visible', timeout: 6000 });
+  const tokenId = await tokenRow.getAttribute('data-token-row');
+  const tbox = await tokenRow.boundingBox();
+  // Away from the name field, which keeps the browser's own menu.
+  await page.mouse.click(tbox.x + 6, tbox.y + tbox.height / 2, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  const tokenItems = await menuLabels();
+  report.check(
+    'a token offers the reference an advanced field wants',
+    tokenItems.some((l) => l === `Copy var(--c-${tokenId})`),
+    tokenItems.join(', ')
+  );
+  report.check(
+    'and says how many declarations would break if it went',
+    tokenItems.some((l) => /^Delete token/.test(l)),
+    tokenItems.find((l) => l.startsWith('Delete token')) ?? 'no delete row'
+  );
+  await closeMenu();
+
+  const nameField = page.locator(`[data-token-name="${tokenId}"]`).first();
+  const nbox = await nameField.boundingBox();
+  await page.mouse.click(nbox.x + nbox.width / 2, nbox.y + nbox.height / 2, { button: 'right' });
+  await page.waitForTimeout(400);
+  report.check(
+    'and a token’s name field keeps the browser’s own menu',
+    (await page.locator('[role="menu"]').count()) === 0,
+    'ours stayed out of the way'
+  );
+
+  /* --- A collection and its fields ---------------------------------------- */
+
+  await page.locator('button[aria-label="Collections"]').first().click();
+  await page.waitForTimeout(500);
+  const newCollection = page.locator('button[aria-label="New collection"]').first();
+  if (await newCollection.count()) {
+    await newCollection.click();
+    await page.waitForTimeout(700);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+  }
+
+  const collectionRow = page.locator('[data-collection-row]').first();
+  if (report.check('a collection exists', (await collectionRow.count()) > 0, 'one made')) {
+    await rightClickIn(collectionRow, 30, 14);
+    const colItems = await menuLabels();
+    report.check(
+      'a collection row has a menu about that collection',
+      colItems.includes('Add field') && colItems.some((l) => l.startsWith('Delete collection')),
+      colItems.join(', ')
+    );
+    await clickItem('Add field');
+    await page.waitForTimeout(700);
+
+    /*
+     * Fields live in the collection's detail view, which a click on the row
+     * opens — but the row may still be in rename mode from being created, and
+     * its input stops the click from reaching the row. So: out of rename
+     * first, then click the icon at the left edge rather than the middle.
+     */
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    if (!(await page.locator('[data-field-row]').count())) {
+      const openBox = await page.locator('[data-collection-row]').first().boundingBox();
+      await page.mouse.click(openBox.x + 8, openBox.y + openBox.height / 2);
+      await page.waitForTimeout(700);
+      /*
+       * The detail view opens on Content; fields are the other tab. Its label
+       * is the literal string "fields" capitalised by CSS, so match the text
+       * that is actually in the DOM rather than the text on the screen.
+       */
+      await page.locator('button:text-is("fields")').first().click();
+      await page.waitForTimeout(600);
+    }
+    const fieldRow = page.locator('[data-field-row]').first();
+    const fieldCount = await fieldRow.count();
+    if (
+      report.check(
+        'and a field to right-click',
+        fieldCount > 0,
+        fieldCount > 0
+          ? 'field present'
+          : `no field rows; panel shows: ${(await page
+              .locator('[role="region"][aria-label="Collections panel"]')
+              .innerText()
+              .catch(() => '?'))
+              .replace(/\s+/g, ' ')
+              .slice(0, 90)}`
+      )
+    ) {
+      await rightClickIn(fieldRow, 30);
+      const fieldItems = await menuLabels();
+      report.check(
+        'a field row has its own menu, not the collection’s',
+        fieldItems.includes('Delete field') && !fieldItems.some((l) => l.startsWith('Delete collection')),
+        fieldItems.join(', ')
+      );
+
+      const requiredBefore = await page.evaluate(() =>
+        document
+          .querySelector('[data-menu-item="Required"]')
+          ?.getAttribute('aria-checked')
+      );
+      await clickItem('Required');
+      await page.waitForTimeout(600);
+      await rightClickIn(fieldRow, 30);
+      const requiredAfter = await page.evaluate(() =>
+        document
+          .querySelector('[data-menu-item="Required"]')
+          ?.getAttribute('aria-checked')
+      );
+      report.check(
+        'and a checkable row reports the change it just made',
+        requiredBefore === 'false' && requiredAfter === 'true',
+        `${requiredBefore} → ${requiredAfter}`
+      );
+      await closeMenu();
+
+      /*
+       * Two fields, because one cannot see this: a command that reads
+       * `fields[0]` instead of the field that was clicked passes every check
+       * a single-field fixture can make. It did, here, until this was added.
+       */
+      await useMenuOn(fieldRow, 'Add field');
+      await page.waitForTimeout(700);
+      const fieldKeys = () =>
+        page.$$eval('[data-field-row]', (ns) => ns.map((n) => n.getAttribute('data-field-row')));
+      const twoFields = await fieldKeys();
+      if (report.check('a second field to tell them apart', twoFields.length >= 2, twoFields.join(', '))) {
+        const second = page.locator('[data-field-row]').nth(1);
+        await useMenuOn(second, 'Delete field');
+        await page.waitForTimeout(700);
+        const left = await fieldKeys();
+        report.check(
+          'Delete field takes the one that was right-clicked',
+          left.length === twoFields.length - 1 && left[0] === twoFields[0],
+          `${twoFields.join(', ')} → ${left.join(', ')}`
+        );
+      }
+    }
+  }
+
+  /* --- A card in the Insert panel ----------------------------------------- */
+
+  await page.locator('button[aria-label="Insert"]').first().click();
+  await page.waitForTimeout(600);
+  const elementCard = page.locator('[data-element-card="heading"]').first();
+  if (report.check('the Insert panel is showing', (await elementCard.count()) > 0, 'cards visible')) {
+    await rightClickIn(elementCard);
+    const cardItems = await menuLabels();
+    report.check(
+      'an element card says where it would go, not the same thing twice',
+      cardItems.includes('Add to the page') &&
+        cardItems.some((l) => l.startsWith('Add inside')) &&
+        new Set(cardItems).size === cardItems.length,
+      cardItems.join(', ')
+    );
+
+    const headingsBefore = await page.locator('.cre8-frame.cre8-editing h2, .cre8-frame.cre8-editing h3').count();
+    await page.locator('[data-menu-item="Add to the page"]').first().click();
+    await page.waitForTimeout(900);
+    report.check(
+      'and choosing one inserts it',
+      (await page.locator('.cre8-frame.cre8-editing h2, .cre8-frame.cre8-editing h3').count()) >
+        headingsBefore,
+      'a heading arrived'
+    );
+  }
+
+  const blockCard = page.locator('[data-block-card]').first();
+  if ((await blockCard.count()) > 0) {
+    await rightClickIn(blockCard, 30);
+    const blockItems = await menuLabels();
+    report.check(
+      'and a block card names the block it would add',
+      blockItems.length === 1 && blockItems[0].startsWith('Add '),
+      blockItems.join(', ')
+    );
+    const nodesBefore = await drawnCount();
+    await clickItem(blockItems[0]);
+    report.check(
+      'which lands on the page',
+      (await drawnCount()) > nodesBefore,
+      `${nodesBefore} → ${await drawnCount()}`
+    );
+  }
 } catch (error) {
   report.check('menus suite completed', false, error.message);
 } finally {

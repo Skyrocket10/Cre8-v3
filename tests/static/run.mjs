@@ -4368,16 +4368,31 @@ report.group('one catalogue, and every surface dispatches through it');
    * add a page, delete a component, rename an asset — which is the same
    * duplication the menu was built to end. Two of them now have none at all.
    */
+  const collectionsPanel = panel('collections');
+  const themePanel = panel('theme');
+  const insertPanel = panel('insert');
+
   report.check(
-    'the Pages and Components panels write no transactions of their own',
-    !/transact\(/.test(pagesPanel) && !/transact\(/.test(componentsPanel),
-    'both go through store actions'
+    'five of the six panels write no transactions of their own',
+    [pagesPanel, componentsPanel, collectionsPanel, themePanel, insertPanel].every(
+      (file) => !/transact\(/.test(file)
+    ),
+    'pages, components, collections, theme and insert all go through store actions'
   );
   report.check(
     'and the only one left in Assets is the upload',
     (assetsPanel.match(/transact\(/g) ?? []).length === 1 &&
       /transact\('Upload asset'/.test(assetsPanel),
     'ingesting a file is not a menu action'
+  );
+  report.check(
+    'nor do they reach for the document operations directly',
+    [pagesPanel, componentsPanel, themePanel].every((file) => !/\bops\./.test(file)) &&
+      // Collections keeps one: `retypeCost` reads what a type change would
+      // cost. A question, not an edit.
+      (collectionsPanel.match(/\bops\./g) ?? []).length === 1 &&
+      /ops\.retypeCost/.test(collectionsPanel),
+    'the one left is a read'
   );
 
   /*
@@ -4398,6 +4413,11 @@ report.group('one catalogue, and every surface dispatches through it');
     ['components', componentsPanel, "kind: 'component'"],
     ['components', componentsPanel, "kind: 'variant'"],
     ['assets', assetsPanel, "kind: 'asset'"],
+    ['collections', collectionsPanel, "kind: 'collection'"],
+    ['collections', collectionsPanel, "kind: 'field'"],
+    ['theme', themePanel, "kind: 'token'"],
+    ['insert', insertPanel, "kind: 'block'"],
+    ['insert', insertPanel, "kind: 'elementType'"],
   ];
   const wired = SUBJECT_ROWS.filter(([, file, subject]) => file.includes(subject));
   report.check(
@@ -4407,7 +4427,7 @@ report.group('one catalogue, and every surface dispatches through it');
   );
   report.check(
     'and none of them passes anything else to it',
-    [pagesPanel, componentsPanel, assetsPanel].every(
+    [pagesPanel, componentsPanel, assetsPanel, collectionsPanel, themePanel, insertPanel].every(
       (file) => !/openContextMenu\([^)]*items/.test(file)
     ),
     'a caller can say what was clicked, never what to do about it'
@@ -4436,8 +4456,23 @@ report.group('one catalogue, and every surface dispatches through it');
     'copyAssetUrl',
     'renameAsset',
     'deleteAsset',
+    'addField',
+    'renameCollection',
+    'deleteCollection',
+    'moveField',
+    'toggleFieldRequired',
+    'setSlugField',
+    'deleteField',
+    'copyTokenReference',
+    'copyTokenValue',
+    'renameToken',
+    'deleteToken',
+    'insertBlock',
+    'insertOnPage',
+    'insertInSelection',
   ];
-  const RESOLVERS = /pageOf\(ctx\)|componentOf\(ctx\)|variantOf\(ctx\)|assetOf\(ctx\)/;
+  const RESOLVERS =
+    /pageOf\(ctx\)|componentOf\(ctx\)|variantOf\(ctx\)|assetOf\(ctx\)|collectionOf\(ctx\)|fieldOf\(ctx\)|tokenOf\(ctx\)|blockOf\(ctx\)|elementTypeOf\(ctx\)/;
   const ungatedLibrary = LIBRARY_COMMANDS.filter((id) => {
     const start = commands.indexOf(`\n  ${id}: {`);
     if (start < 0) return true;
@@ -4458,7 +4493,7 @@ report.group('one catalogue, and every surface dispatches through it');
   const unhandled = kinds.filter((kind) => !menus.includes(`case '${kind}':`));
   report.check(
     'and every subject the type allows has a menu',
-    kinds.length >= 5 && unhandled.length === 0,
+    kinds.length >= 10 && unhandled.length === 0,
     unhandled.length ? `no menu for: ${unhandled.join(', ')}` : kinds.join(', ')
   );
 

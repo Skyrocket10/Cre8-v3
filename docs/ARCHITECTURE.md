@@ -169,15 +169,24 @@ panel root reads the nearest of them, so no control knows anything about menus.
 A row that never said falls back to the element's menu, and a text field keeps
 the browser's own — cut, paste and spelling are not ours to reimplement.
 
-The same mechanism reaches the library panels. A page row, a component, one of
-its variants and an asset are each a subject kind with a menu of its own, which
-meant lifting what those three panels had been doing inline: Pages and
-Components now write no transactions at all, and the only one left in Assets is
-the file upload. Two things fell out of that which were not equal before —
+The same mechanism reaches every panel. A page, a component, one of its
+variants, an asset, a collection, one of its fields, a theme token, a block and
+an element card are each a subject kind with a menu of its own — which meant
+lifting what those panels had been doing inline. Five of the six write no
+transactions at all now; the only one left in Assets is the file upload, and
+the only `ops.` call left in Collections is `retypeCost`, which is a question
+rather than an edit. Two things fell out of that which were not equal before —
 creating a component from ⌘E, the canvas menu and the panel's Create button is
 now one action that also asks for a rename, and an asset dropped on the canvas
 produces the same node as one placed from its menu, because the drop controller
 had been building its own.
+
+One place the catalogue deliberately holds two entries for one store call:
+`insert`/`insertChild` name the element type, because they appear under a
+parent row that already says "Add element"; `insertOnPage`/`insertInSelection`
+name the *destination*, because on an Insert-panel card the type is what you
+right-clicked and where it lands is the only thing left to say. Two rows both
+reading "Heading" is a worse menu than none.
 
 The subject travels with the command when it runs. That is worth stating
 because getting it wrong is silent: `runCommand` rebuilds the context against

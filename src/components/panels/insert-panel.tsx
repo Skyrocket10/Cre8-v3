@@ -16,9 +16,10 @@ import {
   getElement,
   type InsertCategory,
 } from '@/lib/document/schema';
-import { insertSpec, resolveInsertTarget } from '@/lib/document/operations';
+import { resolveInsertTarget } from '@/lib/document/operations';
 import { BLOCKS, BLOCK_CATEGORIES, type BlockDefinition } from '@/lib/templates/blocks';
 import { activeRootId, useEditor } from '@/lib/editor/store';
+import { openContextMenu } from '../ui/context-menu';
 import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
 import { EmptyState, TextInput } from '../ui/primitives';
@@ -317,6 +318,14 @@ function ElementCard({ element }: { element: (typeof INSERTABLE)[number] }) {
         startDrag(e, { kind: 'new-element', elementType: element.type }, element.label)
       }
       onClick={() => useEditor.getState().insertElement(element.type)}
+      data-element-card={element.type}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        openContextMenu(e.clientX, e.clientY, {
+          kind: 'elementType',
+          elementType: element.type,
+        });
+      }}
       className={cn(cardClass, !placeable && 'opacity-40')}
     >
       <ElementIcon type={element.type} size={13} />
@@ -335,13 +344,7 @@ function BlockCard({
   onPreview: (block: BlockDefinition | null, element?: HTMLElement) => void;
 }) {
   const insert = () => {
-    const store = useEditor.getState();
-    const rootId = activeRootId(store);
-    if (!rootId) return;
-    store.transact(`Add ${block.name}`, (draft) => {
-      const id = insertSpec(draft, block.build(), rootId);
-      return id ? [id] : undefined;
-    });
+    useEditor.getState().insertSpec(block.build(), block.name);
     onInserted(block.id);
   };
 
@@ -349,6 +352,11 @@ function BlockCard({
     <button
       type="button"
       onClick={insert}
+      data-block-card={block.id}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        openContextMenu(e.clientX, e.clientY, { kind: 'block', blockId: block.id });
+      }}
       onPointerEnter={(e) => onPreview(block, e.currentTarget)}
       onFocus={(e) => onPreview(block, e.currentTarget)}
       onPointerLeave={() => onPreview(null)}

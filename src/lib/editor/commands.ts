@@ -24,9 +24,14 @@
 import { BREAKPOINT_DEFS, type Breakpoint } from '../document/types';
 import { ELEMENTS, getElement } from '../document/schema';
 import { describeElement } from '../renderer/element-model';
+import { BLOCKS, type BlockDefinition } from '../templates/blocks';
+import type { ThemeScaleGroup } from '../document/operations';
+import { TOKEN_PREFIX } from '../document/theme';
 import type {
   Asset,
+  Collection,
   ComponentDefinition,
+  Field,
   ElementType,
   NodeId,
   Page,
@@ -62,7 +67,12 @@ export type MenuSubject =
   | { kind: 'page'; pageId: string }
   | { kind: 'component'; componentId: string }
   | { kind: 'variant'; componentId: string; variantId: string }
-  | { kind: 'asset'; assetId: string };
+  | { kind: 'asset'; assetId: string }
+  | { kind: 'collection'; collectionId: string }
+  | { kind: 'field'; collectionId: string; fieldKey: string }
+  | { kind: 'token'; group: ThemeScaleGroup; tokenId: string }
+  | { kind: 'block'; blockId: string }
+  | { kind: 'elementType'; elementType: ElementType };
 
 /* --------------------------------------------------------------------------
  * Context
@@ -190,6 +200,42 @@ function assetOf(ctx: CommandContext): Asset | null {
   return ctx.store.doc.assets.find((a) => a.id === subject.assetId) ?? null;
 }
 
+function collectionOf(ctx: CommandContext): Collection | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'collection' && subject?.kind !== 'field') return null;
+  return ctx.store.doc.collections?.find((c) => c.id === subject.collectionId) ?? null;
+}
+
+function fieldOf(ctx: CommandContext): { collection: Collection; field: Field } | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'field') return null;
+  const collection = collectionOf(ctx);
+  const field = collection?.fields.find((f) => f.key === subject.fieldKey);
+  return collection && field ? { collection, field } : null;
+}
+
+function tokenOf(
+  ctx: CommandContext
+): { group: ThemeScaleGroup; token: { id: string; name: string; value: string } } | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'token') return null;
+  const scale = ctx.store.doc.theme[subject.group] as
+    | { id: string; name: string; value: string }[]
+    | undefined;
+  const token = scale?.find((t) => t.id === subject.tokenId);
+  return token ? { group: subject.group, token } : null;
+}
+
+function elementTypeOf(ctx: CommandContext): ElementType | null {
+  return ctx.subject?.kind === 'elementType' ? ctx.subject.elementType : null;
+}
+
+function blockOf(ctx: CommandContext): BlockDefinition | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'block') return null;
+  return BLOCKS.find((b) => b.id === subject.blockId) ?? null;
+}
+
 /* --------------------------------------------------------------------------
  * Commands
  * ----------------------------------------------------------------------- */
@@ -287,6 +333,37 @@ function assetUses(ctx: CommandContext): number {
   const asset = assetOf(ctx);
   if (!asset) return 0;
   return Object.values(ctx.store.doc.nodes).filter((n) => n.props.src === asset.url).length;
+}
+
+/** `var(--r-md)` — the text a token is worth copying as. */
+function tokenReference(group: ThemeScaleGroup, id: string): string {
+  const prefix =
+    group === 'colors'
+      ? TOKEN_PREFIX.color
+      : group === 'radii'
+        ? TOKEN_PREFIX.radius
+        : group === 'shadows'
+          ? TOKEN_PREFIX.shadow
+          : group === 'widths'
+            ? TOKEN_PREFIX.width
+            : TOKEN_PREFIX.spacing;
+  return `var(${prefix}${id})`;
+}
+
+/** How many declarations mention this token, for the Delete label. */
+function tokenUses(ctx: CommandContext): number {
+  const found = tokenOf(ctx);
+  if (!found) return 0;
+  const reference = tokenReference(found.group, found.token.id);
+  let uses = 0;
+  for (const node of Object.values(ctx.store.doc.nodes)) {
+    for (const layer of Object.values(node.styles)) {
+      for (const value of Object.values(layer ?? {})) {
+        if (typeof value === 'string' && value.includes(reference)) uses++;
+      }
+    }
+  }
+  return uses;
 }
 
 /** Nothing may be edited at all: read-only access, or the caret is in a field. */
@@ -925,6 +1002,203 @@ export const COMMANDS: Record<string, EditorCommand> = {
     run: (ctx) => {
       const asset = assetOf(ctx);
       if (asset) ctx.store.removeAsset(asset.id);
+    },
+  },
+
+  /* --- A collection, and one of its fields -------------------------------- */
+  addField: {
+    id: 'addField',
+    icon: 'plus',
+    label: 'Add field',
+    enabled: (ctx) => editable(ctx) && Boolean(collectionOf(ctx)),
+    run: (ctx) => {
+      const collection = collectionOf(ctx);
+      if (collection) ctx.store.addField(collection.id);
+    },
+  },
+  renameCollection: {
+    id: 'renameCollection',
+    icon: 'pencil',
+    label: 'Rename',
+    enabled: (ctx) => editable(ctx) && ctx.subject?.kind === 'collection' && Boolean(collectionOf(ctx)),
+    run: (ctx) => {
+      const collection = collectionOf(ctx);
+      if (collection) ctx.store.requestRename(collection.id);
+    },
+  },
+  deleteCollection: {
+    id: 'deleteCollection',
+    icon: 'trash',
+    label: (ctx) => {
+      const fields = collectionOf(ctx)?.fields.length ?? 0;
+      return fields ? `Delete collection (${fields} fields)` : 'Delete collection';
+    },
+    danger: true,
+    enabled: (ctx) => editable(ctx) && Boolean(collectionOf(ctx)),
+    run: (ctx) => {
+      const collection = collectionOf(ctx);
+      if (collection) ctx.store.removeCollection(collection.id);
+    },
+  },
+  moveField: {
+    id: 'moveField',
+    icon: 'layers',
+    label: (_ctx, arg) => (arg === 'up' ? 'Move up' : 'Move down'),
+    enabled: (ctx, arg) => {
+      const found = fieldOf(ctx);
+      if (!editable(ctx) || !found) return false;
+      const index = found.collection.fields.indexOf(found.field);
+      return arg === 'up' ? index > 0 : index < found.collection.fields.length - 1;
+    },
+    run: (ctx, arg) => {
+      const found = fieldOf(ctx);
+      if (found) ctx.store.moveField(found.collection.id, found.field.key, arg === 'up' ? -1 : 1);
+    },
+  },
+  toggleFieldRequired: {
+    id: 'toggleFieldRequired',
+    icon: 'check',
+    label: 'Required',
+    checked: (ctx) => Boolean(fieldOf(ctx)?.field.required),
+    enabled: (ctx) => editable(ctx) && Boolean(fieldOf(ctx)),
+    run: (ctx) => {
+      const found = fieldOf(ctx);
+      if (found) {
+        ctx.store.updateField(found.collection.id, found.field.key, {
+          required: !found.field.required,
+        });
+      }
+    },
+  },
+  setSlugField: {
+    id: 'setSlugField',
+    icon: 'link',
+    label: 'Use for the URL',
+    checked: (ctx) => {
+      const found = fieldOf(ctx);
+      return Boolean(found && found.collection.slugField === found.field.key);
+    },
+    // Only a text field can name a page. A number or a checkbox would produce
+    // addresses nobody could read or link to.
+    enabled: (ctx) => editable(ctx) && fieldOf(ctx)?.field.type === 'text',
+    run: (ctx) => {
+      const found = fieldOf(ctx);
+      if (!found) return;
+      const already = found.collection.slugField === found.field.key;
+      ctx.store.updateCollection(found.collection.id, {
+        slugField: already ? undefined : found.field.key,
+      });
+    },
+  },
+  deleteField: {
+    id: 'deleteField',
+    icon: 'trash',
+    label: 'Delete field',
+    danger: true,
+    enabled: (ctx) => editable(ctx) && Boolean(fieldOf(ctx)),
+    run: (ctx) => {
+      const found = fieldOf(ctx);
+      if (found) ctx.store.removeField(found.collection.id, found.field.key);
+    },
+  },
+
+  /* --- A theme token ------------------------------------------------------- */
+  copyTokenReference: {
+    id: 'copyTokenReference',
+    icon: 'copy',
+    // The thing an advanced field actually wants pasted into it, which is why
+    // it is first: knowing a token is called "Medium" does not tell anybody
+    // that the text to type is `var(--r-md)`.
+    label: (ctx) => {
+      const found = tokenOf(ctx);
+      return found ? `Copy ${tokenReference(found.group, found.token.id)}` : 'Copy reference';
+    },
+    enabled: (ctx) => Boolean(tokenOf(ctx)),
+    run: (ctx) => {
+      const found = tokenOf(ctx);
+      if (found) {
+        ctx.store.copyToClipboard(
+          tokenReference(found.group, found.token.id),
+          'Reference copied'
+        );
+      }
+    },
+  },
+  copyTokenValue: {
+    id: 'copyTokenValue',
+    icon: 'clipboard',
+    label: (ctx) => `Copy ${tokenOf(ctx)?.token.value ?? 'value'}`,
+    enabled: (ctx) => Boolean(tokenOf(ctx)?.token.value),
+    run: (ctx) => {
+      const found = tokenOf(ctx);
+      if (found) ctx.store.copyToClipboard(found.token.value, 'Value copied');
+    },
+  },
+  renameToken: {
+    id: 'renameToken',
+    icon: 'pencil',
+    label: 'Rename',
+    enabled: (ctx) => editable(ctx) && Boolean(tokenOf(ctx)),
+    run: (ctx) => {
+      const found = tokenOf(ctx);
+      if (found) ctx.store.requestRename(found.token.id);
+    },
+  },
+  deleteToken: {
+    id: 'deleteToken',
+    icon: 'trash',
+    label: (ctx) => {
+      const uses = tokenUses(ctx);
+      return uses ? `Delete token (used ${uses}\u00d7)` : 'Delete token';
+    },
+    danger: true,
+    enabled: (ctx) => editable(ctx) && Boolean(tokenOf(ctx)),
+    run: (ctx) => {
+      const found = tokenOf(ctx);
+      if (found) ctx.store.removeToken(found.group, found.token.id);
+    },
+  },
+
+  /* --- A card in the Insert panel ------------------------------------------ */
+  /*
+   * `insert` and `insertChild` already do this, and are what the canvas menu's
+   * submenus use — where the parent row says "Add element" or "Add child" and
+   * the rows below it need only name the type. On a card the question is the
+   * other way round: the type is what you right-clicked, and what a menu can
+   * usefully tell you is *where it would go*. Two rows both reading "Heading"
+   * is a worse menu than none.
+   *
+   * So: separate wording, same store action underneath.
+   */
+  insertOnPage: {
+    id: 'insertOnPage',
+    icon: 'plus',
+    label: 'Add to the page',
+    enabled: (ctx) => editable(ctx) && Boolean(ctx.root),
+    run: (ctx) => {
+      const type = elementTypeOf(ctx);
+      if (type) ctx.store.insertElement(type);
+    },
+  },
+  insertInSelection: {
+    id: 'insertInSelection',
+    icon: 'clipboardPlus',
+    label: (ctx) => `Add inside ${ctx.node?.name ?? 'the selection'}`,
+    enabled: (ctx) => editable(ctx) && ctx.container && ctx.count === 1,
+    run: (ctx) => {
+      const type = elementTypeOf(ctx);
+      const parentId = ctx.selection[0];
+      if (type && parentId) ctx.store.insertElement(type, parentId);
+    },
+  },
+  insertBlock: {
+    id: 'insertBlock',
+    icon: 'plus',
+    label: (ctx) => `Add ${blockOf(ctx)?.name ?? 'block'}`,
+    enabled: (ctx) => editable(ctx) && Boolean(blockOf(ctx)) && Boolean(ctx.root),
+    run: (ctx) => {
+      const block = blockOf(ctx);
+      if (block) ctx.store.insertSpec(block.build(), block.name);
     },
   },
 

@@ -8,17 +8,59 @@
  * That is what makes this a design system rather than a swatch library.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import * as ops from '@/lib/document/operations';
 import { FONT_LIBRARY } from '@/lib/document/theme';
 import type { ScaleToken } from '@/lib/document/types';
 import { useEditor } from '@/lib/editor/store';
+import type { ThemeScaleGroup } from '@/lib/document/operations';
+import { openContextMenu } from '../ui/context-menu';
 import { cn } from '@/lib/utils/cn';
 import { ColorField, Swatch } from '../ui/color-field';
 import { Button, Section, Select, TextInput, Tooltip } from '../ui/primitives';
 
+/**
+ * One right-click handler shape, spread onto every token row.
+ *
+ * A helper rather than six copies: the panel has colours, fonts, spacing,
+ * radii, widths and shadows, and the only thing that differs between them is
+ * which scale the token belongs to.
+ */
+function tokenMenu(group: ThemeScaleGroup, tokenId: string) {
+  return {
+    'data-token-row': tokenId,
+    onContextMenu: (e: React.MouseEvent) => {
+      // A field keeps the browser's own menu, same rule as the inspector.
+      if ((e.target as HTMLElement | null)?.closest('input, textarea')) return;
+      e.preventDefault();
+      openContextMenu(e.clientX, e.clientY, { kind: 'token', group, tokenId });
+    },
+  };
+}
+
+/**
+ * Rename, from a menu, in a panel whose names are always editable.
+ *
+ * There is no rename *mode* here — the field is a field — so the request is
+ * honoured by putting the caret in it and selecting what is there. One effect
+ * for the whole panel, addressing the input by the token it belongs to.
+ */
+function useTokenRename(): void {
+  const renameRequest = useEditor((s) => s.renameRequest);
+  useEffect(() => {
+    if (!renameRequest) return;
+    const input = document.querySelector<HTMLInputElement>(
+      `[data-token-name="${CSS.escape(renameRequest)}"]`
+    );
+    if (!input) return;
+    input.focus();
+    input.select();
+    useEditor.getState().requestRename(null);
+  }, [renameRequest]);
+}
+
 export function ThemePanel() {
+  useTokenRename();
   const theme = useEditor((s) => s.doc.theme);
 
   return (
@@ -26,14 +68,13 @@ export function ThemePanel() {
       <Section title="Colours">
         <div className="flex flex-col gap-1">
           {theme.colors.map((token) => (
-            <div key={token.id} className="group flex items-center gap-1.5">
+            <div key={token.id} {...tokenMenu('colors', token.id)} className="group flex items-center gap-1.5">
               <Swatch color={token.value} size={18} />
               <input
+                data-token-name={token.id}
                 defaultValue={token.name}
                 onBlur={(e) =>
-                  useEditor.getState().transact('Rename token', (draft) => {
-                    ops.setToken(draft, 'colors', token.id, { name: e.target.value });
-                  })
+                  useEditor.getState().setToken('colors', token.id, { name: e.target.value })
                 }
                 onKeyDown={(e) => {
                   e.stopPropagation();
@@ -49,13 +90,11 @@ export function ThemePanel() {
                   value={token.value}
                   onChange={(value, meta) => {
                     if (!value) return;
-                    useEditor.getState().transact(
-                      'Edit token',
-                      (draft) => {
-                        ops.setToken(draft, 'colors', token.id, { value });
-                      },
-                      { mergeKey: meta.dragging ? `token:${token.id}` : undefined }
-                    );
+                    useEditor
+                      .getState()
+                      .setToken('colors', token.id, { value }, {
+                        mergeKey: meta.dragging ? `token:${token.id}` : undefined,
+                      });
                   }}
                 />
               </div>
@@ -76,9 +115,7 @@ export function ThemePanel() {
                 width={216}
                 value={font.stack}
                 onChange={(value) =>
-                  useEditor.getState().transact('Set typeface', (draft) => {
-                    ops.setThemeFont(draft, font.id, value);
-                  })
+                  useEditor.getState().setThemeFont(font.id, value)
                 }
                 options={FONT_LIBRARY.map((f) => ({
                   value: f.stack,
@@ -102,7 +139,7 @@ export function ThemePanel() {
       <Section title="Shadows" defaultOpen={false}>
         <div className="flex flex-col gap-1.5">
           {theme.shadows.map((token) => (
-            <div key={token.id} className="group flex items-center gap-1.5">
+            <div key={token.id} {...tokenMenu('shadows', token.id)} className="group flex items-center gap-1.5">
               <span
                 className="size-[22px] shrink-0 rounded-[5px] bg-[var(--panel-raised)]"
                 style={{ boxShadow: token.value === 'none' ? undefined : token.value }}
@@ -114,9 +151,7 @@ export function ThemePanel() {
                 defaultValue={token.value}
                 spellCheck={false}
                 onBlur={(e) =>
-                  useEditor.getState().transact('Edit shadow', (draft) => {
-                    ops.setToken(draft, 'shadows', token.id, { value: e.target.value });
-                  })
+                  useEditor.getState().setToken('shadows', token.id, { value: e.target.value })
                 }
                 onKeyDown={(e) => {
                   e.stopPropagation();
@@ -149,7 +184,7 @@ function ScaleSection({
     <Section title={title} defaultOpen={false}>
       <div className="flex flex-col gap-1">
         {tokens.map((token) => (
-          <div key={token.id} className="group flex items-center gap-1.5">
+          <div key={token.id} {...tokenMenu(group, token.id)} className="group flex items-center gap-1.5">
             <span className="w-[46px] shrink-0 truncate text-[11px] text-[var(--text-secondary)]">
               {token.name}
             </span>
@@ -157,9 +192,7 @@ function ScaleSection({
               className="flex-1"
               value={token.value}
               onValueChange={(value) =>
-                useEditor.getState().transact('Edit token', (draft) => {
-                  ops.setToken(draft, group, token.id, { value });
-                })
+                useEditor.getState().setToken(group, token.id, { value })
               }
             />
             <Tooltip content={`var(--${group === 'radii' ? 'r' : group === 'widths' ? 'w' : 's'}-${token.id})`} side="left">
@@ -203,9 +236,7 @@ function AddToken({
   const commit = () => {
     const trimmed = name.trim();
     if (trimmed) {
-      useEditor.getState().transact('Add token', (draft) => {
-        ops.addToken(draft, group, trimmed, defaultValue);
-      });
+      useEditor.getState().addToken(group, trimmed, defaultValue);
     }
     setName('');
     setAdding(false);
@@ -244,9 +275,7 @@ function RemoveToken({
         type="button"
         aria-label="Remove token"
         onClick={() =>
-          useEditor.getState().transact('Remove token', (draft) => {
-            ops.removeToken(draft, group, id);
-          })
+          useEditor.getState().removeToken(group, id)
         }
         className={cn(
           'flex size-5 shrink-0 items-center justify-center rounded text-[var(--text-faint)]',
