@@ -29,7 +29,6 @@ import {
 } from '@/lib/document/schema';
 import type { Asset, ElementType, StyleDecl } from '@/lib/document/types';
 import {
-  detachInstance,
   exposeProperty,
   removeComponentProperty,
   renameComponentProperty,
@@ -1731,12 +1730,7 @@ function InstanceContent() {
           </Button>
           <Button
             className="flex-1"
-            onClick={() =>
-              useEditor.getState().transact('Detach component', (draft) => {
-                const id = detachInstance(draft, instanceId);
-                return id ? [id] : undefined;
-              })
-            }
+            onClick={() => useEditor.getState().detachSelection()}
           >
             <Scissors size={11} />
             Detach

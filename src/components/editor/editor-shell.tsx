@@ -32,6 +32,7 @@ import { StatusBar } from '../chrome/status-bar';
 import { Toasts } from '../chrome/toasts';
 import { TopBar } from '../chrome/topbar';
 import { Inspector } from '../inspector/inspector';
+import { ContextMenuHost } from '../ui/context-menu';
 import { ResizeHandle, Sidebar } from '../panels/sidebar';
 import { PreviewOverlay } from '../preview/preview';
 import { EditorSkeleton } from './editor-skeleton';
@@ -206,6 +207,7 @@ export function EditorShell({ projectId }: { projectId: string }) {
 
       <DragController />
       <DragGhost />
+      <ContextMenuHost />
       <Toasts />
       <PreviewOverlay />
       <PublishDialog result={publishResult} onClose={() => setPublishResult(null)} />

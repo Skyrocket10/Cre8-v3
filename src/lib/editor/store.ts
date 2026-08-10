@@ -40,6 +40,7 @@ import type {
 import { commit, emptyHistory, redo as redoHistory, undo as undoHistory, type HistoryState } from '../history/history';
 import { cloneSubtree } from '../document/factory';
 import { uid } from '../document/id';
+import { getElementFor } from './registry';
 import { getStorage } from '../api/storage';
 import { api, type RecordInput } from '../api/client';
 
@@ -57,6 +58,17 @@ export type LeftTab =
   | 'theme'
   | 'submissions';
 export type InspectorTab = 'design' | 'page';
+
+/**
+ * Depth, expressed the only way this document model can express it.
+ *
+ * There is no z-index layer to shuffle: what paints on top is what comes later
+ * among its siblings, so "bring to front" is "become the last child". That is
+ * also why these are one action rather than four — the direction is data, and
+ * a single reorder handles all of it.
+ */
+export type ArrangeDirection = 'front' | 'forward' | 'backward' | 'back';
+export type AlignEdge = 'left' | 'hcentre' | 'right' | 'top' | 'vmiddle' | 'bottom';
 /**
  * `live` means a collaboration room is persisting for us.
  *
@@ -183,6 +195,15 @@ interface EditorState {
   /* Clipboard */
   clipboard: { nodes: NodeMap; rootIds: NodeId[] } | null;
   styleSource: NodeId | null;
+
+  /**
+   * A node somebody asked to rename from outside the layer tree.
+   *
+   * The tree owns the text field — it is the only surface with a row to type
+   * into — but the request can come from a context menu on the canvas, so it
+   * travels through the store rather than through a ref nobody else can reach.
+   */
+  renameRequest: NodeId | null;
 
   /**
    * Collection rows the canvas has loaded, by collection id.
@@ -340,6 +361,16 @@ interface EditorActions {
   toggleHidden(ids?: NodeId[]): void;
   toggleLocked(ids?: NodeId[]): void;
   reorderInParent(id: NodeId, direction: 1 | -1): void;
+  arrangeSelection(direction: ArrangeDirection): void;
+  alignSelection(edge: AlignEdge): void;
+  distributeSelection(axis: 'x' | 'y'): void;
+  resetStyles(ids?: NodeId[]): void;
+  detachSelection(): void;
+  createComponentFromSelection(): void;
+  selectChildren(): void;
+  /** Ask the layer tree to put a row into rename mode. It clears this when done. */
+  requestRename(id: NodeId | null): void;
+  revealInLayers(): void;
 
   /* Clipboard */
   copySelection(): void;
@@ -456,6 +487,7 @@ function initialState(): EditorState {
     measureToken: 0,
     clipboard: null,
     styleSource: null,
+    renameRequest: null,
     records: {},
     saveStatus: 'idle',
     lastSavedAt: null,
@@ -1180,6 +1212,182 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     });
   },
 
+  /**
+   * Move the whole selection through its siblings, keeping their relative order.
+   *
+   * Front and back are one splice each; forward and backward step the block by
+   * one *free* slot, which is not the same as stepping each member by one — the
+   * naive version makes a contiguous pair swap places with each other and go
+   * nowhere.
+   */
+  arrangeSelection(direction) {
+    const { selection, doc } = get();
+    const first = selection[0] ? doc.nodes[selection[0]] : undefined;
+    const parentId = first?.parentId;
+    const parent = parentId ? doc.nodes[parentId] : undefined;
+    if (!parent) return;
+
+    // One parent only: "in front of" has no meaning across two of them.
+    const moving = selection.filter((id) => doc.nodes[id]?.parentId === parentId);
+    if (!moving.length) return;
+
+    const order = parent.children;
+    const inOrder = order.filter((id) => moving.includes(id));
+    const rest = order.filter((id) => !moving.includes(id));
+    const firstIndex = order.indexOf(inOrder[0]!);
+    const lastIndex = order.indexOf(inOrder[inOrder.length - 1]!);
+
+    let at: number;
+    switch (direction) {
+      case 'back':
+        at = 0;
+        break;
+      case 'front':
+        at = rest.length;
+        break;
+      case 'backward': {
+        // How many non-selected siblings sit before the block; step over one.
+        const before = order.slice(0, firstIndex).filter((id) => !moving.includes(id)).length;
+        at = Math.max(0, before - 1);
+        break;
+      }
+      default: {
+        const before = order.slice(0, lastIndex).filter((id) => !moving.includes(id)).length;
+        at = Math.min(rest.length, before + 1);
+        break;
+      }
+    }
+
+    const next = [...rest.slice(0, at), ...inOrder, ...rest.slice(at)];
+    if (next.every((id, i) => id === order[i])) return;
+
+    get().transact('Arrange', (draft) => {
+      const p = draft.nodes[parent.id];
+      if (p) p.children = next;
+      return moving;
+    });
+  },
+
+  /**
+   * Align absolutely positioned siblings to the extreme of their union box.
+   *
+   * Deltas, not absolute coordinates. Where `left: 0` actually lands depends on
+   * which ancestor is positioned and how much padding it has, and getting that
+   * wrong moves elements to a place nobody asked for. Adding a measured
+   * difference to the value already written cannot be wrong about the origin,
+   * because it never needs to know it — the same trick `nudgeSelection` uses.
+   */
+  alignSelection(edge) {
+    const state = get();
+    const boxes = measureSelection(state);
+    if (boxes.length < 2) return;
+
+    const horizontal = edge === 'left' || edge === 'hcentre' || edge === 'right';
+    const left = Math.min(...boxes.map((b) => (horizontal ? b.x : b.y)));
+    const right = Math.max(...boxes.map((b) => (horizontal ? b.x + b.w : b.y + b.h)));
+
+    const deltas = new Map<NodeId, number>();
+    for (const box of boxes) {
+      const start = horizontal ? box.x : box.y;
+      const size = horizontal ? box.w : box.h;
+      const target =
+        edge === 'left' || edge === 'top'
+          ? left
+          : edge === 'right' || edge === 'bottom'
+            ? right - size
+            : (left + right) / 2 - size / 2;
+      deltas.set(box.id, target - start);
+    }
+    shiftBy(get(), deltas, horizontal ? 'left' : 'top', 'Align');
+  },
+
+  /** Even gaps between the outermost two, which stay where they are. */
+  distributeSelection(axis) {
+    const state = get();
+    const boxes = measureSelection(state);
+    if (boxes.length < 3) return;
+
+    const horizontal = axis === 'x';
+    const sorted = [...boxes].sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y));
+    const first = sorted[0]!;
+    const last = sorted[sorted.length - 1]!;
+    const span =
+      (horizontal ? last.x + last.w : last.y + last.h) - (horizontal ? first.x : first.y);
+    const used = sorted.reduce((sum, b) => sum + (horizontal ? b.w : b.h), 0);
+    const gap = (span - used) / (sorted.length - 1);
+
+    const deltas = new Map<NodeId, number>();
+    let cursor = horizontal ? first.x : first.y;
+    for (const box of sorted) {
+      deltas.set(box.id, cursor - (horizontal ? box.x : box.y));
+      cursor += (horizontal ? box.w : box.h) + gap;
+    }
+    shiftBy(get(), deltas, horizontal ? 'left' : 'top', 'Distribute');
+  },
+
+  /**
+   * Throw away everything the inspector wrote at this breakpoint.
+   *
+   * This breakpoint, not all of them: the inspector writes to one layer at a
+   * time and says which, so resetting a wider set than the panel in front of
+   * you edits would be a surprise you could not see.
+   */
+  resetStyles(ids) {
+    const state = get();
+    const targets = ids ?? state.selection;
+    if (!targets.length) return;
+    get().transact('Reset styles', (draft) => {
+      for (const id of targets) {
+        const layer = draft.nodes[id]?.styles[state.breakpoint];
+        if (layer) ops.clearStyles(draft, [id], state.breakpoint, Object.keys(layer) as StyleProp[]);
+      }
+      return targets;
+    });
+  },
+
+  detachSelection() {
+    const { selection, doc } = get();
+    const instances = selection.filter((id) => doc.nodes[id]?.type === 'instance');
+    if (!instances.length) return;
+    get().transact('Detach instance', (draft) => {
+      const created: NodeId[] = [];
+      for (const id of instances) {
+        const root = ops.detachInstance(draft, id);
+        if (root) created.push(root);
+      }
+      return created;
+    });
+  },
+
+  createComponentFromSelection() {
+    const { selection } = get();
+    const id = selection.length === 1 ? selection[0] : undefined;
+    if (!id) return;
+    get().transact('Create component', (draft) => {
+      const result = ops.createComponentFromNode(draft, id);
+      return result ? [result.instanceId] : undefined;
+    });
+  },
+
+  selectChildren() {
+    const { selection, doc } = get();
+    const first = selection[0];
+    const children = first ? doc.nodes[first]?.children : undefined;
+    if (children?.length) get().select([...children]);
+  },
+
+  requestRename(id) {
+    if (get().renameRequest === id) return;
+    // Renaming happens in the layer tree, so asking for it has to put the tree
+    // in front of the person who asked.
+    if (id) get().revealInLayers();
+    set({ renameRequest: id });
+  },
+
+  revealInLayers() {
+    get().setLeftTab('layers');
+  },
+
   /* ---------------------------------------------------------- clipboard -- */
 
   copySelection() {
@@ -1435,6 +1643,91 @@ export function canvasRootId(
     return variant?.rootNodeId ?? component.rootNodeId;
   }
   return state.doc.pages.find((p) => p.id === state.activePageId)?.rootNodeId ?? null;
+}
+
+interface MeasuredBox {
+  id: NodeId;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Where the selection actually is, in CSS pixels, for align and distribute.
+ *
+ * Only positioned siblings qualify, and the two conditions are not fussiness.
+ * Different parents means "align to each other" has no shared frame to be
+ * relative to; in flow means the layout decides position and writing `left`
+ * would either do nothing or shove the element out of the flow it belongs to.
+ * `commandContext` gates the menu on exactly this, so the actions never appear
+ * for a selection they would silently no-op on.
+ *
+ * A DOM read inside the store, which nothing else here does — but the question
+ * is genuinely geometric. A percentage width, a flexed sibling and a token
+ * gap all resolve to a number only once the browser has laid them out.
+ */
+function measureSelection(state: EditorStore): MeasuredBox[] {
+  if (!alignableSelection(state)) return [];
+
+  const boxes: MeasuredBox[] = [];
+  for (const id of state.selection) {
+    const el = getElementFor(id);
+    if (!el) return [];
+    const rect = el.getBoundingClientRect();
+    // Viewport pixels are zoomed; the numbers we write are not.
+    boxes.push({
+      id,
+      x: rect.left / state.zoom,
+      y: rect.top / state.zoom,
+      w: rect.width / state.zoom,
+      h: rect.height / state.zoom,
+    });
+  }
+  return boxes;
+}
+
+/**
+ * Whether align and distribute would mean anything for this selection.
+ *
+ * Exported because the command catalogue gates the menu items on exactly this,
+ * and two copies of the rule would eventually disagree — leaving an item that
+ * looks live and does nothing, or one hidden from a selection it would work on.
+ */
+export function alignableSelection(
+  state: Pick<EditorState, 'selection' | 'doc' | 'breakpoint'>
+): boolean {
+  if (state.selection.length < 2) return false;
+  const parentId = state.doc.nodes[state.selection[0]!]?.parentId;
+  if (!parentId) return false;
+  return state.selection.every((id) => {
+    const node = state.doc.nodes[id];
+    if (!node || node.parentId !== parentId) return false;
+    const position = resolveStyleValue(state.doc, id, state.breakpoint, 'position');
+    return position === 'absolute' || position === 'fixed';
+  });
+}
+
+/** Add a per-node delta to `left` or `top`, in one transaction. */
+function shiftBy(
+  state: EditorStore,
+  deltas: Map<NodeId, number>,
+  prop: 'left' | 'top',
+  label: string
+): void {
+  const moved = [...deltas].filter(([, delta]) => Math.abs(delta) >= 0.5);
+  if (!moved.length) return;
+  state.transact(label, (draft) => {
+    for (const [id, delta] of moved) {
+      const node = draft.nodes[id];
+      if (!node) continue;
+      const layer = (node.styles[state.breakpoint] ??= {});
+      const current =
+        Number.parseFloat(String(layer[prop] ?? resolveStyleValue(state.doc, id, state.breakpoint, prop) ?? '0')) || 0;
+      layer[prop] = `${Math.round(current + delta)}px`;
+    }
+    return moved.map(([id]) => id);
+  });
 }
 
 function isDeletable(doc: Cre8Document, id: NodeId): boolean {

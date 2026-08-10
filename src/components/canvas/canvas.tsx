@@ -28,6 +28,7 @@ import { DATA_ATTR, collectDataSources, designTokens } from '@/lib/runtime/data'
 import { hitTest } from '@/lib/editor/registry';
 import { canvasRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
+import { openContextMenu } from '../ui/context-menu';
 import { editorEngine } from './engine';
 import { CanvasOverlays } from './overlays';
 import { SpacingOverlay } from './spacing-overlay';
@@ -420,6 +421,26 @@ export function Canvas() {
     }
   }, []);
 
+  /**
+   * Right-click: aim the menu, then open it.
+   *
+   * Selecting the element under the pointer is what makes the menu *about*
+   * something, but only when it is not already part of the selection —
+   * right-clicking one of five selected elements has to keep all five, or
+   * "Group" would silently become "Group the one thing you last touched".
+   */
+  const onContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const store = useEditor.getState();
+    if ((e.target as HTMLElement).closest('[data-cre8-chrome]')) return;
+
+    const hit = inScope(store, hitTest(e.clientX, e.clientY));
+    if (!hit) store.select(null);
+    else if (!store.selection.includes(hit)) store.select(hit);
+
+    openContextMenu(e.clientX, e.clientY);
+  }, []);
+
   const cursor = spacePanning ? 'grab' : 'default';
 
   return (
@@ -434,7 +455,7 @@ export function Canvas() {
         onPointerCancel={endGesture}
         onPointerLeave={() => useEditor.getState().setHover(null)}
         onDoubleClick={onDoubleClick}
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={onContextMenu}
       >
         <div
           className="absolute top-0 left-0 origin-top-left will-change-transform"

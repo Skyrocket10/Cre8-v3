@@ -8,7 +8,7 @@
 import React from 'react';
 import { ChevronRight, Frame, Keyboard, Magnet, Minus, Plus, Ruler, SquareDashed } from 'lucide-react';
 import { getAncestors } from '@/lib/document/tree';
-import { SHORTCUT_REFERENCE } from '@/lib/editor/shortcuts';
+import { shortcutReference } from '@/lib/editor/shortcuts';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
@@ -124,7 +124,7 @@ function ShortcutsButton() {
       )}
     >
       <div className="scroll-thin max-h-[440px] overflow-y-auto p-1">
-        {SHORTCUT_REFERENCE.map((group) => (
+        {shortcutReference().map((group) => (
           <section key={group.group} className="pb-1">
             <h3 className="panel-title px-2 pt-2 pb-1">{group.group}</h3>
             {group.items.map(([keys, description]) => (

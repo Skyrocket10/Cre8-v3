@@ -3071,7 +3071,13 @@ report.group('the editor knows whether it is editing the page or an overlay');
     'there is a way in, a way out, and Escape unwinds to it',
     /store\.editOverlay\(hit\)/.test(canvas) &&
       /editOverlay\(null\)/.test(canvas) &&
-      /store\.editOverlay\(null\)/.test(read(path.join('src', 'lib', 'editor', 'shortcuts.ts'))),
+      // Through the catalogue now: Escape's last rung and the menu's
+      // "Finish editing overlay" are one command, so this checks the rung
+      // reaches it and that the command still does the thing.
+      /runCommand\('exitOverlay'\)/.test(read(path.join('src', 'lib', 'editor', 'shortcuts.ts'))) &&
+      /exitOverlay: \{[\s\S]*?editOverlay\(null\)/.test(
+        read(path.join('src', 'lib', 'editor', 'commands.ts'))
+      ),
     'double-click in, breadcrumb or Escape out'
   );
   report.check(
@@ -4099,6 +4105,167 @@ report.group('a database that predates a column can still get it');
     'and the list is back',
     LATE_COLUMNS.length === 4 && LATE_COLUMNS[2] === dropped,
     LATE_COLUMNS.map((c) => c.column).join(', ')
+  );
+}
+
+report.group('one catalogue, and every surface dispatches through it');
+
+{
+  const read = (file) => readFileSync(path.join(ROOT, file), 'utf8');
+  const commands = read(path.join('src', 'lib', 'editor', 'commands.ts'));
+  const menus = read(path.join('src', 'lib', 'editor', 'menus.ts'));
+  const shortcuts = read(path.join('src', 'lib', 'editor', 'shortcuts.ts'));
+  const menuUi = read(path.join('src', 'components', 'ui', 'context-menu.tsx'));
+
+  /*
+   * The catalogue's ids, taken from the shape they are declared in:
+   * `  someId: {\n    id: 'someId',`. Matching the inner `id:` rather than the
+   * key means a copy-paste that leaves the old id behind is caught here rather
+   * than becoming a menu item that runs the wrong command.
+   */
+  const declared = [...commands.matchAll(/\n  ([a-zA-Z]+): \{\n    id: '([a-zA-Z]+)',/g)];
+  const ids = new Set(declared.map(([, key]) => key));
+
+  report.check(
+    'every command is filed under its own id',
+    declared.length > 20 && declared.every(([, key, id]) => key === id),
+    `${declared.length} commands${
+      declared.filter(([, key, id]) => key !== id).map(([, key]) => key).join(', ') || ''
+    }`
+  );
+
+  /*
+   * The architecture requirement, as a property of the code rather than a
+   * promise in a comment: the catalogue calls store actions and nothing else.
+   * A `transact` here would be a second implementation of an editor action —
+   * exactly the thing that produced two different Detach behaviours before.
+   */
+  report.check(
+    'no command edits a document itself',
+    !/transact\(/.test(commands) && !/\bops\./.test(commands),
+    'every run body is a call into the store'
+  );
+
+  /* Menus name commands; they cannot carry one. */
+  const named = [...menus.matchAll(/id: '([a-zA-Z]+)'/g)].map(([, id]) => id);
+  const unknown = [...new Set(named.filter((id) => !ids.has(id)))];
+  report.check(
+    'every menu item names a command that exists',
+    named.length > 20 && unknown.length === 0,
+    unknown.length ? `unknown: ${unknown.join(', ')}` : `${new Set(named).size} distinct ids`
+  );
+  /*
+   * Reading the store to decide what belongs in a menu is fine — whether an
+   * overlay is open changes the list. Calling it is not: that would be an
+   * action the catalogue never saw. So the rule is about calls, not reads.
+   */
+  const MENU_ACTS = /transact\(|useEditor|\.store\.[a-zA-Z]+\(/;
+  report.check(
+    'and a menu holds no action of its own',
+    !MENU_ACTS.test(menus),
+    'menus.ts reads state and names commands; it calls nothing'
+  );
+  report.check(
+    'though it may read state, which is how it knows what to offer',
+    /ctx\.store\.editingOverlayId/.test(menus) && !MENU_ACTS.test('ctx.store.editingOverlayId'),
+    'a read is not a call'
+  );
+
+  /*
+   * The keyboard used to carry its own copy of all of this. If any of these
+   * names comes back, a shortcut and a menu item have started to be two
+   * different things again, which is how they drift.
+   */
+  const OWN_ACTIONS =
+    /duplicateSelection|deleteSelection|copySelection|cutSelection|groupSelection|ungroupSelection|toggleHidden|toggleLocked|createComponentFromNode|beginTextEdit\(id\)/;
+  report.check(
+    'the keyboard layer implements none of them',
+    !OWN_ACTIONS.test(shortcuts),
+    'it hands the chord to dispatchChord and stops'
+  );
+  report.check(
+    'and the menu implements none of them either',
+    !OWN_ACTIONS.test(menuUi) && /runCommand\(/.test(menuUi),
+    'the only way it acts is runCommand'
+  );
+
+  /* --- Chords ------------------------------------------------------------ */
+
+  const chords = [
+    ...[...commands.matchAll(/keys: \[([^\]]+)\]/g)],
+    ...[...commands.matchAll(/: \['((?:mod|alt|shift|\+|[a-zA-Z0-9\]\[])+)'\],/g)],
+  ]
+    .flatMap(([, body]) => [...body.matchAll(/'([^']+)'/g)].map(([, chord]) => chord))
+    .concat(
+      // argKeys entries, which are `name: ['chord'],` inside the block.
+      [...commands.matchAll(/^      [a-z]+: \['([^']+)'\],$/gm)].map(([, chord]) => chord)
+    );
+
+  const seen = new Map();
+  const clashes = [];
+  for (const chord of chords) {
+    if (seen.has(chord)) clashes.push(chord);
+    seen.set(chord, true);
+  }
+  report.check(
+    'no two commands claim the same chord',
+    chords.length > 15 && clashes.length === 0,
+    clashes.length ? `clash: ${clashes.join(', ')}` : `${chords.length} bindings`
+  );
+
+  /*
+   * Shift changes what `event.key` reports for punctuation — Shift+] arrives
+   * as `}` — so a binding written with the unshifted character would be
+   * printed in the menu and never fire. Letters and named keys are unaffected.
+   */
+  const unreachable = chords.filter((chord) => {
+    if (!chord.includes('shift+')) return false;
+    const key = chord.split('+').pop();
+    return key.length === 1 && !/[a-z0-9]/.test(key);
+  });
+  report.check(
+    'and none of them is a chord the keyboard cannot produce',
+    unreachable.length === 0,
+    unreachable.length ? `shifted punctuation: ${unreachable.join(', ')}` : 'letters and named keys'
+  );
+
+  report.check(
+    'the shortcut a menu prints is the one it binds',
+    /function shortcutFor/.test(commands) &&
+      /command\.argKeys\?\.\[arg\]\?\.\[0\]/.test(commands) &&
+      !/[⌘⇧⌥]/.test(menuUi),
+    'derived from keys, never typed into the menu'
+  );
+
+  /* --- Falsification ------------------------------------------------------ */
+
+  report.check(
+    'the unknown-id rule rejects an id that is not in the catalogue',
+    !['paste', 'duplicate', 'notARealCommand'].every((id) => ids.has(id)),
+    'a typo in a menu fails the build'
+  );
+  report.check(
+    'the clash rule rejects a repeated chord',
+    (() => {
+      const doubled = [...chords, chords[0]];
+      const counts = new Map();
+      for (const chord of doubled) counts.set(chord, (counts.get(chord) ?? 0) + 1);
+      return [...counts.values()].some((n) => n > 1);
+    })(),
+    'a second claim on one chord is visible'
+  );
+  report.check(
+    'the shifted-punctuation rule rejects the binding it was written for',
+    (() => {
+      const key = 'mod+shift+]'.split('+').pop();
+      return key.length === 1 && !/[a-z0-9]/.test(key);
+    })(),
+    'mod+shift+] would be caught'
+  );
+  report.check(
+    'and the no-own-actions rule matches an action if one comes back',
+    OWN_ACTIONS.test('store.duplicateSelection()') && MENU_ACTS.test('ctx.store.paste()'),
+    'both regexes are checked against something they must reject'
   );
 }
 

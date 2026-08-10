@@ -20,6 +20,7 @@ import { activeRootId, useEditor } from '@/lib/editor/store';
 import { treeDropZone, type TreeDropZone } from '@/lib/canvas/dnd';
 import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
+import { openContextMenu } from '../ui/context-menu';
 import { EmptyState, Tooltip } from '../ui/primitives';
 
 const ROW_HEIGHT = 24;
@@ -115,6 +116,21 @@ export function LayersPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection[0]]);
 
+  /*
+   * Somebody asked to rename from somewhere that has no text field — the
+   * context menu on the canvas. The row is the only place a name can be typed,
+   * so the request travels through the store and is consumed here.
+   *
+   * Cleared as soon as it is taken up. Leaving it set would put the row back
+   * into rename mode every time the tree re-rendered, which is most keystrokes.
+   */
+  const renameRequest = useEditor((s) => s.renameRequest);
+  useEffect(() => {
+    if (!renameRequest) return;
+    setRenaming(renameRequest);
+    useEditor.getState().requestRename(null);
+  }, [renameRequest]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -146,6 +162,21 @@ export function LayersPanel() {
     const store = useEditor.getState();
     const ids = store.selection.includes(id) ? store.selection : [id];
     dragState.current = { ids, started: false, x: e.clientX, y: e.clientY };
+  };
+
+  /**
+   * Same menu as the canvas, same commands, aimed the same way.
+   *
+   * The row has to select before the menu is built — the catalogue reads the
+   * selection, not a node id — but only when the row is not already part of
+   * it, so right-clicking inside a multi-selection keeps all of it.
+   */
+  const onRowContextMenu = (e: React.MouseEvent, id: NodeId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const store = useEditor.getState();
+    if (!store.selection.includes(id)) store.select(id);
+    openContextMenu(e.clientX, e.clientY);
   };
 
   useEffect(() => {
@@ -252,6 +283,7 @@ export function LayersPanel() {
               onStartRename={setRenaming}
               onEndRename={() => setRenaming(null)}
               onPointerDown={onRowPointerDown}
+              onContextMenu={onRowContextMenu}
             />
           );
         })}
@@ -275,6 +307,7 @@ const LayerRow = React.memo(function LayerRow({
   onStartRename,
   onEndRename,
   onPointerDown,
+  onContextMenu,
 }: {
   row: Row;
   top: number;
@@ -286,6 +319,7 @@ const LayerRow = React.memo(function LayerRow({
   onStartRename: (id: NodeId) => void;
   onEndRename: () => void;
   onPointerDown: (e: React.PointerEvent, id: NodeId) => void;
+  onContextMenu: (e: React.MouseEvent, id: NodeId) => void;
 }) {
   const { node, depth, expandable, expanded, kase } = row;
   const hidden = Boolean(node.meta.hidden);
@@ -297,6 +331,10 @@ const LayerRow = React.memo(function LayerRow({
   return (
     <div
       data-layer-row={node.id}
+      // The tree's own state, in the DOM. The selection outline on the canvas
+      // says how many are selected but not which, and "right-clicking one of
+      // several keeps all of them" is a claim about which.
+      data-selected={selected ? 'true' : undefined}
       className={cn(
         'group absolute right-1 left-1 flex items-center rounded-[5px] pr-1 select-none',
         'transition-colors duration-100',
@@ -308,6 +346,7 @@ const LayerRow = React.memo(function LayerRow({
       )}
       style={{ top, height: ROW_HEIGHT - 2, paddingLeft: 4 + depth * INDENT }}
       onPointerDown={(e) => onPointerDown(e, node.id)}
+      onContextMenu={(e) => onContextMenu(e, node.id)}
       onClick={(e) => {
         const store = useEditor.getState();
         store.select(node.id, e.shiftKey ? 'toggle' : 'replace');

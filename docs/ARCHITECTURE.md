@@ -124,6 +124,48 @@ functions over a mutable document. They know nothing about React, selection or
 the store, so the same function serves a click, a keyboard shortcut, a drag and
 — later — a generated edit.
 
+### 3b. One catalogue of commands
+
+`lib/editor/commands.ts` is the layer above that: one entry per thing the editor
+can be asked to do to the selection, and the entry is the whole description of
+it — its wording, its chords, when it is available, and what it runs.
+
+```ts
+duplicate: {
+  id: 'duplicate',
+  label: 'Duplicate',
+  keys: ['mod+d'],
+  enabled: movable,
+  run: (ctx) => ctx.store.duplicateSelection(),
+},
+```
+
+Every `run` is a call into the store, and nothing else. A command that wanted
+its own `transact` would be a store action nobody had written yet, which is
+exactly how `arrangeSelection`, `alignSelection`, `detachSelection` and
+`createComponentFromSelection` arrived — lifted out of the surfaces that had
+each grown a private copy. Two of those copies had already drifted: the
+inspector's Detach handled one instance, the toolbar's Create component made
+its own transaction with a different label.
+
+Three surfaces read from it and none of them has a table of its own:
+
+- The **keyboard layer** hands each event to `dispatchChord` and stops if a
+  command claimed it. What is left in `shortcuts.ts` is the editor rather than
+  the document: zoom, panels, the breakpoint, saving, publishing.
+- The **context menu** is a list of command ids (`lib/editor/menus.ts`). It
+  cannot hold an action, only a reference to one, so "the menu does not
+  reimplement editor commands" is a property of the type.
+- The **help popover** generates its shortcut list from the same bindings, so
+  it cannot describe a chord that no longer exists — which the hand-written
+  version it replaced had already started to do.
+
+The shortcut a menu prints comes from the chord that runs it, so the two cannot
+disagree. That is also why bindings avoid shifted punctuation: `Shift+]` arrives
+as `}`, so a binding written as `mod+shift+]` would be printed and never fire.
+The editor had exactly one of those — ⇧⌘\ for the inspector — and it had never
+worked. A static check now rejects the shape.
+
 ---
 
 ## 4. Performance

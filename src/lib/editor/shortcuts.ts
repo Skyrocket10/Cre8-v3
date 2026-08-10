@@ -3,31 +3,22 @@
 /**
  * Keyboard layer.
  *
- * One listener, one table. Everything is routed through store actions, so a
- * shortcut and the equivalent click produce the same transaction and the same
- * undo entry.
+ * One listener, and — for anything that touches the document — no table of its
+ * own. Every element command lives in `commands.ts` with its chords attached,
+ * and `dispatchChord` runs whichever one claims the event, so a shortcut and
+ * the same item in the context menu are not merely consistent: they are one
+ * object. What is left here is the rest of the editor — zoom, panels, the
+ * breakpoint, saving, publishing — plus Escape, which unwinds a ladder rather
+ * than firing a single action.
  *
  * Nothing fires while the user is typing — in a field, in a layer rename, or in
  * canvas text editing.
  */
 
 import { useEffect } from 'react';
-import { BREAKPOINT_DEFS, type Breakpoint, type ElementType } from '../document/types';
-import { createComponentFromNode } from '../document/operations';
+import { BREAKPOINT_DEFS, type Breakpoint } from '../document/types';
+import { boundCommands, dispatchChord, runCommand } from './commands';
 import { activeRootId, useEditor, type LeftTab } from './store';
-
-const INSERT_KEYS: Record<string, ElementType> = {
-  f: 'frame',
-  s: 'section',
-  c: 'container',
-  t: 'text',
-  h: 'heading',
-  p: 'paragraph',
-  b: 'button',
-  m: 'image',
-  g: 'grid',
-  k: 'stack',
-};
 
 const PANEL_ORDER: LeftTab[] = ['insert', 'layers', 'pages', 'components', 'assets', 'theme'];
 
@@ -75,7 +66,9 @@ export function useKeyboardShortcuts(options: { onSave: () => void; onPublish: (
           return;
         }
         if (store.editingOverlayId) {
-          store.editOverlay(null);
+          // The last rung, and the same command the menu's "Finish editing
+          // overlay" runs — see `laddered` on it.
+          runCommand('exitOverlay');
           return;
         }
         return;
@@ -84,6 +77,20 @@ export function useKeyboardShortcuts(options: { onSave: () => void; onPublish: (
       if (isTyping(e.target)) return;
       if (store.previewing) {
         if (e.key === 'p' && !mod) store.setPreviewing(false);
+        return;
+      }
+
+      /*
+       * The catalogue first.
+       *
+       * Everything that edits the document is bound there, so this listener
+       * has no opinion about what Duplicate means — it hands the chord over
+       * and stops if something took it. A chord nobody claimed, or one whose
+       * command is unavailable for the current selection, falls through to the
+       * editor-level keys below.
+       */
+      if (dispatchChord(e)) {
+        e.preventDefault();
         return;
       }
 
@@ -99,56 +106,9 @@ export function useKeyboardShortcuts(options: { onSave: () => void; onPublish: (
             e.preventDefault();
             store.redo();
             return;
-          case 'c':
-            e.preventDefault();
-            store.copySelection();
-            return;
-          case 'x':
-            e.preventDefault();
-            store.cutSelection();
-            return;
-          case 'v':
-            e.preventDefault();
-            store.paste();
-            return;
-          case 'd':
-            e.preventDefault();
-            store.duplicateSelection();
-            return;
-          case 'a':
-            e.preventDefault();
-            store.selectAll();
-            return;
-          case 'g':
-            e.preventDefault();
-            if (e.shiftKey) store.ungroupSelection();
-            else store.groupSelection();
-            return;
           case 's':
             e.preventDefault();
             options.onSave();
-            return;
-          case 'e':
-            e.preventDefault();
-            if (store.selection.length === 1) {
-              const id = store.selection[0]!;
-              store.transact('Create component', (draft) => {
-                const result = createComponentFromNode(draft, id);
-                return result ? [result.instanceId] : undefined;
-              });
-            }
-            return;
-          case 'h':
-            if (e.shiftKey) {
-              e.preventDefault();
-              store.toggleHidden();
-            }
-            return;
-          case 'l':
-            if (e.shiftKey) {
-              e.preventDefault();
-              store.toggleLocked();
-            }
             return;
           case '=':
           case '+':
@@ -163,7 +123,12 @@ export function useKeyboardShortcuts(options: { onSave: () => void; onPublish: (
             e.preventDefault();
             store.setZoom(1);
             return;
+          // Both, because shift changes the character: ⇧⌘\ arrives as `|`, so
+          // the inspector toggle had never once fired. The catalogue avoids
+          // this by refusing shifted punctuation outright; this switch is
+          // hand-written and has to say both.
           case '\\':
+          case '|':
             e.preventDefault();
             if (e.shiftKey) store.toggleRight();
             else store.toggleLeft();
@@ -192,23 +157,14 @@ export function useKeyboardShortcuts(options: { onSave: () => void; onPublish: (
 
       /* --- Plain keys ----------------------------------------------------- */
       switch (e.key) {
-        case 'Delete':
-        case 'Backspace':
+        // Delete and Enter-to-edit-text are catalogue commands and were
+        // handled above. Enter reaching here means there was no text to edit,
+        // so it means the other thing it has always meant: go one level in.
+        case 'Enter':
+          if (!store.selection.length) return;
           e.preventDefault();
-          store.deleteSelection();
+          store.selectChild();
           return;
-        case 'Enter': {
-          const id = store.selection[0];
-          if (!id) return;
-          e.preventDefault();
-          const node = store.doc.nodes[id];
-          if (node && (node.type === 'heading' || node.type === 'paragraph' || node.type === 'text' || node.type === 'button' || node.type === 'link')) {
-            store.beginTextEdit(id);
-          } else {
-            store.selectChild();
-          }
-          return;
-        }
         case 'Tab':
           e.preventDefault();
           store.selectSibling(e.shiftKey ? -1 : 1);
@@ -241,13 +197,6 @@ export function useKeyboardShortcuts(options: { onSave: () => void; onPublish: (
         case '!':
           store.requestFit();
           return;
-        default: {
-          const type = INSERT_KEYS[e.key.toLowerCase()];
-          if (type) {
-            e.preventDefault();
-            store.insertElement(type);
-          }
-        }
       }
     };
 
@@ -269,16 +218,31 @@ export function useKeyboardShortcuts(options: { onSave: () => void; onPublish: (
   }, [options]);
 }
 
-/** Rendered in the help popover. */
-export const SHORTCUT_REFERENCE: { group: string; items: [string, string][] }[] = [
+/**
+ * Rendered in the help popover.
+ *
+ * The element group is generated from the catalogue rather than typed out, so
+ * it cannot describe a binding that no longer exists — which the hand-written
+ * version it replaced had already started to do. Only the keys this file still
+ * owns are listed by hand.
+ */
+export function shortcutReference(): { group: string; items: [string, string][] }[] {
+  return [
+    {
+      group: 'Elements',
+      items: boundCommands().map(({ chord, label }) => [chord, label] as [string, string]),
+    },
+    ...STATIC_REFERENCE,
+  ];
+}
+
+const STATIC_REFERENCE: { group: string; items: [string, string][] }[] = [
   {
     group: 'Essentials',
     items: [
       ['⌘Z / ⇧⌘Z', 'Undo / Redo'],
-      ['⌘C ⌘X ⌘V', 'Copy, cut, paste'],
-      ['⌘D', 'Duplicate'],
-      ['⌫', 'Delete'],
       ['⌘S', 'Save now'],
+      ['⇧⌘P', 'Publish'],
     ],
   },
   {
@@ -287,11 +251,9 @@ export const SHORTCUT_REFERENCE: { group: string; items: [string, string][] }[] 
       ['Click', 'Select element'],
       ['⇧ Click', 'Add to selection'],
       ['⌥ Click', 'Select parent'],
-      ['Esc', 'Select parent'],
-      ['Enter', 'Edit text / go deeper'],
+      ['Esc', 'Up one level, then out of an overlay'],
+      ['Enter', 'Go one level in'],
       ['Tab', 'Next sibling'],
-      ['⌘A', 'Select all'],
-      ['⌘G / ⇧⌘G', 'Group / Ungroup'],
     ],
   },
   {

@@ -42,6 +42,13 @@ the canvas to edit *inside* it: insertion, selection and the layer tree all
 narrow to the overlay until you leave, so nothing lands on the page behind it.
 Backdrops are a control on the overlay rather than a rule to go and build.
 
+**Commands**  Every action the editor can perform on a selection is written
+down once, with its label, its shortcut and the answer to whether it applies
+right now. Right-click gets a menu built from that list — arranged, aligned,
+grouped, detached, renamed, deleted — the keyboard runs the same entries, and
+the shortcut printed beside a menu item *is* the chord that fires it. There is
+no second implementation of Duplicate to drift from the first.
+
 **Interaction**  Switches, tabs, filters and steppers, all of them a named
 value plus a generated CSS rule — the published page ships about 2 KB for the
 lot, and works with scripting off. Plus continuous values: a number a box holds
@@ -137,7 +144,10 @@ Full reasoning in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | `⌘C` `⌘X` `⌘V` `⌘D` | Copy, cut, paste, duplicate |
 | `⌘G` / `⇧⌘G` | Group / ungroup |
 | `⌘E` | Create component from selection |
-| `Esc` | Select parent |
+| `⌘]` / `⌘[` | Bring forward / send backward |
+| `F2` | Rename |
+| `⇧⌘H` / `⇧⌘L` | Hide / lock |
+| `Esc` | Up one level, then out of an overlay |
 | `Enter` | Edit text, or go deeper |
 | `Tab` | Next sibling |
 | `Space` + drag | Pan |
@@ -146,7 +156,11 @@ Full reasoning in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | `⇧1` | Fit to screen |
 | `S C F K G H P T B M` | Insert section, container, frame, stack, grid, heading, paragraph, text, button, image |
 
-The full list is in the editor — the keyboard icon, bottom right.
+Right-click anything on the canvas or in the layer tree for the same actions,
+with these chords printed beside them.
+
+The full list is in the editor — the keyboard icon, bottom right. It is
+generated from the bindings themselves, so it is the list that actually works.
 
 ---
 
