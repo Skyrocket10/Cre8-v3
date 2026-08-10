@@ -25,6 +25,7 @@ import { Canvas } from '../canvas/canvas';
 import { ContextToolbar } from '../canvas/context-toolbar';
 import { DragController, DragGhost } from '../canvas/drag-controller';
 import { PresenceOverlay } from '../canvas/presence-overlay';
+import { EditorErrorBoundary } from './error-boundary';
 import { HistoryDialog } from '../chrome/history-dialog';
 import { PublishDialog } from '../chrome/publish-dialog';
 import { StatusBar } from '../chrome/status-bar';
@@ -169,15 +170,33 @@ export function EditorShell({ projectId }: { projectId: string }) {
         canEdit={collab.canEdit || !live}
       />
 
+      {/*
+        Three walls rather than one. A thrown render used to unmount the whole
+        editor, and where it was thrown decides what a person loses: the canvas
+        failing should still leave the inspector, the layer tree and Publish
+        working, and a panel failing should not touch the canvas at all.
+      */}
       <div className="flex min-h-0 flex-1">
-        <Sidebar />
-        <CanvasArea peers={collab.peers} />
+        <EditorErrorBoundary label="the panel">
+          <Sidebar />
+        </EditorErrorBoundary>
+        <EditorErrorBoundary
+          label="the canvas"
+          action={{ label: 'Undo the last change', onClick: () => useEditor.getState().undo() }}
+        >
+          <CanvasArea peers={collab.peers} />
+        </EditorErrorBoundary>
         {rightOpen && (
           <div
             className="relative min-h-0 shrink-0 border-l border-[var(--border)]"
             style={{ width: rightWidth }}
           >
-            <Inspector />
+            <EditorErrorBoundary
+              label="the inspector"
+              action={{ label: 'Deselect', onClick: () => useEditor.getState().select(null) }}
+            >
+              <Inspector />
+            </EditorErrorBoundary>
             <ResizeHandle side="left" onResize={(w) => useEditor.getState().setRightWidth(w)} />
           </div>
         )}

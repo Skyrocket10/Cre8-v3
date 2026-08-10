@@ -331,6 +331,29 @@ export function hydrateDocument(input: Partial<Cre8Document> & { nodes?: NodeMap
     node.styles ??= {};
     node.meta ??= {};
     if (node.parentId === undefined) node.parentId = null;
+    /*
+     * `rules` was the one field a corrupt document could carry through
+     * hydration and into a thrown render.
+     *
+     * The four above have been normalised here since the beginning, so a node
+     * arriving with `children: null` or `props: null` is repaired and draws.
+     * A node arriving with `rules` as a string, or holding a null, was not —
+     * `variantsOf` reaches straight for `rule.when` and the whole editor went
+     * white. Found while proving the error boundary had something to catch.
+     *
+     * Repaired rather than refused: half a document on screen is worth more
+     * than an explanation of why there is none, and every rule that survives
+     * is one the renderer can read.
+     */
+    if (node.rules !== undefined) {
+      const rules = Array.isArray(node.rules) ? node.rules : [];
+      const usable = rules.filter(
+        (rule): rule is (typeof rules)[number] =>
+          Boolean(rule) && typeof rule === 'object' && Array.isArray(rule.when)
+      );
+      if (usable.length) node.rules = usable;
+      else delete node.rules;
+    }
   }
 
   // Re-derive parent links from children arrays; children are the source of

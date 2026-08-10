@@ -2572,6 +2572,113 @@ report.group('a link can hold a subtree, and an empty one has not changed');
 }
 
 /* --------------------------------------------------------------------------
+ * A corrupt document still opens
+ *
+ * `hydrateDocument` runs over every project every time one is opened, and it
+ * has always repaired the obvious holes — a node with no `children`, no
+ * `props`, no `styles`. `rules` was the one it did not, and the difference
+ * mattered more than the others: `variantsOf` reaches straight for
+ * `rule.when`, so a node whose rules arrived as a string threw during render,
+ * and a thrown render used to take the whole editor with it.
+ *
+ * Repaired rather than refused. Half a document on screen is worth more than
+ * an explanation of why there is none, and a rule nobody can read was not
+ * going to draw anything anyway.
+ * ----------------------------------------------------------------------- */
+
+report.group('a document with damage in it still draws');
+
+{
+  const withNode = (extra) => {
+    const doc = createEmptyDocument('Damaged');
+    const home = doc.pages[0];
+    const id = 'dmg0node00';
+    doc.nodes[id] = {
+      id,
+      type: 'heading',
+      name: 'Heading',
+      parentId: home.rootNodeId,
+      children: [],
+      props: { text: 'Still here', level: 2 },
+      styles: { desktop: { fontSize: '24px' } },
+      meta: {},
+      ...extra,
+    };
+    doc.nodes[home.rootNodeId].children.push(id);
+    return JSON.parse(JSON.stringify(doc));
+  };
+
+  const survives = (extra) => {
+    try {
+      const doc = hydrateDocument(withNode(extra));
+      const html = generateSite(doc).files.find((f) => f.path === 'index.html')?.contents ?? '';
+      return html.includes('Still here') ? 'draws' : 'drew nothing';
+    } catch (error) {
+      return `threw: ${error.message}`;
+    }
+  };
+
+  const damage = {
+    'no children': { children: null },
+    'no props': { props: null },
+    'no styles': { styles: null },
+    'no meta': { meta: undefined },
+    'rules as a string': { rules: 'hover' },
+    'rules as a number': { rules: 7 },
+    'a null among the rules': { rules: [null] },
+    'a rule with no condition list': { rules: [{ id: 'r', apply: { color: 'red' } }] },
+  };
+
+  /*
+   * Two different claims, and conflating them cost a false failure: every
+   * shape must render *without throwing*, and most must still show their text.
+   * A node whose `props` arrived null has genuinely lost its text — there is
+   * nothing to draw and that is the repair working, not failing.
+   */
+  for (const [what, extra] of Object.entries(damage)) {
+    const outcome = survives(extra);
+    report.check(`a node with ${what} does not throw`, !outcome.startsWith('threw'), outcome);
+  }
+  const keepsText = Object.entries(damage).filter(([, extra]) => extra.props !== null);
+  report.check(
+    'and everything that did not lose its props still shows them',
+    keepsText.every(([, extra]) => survives(extra) === 'draws'),
+    keepsText.filter(([, extra]) => survives(extra) !== 'draws').map(([what]) => what).join(', ') ||
+      `${keepsText.length} shapes`
+  );
+
+  // Repair must not be indiscriminate: a rule the renderer *can* read has to
+  // come through untouched, or "nothing crashed" would be bought by throwing
+  // away everybody's hover styles.
+  const mixed = hydrateDocument(
+    withNode({
+      rules: [
+        null,
+        'garbage',
+        { id: 'good', when: [{ kind: 'state', state: 'hover' }], apply: { color: 'red' } },
+      ],
+    })
+  );
+  report.check(
+    'and a readable rule survives a pass that threw its neighbours away',
+    mixed.nodes.dmg0node00?.rules?.length === 1 &&
+      mixed.nodes.dmg0node00?.rules?.[0]?.id === 'good',
+    `${mixed.nodes.dmg0node00?.rules?.length ?? 0} kept: ${(mixed.nodes.dmg0node00?.rules ?? []).map((r) => r.id).join(', ') || 'none'}`
+  );
+
+  // Twice, because hydration runs on every open and a repair that is not
+  // idempotent is a document that degrades a little each time it is looked at.
+  const twice = hydrateDocument(
+    JSON.parse(JSON.stringify(hydrateDocument(withNode({ rules: [null, { id: 'r2', when: [], apply: {} }] }))))
+  );
+  report.check(
+    'and running the repair twice changes nothing the first pass left',
+    twice.nodes.dmg0node00?.rules?.length === 1,
+    `${twice.nodes.dmg0node00?.rules?.length ?? 0} rules after two passes`
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Characters that should not be in source
  *
  * Twice now a file has ended up holding a byte that makes every tool treat it
