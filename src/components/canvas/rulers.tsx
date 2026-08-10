@@ -42,7 +42,7 @@ export function Rulers({
   );
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-30 select-none">
+    <div data-cre8-rulers className="pointer-events-none absolute inset-0 z-30 select-none">
       {/* Top */}
       <div
         className="absolute top-0 left-0 border-b border-[var(--border)] bg-[var(--panel)]/92 backdrop-blur-[2px]"

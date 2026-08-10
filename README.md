@@ -42,12 +42,19 @@ the canvas to edit *inside* it: insertion, selection and the layer tree all
 narrow to the overlay until you leave, so nothing lands on the page behind it.
 Backdrops are a control on the overlay rather than a rule to go and build.
 
-**Commands**  Every action the editor can perform on a selection is written
-down once, with its label, its shortcut and the answer to whether it applies
-right now. Right-click gets a menu built from that list — arranged, aligned,
-grouped, detached, renamed, deleted — the keyboard runs the same entries, and
-the shortcut printed beside a menu item *is* the chord that fires it. There is
-no second implementation of Duplicate to drift from the first.
+**Commands**  Every action the editor can perform is written down once, with
+its label, its shortcut and the answer to whether it applies right now.
+Right-click gets a menu built from that list — arranged, aligned, grouped,
+detached, renamed, deleted, pasted inside — the keyboard runs the same entries,
+and the shortcut printed beside a menu item *is* the chord that fires it. There
+is no second implementation of Duplicate to drift from the first.
+
+Right-click in the inspector and the menu is about the control you clicked:
+reset this padding, copy this shadow and paste it onto something else, take
+what you set for mobile and apply it at every width. It knows which breakpoint
+and which state you are editing, and says so in the wording. Where a control
+cannot answer for a property, you get the element's menu instead of an item
+that looks live and does nothing.
 
 **Interaction**  Switches, tabs, filters and steppers, all of them a named
 value plus a generated CSS rule — the published page ships about 2 KB for the

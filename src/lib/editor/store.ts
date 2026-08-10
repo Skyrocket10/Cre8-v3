@@ -206,6 +206,15 @@ interface EditorState {
   renameRequest: NodeId | null;
 
   /**
+   * A handful of declarations lifted off one element, for `pasteStyleValues`.
+   *
+   * Not `styleSource`, which names a whole node and means "make this look like
+   * that". This is narrower on purpose: the value of one row, or of one
+   * section, going somewhere the rest of the styles must not follow.
+   */
+  valueClipboard: { decl: StyleDecl; label: string } | null;
+
+  /**
    * Collection rows the canvas has loaded, by collection id.
    *
    * Not part of `doc`, and that is the whole point of the split: a schema is
@@ -365,6 +374,11 @@ interface EditorActions {
   alignSelection(edge: AlignEdge): void;
   distributeSelection(axis: 'x' | 'y'): void;
   resetStyles(ids?: NodeId[]): void;
+  copyStyleValues(props: StyleProp[], label: string): void;
+  pasteStyleValues(props?: StyleProp[]): void;
+  resetStyleProps(props: StyleProp[]): void;
+  resetStylePropsEverywhere(props: StyleProp[]): void;
+  liftToAllBreakpoints(props: StyleProp[]): void;
   detachSelection(): void;
   createComponentFromSelection(): void;
   selectChildren(): void;
@@ -376,6 +390,8 @@ interface EditorActions {
   copySelection(): void;
   cutSelection(): void;
   paste(): void;
+  pasteInto(): void;
+  clearInstanceOverrides(ids?: NodeId[]): void;
   copyStyles(): void;
   pasteStyles(): void;
 
@@ -488,6 +504,7 @@ function initialState(): EditorState {
     clipboard: null,
     styleSource: null,
     renameRequest: null,
+    valueClipboard: null,
     records: {},
     saveStatus: 'idle',
     lastSavedAt: null,
@@ -1345,6 +1362,112 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     });
   },
 
+  /**
+   * A few declarations on their own clipboard, separate from the whole-node one.
+   *
+   * `copyStyles` takes everything a node has and is aimed at making a second
+   * element look like the first. This is the other thing people want: that
+   * shadow, that radius, that one gap — carried to somewhere the rest of the
+   * styles must not follow.
+   */
+  copyStyleValues(props, label) {
+    const state = get();
+    const id = state.selection[0];
+    if (!id || !props.length) return;
+    const decl: StyleDecl = {};
+    let found = 0;
+    for (const prop of props) {
+      const value = readStyleProp(state, id, prop);
+      if (value === undefined) continue;
+      (decl as Record<string, string>)[prop] = value;
+      found++;
+    }
+    if (!found) return;
+    set({ valueClipboard: { decl, label } });
+    get().toast(`Copied ${label.toLowerCase()}`);
+  },
+
+  pasteStyleValues(props) {
+    const state = get();
+    const clipboard = state.valueClipboard;
+    if (!clipboard || !state.selection.length) return;
+    // A subset when the menu was opened on one row, everything when it was not:
+    // pasting a whole section onto a single field would be a surprise.
+    const patch: StyleDecl = props?.length
+      ? Object.fromEntries(
+          Object.entries(clipboard.decl).filter(([prop]) => props.includes(prop as StyleProp))
+        )
+      : clipboard.decl;
+    if (!Object.keys(patch).length) return;
+    writeStyle(get(), patch);
+  },
+
+  /**
+   * Drop these declarations from wherever the inspector is currently writing.
+   *
+   * Which is the point: with a state selected the inspector edits that rule, so
+   * Reset has to empty the rule rather than the base layer underneath it. Same
+   * rule as `useStyleReset`, in the store, so the row's dot and the menu item
+   * cannot come to different conclusions.
+   */
+  resetStyleProps(props) {
+    const state = get();
+    if (!props.length || !state.selection.length) return;
+    if (!state.activeRuleId) {
+      get().clearStyle(props);
+      return;
+    }
+    const patch: StyleDecl = {};
+    for (const prop of props) (patch as Record<string, undefined>)[prop] = undefined;
+    get().setRuleStyle(state.activeRuleId, patch);
+  },
+
+  resetStylePropsEverywhere(props) {
+    const state = get();
+    if (!props.length || !state.selection.length) return;
+    get().transact('Reset everywhere', (draft) => {
+      for (const id of state.selection) {
+        const node = draft.nodes[id];
+        if (!node) continue;
+        for (const layer of Object.keys(node.styles) as Breakpoint[]) {
+          ops.clearStyles(draft, [id], layer, props);
+        }
+        for (const rule of node.rules ?? []) {
+          for (const prop of props) delete rule.apply[prop];
+        }
+      }
+      return state.selection;
+    });
+  },
+
+  /**
+   * Make what you are looking at the answer at every width.
+   *
+   * Writes the value the current breakpoint resolves to into the base layer and
+   * drops the narrower overrides, rather than copying it into each layer — the
+   * result reads the same and leaves the node with one declaration instead of
+   * three, which is what a designer means by "everywhere".
+   */
+  liftToAllBreakpoints(props) {
+    const state = get();
+    if (!props.length || !state.selection.length) return;
+    get().transact('Apply to all breakpoints', (draft) => {
+      for (const id of state.selection) {
+        const node = draft.nodes[id];
+        if (!node) continue;
+        for (const prop of props) {
+          const value = readStyleProp(state, id, prop);
+          if (value === undefined) continue;
+          (node.styles.desktop ??= {} as StyleDecl)[prop as 'width'] = value as never;
+          for (const layer of Object.keys(node.styles) as Breakpoint[]) {
+            if (layer !== 'desktop') ops.clearStyles(draft, [id], layer, [prop]);
+          }
+        }
+      }
+      return state.selection;
+    });
+  },
+
   detachSelection() {
     const { selection, doc } = get();
     const instances = selection.filter((id) => doc.nodes[id]?.type === 'instance');
@@ -1439,6 +1562,47 @@ export const useEditor = create<EditorStore>()((set, get) => ({
         created.push(newRoot);
       }
       return created;
+    });
+  },
+
+  /**
+   * Paste as the selection's last child rather than as its next sibling.
+   *
+   * `paste` puts things beside what is selected, which is right most of the
+   * time and wrong for the one case people reach for a menu to express: an
+   * empty container they want filled.
+   */
+  pasteInto() {
+    const state = get();
+    const clipboard = state.clipboard;
+    const parentId = state.selection[0];
+    const parent = parentId ? state.doc.nodes[parentId] : undefined;
+    if (!clipboard || !parent || !getElement(parent.type).container) return;
+
+    get().transact('Paste inside', (draft) => {
+      const created: NodeId[] = [];
+      let index = parent.children.length;
+      for (const sourceRoot of clipboard.rootIds) {
+        const fresh: NodeMap = {};
+        const newRoot = cloneSubtree(clipboard.nodes, sourceRoot, fresh, parent.id);
+        if (!newRoot) continue;
+        const node = fresh[newRoot];
+        if (node) node.name = ops.uniqueName(draft.nodes, node.name);
+        ops.insertSubtree(draft, fresh, newRoot, parent.id, index++);
+        created.push(newRoot);
+      }
+      return created;
+    });
+  },
+
+  /** Put an instance back to saying whatever its component says. */
+  clearInstanceOverrides(ids) {
+    const state = get();
+    const targets = (ids ?? state.selection).filter((id) => state.doc.nodes[id]?.overrides);
+    if (!targets.length) return;
+    get().transact('Reset to component', (draft) => {
+      for (const id of targets) delete draft.nodes[id]?.overrides;
+      return targets;
     });
   },
 
@@ -1643,6 +1807,22 @@ export function canvasRootId(
     return variant?.rootNodeId ?? component.rootNodeId;
   }
   return state.doc.pages.find((p) => p.id === state.activePageId)?.rootNodeId ?? null;
+}
+
+/** The value a property resolves to for one node, rule-aware like the panels. */
+function readStyleProp(state: EditorStore, id: NodeId, prop: StyleProp): string | undefined {
+  if (state.activeRuleId) {
+    const rule = state.doc.nodes[id]?.rules?.find((r) => r.id === state.activeRuleId);
+    const own = rule?.apply[prop];
+    if (own !== undefined) return String(own);
+  }
+  return resolveStyleValue(state.doc, id, state.breakpoint, prop);
+}
+
+/** Write declarations wherever the inspector is currently pointed. */
+function writeStyle(state: EditorStore, patch: StyleDecl): void {
+  if (state.activeRuleId) state.setRuleStyle(state.activeRuleId, patch);
+  else state.setStyle(patch);
 }
 
 interface MeasuredBox {

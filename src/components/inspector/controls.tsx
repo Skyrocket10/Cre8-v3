@@ -5,7 +5,7 @@ import { RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { Tooltip } from '../ui/primitives';
 import { useEditor } from '@/lib/editor/store';
-import { BREAKPOINT_DEFS } from '@/lib/document/types';
+import { BREAKPOINT_DEFS, type StyleProp } from '@/lib/document/types';
 
 /**
  * A labelled inspector row that also reports *where a value comes from*.
@@ -22,6 +22,8 @@ export function StyleRow({
   hint,
   align = 'center',
   labelWidth = 62,
+  styleProps,
+  menuLabel,
 }: {
   label?: React.ReactNode;
   children: React.ReactNode;
@@ -30,12 +32,30 @@ export function StyleRow({
   hint?: string;
   align?: 'center' | 'start';
   labelWidth?: number;
+  /**
+   * The declarations this row owns.
+   *
+   * Stamped into the DOM so the inspector's one right-click handler can tell
+   * which property was clicked without every control having to know about
+   * menus. A row that does not say is not a row with a broken menu — it falls
+   * back to the menu for the element, which is the honest answer when nothing
+   * here knows what property you meant.
+   */
+  styleProps?: readonly StyleProp[];
+  /** What to call them in the menu. Defaults to the row's own label. */
+  menuLabel?: string;
 }) {
   const breakpoint = useEditor((s) => s.breakpoint);
   const showOverride = overridden && breakpoint !== 'desktop';
+  const named = menuLabel ?? (typeof label === 'string' ? label : undefined);
 
   return (
-    <div className={cn('flex gap-2', align === 'center' ? 'items-center' : 'items-start')}>
+    <div
+      className={cn('flex gap-2', align === 'center' ? 'items-center' : 'items-start')}
+      {...(styleProps?.length && named
+        ? { 'data-style-props': styleProps.join(','), 'data-style-label': named }
+        : {})}
+    >
       {label !== undefined && (
         <div
           className="flex shrink-0 items-center gap-1"

@@ -89,7 +89,7 @@ export function LayoutSection() {
   return (
     <Section title="Layout">
       <InspectorGroup>
-        <StyleRow label="Type">
+        <StyleRow styleProps={['display', 'flexDirection', 'gridTemplateColumns']} menuLabel="Layout type" label="Type">
           <Segmented
             full
             value={isGrid ? 'grid' : isFlex ? 'stack' : 'block'}
@@ -104,7 +104,7 @@ export function LayoutSection() {
 
         {isFlex && (
           <>
-            <StyleRow
+            <StyleRow styleProps={['flexDirection']} menuLabel="Direction"
               label="Direction"
               overridden={bindings.flexDirection?.overridden}
               onReset={() => resetLayout(['flexDirection'])}
@@ -136,7 +136,7 @@ export function LayoutSection() {
               </Tooltip>
             </StyleRow>
 
-            <StyleRow label="Align" align="start">
+            <StyleRow styleProps={['alignItems', 'justifyContent']} menuLabel="Alignment" label="Align" align="start">
               <AlignmentGrid
                 column={column}
                 alignItems={bindings.alignItems?.value}
@@ -183,7 +183,7 @@ export function LayoutSection() {
 
         {isGrid && (
           <>
-            <StyleRow label="Columns" overridden={bindings.gridTemplateColumns?.overridden}>
+            <StyleRow styleProps={['gridTemplateColumns', 'gap']} menuLabel="Columns" label="Columns" overridden={bindings.gridTemplateColumns?.overridden}>
               <NumberField
                 value={String(columnCount)}
                 units={[]}
@@ -206,7 +206,7 @@ export function LayoutSection() {
                 min={0}
               />
             </StyleRow>
-            <StyleRow label="Template" hint="Raw grid-template-columns for full control">
+            <StyleRow styleProps={['gridTemplateColumns']} menuLabel="Template" label="Template" hint="Raw grid-template-columns for full control">
               <input
                 value={bindings.gridTemplateColumns?.value ?? ''}
                 onChange={(e) => write({ gridTemplateColumns: e.target.value || undefined })}
@@ -334,7 +334,7 @@ export function SizeSection() {
           onReset={() => reset(['height'])}
         />
 
-        <StyleRow label="Min">
+        <StyleRow styleProps={['minWidth', 'minHeight']} menuLabel="Minimum size" label="Min">
           <FieldPair>
             <NumberField
               label="W"
@@ -352,7 +352,7 @@ export function SizeSection() {
             />
           </FieldPair>
         </StyleRow>
-        <StyleRow label="Max">
+        <StyleRow styleProps={['maxWidth', 'maxHeight']} menuLabel="Maximum size" label="Max">
           <FieldPair>
             <NumberField
               label="W"
@@ -371,7 +371,7 @@ export function SizeSection() {
             />
           </FieldPair>
         </StyleRow>
-        <StyleRow label="Ratio" hint="Aspect ratio, e.g. 16 / 9">
+        <StyleRow styleProps={['aspectRatio']} menuLabel="Ratio" label="Ratio" hint="Aspect ratio, e.g. 16 / 9">
           <NumberField
             value={bindings.aspectRatio?.value}
             overridden={bindings.aspectRatio?.overridden}
@@ -459,7 +459,7 @@ export function PositionSection() {
   return (
     <Section title="Position" defaultOpen={false}>
       <InspectorGroup>
-        <StyleRow label="Position" overridden={bindings.position?.overridden}>
+        <StyleRow styleProps={['position']} menuLabel="Position" label="Position" overridden={bindings.position?.overridden}>
           <Select
             className="flex-1"
             value={position}
@@ -476,7 +476,7 @@ export function PositionSection() {
 
         {placed && (
           <>
-            <StyleRow label="Offset">
+            <StyleRow styleProps={['top', 'right', 'bottom', 'left']} menuLabel="Offset" label="Offset">
               <FieldPair>
                 <NumberField
                   label="T"
@@ -516,7 +516,7 @@ export function PositionSection() {
                 />
               </FieldPair>
             </StyleRow>
-            <StyleRow label="Z-index">
+            <StyleRow styleProps={['zIndex']} menuLabel="Z-index" label="Z-index">
               <NumberField
                 value={bindings.zIndex?.value}
                 units={[]}
@@ -527,7 +527,7 @@ export function PositionSection() {
           </>
         )}
 
-        <StyleRow label="Overflow">
+        <StyleRow styleProps={['overflow']} menuLabel="Overflow" label="Overflow">
           <Segmented
             full
             value={bindings.overflow?.value ?? 'visible'}
@@ -571,7 +571,7 @@ export function FlexChildSection() {
   return (
     <Section title="In parent" defaultOpen={false}>
       <InspectorGroup>
-        <StyleRow label="Grow" hint="Take up remaining space along the parent's axis">
+        <StyleRow styleProps={['flexGrow']} menuLabel="Grow" label="Grow" hint="Take up remaining space along the parent's axis">
           <Segmented
             full
             value={grow.value === '1' ? 'grow' : 'none'}
@@ -582,7 +582,7 @@ export function FlexChildSection() {
             ]}
           />
         </StyleRow>
-        <StyleRow label="Align" overridden={alignSelf.overridden} onReset={alignSelf.clear}>
+        <StyleRow styleProps={['alignSelf']} menuLabel="Align in parent" label="Align" overridden={alignSelf.overridden} onReset={alignSelf.clear}>
           <Segmented
             full
             value={alignSelf.value ?? 'auto'}

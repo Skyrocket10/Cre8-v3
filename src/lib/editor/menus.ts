@@ -26,7 +26,9 @@ import { COMMANDS, commandEnabled, type CommandContext } from './commands';
 export type MenuItem =
   | { kind: 'command'; id: string; arg?: string }
   | { kind: 'separator' }
-  | { kind: 'submenu'; label: string; items: MenuItem[] };
+  /** A non-interactive caption. Says what the block below it is about. */
+  | { kind: 'heading'; label: string }
+  | { kind: 'submenu'; label: string; icon?: string; items: MenuItem[] };
 
 /** The types offered inline. The rest are one click away in the Insert panel. */
 const QUICK_INSERT: ElementType[] = [
@@ -39,6 +41,15 @@ const QUICK_INSERT: ElementType[] = [
   'text',
   'button',
   'image',
+];
+
+const VIEW: MenuItem[] = [
+  { kind: 'command', id: 'toggleRulers' },
+  { kind: 'command', id: 'toggleOutlines' },
+  { kind: 'command', id: 'toggleSnap' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'zoomFit' },
+  { kind: 'command', id: 'zoomReset' },
 ];
 
 const ARRANGE: MenuItem[] = [
@@ -78,6 +89,8 @@ function insertItems(id: 'insert' | 'insertChild'): MenuItem[] {
  * context-specific item is the way back out.
  */
 export function menuFor(ctx: CommandContext): MenuItem[] {
+  if (ctx.subject?.kind === 'style') return styleMenu(ctx, ctx.subject.label);
+
   const items: MenuItem[] = [];
 
   if (ctx.store.editingOverlayId) {
@@ -88,9 +101,10 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
     items.push(
       { kind: 'command', id: 'paste' },
       { kind: 'separator' },
-      { kind: 'submenu', label: 'Add element', items: insertItems('insert') },
+      { kind: 'submenu', label: 'Add element', icon: 'plus', items: insertItems('insert') },
       { kind: 'command', id: 'selectAll' },
       { kind: 'separator' },
+      { kind: 'submenu', label: 'View', icon: 'eye', items: VIEW },
       { kind: 'command', id: 'pageSettings' }
     );
     return prune(items, ctx);
@@ -100,7 +114,12 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
   if (ctx.editableText) items.push({ kind: 'command', id: 'editText' });
   if (ctx.overlayNode) items.push({ kind: 'command', id: 'enterOverlay' });
   if (ctx.instance) {
-    items.push({ kind: 'command', id: 'editComponent' }, { kind: 'command', id: 'detach' });
+    items.push(
+      { kind: 'heading', label: 'Component' },
+      { kind: 'command', id: 'editComponent' },
+      { kind: 'command', id: 'resetInstanceOverrides' },
+      { kind: 'command', id: 'detach' }
+    );
   }
   items.push({ kind: 'separator' });
 
@@ -109,6 +128,7 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
     { kind: 'command', id: 'cut' },
     { kind: 'command', id: 'copy' },
     { kind: 'command', id: 'paste' },
+    { kind: 'command', id: 'pasteInto' },
     { kind: 'command', id: 'duplicate' },
     { kind: 'separator' }
   );
@@ -120,8 +140,8 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
   items.push({ kind: 'separator' });
 
   /* --- Position ----------------------------------------------------------- */
-  items.push({ kind: 'submenu', label: 'Arrange', items: ARRANGE });
-  if (ctx.alignable) items.push({ kind: 'submenu', label: 'Align', items: ALIGN });
+  items.push({ kind: 'submenu', label: 'Arrange', icon: 'layers', items: ARRANGE });
+  if (ctx.alignable) items.push({ kind: 'submenu', label: 'Align', icon: 'alignLeft', items: ALIGN });
 
   /* --- Styles -------------------------------------------------------------- */
   items.push(
@@ -136,6 +156,7 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
   items.push({
     kind: 'submenu',
     label: 'Select',
+    icon: 'boxSelect',
     items: [
       { kind: 'command', id: 'selectParent' },
       { kind: 'command', id: 'selectFirstChild' },
@@ -146,7 +167,7 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
     ],
   });
   if (ctx.container && ctx.count === 1) {
-    items.push({ kind: 'submenu', label: 'Add child', items: insertItems('insertChild') });
+    items.push({ kind: 'submenu', label: 'Add child', icon: 'plus', items: insertItems('insertChild') });
   }
   items.push(
     { kind: 'command', id: 'showInLayers' },
@@ -159,6 +180,39 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
   );
 
   return prune(items, ctx);
+}
+
+/**
+ * The menu for one inspector row, or one whole section of them.
+ *
+ * Named after what was right-clicked, because "Reset" beside "Reset" beside
+ * "Reset" tells nobody which one empties the shadow. The element-level style
+ * actions come after, since somebody who right-clicked a style control is in
+ * the middle of styling and those are the neighbouring things they may want.
+ */
+function styleMenu(ctx: CommandContext, label: string): MenuItem[] {
+  return prune(
+    [
+      { kind: 'heading', label },
+      { kind: 'command', id: 'resetProperty' },
+      // Only where there is a narrower layer to lift out of. On desktop it
+      // would be a row that is grey for ever, which is clutter rather than
+      // information.
+      ...(ctx.breakpoint === 'desktop'
+        ? []
+        : [{ kind: 'command' as const, id: 'liftToAllBreakpoints' }]),
+      { kind: 'command', id: 'copyValue' },
+      { kind: 'command', id: 'pasteValue' },
+      { kind: 'separator' },
+      { kind: 'heading', label: 'This element' },
+      { kind: 'command', id: 'copyStyles' },
+      { kind: 'command', id: 'pasteStyles' },
+      { kind: 'command', id: 'resetStyles' },
+      { kind: 'separator' },
+      { kind: 'command', id: 'resetPropertyEverywhere' },
+    ],
+    ctx
+  );
 }
 
 /**
@@ -177,6 +231,12 @@ function prune(items: MenuItem[], ctx: CommandContext): MenuItem[] {
       if (inner.some((entry) => entry.kind === 'command')) kept.push({ ...item, items: inner });
       continue;
     }
+    if (item.kind === 'heading') {
+      // Dropped later if nothing lands under it — a caption over an empty
+      // stretch reads as a rendering fault.
+      kept.push(item);
+      continue;
+    }
     if (item.kind === 'command') {
       // An unknown id is a typo in a menu, and a silent one — the item would
       // render blank and do nothing. Dropping it keeps the menu honest; the
@@ -187,8 +247,18 @@ function prune(items: MenuItem[], ctx: CommandContext): MenuItem[] {
     }
     if (kept.length && kept[kept.length - 1]!.kind !== 'separator') kept.push(item);
   }
-  while (kept.length && kept[kept.length - 1]!.kind === 'separator') kept.pop();
-  return kept;
+
+  // A heading is only a heading if something follows it before the next break.
+  const withHeadings = kept.filter((item, index) => {
+    if (item.kind !== 'heading') return true;
+    const next = kept[index + 1];
+    return next !== undefined && next.kind !== 'separator' && next.kind !== 'heading';
+  });
+
+  while (withHeadings.length && withHeadings[withHeadings.length - 1]!.kind === 'separator') {
+    withHeadings.pop();
+  }
+  return withHeadings;
 }
 
 /** Every command id a menu can reach, for the check that they all exist. */

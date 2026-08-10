@@ -160,6 +160,21 @@ Three surfaces read from it and none of them has a table of its own:
   it cannot describe a chord that no longer exists — which the hand-written
   version it replaced had already started to do.
 
+A menu item names a command; it can also name a **subject** — what was
+right-clicked, never what to do about it. `{ kind: 'style', props, label }` is
+how the inspector says "this was the padding row", which is what lets Reset
+mean the padding rather than every declaration the element has. `StyleRow`
+stamps the declarations it owns into the DOM and one delegated handler on the
+panel root reads the nearest of them, so no control knows anything about menus.
+A row that never said falls back to the element's menu, and a text field keeps
+the browser's own — cut, paste and spelling are not ours to reimplement.
+
+The subject travels with the command when it runs. That is worth stating
+because getting it wrong is silent: `runCommand` rebuilds the context against
+live state, and rebuilding it without the subject left every property command
+failing its own availability check and returning. Reset padding looked
+perfectly wired and did nothing.
+
 The shortcut a menu prints comes from the chord that runs it, so the two cannot
 disagree. That is also why bindings avoid shifted punctuation: `Shift+]` arrives
 as `}`, so a binding written as `mod+shift+]` would be printed and never fire.

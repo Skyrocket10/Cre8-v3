@@ -118,7 +118,7 @@ export function TypographySection() {
           />
         </StyleRow>
 
-        <StyleRow label="Font" overridden={bindings.fontFamily?.overridden}>
+        <StyleRow styleProps={['fontFamily']} menuLabel="Font" label="Font" overridden={bindings.fontFamily?.overridden}>
           <Select
             className="flex-1"
             width={216}
@@ -129,7 +129,7 @@ export function TypographySection() {
           />
         </StyleRow>
 
-        <StyleRow label="Size">
+        <StyleRow styleProps={['fontSize']} menuLabel="Size" label="Size">
           <NumberField
             value={bindings.fontSize?.value}
             overridden={bindings.fontSize?.overridden}
@@ -157,7 +157,7 @@ export function TypographySection() {
           />
         </StyleRow>
 
-        <StyleRow label="Spacing">
+        <StyleRow styleProps={['lineHeight', 'letterSpacing']} menuLabel="Spacing" label="Spacing">
           <FieldPair>
             <NumberField
               value={bindings.lineHeight?.value}
@@ -189,7 +189,7 @@ export function TypographySection() {
           </FieldPair>
         </StyleRow>
 
-        <StyleRow label="Colour" overridden={bindings.color?.overridden}>
+        <StyleRow styleProps={['color']} menuLabel="Text colour" label="Colour" overridden={bindings.color?.overridden}>
           <ColorField
             label="Text colour"
             tokens={theme.colors}
@@ -201,7 +201,7 @@ export function TypographySection() {
           />
         </StyleRow>
 
-        <StyleRow label="Align">
+        <StyleRow styleProps={['textAlign']} menuLabel="Alignment" label="Align">
           <IconToggles
             value={bindings.textAlign?.value ?? 'left'}
             mixed={bindings.textAlign?.mixed}
@@ -215,7 +215,7 @@ export function TypographySection() {
           />
         </StyleRow>
 
-        <StyleRow label="Case">
+        <StyleRow styleProps={['textTransform']} menuLabel="Case" label="Case">
           <IconToggles
             value={bindings.textTransform?.value ?? 'none'}
             onChange={(value) => write({ textTransform: value === 'none' ? undefined : value })}
@@ -285,7 +285,7 @@ export function FillSection() {
         />
 
         {tab === 'colour' && (
-          <StyleRow label="Background" overridden={bindings.backgroundColor?.overridden}>
+          <StyleRow styleProps={['backgroundColor', 'backgroundImage']} menuLabel="Background" label="Background" overridden={bindings.backgroundColor?.overridden}>
             <ColorField
               label="Background"
               tokens={theme.colors}
@@ -332,7 +332,7 @@ export function FillSection() {
 
         {tab === 'image' && (
           <>
-            <StyleRow label="URL">
+            <StyleRow styleProps={['backgroundImage']} menuLabel="Background image" label="URL">
               <input
                 value={extractUrl(image)}
                 onChange={(e) =>
@@ -346,7 +346,7 @@ export function FillSection() {
                 className="h-[26px] w-full min-w-0 rounded-md bg-[var(--field)] px-2 text-[11px] text-[var(--text)] outline-none transition-colors hover:bg-[var(--field-hover)] focus:ring-1 focus:ring-[var(--accent)] focus:ring-inset placeholder:text-[var(--text-faint)]"
               />
             </StyleRow>
-            <StyleRow label="Fit">
+            <StyleRow styleProps={['backgroundSize']} menuLabel="Background fit" label="Fit">
               <Segmented
                 full
                 value={bindings.backgroundSize?.value ?? 'cover'}
@@ -358,7 +358,7 @@ export function FillSection() {
                 ]}
               />
             </StyleRow>
-            <StyleRow label="Position">
+            <StyleRow styleProps={['backgroundPosition']} menuLabel="Background position" label="Position">
               <Select
                 className="flex-1"
                 value={bindings.backgroundPosition?.value ?? 'center'}
@@ -445,7 +445,7 @@ export function BorderSection() {
   return (
     <Section title="Border" defaultOpen={false}>
       <InspectorGroup>
-        <StyleRow label="Radius">
+        <StyleRow styleProps={RADIUS_PROPS} menuLabel="Radius" label="Radius">
           {/* The theme's scale by name, with the number field folded in as the
               custom case. It used to be the number field alone, which accepted
               `var(--r-md)` if you knew to type it — an escape hatch offered as
@@ -504,7 +504,7 @@ export function BorderSection() {
           </StyleRow>
         )}
 
-        <StyleRow label="Width">
+        <StyleRow styleProps={WIDTH_PROPS} menuLabel="Border width" label="Width">
           <NumberField
             value={widthLinked ? widthValues[0] : undefined}
             placeholder={widthLinked ? '0' : 'Mixed'}
@@ -550,7 +550,7 @@ export function BorderSection() {
           </StyleRow>
         )}
 
-        <StyleRow label="Style">
+        <StyleRow styleProps={['borderStyle']} menuLabel="Border style" label="Style">
           <Select
             className="flex-1"
             value={bindings.borderStyle?.value ?? 'solid'}
@@ -564,7 +564,7 @@ export function BorderSection() {
           />
         </StyleRow>
 
-        <StyleRow label="Colour" overridden={bindings.borderColor?.overridden}>
+        <StyleRow styleProps={['borderColor']} menuLabel="Border colour" label="Colour" overridden={bindings.borderColor?.overridden}>
           <ColorField
             label="Border colour"
             tokens={theme.colors}
@@ -602,7 +602,7 @@ export function EffectsSection() {
   return (
     <Section title="Effects" defaultOpen={false}>
       <InspectorGroup>
-        <StyleRow label="Opacity" overridden={opacity.overridden} onReset={opacity.clear}>
+        <StyleRow styleProps={['opacity']} menuLabel="Opacity" label="Opacity" overridden={opacity.overridden} onReset={opacity.clear}>
           <div className="flex flex-1 items-center gap-2">
             <input
               type="range"
@@ -620,7 +620,7 @@ export function EffectsSection() {
           </div>
         </StyleRow>
 
-        <StyleRow label="Shadow" overridden={shadow.overridden} onReset={shadow.clear}>
+        <StyleRow styleProps={['boxShadow']} menuLabel="Shadow" label="Shadow" overridden={shadow.overridden} onReset={shadow.clear}>
           {/* The project's own shadow scale, not a list baked in here. A block
               styled with `var(--sh-md)` and a control offering a different
               hardcoded `0 1px 2px …` were two shadow systems in one editor. */}
@@ -640,7 +640,7 @@ export function EffectsSection() {
           />
         </StyleRow>
 
-        <StyleRow label="Blur" hint="Blurs the element itself">
+        <StyleRow styleProps={['filter']} menuLabel="Blur" label="Blur" hint="Blurs the element itself">
           <NumberField
             value={blurValue}
             min={0}
@@ -648,7 +648,7 @@ export function EffectsSection() {
           />
         </StyleRow>
 
-        <StyleRow label="Backdrop" hint="Blurs whatever is behind the element">
+        <StyleRow styleProps={['backdropFilter']} menuLabel="Backdrop" label="Backdrop" hint="Blurs whatever is behind the element">
           <NumberField
             value={backdropValue}
             min={0}
@@ -658,7 +658,7 @@ export function EffectsSection() {
           />
         </StyleRow>
 
-        <StyleRow label="Transform" hint="Any CSS transform, e.g. rotate(-2deg)">
+        <StyleRow styleProps={['transform']} menuLabel="Transform" label="Transform" hint="Any CSS transform, e.g. rotate(-2deg)">
           <input
             value={transform.value ?? ''}
             onChange={(e) => transform.set(e.target.value || undefined)}

@@ -44,7 +44,19 @@ function seed(doc) {
     holder: node('holder', 'frame', 'Holder', {
       parentId: home.rootNodeId,
       children: ['boxa', 'boxb', 'boxc'],
-      styles: { desktop: { position: 'relative', height: '320px', padding: '20px' } },
+      // Longhands, because that is what the editor writes and what the box
+      // model reads. A shorthand here would make the padding row's Reset
+      // correctly unavailable and the check unhelpfully mysterious.
+      styles: {
+        desktop: {
+          position: 'relative',
+          height: '320px',
+          paddingTop: '20px',
+          paddingRight: '20px',
+          paddingBottom: '20px',
+          paddingLeft: '20px',
+        },
+      },
     }),
     boxa: node('boxa', 'heading', 'Box A', {
       parentId: 'holder',
@@ -116,6 +128,12 @@ const drawnCount = async () => {
   return previous;
 };
 
+const paddingOf = (nodeId) =>
+  page.evaluate((id) => {
+    const el = document.querySelector(`.cre8-frame.cre8-editing [data-cre8-id="${id}"]`);
+    return el ? getComputedStyle(el).paddingTop : null;
+  }, nodeId);
+
 const showLayers = async () => {
   if (await page.locator('[data-layer-row]').first().isVisible().catch(() => false)) return;
   await page.locator('button[aria-label="Layers"]').first().click();
@@ -147,13 +165,19 @@ const rightClick = async (nodeId) => {
   return at;
 };
 
+// `[data-menu-item]` rather than `[role="menuitem"]`: a row that reports a
+// setting is a `menuitemcheckbox`, which is the correct role and not that one.
 const menuLabels = () =>
-  page.$$eval('[role="menu"] [role="menuitem"]', (nodes) =>
+  page.$$eval('[role="menu"] [data-menu-item]', (nodes) =>
     nodes.map((n) => n.getAttribute('data-menu-item') ?? '')
   );
 
 const clickItem = async (label) => {
-  await page.locator(`[role="menuitem"][data-menu-item="${label}"]`).first().click();
+  const row = page.locator(`[data-menu-item="${label}"]`).first();
+  // Say so plainly rather than spending thirty seconds finding out: a disabled
+  // row has `pointer-events: none`, so clicking it just times out.
+  if (await row.isDisabled()) throw new Error(`menu item "${label}" is disabled`);
+  await row.click();
   await page.waitForTimeout(700);
 };
 
@@ -202,7 +226,7 @@ try {
   report.check(
     'with the shortcut printed beside the action it runs',
     await page.evaluate(() => {
-      const row = document.querySelector('[role="menuitem"][data-menu-item="Duplicate"]');
+      const row = document.querySelector('[data-menu-item="Duplicate"]');
       return /[⌘]D|Ctrl\+D/.test(row?.textContent ?? '');
     }),
     'Duplicate shows its chord'
@@ -359,7 +383,7 @@ try {
 
   await selectLayer('Box A');
   await rightClick('boxa');
-  await page.locator('[role="menuitem"][data-menu-item="Arrange"]').first().hover();
+  await page.locator('[data-menu-item="Arrange"]').first().hover();
   await page.waitForTimeout(300);
   const panels = await page.locator('[role="menu"]').count();
   const arrangeItems = await menuLabels();
@@ -367,6 +391,29 @@ try {
     'a submenu opens on hover',
     panels === 2 && arrangeItems.includes('Bring to front'),
     `${panels} panels; ${arrangeItems.filter((l) => l.startsWith('Bring') || l.startsWith('Send')).join(', ')}`
+  );
+
+  /*
+   * Where it opens, not merely that it did. A submenu nested inside its parent
+   * inherits the parent's transform and resolves `position: fixed` against it,
+   * which put this one at 868,1578 in a 1500x950 window — open, populated, and
+   * completely off the screen. Counting panels saw nothing wrong.
+   */
+  const submenuPlaced = await page.evaluate(() => {
+    const panels = [...document.querySelectorAll('[role="menu"]')];
+    const sub = panels[panels.length - 1].getBoundingClientRect();
+    const parent = panels[0].getBoundingClientRect();
+    return {
+      inside: sub.right <= innerWidth && sub.bottom <= innerHeight && sub.top >= 0 && sub.left >= 0,
+      beside: Math.abs(sub.left - parent.right) < 40,
+      at: `${Math.round(sub.left)},${Math.round(sub.top)}`,
+      window: `${innerWidth}x${innerHeight}`,
+    };
+  });
+  report.check(
+    'and it opens beside its parent, on the screen',
+    submenuPlaced.inside && submenuPlaced.beside,
+    `submenu at ${submenuPlaced.at} in ${submenuPlaced.window}`
   );
 
   const orderBefore = (await childOrder('holder')).join(',');
@@ -400,7 +447,7 @@ try {
   await selectLayer('Tail');
   await rightClick('tail');
   const withFlow = await menuLabels();
-  const flowHasAlign = await page.locator('[role="menuitem"][data-menu-item="Align"]').count();
+  const flowHasAlign = await page.locator('[data-menu-item="Align"]').count();
   await closeMenu();
 
   report.check(
@@ -420,7 +467,7 @@ try {
   await selectLayer('Box B', 'Shift');
   await selectLayer('Box C', 'Shift');
   await rightClick('boxb');
-  await page.locator('[role="menuitem"][data-menu-item="Align"]').first().hover();
+  await page.locator('[data-menu-item="Align"]').first().hover();
   await page.waitForTimeout(300);
   await clickItem('Align left');
   const lefts = await page.evaluate(async (pid) => {
@@ -551,6 +598,140 @@ try {
     }
   }
 
+  /* ------------------------------------------ 11. the inspector's menu ---- */
+
+  /*
+   * A right-click on a style control is not a question about the element. It
+   * is a question about that property, and the menu has to be able to tell the
+   * difference — otherwise the only Reset on offer is the one that empties
+   * every declaration the element has.
+   */
+  await selectLayer('Holder');
+  await page.waitForTimeout(400);
+
+  const padding = page.locator('[data-style-props][data-style-label="Padding"]').first();
+  await padding.waitFor({ state: 'visible', timeout: 6000 });
+  const at2 = await padding.boundingBox();
+  await page.mouse.click(at2.x + 6, at2.y + 6, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+
+  const headings = await page.$$eval('[data-menu-heading]', (nodes) =>
+    nodes.map((n) => n.getAttribute('data-menu-heading'))
+  );
+  const styleLabels = await menuLabels();
+  report.check(
+    'right-clicking padding gives a menu about padding',
+    headings.includes('Padding') && styleLabels.includes('Reset padding'),
+    `${headings.join(' / ')} — ${styleLabels.slice(0, 4).join(', ')}`
+  );
+  report.check(
+    'and the element-wide style actions are still within reach',
+    styleLabels.includes('Copy styles') && styleLabels.includes('Reset styles'),
+    styleLabels.join(', ')
+  );
+  report.check(
+    'but nothing that belongs to the canvas menu',
+    !styleLabels.includes('Duplicate') && !styleLabels.includes('Bring to front'),
+    'no element actions on a property menu'
+  );
+
+  const paddingBefore = await paddingOf('holder');
+  await clickItem('Reset padding');
+  const paddingAfter = await paddingOf('holder');
+  report.check(
+    'and Reset padding removes exactly that',
+    paddingBefore !== '0px' && paddingAfter === '0px',
+    `${paddingBefore} → ${paddingAfter}`
+  );
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(700);
+
+  /* --- Copy one value, not the whole element ------------------------------ */
+
+  await selectLayer('Holder');
+  const gapRow = page.locator('[data-style-props][data-style-label="Padding"]').first();
+  const box2 = await gapRow.boundingBox();
+  await page.mouse.click(box2.x + 6, box2.y + 6, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  await clickItem('Copy padding');
+
+  await selectLayer('Box A');
+  await page.waitForTimeout(400);
+  const target = page.locator('[data-style-props][data-style-label="Padding"]').first();
+  const box3 = await target.boundingBox();
+  await page.mouse.click(box3.x + 6, box3.y + 6, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  const pasteLabels = await menuLabels();
+  report.check(
+    'the value clipboard says what it is holding',
+    pasteLabels.includes('Paste padding'),
+    pasteLabels.slice(0, 5).join(', ')
+  );
+  await clickItem('Paste padding');
+  const carried = await paddingOf('boxa');
+  report.check(
+    'and pasting it carries the padding across',
+    carried === paddingBefore,
+    `${carried}, copied from ${paddingBefore}`
+  );
+  report.check(
+    'without dragging the rest of the element with it',
+    (await page.evaluate(() => {
+      const el = document.querySelector('.cre8-frame.cre8-editing [data-cre8-id="boxa"]');
+      return getComputedStyle(el).position;
+    })) === 'absolute',
+    'Box A is still positioned as it was'
+  );
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(700);
+
+  /* --- A field keeps the browser's menu ----------------------------------- */
+
+  await selectLayer('Box A');
+  const field = page.locator('aside input[type="text"], aside input:not([type])').first();
+  if (await field.count()) {
+    const fbox = await field.boundingBox();
+    if (fbox) {
+      await page.mouse.click(fbox.x + fbox.width / 2, fbox.y + fbox.height / 2, { button: 'right' });
+      await page.waitForTimeout(400);
+      report.check(
+        'a text field in the inspector keeps the browser’s own menu',
+        (await page.locator('[role="menu"]').count()) === 0,
+        'ours stayed out of the way'
+      );
+    }
+  }
+
+  /* --- A setting the menu reports back ------------------------------------ */
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const rulersBefore = await page.locator('[data-cre8-rulers]').count();
+  const gutter2 = await page.evaluate(() => {
+    const r = document.querySelector('.canvas-surface').getBoundingClientRect();
+    return { x: Math.round(r.left + 16), y: Math.round(r.bottom - 24) };
+  });
+  await page.mouse.click(gutter2.x, gutter2.y);
+  await page.waitForTimeout(250);
+  await page.mouse.click(gutter2.x, gutter2.y, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  await page.locator('[data-menu-item="View"]').first().hover();
+  await page.waitForTimeout(300);
+  const ticked = await page.evaluate(() => {
+    const row = document.querySelector('[role="menuitemcheckbox"][data-menu-item="Rulers"]');
+    return row?.getAttribute('aria-checked');
+  });
+  report.check(
+    'a setting in the menu shows its current state',
+    ticked === String(rulersBefore > 0),
+    `Rulers ticked=${ticked}, drawn=${rulersBefore > 0}`
+  );
+  await clickItem('Rulers');
+  report.check(
+    'and choosing it changes the canvas',
+    (await page.locator('[data-cre8-rulers]').count()) !== rulersBefore,
+    'rulers toggled'
+  );
 } catch (error) {
   report.check('menus suite completed', false, error.message);
 } finally {

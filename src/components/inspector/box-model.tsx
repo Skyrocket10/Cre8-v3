@@ -57,7 +57,14 @@ export function BoxModel() {
   return (
     <div className="relative select-none">
       {/* Margin box */}
-      <div className="relative rounded-md border border-dashed border-[var(--border-strong)] bg-[var(--margin-fill)] px-6 py-[22px]">
+      {/* The two rings answer for their own declarations, so a right-click on
+          the outer band offers to reset the margins and one on the inner band
+          the paddings — which is the distinction the widget is drawn to make. */}
+      <div
+        data-style-props={MARGIN_PROPS.join(',')}
+        data-style-label="Margin"
+        className="relative rounded-md border border-dashed border-[var(--border-strong)] bg-[var(--margin-fill)] px-6 py-[22px]"
+      >
         <span className="absolute top-1 left-2 flex items-center gap-1 text-[8.5px] font-semibold tracking-[0.08em] text-[var(--text-faint)] uppercase">
           Margin
           <TokenPicker
@@ -82,7 +89,11 @@ export function BoxModel() {
         </Edge>
 
         {/* Padding box */}
-        <div className="relative rounded-[5px] border border-[var(--border)] bg-[var(--padding-fill)] px-6 py-[22px]">
+        <div
+          data-style-props={PADDING_PROPS.join(',')}
+          data-style-label="Padding"
+          className="relative rounded-[5px] border border-[var(--border)] bg-[var(--padding-fill)] px-6 py-[22px]"
+        >
           <span className="absolute top-1 left-2 text-[8.5px] font-semibold tracking-[0.08em] text-[var(--text-faint)] uppercase">
             Padding
           </span>

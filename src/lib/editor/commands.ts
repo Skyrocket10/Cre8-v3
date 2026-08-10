@@ -21,9 +21,10 @@
  * shape as "Delete", and a menu cannot name an action that is not in here.
  */
 
+import { BREAKPOINT_DEFS, type Breakpoint } from '../document/types';
 import { ELEMENTS, getElement } from '../document/schema';
 import { describeElement } from '../renderer/element-model';
-import type { ElementType, NodeId, SceneNode } from '../document/types';
+import type { ElementType, NodeId, SceneNode, StyleProp } from '../document/types';
 import {
   activeRootId,
   alignableSelection,
@@ -32,6 +33,27 @@ import {
   type ArrangeDirection,
   type EditorStore,
 } from './store';
+
+/* --------------------------------------------------------------------------
+ * Subjects
+ * ----------------------------------------------------------------------- */
+
+/**
+ * What was right-clicked, as opposed to what should be done about it.
+ *
+ * A caller says "this was a padding row" and stops there. It cannot supply
+ * actions — that is still the catalogue's job and only the catalogue's — but
+ * without this the inspector's menu could only ever be about the element,
+ * which is not what somebody right-clicking a shadow field is asking about.
+ *
+ * `element` is the default and needs no subject at all; the canvas and the
+ * layer tree pass nothing.
+ */
+export type MenuSubject =
+  | { kind: 'style'; props: StyleProp[]; label: string }
+  | { kind: 'prop'; name: string; label: string }
+  | { kind: 'page'; pageId: string }
+  | { kind: 'component'; componentId: string };
 
 /* --------------------------------------------------------------------------
  * Context
@@ -64,9 +86,18 @@ export interface CommandContext {
   /** Positioned siblings under one parent: the only case align can honour. */
   alignable: boolean;
   readOnly: boolean;
+  /** What was right-clicked, when it was something more specific than an element. */
+  subject?: MenuSubject;
+  /** Which style layer the inspector is writing to, for wording that says so. */
+  breakpoint: Breakpoint;
+  /** A rule is selected, so Reset means "reset in this state". */
+  ruleName?: string;
 }
 
-export function commandContext(store: EditorStore = useEditor.getState()): CommandContext {
+export function commandContext(
+  subject?: MenuSubject,
+  store: EditorStore = useEditor.getState()
+): CommandContext {
   const { selection, doc } = store;
   const node = selection.length === 1 ? (doc.nodes[selection[0]!] ?? null) : null;
   const root = activeRootId(store);
@@ -93,7 +124,23 @@ export function commandContext(store: EditorStore = useEditor.getState()): Comma
     hidden: Boolean(node?.meta.hidden),
     alignable: alignableSelection(store),
     readOnly: store.readOnly,
+    subject,
+    breakpoint: store.breakpoint,
+    ruleName: activeRuleName(store),
   };
+}
+
+function activeRuleName(store: EditorStore): string | undefined {
+  if (!store.activeRuleId) return undefined;
+  const node = store.selection[0] ? store.doc.nodes[store.selection[0]] : undefined;
+  const rule = node?.rules?.find((r) => r.id === store.activeRuleId);
+  if (!rule) return undefined;
+  return rule.part ? `::${rule.part}` : (rule.when?.[0]?.kind ?? 'this state');
+}
+
+/** The style subject, when there is one. Property commands are gated on it. */
+function styleSubject(ctx: CommandContext): { props: StyleProp[]; label: string } | null {
+  return ctx.subject?.kind === 'style' && ctx.subject.props.length ? ctx.subject : null;
 }
 
 /* --------------------------------------------------------------------------
@@ -128,9 +175,50 @@ export interface EditorCommand {
    */
   laddered?: boolean;
   danger?: boolean;
+  /**
+   * A key into the menu's icon map, not a component.
+   *
+   * This module is data — it is read by the keyboard layer, which has no use
+   * for an SVG, and by a static check that parses it. Naming an icon keeps the
+   * catalogue free of React while still letting the menu draw one.
+   */
+  icon?: string;
+  /** Renders a tick. For the handful of items that report a setting's state. */
+  checked?: (ctx: CommandContext) => boolean;
   /** Absent means "always", which is true of very few of them. */
   enabled?: (ctx: CommandContext, arg?: string) => boolean;
   run: (ctx: CommandContext, arg?: string) => void;
+}
+
+/** Does the subject resolve to anything at all right now? */
+function hasAnyValue(ctx: CommandContext): boolean {
+  const subject = styleSubject(ctx);
+  if (!subject) return false;
+  return ctx.selection.some((id) => {
+    const node = ctx.store.doc.nodes[id];
+    if (!node) return false;
+    return subject.props.some((prop) =>
+      Object.values(node.styles).some((layer) => layer?.[prop] !== undefined) ||
+      (node.rules ?? []).some((rule) => rule.apply[prop] !== undefined)
+    );
+  });
+}
+
+/** Declared in more than one layer or rule, so "everywhere" means something. */
+function declaredInMoreThanOnePlace(ctx: CommandContext): boolean {
+  const subject = styleSubject(ctx);
+  if (!subject) return false;
+  return ctx.selection.some((id) => {
+    const node = ctx.store.doc.nodes[id];
+    if (!node) return false;
+    let places = 0;
+    for (const prop of subject.props) {
+      for (const layer of Object.values(node.styles)) if (layer?.[prop] !== undefined) places++;
+      for (const rule of node.rules ?? []) if (rule.apply[prop] !== undefined) places++;
+      if (places > 1) return true;
+    }
+    return false;
+  });
 }
 
 /** Nothing may be edited at all: read-only access, or the caret is in a field. */
@@ -163,6 +251,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   /* --- Clipboard ------------------------------------------------------- */
   cut: {
     id: 'cut',
+    icon: 'scissors',
     label: 'Cut',
     keys: ['mod+x'],
     enabled: movable,
@@ -170,6 +259,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   copy: {
     id: 'copy',
+    icon: 'copy',
     label: 'Copy',
     keys: ['mod+c'],
     enabled: (ctx) => ctx.count > 0,
@@ -177,6 +267,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   paste: {
     id: 'paste',
+    icon: 'clipboard',
     label: 'Paste',
     keys: ['mod+v'],
     enabled: (ctx) => editable(ctx) && Boolean(ctx.store.clipboard),
@@ -184,6 +275,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   duplicate: {
     id: 'duplicate',
+    icon: 'copyPlus',
     label: 'Duplicate',
     keys: ['mod+d'],
     enabled: movable,
@@ -191,6 +283,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   delete: {
     id: 'delete',
+    icon: 'trash',
     label: 'Delete',
     keys: ['Delete', 'Backspace'],
     danger: true,
@@ -198,21 +291,34 @@ export const COMMANDS: Record<string, EditorCommand> = {
     run: (ctx) => ctx.store.deleteSelection(),
   },
 
+  pasteInto: {
+    id: 'pasteInto',
+    icon: 'clipboardPlus',
+    label: 'Paste inside',
+    // Distinct from Paste, which lands *beside* the selection. On a container
+    // the two mean different things and picking one for you is guessing.
+    enabled: (ctx) => editable(ctx) && ctx.container && ctx.count === 1 && Boolean(ctx.store.clipboard),
+    run: (ctx) => ctx.store.pasteInto(),
+  },
+
   /* --- Styles ---------------------------------------------------------- */
   copyStyles: {
     id: 'copyStyles',
+    icon: 'paintbrush',
     label: 'Copy styles',
     enabled: (ctx) => ctx.count === 1,
     run: (ctx) => ctx.store.copyStyles(),
   },
   pasteStyles: {
     id: 'pasteStyles',
+    icon: 'paintRoller',
     label: 'Paste styles',
     enabled: (ctx) => editable(ctx) && ctx.count > 0 && Boolean(ctx.store.styleSource),
     run: (ctx) => ctx.store.pasteStyles(),
   },
   resetStyles: {
     id: 'resetStyles',
+    icon: 'rotate',
     label: 'Reset styles',
     danger: true,
     enabled: (ctx) =>
@@ -224,9 +330,86 @@ export const COMMANDS: Record<string, EditorCommand> = {
     run: (ctx) => ctx.store.resetStyles(),
   },
 
+  /* --- One property, or one section of them ----------------------------- */
+  /*
+   * Everything here is gated on a style subject, so none of it appears on the
+   * canvas or in the layer tree — there is no property to be about out there.
+   * The wording names what was clicked and where it is writing, because "Reset"
+   * on its own is a question ("reset what, at which width?") rather than an
+   * answer.
+   */
+  resetProperty: {
+    id: 'resetProperty',
+    icon: 'rotate',
+    label: (ctx) => {
+      const subject = styleSubject(ctx);
+      if (!subject) return 'Reset';
+      if (ctx.ruleName) return `Reset ${subject.label.toLowerCase()} in this state`;
+      return ctx.breakpoint === 'desktop'
+        ? `Reset ${subject.label.toLowerCase()}`
+        : `Reset ${subject.label.toLowerCase()} on ${BREAKPOINT_DEFS[ctx.breakpoint].label}`;
+    },
+    enabled: (ctx) => editable(ctx) && hasAnyValue(ctx),
+    run: (ctx) => {
+      const subject = styleSubject(ctx);
+      if (subject) ctx.store.resetStyleProps(subject.props);
+    },
+  },
+  resetPropertyEverywhere: {
+    id: 'resetPropertyEverywhere',
+    icon: 'rotate',
+    label: (ctx) => `Reset ${styleSubject(ctx)?.label.toLowerCase() ?? 'this'} everywhere`,
+    danger: true,
+    // Only where it would do more than the plain Reset: with one breakpoint in
+    // play and no rules, the two are the same action wearing two labels.
+    enabled: (ctx) => editable(ctx) && declaredInMoreThanOnePlace(ctx),
+    run: (ctx) => {
+      const subject = styleSubject(ctx);
+      if (subject) ctx.store.resetStylePropsEverywhere(subject.props);
+    },
+  },
+  copyValue: {
+    id: 'copyValue',
+    icon: 'copy',
+    label: (ctx) => `Copy ${styleSubject(ctx)?.label.toLowerCase() ?? 'value'}`,
+    enabled: (ctx) => ctx.count > 0 && hasAnyValue(ctx),
+    run: (ctx) => {
+      const subject = styleSubject(ctx);
+      if (subject) ctx.store.copyStyleValues(subject.props, subject.label);
+    },
+  },
+  pasteValue: {
+    id: 'pasteValue',
+    icon: 'clipboard',
+    label: (ctx) => {
+      const held = ctx.store.valueClipboard?.label;
+      return held ? `Paste ${held.toLowerCase()}` : 'Paste value';
+    },
+    enabled: (ctx) => editable(ctx) && ctx.count > 0 && Boolean(ctx.store.valueClipboard),
+    run: (ctx) => {
+      // Narrowed to the row when the menu was opened on one, whole otherwise.
+      const subject = styleSubject(ctx);
+      ctx.store.pasteStyleValues(subject?.props);
+    },
+  },
+  liftToAllBreakpoints: {
+    id: 'liftToAllBreakpoints',
+    icon: 'monitor',
+    label: 'Apply at every width',
+    // Nothing to lift from the widest layer: it is already the answer
+    // everywhere unless something narrower overrides it, and that is what the
+    // narrower breakpoints' own menus are for.
+    enabled: (ctx) => editable(ctx) && ctx.breakpoint !== 'desktop' && hasAnyValue(ctx),
+    run: (ctx) => {
+      const subject = styleSubject(ctx);
+      if (subject) ctx.store.liftToAllBreakpoints(subject.props);
+    },
+  },
+
   /* --- Structure ------------------------------------------------------- */
   group: {
     id: 'group',
+    icon: 'group',
     label: 'Group',
     keys: ['mod+g'],
     enabled: movable,
@@ -234,6 +417,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   ungroup: {
     id: 'ungroup',
+    icon: 'ungroup',
     label: 'Ungroup',
     keys: ['mod+shift+g'],
     enabled: (ctx) =>
@@ -246,6 +430,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   wrapInLink: {
     id: 'wrapInLink',
+    icon: 'link',
     label: 'Wrap in link',
     enabled: movable,
     run: (ctx) => ctx.store.wrapInLink(),
@@ -254,6 +439,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   /* --- Components ------------------------------------------------------ */
   createComponent: {
     id: 'createComponent',
+    icon: 'component',
     label: 'Create component',
     keys: ['mod+e'],
     enabled: (ctx) => movable(ctx) && ctx.count === 1 && !ctx.instance,
@@ -261,6 +447,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   editComponent: {
     id: 'editComponent',
+    icon: 'squarePen',
     label: 'Edit component',
     enabled: (ctx) => ctx.instance,
     run: (ctx) => {
@@ -268,8 +455,21 @@ export const COMMANDS: Record<string, EditorCommand> = {
       if (typeof componentId === 'string') ctx.store.editComponent(componentId);
     },
   },
+  resetInstanceOverrides: {
+    id: 'resetInstanceOverrides',
+    icon: 'rotate',
+    label: 'Reset to component',
+    enabled: (ctx) =>
+      editable(ctx) &&
+      ctx.selection.some((id) => {
+        const overrides = ctx.store.doc.nodes[id]?.overrides;
+        return overrides !== undefined && Object.keys(overrides).length > 0;
+      }),
+    run: (ctx) => ctx.store.clearInstanceOverrides(),
+  },
   detach: {
     id: 'detach',
+    icon: 'unlink',
     label: 'Detach instance',
     enabled: (ctx) => editable(ctx) && ctx.selection.some((id) => ctx.store.doc.nodes[id]?.type === 'instance'),
     run: (ctx) => ctx.store.detachSelection(),
@@ -308,6 +508,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   /* --- Selection ------------------------------------------------------- */
   selectParent: {
     id: 'selectParent',
+    icon: 'cornerUp',
     label: 'Select parent',
     enabled: (ctx) => ctx.count > 0 && !ctx.atRoot,
     run: (ctx) => ctx.store.selectParent(),
@@ -338,6 +539,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   selectAll: {
     id: 'selectAll',
+    icon: 'boxSelect',
     label: 'Select all',
     keys: ['mod+a'],
     enabled: (ctx) => Boolean(ctx.root),
@@ -347,6 +549,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   /* --- The node itself -------------------------------------------------- */
   rename: {
     id: 'rename',
+    icon: 'pencil',
     label: 'Rename',
     keys: ['F2'],
     enabled: (ctx) => editable(ctx) && ctx.count === 1,
@@ -354,6 +557,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   editText: {
     id: 'editText',
+    icon: 'type',
     label: 'Edit text',
     keys: ['Enter'],
     enabled: (ctx) => editable(ctx) && ctx.editableText && !ctx.locked,
@@ -361,6 +565,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   toggleHidden: {
     id: 'toggleHidden',
+    icon: 'eye',
     label: (ctx) => (ctx.hidden ? 'Show' : 'Hide'),
     keys: ['mod+shift+h'],
     enabled: (ctx) => editable(ctx) && ctx.count > 0,
@@ -368,6 +573,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   toggleLocked: {
     id: 'toggleLocked',
+    icon: 'lock',
     label: (ctx) => (ctx.locked ? 'Unlock' : 'Lock'),
     keys: ['mod+shift+l'],
     enabled: (ctx) => editable(ctx) && ctx.count > 0,
@@ -375,6 +581,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   showInLayers: {
     id: 'showInLayers',
+    icon: 'layers',
     label: 'Show in layers',
     enabled: (ctx) => ctx.count > 0,
     run: (ctx) => ctx.store.revealInLayers(),
@@ -404,6 +611,7 @@ export const COMMANDS: Record<string, EditorCommand> = {
   },
   openInsertPanel: {
     id: 'openInsertPanel',
+    icon: 'plus',
     label: 'More elements\u2026',
     enabled: () => true,
     run: (ctx) => ctx.store.setLeftTab('insert'),
@@ -421,20 +629,63 @@ export const COMMANDS: Record<string, EditorCommand> = {
   /* --- Context ---------------------------------------------------------- */
   enterOverlay: {
     id: 'enterOverlay',
+    icon: 'enter',
     label: (ctx) => `Edit ${ctx.node ? ctx.node.name : 'contents'}`,
     enabled: (ctx) => ctx.overlayNode && ctx.store.editingOverlayId !== ctx.node?.id,
     run: (ctx) => ctx.store.editOverlay(ctx.selection[0] ?? null),
   },
   exitOverlay: {
     id: 'exitOverlay',
+    icon: 'exit',
     label: 'Finish editing overlay',
     keys: ['Escape'],
     laddered: true,
     enabled: (ctx) => Boolean(ctx.store.editingOverlayId),
     run: (ctx) => ctx.store.editOverlay(null),
   },
+  /* --- What the canvas shows -------------------------------------------- */
+  toggleRulers: {
+    id: 'toggleRulers',
+    icon: 'ruler',
+    label: 'Rulers',
+    checked: (ctx) => ctx.store.showRulers,
+    enabled: () => true,
+    run: (ctx) => ctx.store.toggleRulers(),
+  },
+  toggleOutlines: {
+    id: 'toggleOutlines',
+    icon: 'frame',
+    label: 'Outlines',
+    checked: (ctx) => ctx.store.showOutlines,
+    enabled: () => true,
+    run: (ctx) => ctx.store.toggleOutlines(),
+  },
+  toggleSnap: {
+    id: 'toggleSnap',
+    icon: 'magnet',
+    label: 'Snapping',
+    checked: (ctx) => ctx.store.snapEnabled,
+    enabled: () => true,
+    run: (ctx) => ctx.store.toggleSnap(),
+  },
+  zoomFit: {
+    id: 'zoomFit',
+    icon: 'maximize',
+    label: 'Fit to screen',
+    keys: ['!'],
+    enabled: () => true,
+    run: (ctx) => ctx.store.requestFit(),
+  },
+  zoomReset: {
+    id: 'zoomReset',
+    icon: 'search',
+    label: 'Zoom to 100%',
+    enabled: (ctx) => Math.abs(ctx.store.zoom - 1) > 0.001,
+    run: (ctx) => ctx.store.setZoom(1),
+  },
   pageSettings: {
     id: 'pageSettings',
+    icon: 'settings',
     label: 'Page settings',
     enabled: () => true,
     run: (ctx) => {
@@ -456,14 +707,19 @@ export function commandEnabled(command: EditorCommand, ctx: CommandContext, arg?
 /**
  * Run a command by id against the live store.
  *
- * The context is rebuilt here rather than passed in: a menu that has been open
+ * The *state* is rebuilt here rather than passed in: a menu that has been open
  * for a while was built against a selection that may since have changed, and
  * acting on the stale copy is the same bug the inspector had.
+ *
+ * The subject is not state and must be carried through, which is a lesson this
+ * function learned the hard way — rebuilding without it left every property
+ * command reading "no property was clicked", failing its own `enabled` check
+ * and returning silently. Reset padding looked wired and did nothing.
  */
-export function runCommand(id: string, arg?: string): void {
+export function runCommand(id: string, arg?: string, subject?: MenuSubject): void {
   const command = COMMANDS[id];
   if (!command) return;
-  const ctx = commandContext();
+  const ctx = commandContext(subject);
   if (!commandEnabled(command, ctx, arg)) return;
   command.run(ctx, arg);
 }

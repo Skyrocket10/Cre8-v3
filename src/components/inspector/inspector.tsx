@@ -22,6 +22,9 @@ import { ElementIcon } from '../ui/element-icon';
 import { Segmented, TextInput, Tooltip } from '../ui/primitives';
 import { ComponentPropertySection, ContentSection } from './section-content';
 import { forgetInspectorTarget, rememberInspectorTarget } from './use-style';
+import { openContextMenu } from '../ui/context-menu';
+import type { StyleProp } from '@/lib/document/types';
+
 import { DataSection } from './section-data';
 import { RulesSection, describeRule } from './section-rules';
 import {
@@ -33,6 +36,30 @@ import {
 } from './sections-layout';
 import { BorderSection, EffectsSection, FillSection, TypographySection } from './sections-style';
 import { PagePanel } from './page-panel';
+
+/**
+ * Turn a right-click somewhere in the panel into a subject for the menu.
+ *
+ * Not inside the component: it captures nothing, and a handler recreated on
+ * every inspector render would be a new prop on the panel root each time.
+ */
+function onInspectorContextMenu(e: React.MouseEvent): void {
+  // Let a text field keep the browser's own menu — cut, paste, spelling. Those
+  // are the operating system's job and ours would be strictly worse.
+  const target = e.target as HTMLElement | null;
+  if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+
+  e.preventDefault();
+  const row = target?.closest<HTMLElement>('[data-style-props]');
+  const props = row?.dataset.styleProps?.split(',').filter(Boolean) as StyleProp[] | undefined;
+  const label = row?.dataset.styleLabel;
+
+  openContextMenu(
+    e.clientX,
+    e.clientY,
+    props?.length && label ? { kind: 'style', props, label } : undefined
+  );
+}
 
 export function Inspector() {
   const selectionCount = useEditor((s) => s.selection.length);
@@ -54,6 +81,15 @@ export function Inspector() {
        */
       onFocus={rememberInspectorTarget}
       onBlur={forgetInspectorTarget}
+      /*
+       * One right-click handler for the whole panel, for the same reason there
+       * is one focus handler: the alternative is every control knowing about
+       * menus. `StyleRow` stamps which declarations it owns, so this reads the
+       * nearest one and hands the menu a subject. A click that lands on a row
+       * which never said gets the element's menu, which is the honest answer —
+       * nothing here knows which property you meant.
+       */
+      onContextMenu={onInspectorContextMenu}
     >
       <InspectorHeader />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">

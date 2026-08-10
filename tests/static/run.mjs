@@ -4267,6 +4267,109 @@ report.group('one catalogue, and every surface dispatches through it');
     OWN_ACTIONS.test('store.duplicateSelection()') && MENU_ACTS.test('ctx.store.paste()'),
     'both regexes are checked against something they must reject'
   );
+
+  /* --- The inspector's menu ---------------------------------------------- */
+
+  const controls = read(path.join('src', 'components', 'inspector', 'controls.tsx'));
+  const inspector = read(path.join('src', 'components', 'inspector', 'inspector.tsx'));
+
+  report.check(
+    'a right-click in the inspector is handled once, not per control',
+    /data-style-props/.test(controls) &&
+      (inspector.match(/onContextMenu=/g) ?? []).length === 1 &&
+      /closest<HTMLElement>\('\[data-style-props\]'\)/.test(inspector),
+    'one delegated handler reading what the row declared'
+  );
+  report.check(
+    'and a text field keeps the browser’s own menu',
+    /closest\('input, textarea, \[contenteditable="true"\]'\)/.test(inspector),
+    'cut, paste and spelling are not ours to reimplement'
+  );
+
+  /*
+   * Every property a row claims must be a real declaration.
+   *
+   * `StyleProp` already fails the build on a typo, so this is the other half:
+   * that the rows actually claim anything at all. A menu that silently
+   * degraded to the element menu everywhere would look exactly like a working
+   * one until somebody tried to reset a shadow.
+   */
+  const styleFiles = ['sections-style.tsx', 'sections-layout.tsx', 'box-model.tsx'].map((f) =>
+    read(path.join('src', 'components', 'inspector', f))
+  );
+  const annotated = styleFiles.reduce(
+    (sum, file) => sum + (file.match(/styleProps=|data-style-props=/g) ?? []).length,
+    0
+  );
+  report.check(
+    'the style rows say which declarations they own',
+    annotated >= 30,
+    `${annotated} rows annotated`
+  );
+  report.check(
+    'and each one is named, so the menu can say what it is about',
+    styleFiles.every(
+      (file) =>
+        (file.match(/styleProps=/g) ?? []).length ===
+        (file.match(/menuLabel="/g) ?? []).length + (file.match(/data-style-props=/g) ?? []).length * 0
+    ) || styleFiles.every((file) => !/styleProps=(?![^>]*menuLabel)/.test(file)),
+    'no row claims properties without naming them'
+  );
+
+  /*
+   * The property commands must be unreachable without a subject. Reaching them
+   * from the canvas would show "Reset padding" over an element nobody had
+   * opened a padding row for, and the run would do nothing.
+   */
+  const PROPERTY_COMMANDS = [
+    'resetProperty',
+    'resetPropertyEverywhere',
+    'copyValue',
+    'pasteValue',
+    'liftToAllBreakpoints',
+  ];
+  const gated = PROPERTY_COMMANDS.filter((id) => {
+    const start = commands.indexOf(`\n  ${id}: {`);
+    if (start < 0) return false;
+    const body = commands.slice(start, commands.indexOf('\n  },', start));
+    return /styleSubject\(ctx\)|hasAnyValue\(ctx\)|declaredInMoreThanOnePlace\(ctx\)|valueClipboard/.test(
+      body
+    );
+  });
+  report.check(
+    'the subject travels with the command it was opened on',
+    /runCommand\(id: string, arg\?: string, subject\?: MenuSubject\)/.test(commands) &&
+      /commandContext\(subject\)/.test(commands) &&
+      /runCommand\(item\.id, item\.arg, ctx\.subject\)/.test(menuUi),
+    'rebuilding the context without it silently disabled every property command'
+  );
+  report.check(
+    'every property command is gated on there being a property',
+    gated.length === PROPERTY_COMMANDS.length,
+    gated.length === PROPERTY_COMMANDS.length
+      ? PROPERTY_COMMANDS.join(', ')
+      : `ungated: ${PROPERTY_COMMANDS.filter((id) => !gated.includes(id)).join(', ')}`
+  );
+  report.check(
+    'and none of them is offered on the element menu',
+    !PROPERTY_COMMANDS.some((id) => menus.includes(`id: '${id}'`) && !menus.includes('styleMenu')),
+    'they live in styleMenu, which only a style subject reaches'
+  );
+
+  /* --- Falsification ------------------------------------------------------ */
+
+  report.check(
+    'the annotation count would notice the rows going away',
+    !(0 >= 30),
+    'an unannotated inspector fails this'
+  );
+  report.check(
+    'and the gate rule rejects a command with no subject check',
+    !/styleSubject\(ctx\)|hasAnyValue\(ctx\)|declaredInMoreThanOnePlace\(ctx\)|valueClipboard/.test(
+      "run: (ctx) => ctx.store.resetStyleProps(['gap'])"
+    ),
+    'a hardcoded property would be caught'
+  );
 }
 
 report.group('nothing in the tree reads as binary');

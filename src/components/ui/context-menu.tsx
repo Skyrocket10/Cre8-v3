@@ -18,7 +18,43 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight } from 'lucide-react';
+import {
+  AlignLeft,
+  ArrowRightFromLine,
+  BoxSelect,
+  Check,
+  ChevronRight,
+  Clipboard,
+  ClipboardPlus,
+  Combine,
+  Copy,
+  CopyPlus,
+  CornerLeftUp,
+  Eye,
+  Frame,
+  Group,
+  Layers,
+  Link2,
+  Lock,
+  Magnet,
+  Maximize2,
+  Monitor,
+  PaintRoller,
+  Paintbrush,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Ruler,
+  Scissors,
+  Search,
+  Settings2,
+  SquarePen,
+  Trash2,
+  Type,
+  Ungroup,
+  Unlink,
+  X,
+} from 'lucide-react';
 import {
   COMMANDS,
   commandContext,
@@ -27,13 +63,64 @@ import {
   runCommand,
   shortcutFor,
   type CommandContext,
+  type MenuSubject,
 } from '@/lib/editor/commands';
 import { menuFor, type MenuItem } from '@/lib/editor/menus';
 import { cn } from '@/lib/utils/cn';
 
-const WIDTH = 216;
+const WIDTH = 224;
 const EDGE = 8;
 const ROW = 26;
+
+/**
+ * Icons, by the name a command gives.
+ *
+ * Here rather than in the catalogue because that module is data — the keyboard
+ * layer reads it and a static check parses it, and neither has any use for an
+ * SVG component.
+ */
+const ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>> = {
+  alignLeft: AlignLeft,
+  boxSelect: BoxSelect,
+  clipboard: Clipboard,
+  clipboardPlus: ClipboardPlus,
+  component: Combine,
+  copy: Copy,
+  copyPlus: CopyPlus,
+  cornerUp: CornerLeftUp,
+  enter: ArrowRightFromLine,
+  exit: X,
+  eye: Eye,
+  frame: Frame,
+  group: Group,
+  layers: Layers,
+  link: Link2,
+  lock: Lock,
+  magnet: Magnet,
+  maximize: Maximize2,
+  monitor: Monitor,
+  paintRoller: PaintRoller,
+  paintbrush: Paintbrush,
+  pencil: Pencil,
+  plus: Plus,
+  rotate: RotateCcw,
+  ruler: Ruler,
+  scissors: Scissors,
+  search: Search,
+  settings: Settings2,
+  squarePen: SquarePen,
+  trash: Trash2,
+  type: Type,
+  ungroup: Ungroup,
+  unlink: Unlink,
+};
+
+function MenuIcon({ name }: { name?: string }) {
+  const Icon = name ? ICONS[name] : undefined;
+  // A fixed slot either way, so labels line up whether or not a row has one.
+  if (!Icon) return <span className="size-3 shrink-0" aria-hidden />;
+  return <Icon size={12} strokeWidth={1.9} className="size-3 shrink-0 opacity-80" />;
+}
 
 /* --------------------------------------------------------------------------
  * The opener
@@ -42,6 +129,7 @@ const ROW = 26;
 interface MenuRequest {
   x: number;
   y: number;
+  subject?: MenuSubject;
   /** Bumped per opening so a second right-click rebuilds against the new selection. */
   seq: number;
 }
@@ -52,12 +140,14 @@ let sequence = 0;
 /**
  * Open the menu at a point in viewport coordinates.
  *
- * Deliberately takes no items: a caller that could pass its own list could
- * pass an action of its own, and that is the thing this design exists to
- * prevent. Where you clicked is the only thing the menu needs from you.
+ * `subject` says *what* was clicked — a padding row, a page, a component —
+ * never what should be done about it. That distinction is the whole design:
+ * a caller that could pass a list of items could pass an action of its own,
+ * and then there would be two implementations of Reset again. Passing nothing
+ * means "an element", which is what the canvas and the layer tree mean.
  */
-export function openContextMenu(x: number, y: number): void {
-  listener?.({ x, y, seq: ++sequence });
+export function openContextMenu(x: number, y: number, subject?: MenuSubject): void {
+  listener?.({ x, y, subject, seq: ++sequence });
 }
 
 export function closeContextMenu(): void {
@@ -89,7 +179,7 @@ export function ContextMenuHost() {
 }
 
 function MenuRoot({ request, onClose }: { request: MenuRequest; onClose: () => void }) {
-  const ctx = useMemo(() => commandContext(), []);
+  const ctx = useMemo(() => commandContext(request.subject), [request.subject]);
   const items = useMemo(() => menuFor(ctx), [ctx]);
 
   useEffect(() => {
@@ -146,6 +236,8 @@ interface Renderable {
   shortcut?: string;
   danger?: boolean;
   enabled: boolean;
+  icon?: string;
+  checked?: boolean;
 }
 
 function MenuPanel({
@@ -175,9 +267,12 @@ function MenuPanel({
   /* --- Resolve every row once ------------------------------------------- */
   const rendered = useMemo<Renderable[]>(
     () =>
-      items.map((item, index) => {
+      items.map((item, index): Renderable => {
         if (item.kind === 'submenu') {
-          return { index, item, label: item.label, enabled: true };
+          return { index, item, label: item.label, icon: item.icon, enabled: true };
+        }
+        if (item.kind === 'heading') {
+          return { index, item, label: item.label, enabled: false };
         }
         if (item.kind === 'separator') {
           return { index, item, label: '', enabled: false };
@@ -189,6 +284,8 @@ function MenuPanel({
           label: commandLabel(command, ctx, item.arg),
           shortcut: shortcutFor(command, item.arg),
           danger: command.danger,
+          icon: command.icon,
+          checked: command.checked?.(ctx),
           enabled: commandEnabled(command, ctx, item.arg),
         };
       }),
@@ -199,7 +296,10 @@ function MenuPanel({
   // says the action exists — but landing on it and pressing Enter would look
   // like the menu ignored you.
   const stops = useMemo(
-    () => rendered.filter((row) => row.item.kind !== 'separator' && row.enabled),
+    () =>
+      rendered.filter(
+        (row) => row.item.kind !== 'separator' && row.item.kind !== 'heading' && row.enabled
+      ),
     [rendered]
   );
 
@@ -223,14 +323,22 @@ function MenuPanel({
   }, [x, y, depth, items.length]);
 
   useEffect(() => {
-    ref.current?.focus();
+    /*
+     * `preventScroll`, and it is not a nicety.
+     *
+     * A panel renders at -9999 for the frame before its layout effect places
+     * it, and a plain `focus()` scrolls its ancestor to reach it — which for a
+     * fixed element means scrolling the whole editor away and leaving the menu
+     * somewhere off the viewport that no later placement corrects.
+     */
+    ref.current?.focus({ preventScroll: true });
   }, []);
 
   // Coming back out of a submenu has to return the keys to this panel, or the
   // arrow keys go nowhere and the menu looks frozen.
   const closeSubmenu = useCallback(() => {
     setOpen(null);
-    ref.current?.focus();
+    ref.current?.focus({ preventScroll: true });
   }, []);
 
   /* --- Keyboard ----------------------------------------------------------- */
@@ -250,12 +358,12 @@ function MenuPanel({
 
   const fire = useCallback(
     (item: Extract<MenuItem, { kind: 'command' }>) => {
-      runCommand(item.id, item.arg);
+      runCommand(item.id, item.arg, ctx.subject);
       // The whole menu, not just this panel: choosing from a submenu ends the
       // interaction, it does not step back into the one that opened it.
       onDismiss();
     },
-    [onDismiss]
+    [onDismiss, ctx.subject]
   );
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -302,7 +410,19 @@ function MenuPanel({
 
   const activeId = active >= 0 ? `cre8-menu-${depth}-${active}` : undefined;
 
-  return (
+  /*
+   * Every panel is its own portal, and a submenu is emphatically not rendered
+   * inside the panel that opened it.
+   *
+   * `position: fixed` is relative to the viewport only while no ancestor is
+   * transformed — and the panel's entrance animation transforms it. A submenu
+   * nested inside its parent therefore resolved its coordinates against the
+   * parent's box instead of the window, which put it hundreds of pixels below
+   * the fold: measured at 868,1578 in a 1500x950 window. It happened every
+   * time, in the real editor, and three checks that only counted panels and
+   * read their labels all passed straight through it.
+   */
+  return createPortal(
     <div
       ref={ref}
       role="menu"
@@ -323,6 +443,18 @@ function MenuPanel({
       style={{ left: place?.left ?? -9999, top: place?.top ?? -9999, width: WIDTH }}
     >
       {rendered.map((row) => {
+        if (row.item.kind === 'heading') {
+          return (
+            <div
+              key={`head-${row.index}`}
+              role="presentation"
+              data-menu-heading={row.label}
+              className="truncate px-2.5 pt-1.5 pb-1 text-[10px] font-medium tracking-[0.06em] text-[var(--text-faint)] uppercase"
+            >
+              {row.label}
+            </div>
+          );
+        }
         if (row.item.kind === 'separator') {
           return (
             <div
@@ -342,6 +474,7 @@ function MenuPanel({
               key={id}
               id={id}
               label={row.label}
+              icon={row.icon}
               items={submenu.items}
               ctx={ctx}
               active={active === row.index}
@@ -365,6 +498,8 @@ function MenuPanel({
             label={row.label}
             shortcut={row.shortcut}
             danger={row.danger}
+            icon={row.icon}
+            checked={row.checked}
             enabled={row.enabled}
             active={active === row.index}
             onHover={() => {
@@ -375,7 +510,8 @@ function MenuPanel({
           />
         );
       })}
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -389,6 +525,8 @@ function MenuRow({
   onHover,
   onSelect,
   chevron,
+  icon,
+  checked,
 }: {
   id: string;
   label: string;
@@ -399,6 +537,8 @@ function MenuRow({
   onHover: () => void;
   onSelect?: () => void;
   chevron?: boolean;
+  icon?: string;
+  checked?: boolean;
 }) {
   return (
     <button
@@ -412,12 +552,23 @@ function MenuRow({
       onClick={onSelect}
       className={cn(
         'flex w-full items-center gap-2 px-2.5 text-left text-[12px] leading-none',
+        'transition-colors duration-75',
         'disabled:pointer-events-none disabled:opacity-35',
         active && enabled && (danger ? 'bg-[var(--danger)]/15' : 'bg-[var(--field)]'),
         danger ? 'text-[var(--danger)]' : 'text-[var(--text)]'
       )}
       style={{ height: ROW }}
+      {...(checked === undefined ? {} : { 'aria-checked': checked, role: 'menuitemcheckbox' })}
     >
+      {checked === undefined ? (
+        <MenuIcon name={icon} />
+      ) : (
+        // The tick replaces the icon rather than joining it: two glyphs on a
+        // 26px row for one piece of information is noise.
+        <span className="flex size-3 shrink-0 items-center justify-center">
+          {checked && <Check size={11} strokeWidth={2.4} className="text-[var(--accent)]" />}
+        </span>
+      )}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {shortcut && (
         <span className="shrink-0 text-[11px] text-[var(--text-tertiary)] tabular-nums">
@@ -432,6 +583,7 @@ function MenuRow({
 function SubmenuRow({
   id,
   label,
+  icon,
   items,
   ctx,
   active,
@@ -443,6 +595,7 @@ function SubmenuRow({
 }: {
   id: string;
   label: string;
+  icon?: string;
   items: MenuItem[];
   ctx: CommandContext;
   active: boolean;
@@ -471,6 +624,7 @@ function SubmenuRow({
       <MenuRow
         id={id}
         label={label}
+        icon={icon}
         enabled
         active={active}
         chevron
