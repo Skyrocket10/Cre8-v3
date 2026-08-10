@@ -858,6 +858,51 @@ export const checkbox = (label: string, name: string, checked = false): NodeSpec
   styles: { fontSize: '14px' },
 });
 
+/**
+ * A switch: a checkbox that is announced as one, and looks like one.
+ *
+ * `role="switch"` is the whole of the semantic difference — "on" and "off"
+ * rather than "checked" and "not checked", which is what a person expects of
+ * a setting that takes effect the moment it moves. It stays a real checkbox
+ * underneath, so it is keyboard-operable, it submits with the form, and it
+ * needs no script.
+ *
+ * The row lights up when it is on. That is a `checked` rule on the label,
+ * which is worth knowing about because it did not work until recently: the
+ * class is on the `<label>` and `:checked` is on the `<input>` inside it, so
+ * the obvious selector compiled and matched nothing.
+ */
+export const toggle = (
+  label: string,
+  name: string,
+  checked = false,
+  styles: StyleDecl = {}
+): NodeSpec => ({
+  type: 'checkbox',
+  name: label.slice(0, 24) || 'Switch',
+  props: { label, name, role: 'switch', ...(checked ? { checked: true } : {}) },
+  styles: {
+    fontSize: '14.5px',
+    gap: '12px',
+    width: '100%',
+    alignItems: 'center',
+    ...pad('12px', '14px'),
+    ...radius('var(--r-md)'),
+    ...border('1px', 'var(--c-border)'),
+    backgroundColor: 'var(--c-surface)',
+    accentColor: 'var(--c-primary)',
+    cursor: 'pointer',
+    ...styles,
+  },
+  rules: [
+    {
+      id: 'r-on',
+      when: [{ kind: 'control', pseudo: 'checked' }],
+      apply: { borderColor: 'var(--c-primary)' },
+    },
+  ],
+});
+
 export const radio = (label: string, group: string, value: string, checked = false): NodeSpec => ({
   type: 'radio',
   name: label.slice(0, 24) || 'Radio',

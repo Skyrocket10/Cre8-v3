@@ -259,8 +259,30 @@ function conditionParts(
 ): { prefix: string; compound: string } | null {
   switch (condition.kind) {
     case 'pointer':
-    case 'control':
       return { prefix: '', compound: `:where(:${condition.pseudo})` };
+
+    case 'control': {
+      /*
+       * `:checked` is on the input; the class is on what wraps it.
+       *
+       * A checkbox and a radio render as a `<label>` holding the real control
+       * and its words, because that is what makes the words a hit target. So
+       * the node's class lands on the label, and `.c-abc:where(:checked)` —
+       * which is what this used to emit — is a selector that compiles, ships,
+       * and can never match anything. A styled "on" state simply did nothing,
+       * with no error anywhere to say why.
+       *
+       * `:has()` asks the question the right way round: not "is this label
+       * checked" but "does it contain something that is".
+       */
+      const wraps = node.type === 'checkbox' || node.type === 'radio';
+      return {
+        prefix: '',
+        compound: wraps
+          ? `:where(:has(:${condition.pseudo}))`
+          : `:where(:${condition.pseudo})`,
+      };
+    }
 
     case 'attr': {
       // Several values mean *any of them*, the same as a state — so `:is()`

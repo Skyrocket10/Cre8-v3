@@ -2843,6 +2843,100 @@ report.group('every browser suite runs, and none of them guess');
 }
 
 /* --------------------------------------------------------------------------
+ * A switch, and the selector that could not match
+ *
+ * `{ kind: 'control', pseudo: 'checked' }` has been in the model since the
+ * native primitives landed, and on the two elements it exists for it did
+ * nothing at all. A checkbox renders as a `<label>` wrapping the real input —
+ * that is what makes the words a hit target — so the node's class lands on
+ * the label, and `.c-abc:where(:checked)` compiles, ships, and matches
+ * nothing. A styled "on" state simply never appeared, with no error to say
+ * why. Exactly the failure mode this suite exists for: valid output that is
+ * quietly inert.
+ * ----------------------------------------------------------------------- */
+
+report.group('a checked control can be styled, and says it is a switch');
+
+{
+  const withRule = (type) => {
+    const doc = createEmptyDocument('Toggle');
+    const id = 'ctl0000001';
+    doc.nodes[id] = {
+      id,
+      type,
+      name: 'Control',
+      parentId: doc.pages[0].rootNodeId,
+      children: [],
+      props: { label: 'Email digest', name: 'digest', role: 'switch', checked: true },
+      styles: { desktop: { color: 'var(--c-text)' } },
+      meta: {},
+      rules: [
+        {
+          id: 'r-on',
+          when: [{ kind: 'control', pseudo: 'checked' }],
+          apply: { borderColor: 'var(--c-primary)' },
+        },
+      ],
+    };
+    doc.nodes[doc.pages[0].rootNodeId].children.push(id);
+    return doc;
+  };
+
+  const selectorFor = (type) =>
+    generateNodeCss(withRule(type).nodes, { mode: 'media', includeStates: true })
+      .split('\n')
+      .find((line) => line.includes(':checked')) ?? '';
+
+  report.check(
+    'a checked rule on a checkbox asks whether it *contains* something checked',
+    selectorFor('checkbox').includes(':has(:checked)'),
+    selectorFor('checkbox').trim() || 'no rule emitted'
+  );
+  report.check(
+    'and so does one on a radio, for the same reason',
+    selectorFor('radio').includes(':has(:checked)'),
+    selectorFor('radio').trim() || 'no rule emitted'
+  );
+  /*
+   * And not everywhere. A `<select>` or a bare input carries its own class,
+   * so `:has()` there would ask whether it contains a checked *descendant* —
+   * a different question, and one that is always false.
+   */
+  report.check(
+    'a control that is its own element still uses the plain pseudo-class',
+    selectorFor('select').includes(':where(:checked)') &&
+      !selectorFor('select').includes(':has('),
+    selectorFor('select').trim() || 'no rule emitted'
+  );
+
+  /* --- The semantics ------------------------------------------------------ */
+
+  const published = (type) =>
+    generateSite(withRule(type)).files.find((f) => f.path === 'index.html')?.contents ?? '';
+
+  report.check(
+    'a checkbox asked to be a switch is announced as one',
+    /<input [^>]*role="switch"/.test(published('checkbox')),
+    /<input [^>]*>/.exec(published('checkbox'))?.[0] ?? 'no input'
+  );
+  report.check(
+    'and it is still a checkbox underneath, so it submits and it is keyboard-operable',
+    /<input [^>]*type="checkbox"/.test(published('checkbox')),
+    'type survives the role'
+  );
+  /*
+   * A radio is one of several and a group of switches is not a thing, so the
+   * role is refused there rather than passed through — an announcement that
+   * contradicts the behaviour is worse than none.
+   */
+  report.check(
+    'a radio is not allowed to claim it, whatever the prop says',
+    !/role="switch"/.test(published('radio')),
+    /<input [^>]*>/.exec(published('radio'))?.[0] ?? 'no input'
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Characters that should not be in source
  *
  * Twice now a file has ended up holding a byte that makes every tool treat it

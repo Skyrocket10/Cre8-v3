@@ -615,8 +615,19 @@ function describeBase(
       // target, and getting that wrong is invisible until someone tries to tap
       // it on a phone.
       const inputType = node.type === 'checkbox' ? 'checkbox' : 'radio';
+      /*
+       * A switch is a checkbox that says so.
+       *
+       * `role="switch"` changes nothing about how it works and everything
+       * about how it is announced: "on" and "off" rather than "checked" and
+       * "not checked", which is what a person expects of a setting that takes
+       * effect immediately. Only meaningful on a checkbox — a radio is one of
+       * several, and a group of switches is not a thing.
+       */
+      const isSwitch = node.type === 'checkbox' && str(props.role) === 'switch';
       const attrsList = [
         `type="${inputType}"`,
+        isSwitch ? 'role="switch"' : '',
         str(props.name) ? `name="${esc(str(props.name))}"` : '',
         str(props.value) ? `value="${esc(str(props.value))}"` : '',
         props.checked ? 'checked' : '',

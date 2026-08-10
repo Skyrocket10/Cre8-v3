@@ -45,8 +45,8 @@ meet that bar or it drags the product down rather than filling it out.
 
 **Since:** 35 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
 `dialog`, `table`, `tableRow`, `tableCell`, `range`, `file`, `progress`,
-`fieldset` added in B) and 84 blocks across nine categories, held to that bar
-by 1,518 static checks and 23 browser suites.
+`fieldset` added in B) and 85 blocks across nine categories, held to that bar
+by 1,540 static checks and 23 browser suites.
 
 Two marks in the tables below mean something other than done-or-not-yet. `◐`
 is something that ships and is partly gated — the dialog is a real `<dialog>`,
@@ -284,7 +284,7 @@ These are the honest primitives — real form semantics cannot be faked with a
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Field — label + help + error | B | ✅ | |
-| Switch | B | | a |
+| Switch | B | ✅ | |
 | Segmented control | B | ✅ | |
 | Search field | B | ✅ | |
 | Form layouts — one/two column, inline | B | | |

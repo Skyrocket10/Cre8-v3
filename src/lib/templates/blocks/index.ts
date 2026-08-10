@@ -84,6 +84,7 @@ import {
   megaMenuSpec,
   progressSpec,
   segmentedSpec,
+  switchesSpec,
   toastSpec,
   tooltipSpec,
   userMenuSpec,
@@ -642,6 +643,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'app',
     keywords: ['bar', 'loading', 'percent', 'upload', 'status'],
     build: progressSpec,
+  },
+  {
+    id: 'app-switches',
+    name: 'Switches',
+    description: 'Settings that apply as you touch them',
+    category: 'app',
+    keywords: ['toggle', 'switch', 'on off', 'preferences', 'notifications'],
+    build: switchesSpec,
   },
   {
     id: 'app-segmented',

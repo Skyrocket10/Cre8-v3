@@ -55,6 +55,7 @@ import {
   switchGroup,
   switchStep,
   textLink,
+  toggle,
 } from './kit';
 
 /** The surface every overlay in this file sits on. */
@@ -864,6 +865,66 @@ export function toastSpec(): NodeSpec {
           ),
         ],
         { flexDirection: 'column', alignItems: 'flex-start', gap: '28px' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-background)' }
+  );
+}
+
+/**
+ * Settings that take effect the moment they move.
+ *
+ * A switch is a checkbox wearing `role="switch"`, which changes nothing about
+ * how it works and everything about how it is announced: "on" and "off"
+ * rather than "checked" and "not checked". That is the right reading for a
+ * setting with no Save button, and the wrong one for a checkbox in a form
+ * you submit — which is why this is a separate block rather than a style.
+ *
+ * The row it sits in lights up when it is on, and that is a `checked` rule
+ * rather than script. It could not be written at all until the generator
+ * learned that the class is on the `<label>` while the state is on the
+ * `<input>` inside it.
+ */
+export function switchesSpec(): NodeSpec {
+  /*
+   * Labels only, no sub-copy. A `<label>` announces everything it contains,
+   * so a note inside one turns "Email digest, on" into a sentence nobody
+   * wanted read out — and a note outside it is a paragraph floating beside a
+   * control it is not associated with. Where a setting genuinely needs
+   * explaining, the explanation belongs above the group.
+   */
+  return section(
+    'Switches',
+    [
+      container(
+        [
+          column(
+            'Intro',
+            [
+              heading('Settings that apply as you touch them', 2, {
+                ...SUBTITLE,
+                color: 'var(--c-text)',
+              }, SUBTITLE_RESPONSIVE),
+              paragraph(
+                'Announced as on and off, keyboard-operable, and submitted with the form — a checkbox underneath, with no script over the top.',
+                { ...BODY, color: 'var(--c-muted)', maxWidth: '56ch' },
+                BODY_RESPONSIVE
+              ),
+            ],
+            { gap: '10px' }
+          ),
+          column(
+            'Settings',
+            [
+              toggle('Weekly email digest', 'digest', true),
+              toggle('Notify me when somebody mentions me', 'mentions', true),
+              toggle('Occasional product news', 'news', false),
+            ],
+            { gap: '10px', width: '100%', maxWidth: '460px' },
+            { mobile: { maxWidth: '100%' } }
+          ),
+        ],
+        { flexDirection: 'column', alignItems: 'flex-start', gap: '26px' }
       ),
     ],
     { backgroundColor: 'var(--c-background)' }
