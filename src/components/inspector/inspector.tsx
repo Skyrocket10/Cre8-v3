@@ -205,12 +205,25 @@ function MultiSelection() {
         </div>
         <span className="text-[11.5px] font-medium text-[var(--text)]">elements selected</span>
       </div>
+      {/*
+        Layout, Flex child and Position were missing here, which meant the
+        three things you most want in bulk — "make these five stack", "let all
+        of these grow", "pin these" — had to be done one element at a time, at
+        the exact moment a multi-selection was for.
+
+        Nothing new was needed to add them: the style hook already reports
+        `mixed` when a selection disagrees, so every control in them already
+        knew how to show two different values and write one.
+      */}
+      <LayoutSection />
       <SizeSection />
       <SpacingSection />
       <TypographySection />
       <FillSection />
       <BorderSection />
       <EffectsSection />
+      <FlexChildSection />
+      <PositionSection />
       <div className="h-8" />
     </div>
   );

@@ -48,10 +48,16 @@ export function ContentSection() {
           Semantics, because it is structural rather than something you reach
           for on every element. */}
       {def.container && !def.internal && <SwitchGroupContent />}
-      {/* And anything clickable inside one can drive it — this returns
-          nothing at all when there is no switch above, so it never becomes
-          noise. When it shows is a rule, and lives in States & conditions. */}
-      {(type === 'button' || type === 'link') && <SwitchSetterSection />}
+      {/* And anything inside one can drive it. `applySwitch` has always
+          written `data-cre8-set` for whatever carries the prop, whatever type
+          it is — the panel was the only thing insisting on a button or a link,
+          so a card or an image could not change a tab or a pricing toggle
+          despite the renderer being perfectly willing.
+
+          No type test replaces it because none is needed: the section returns
+          nothing at all when there is no switch above, which is what stops it
+          becoming noise on the other several thousand elements. */}
+      <SwitchSetterSection />
     </>
   );
 }

@@ -48,12 +48,20 @@ const LAYOUT_PROPS: StyleProp[] = [
 export function LayoutSection() {
   const bindings = useStyleBindings(LAYOUT_PROPS);
   const write = useStyleWriter();
-  const selectionType = useEditor((s) => {
-    const id = s.selection[0];
-    return id ? s.doc.nodes[id]?.type : undefined;
-  });
+  /*
+   * Any of them, not the first of them. Reading `selection[0]` hid this
+   * section whenever a multi-selection happened to start with a heading, even
+   * though the frames beside it were exactly what somebody had selected them
+   * all to lay out.
+   */
+  const anyContainer = useEditor((s) =>
+    s.selection.some((id) => {
+      const type = s.doc.nodes[id]?.type;
+      return type ? getElement(type).container : false;
+    })
+  );
 
-  if (!selectionType || !getElement(selectionType).container) return null;
+  if (!anyContainer) return null;
 
   const display = bindings.display?.value ?? 'block';
   const isFlex = display.includes('flex');
@@ -539,16 +547,19 @@ export function PositionSection() {
  * ----------------------------------------------------------------------- */
 
 export function FlexChildSection() {
-  const parentIsFlex = useEditor((s) => {
-    const id = s.selection[0];
-    const parentId = id ? s.doc.nodes[id]?.parentId : undefined;
-    if (!parentId) return false;
-    const parent = s.doc.nodes[parentId];
-    const display =
-      parent?.styles.desktop?.display ??
-      (parent ? getElement(parent.type).defaultStyles.display : undefined);
-    return Boolean(display?.includes('flex'));
-  });
+  // Same reasoning as Layout above: one of the selected elements sitting in a
+  // flex parent is enough for these controls to be worth offering.
+  const parentIsFlex = useEditor((s) =>
+    s.selection.some((id) => {
+      const parentId = s.doc.nodes[id]?.parentId;
+      if (!parentId) return false;
+      const parent = s.doc.nodes[parentId];
+      const display =
+        parent?.styles.desktop?.display ??
+        (parent ? getElement(parent.type).defaultStyles.display : undefined);
+      return Boolean(display?.includes('flex'));
+    })
+  );
 
   const grow = useStyleProp('flexGrow');
   const alignSelf = useStyleProp('alignSelf');

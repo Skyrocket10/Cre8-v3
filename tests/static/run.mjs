@@ -2679,6 +2679,94 @@ report.group('a document with damage in it still draws');
 }
 
 /* --------------------------------------------------------------------------
+ * The inspector offers what the renderer supports
+ *
+ * Twice now the panel has been narrower than the model behind it, in the same
+ * shape both times: a control gated on an element's *type* when the thing it
+ * writes is type-agnostic. The gap is invisible from either side — the
+ * renderer looks complete, the panel looks deliberate — and the only way to
+ * find it is to compare them, so that comparison lives here.
+ * ----------------------------------------------------------------------- */
+
+report.group('the panel is not narrower than the model');
+
+{
+  const read = (file) => readFileSync(path.join(ROOT, file), 'utf8');
+  const content = read(path.join('src', 'components', 'inspector', 'section-content.tsx'));
+  const model = read(path.join('src', 'lib', 'renderer', 'element-model.ts'));
+  const inspector = read(path.join('src', 'components', 'inspector', 'inspector.tsx'));
+  const layout = read(path.join('src', 'components', 'inspector', 'sections-layout.tsx'));
+
+  /*
+   * Any node can drive a switch — `applySwitch` writes the attribute for
+   * whatever carries the prop, and says so. The panel used to ask whether the
+   * element was a button or a link first.
+   */
+  report.check(
+    'anything can be made to drive a switch, because anything can',
+    /\bapplySwitch\b/.test(model) &&
+      !/type === 'button' \|\| type === 'link'\) && <SwitchSetterSection/.test(content),
+    /type === '\w+' \|\| type === '\w+'\) && <SwitchSetterSection/.exec(content)?.[0] ??
+      'ungated'
+  );
+  // And the thing that makes ungating safe: it draws nothing when there is no
+  // switch above it. Without that, every element in the library would grow an
+  // Interaction section offering an empty menu.
+  report.check(
+    'and it still draws nothing when there is no switch above it',
+    /useStatesInScope\(\)[\s\S]{0,200}?if \(states\.length === 0\) return null;/.test(content),
+    'self-hiding'
+  );
+
+  /* --- Multi-selection ---------------------------------------------------- */
+
+  /*
+   * The three sections a multi-selection is *for* were the three it did not
+   * have. Checked by name against the single-selection list rather than by
+   * counting, so adding a section to one and forgetting the other is caught.
+   */
+  const sectionsIn = (source, marker) => {
+    const at = source.indexOf(marker);
+    const body = source.slice(at, source.indexOf('\n}', at));
+    return new Set([...body.matchAll(/<(\w+Section) \/>/g)].map((m) => m[1]));
+  };
+  const single = sectionsIn(inspector, 'function SingleSelection(');
+  const multi = sectionsIn(inspector, 'function MultiSelection(');
+  const wanted = ['LayoutSection', 'FlexChildSection', 'PositionSection'];
+
+  report.check(
+    'a multi-selection can lay out, grow and pin — the three it is for',
+    wanted.every((name) => multi.has(name)),
+    wanted.filter((name) => !multi.has(name)).join(', ') || wanted.join(', ')
+  );
+  /*
+   * Content, Data and Rules are single-selection by nature — they write text,
+   * a binding or a condition to one node. Everything else that a single
+   * selection offers, several should.
+   */
+  const singleOnly = [...single].filter(
+    (name) => !multi.has(name) && !['ContentSection', 'DataSection', 'RulesSection'].includes(name)
+  );
+  report.check(
+    'and there is nothing left that only one element can be given',
+    singleOnly.length === 0,
+    singleOnly.join(', ') || `${multi.size} sections, ${single.size} for one`
+  );
+
+  /*
+   * Those sections decide whether to draw at all. Reading `selection[0]` made
+   * that decision on behalf of a whole selection from its first member, so a
+   * multi-selection starting with a heading lost the Layout controls the
+   * frames beside it needed.
+   */
+  report.check(
+    'and a section that can hide asks the whole selection, not its first member',
+    !/const id = s\.selection\[0\];[\s\S]{0,240}?getElement\([^)]*\)\.container/.test(layout),
+    /s\.selection\[0\]/.test(layout) ? 'still reads selection[0] to decide' : 'asks all of them'
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Characters that should not be in source
  *
  * Twice now a file has ended up holding a byte that makes every tool treat it
