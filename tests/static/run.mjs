@@ -3000,6 +3000,109 @@ report.group('a checked control can be styled, and says it is a switch');
  * looks right before any script runs, and the stylesheet does not grow.
  * ----------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------
+ * Nobody has to know what a CSS variable is
+ *
+ * Every scale in the theme resolves through a custom property, and for four of
+ * them the only way to use one was to know the spelling and type
+ * `var(--r-md)` into a number field. That is a fine escape hatch and a bad
+ * default: it asks somebody laying out a page to understand the token system
+ * before they can use it, and it quietly rewards typing a raw `14px` — which
+ * looks identical today and stops matching the site the moment the theme
+ * moves.
+ * ----------------------------------------------------------------------- */
+
+report.group('nobody has to know what a CSS variable is');
+
+{
+  const read = (file) => readFileSync(path.join(ROOT, file), 'utf8');
+  const inspector = (file) => read(path.join('src', 'components', 'inspector', file));
+  const ui = (file) => read(path.join('src', 'components', 'ui', file));
+
+  /*
+   * Which scales have a picker, checked by finding one wired to each group
+   * rather than by counting components. A new control for a fifth scale is
+   * caught by the pin below; a control that stops being wired is caught here.
+   */
+  const panels = [
+    inspector('sections-style.tsx'),
+    inspector('sections-layout.tsx'),
+    inspector('box-model.tsx'),
+  ].join('\n');
+
+  // Two spellings, because there are two shapes of control: a picker that
+  // replaces a field takes `group="radius"`, and one folded inside a number
+  // field arrives as `scale={{ group: 'width', … }}`.
+  const wired = ['radius', 'shadow', 'spacing', 'width'].filter((group) =>
+    new RegExp(`group="${group}"|group: '${group}'`).test(panels)
+  );
+  report.check(
+    'every scale in the theme can be picked by name, not typed as a variable',
+    wired.length === 4,
+    wired.join(', ') || 'none'
+  );
+
+  // The escape hatch is the point of the design, not a leftover: a scale
+  // cannot express every value and a control that only offers the scale would
+  // be a worse editor, not a friendlier one.
+  report.check(
+    'and a raw value is still reachable behind every one of them',
+    /advanced=\{/.test(panels) && /advanced\?: React\.ReactNode/.test(ui('token-field.tsx')),
+    'the picker takes the old control as its custom case'
+  );
+
+  /*
+   * The friendly name is the whole feature. A picker that lists `--r-md` has
+   * moved the jargon rather than removed it, so the row renders the token's
+   * `name` and the trigger does too.
+   */
+  const field = ui('token-field.tsx');
+  report.check(
+    'a token is shown by the name the theme gives it',
+    /token \? token\.name/.test(field) && /label=\{t\.name\}/.test(field),
+    'name on the trigger and on every row'
+  );
+  report.check(
+    'and each one is drawn, because a list of sizes is unreadable as words',
+    /function TokenPreview/.test(field) &&
+      ['radius', 'shadow', 'spacing'].every((g) => new RegExp(`group === '${g}'`).test(field)),
+    'radius, shadow and spacing each draw what they do'
+  );
+
+  /*
+   * And the names themselves. `MD` is a thing you have to already know; the
+   * ids stay `md` because that is what `var(--r-md)` is spelled with and
+   * renaming them would break every stored document.
+   */
+  const theme = createEmptyDocument('Tokens').theme;
+  const terse = [...theme.radii, ...theme.spacing, ...theme.shadows].filter((t) =>
+    /^(XS|SM|MD|LG|XL|2XL|3XL)$/.test(t.name)
+  );
+  report.check(
+    'the default scales are named in words rather than initials',
+    terse.length === 0,
+    terse.map((t) => t.name).join(', ') || theme.radii.map((t) => t.name).join(' / ')
+  );
+  report.check(
+    'and their ids are untouched, because documents are written in terms of them',
+    theme.radii.some((t) => t.id === 'md') && theme.spacing.some((t) => t.id === 'lg'),
+    'var(--r-md) still resolves'
+  );
+
+  /* --- Falsification ------------------------------------------------------ */
+
+  report.check(
+    'the wiring check would notice a scale losing its picker',
+    !/group="colour"|group: 'colour'/.test(panels),
+    'a group nothing is wired to reports as missing'
+  );
+  report.check(
+    'and the naming check can see a terse name',
+    /^(SM|MD)$/.test('MD'),
+    'the pattern it filters on matches what it is written against'
+  );
+}
+
 report.group('a value that is a number, and a page that works without one');
 
 {

@@ -29,7 +29,8 @@ import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { ColorField } from '../ui/color-field';
 import { NumberField } from '../ui/number-field';
-import { Section, Segmented, Select, Tooltip } from '../ui/primitives';
+import { Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives';
+import { TokenField } from '../ui/token-field';
 import { FieldPair, IconToggles, InspectorGroup, StyleRow } from './controls';
 import { useStyleBindings, useStyleProp, useStyleWriter } from './use-style';
 
@@ -445,15 +446,28 @@ export function BorderSection() {
     <Section title="Border" defaultOpen={false}>
       <InspectorGroup>
         <StyleRow label="Radius">
-          <NumberField
+          {/* The theme's scale by name, with the number field folded in as the
+              custom case. It used to be the number field alone, which accepted
+              `var(--r-md)` if you knew to type it — an escape hatch offered as
+              the only door. */}
+          <TokenField
+            group="radius"
+            tokens={theme.radii}
             value={radiusLinked ? radiusValues[0] : undefined}
-            placeholder={radiusLinked ? '0' : 'Mixed'}
-            mixed={!radiusLinked && !radiusSplit}
-            min={0}
-            onChange={(value, meta) => setAllRadius(value, meta.scrubbing ? 'radius' : undefined)}
-            allowKeywords={['var(--r-sm)', 'var(--r-md)', 'var(--r-lg)', 'var(--r-xl)', 'var(--r-full)']}
-            label="⌜"
-            title="Corner radius"
+            placeholder={radiusLinked ? 'None' : 'Mixed'}
+            onChange={(value) => setAllRadius(value)}
+            advanced={
+              <NumberField
+                value={radiusLinked ? radiusValues[0] : undefined}
+                placeholder={radiusLinked ? '0' : 'Mixed'}
+                min={0}
+                onChange={(value, meta) =>
+                  setAllRadius(value, meta.scrubbing ? 'radius' : undefined)
+                }
+                allowKeywords={theme.radii.map((t) => `var(--r-${t.id})`)}
+                title="Corner radius"
+              />
+            }
           />
           <Tooltip content={radiusSplit ? 'Link corners' : 'Set corners individually'} side="top">
             <button
@@ -574,15 +588,8 @@ function uniform(values: (string | undefined)[]): boolean {
  * Effects
  * ----------------------------------------------------------------------- */
 
-const SHADOWS = [
-  { value: 'none', label: 'None' },
-  { value: 'var(--sh-sm)', label: 'Small' },
-  { value: 'var(--sh-md)', label: 'Medium' },
-  { value: 'var(--sh-lg)', label: 'Large' },
-  { value: 'var(--sh-xl)', label: 'Extra large' },
-];
-
 export function EffectsSection() {
+  const theme = useEditor((s) => s.doc.theme);
   const opacity = useStyleProp('opacity');
   const shadow = useStyleProp('boxShadow');
   const blur = useStyleProp('filter');
@@ -614,12 +621,22 @@ export function EffectsSection() {
         </StyleRow>
 
         <StyleRow label="Shadow" overridden={shadow.overridden} onReset={shadow.clear}>
-          <Select
-            className="flex-1"
-            value={SHADOWS.some((s) => s.value === shadow.value) ? shadow.value : undefined}
-            placeholder={shadow.value ? 'Custom' : 'None'}
-            onChange={(value) => shadow.set(value === 'none' ? undefined : value)}
-            options={SHADOWS}
+          {/* The project's own shadow scale, not a list baked in here. A block
+              styled with `var(--sh-md)` and a control offering a different
+              hardcoded `0 1px 2px …` were two shadow systems in one editor. */}
+          <TokenField
+            group="shadow"
+            tokens={theme.shadows}
+            value={shadow.value}
+            placeholder="None"
+            onChange={(value) => shadow.set(value)}
+            advanced={
+              <TextInput
+                value={shadow.value ?? ''}
+                onValueChange={(value) => shadow.set(value || undefined)}
+                placeholder="0 8px 24px rgb(0 0 0 / 0.12)"
+              />
+            }
           />
         </StyleRow>
 

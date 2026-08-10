@@ -16,7 +16,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { formatLength, parseLength } from '@/lib/renderer/styles';
+import type { ScaleToken } from '@/lib/document/types';
 import { Tooltip } from './primitives';
+import { TokenPicker } from './token-field';
 
 export interface NumberFieldProps {
   value: string | undefined;
@@ -37,6 +39,15 @@ export interface NumberFieldProps {
   overridden?: boolean;
   /** Multiple selected values differ. */
   mixed?: boolean;
+  /**
+   * A theme scale this property can take, offered as named steps.
+   *
+   * When present the field grows a small swatch on the left that opens the
+   * scale by name. Padding and gap are the properties that most want it —
+   * they are used constantly and are the ones a raw `24px` silently
+   * de-systematises — but the mechanism is the same for any scale.
+   */
+  scale?: { group: 'spacing' | 'radius' | 'shadow' | 'width'; tokens: ScaleToken[] };
   disabled?: boolean;
   className?: string;
   allowKeywords?: string[];
@@ -59,6 +70,7 @@ export function NumberField({
   disabled,
   className,
   allowKeywords,
+  scale,
 }: NumberFieldProps) {
   const parsed = parseLength(value, unit);
   const [draft, setDraft] = useState<string>(value ?? '');
@@ -147,6 +159,14 @@ export function NumberField({
         className
       )}
     >
+      {scale && (
+        <TokenPicker
+          group={scale.group}
+          tokens={scale.tokens}
+          value={value}
+          onChange={(next) => onChange(next, { scrubbing: false })}
+        />
+      )}
       {(icon || label) && (
         <Tooltip content={title} side="top">
           <span

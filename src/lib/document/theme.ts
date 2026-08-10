@@ -155,29 +155,38 @@ export function createDefaultTheme(): Theme {
         },
       },
     ],
+    /*
+     * Names, not abbreviations.
+     *
+     * The ids stay `sm`/`md`/`lg` — they are what `var(--r-md)` is spelled
+     * with, and renaming them would break every document. The *names* are what
+     * the inspector shows, and "MD" is a thing you have to already know. Once
+     * a picker offers these by name rather than asking for the variable, the
+     * name is the whole interface.
+     */
     spacing: scale([
-      ['xs', 'XS', '4px'],
-      ['sm', 'SM', '8px'],
-      ['md', 'MD', '16px'],
-      ['lg', 'LG', '24px'],
-      ['xl', 'XL', '40px'],
-      ['2xl', '2XL', '64px'],
-      ['3xl', '3XL', '96px'],
+      ['xs', 'Extra small', '4px'],
+      ['sm', 'Small', '8px'],
+      ['md', 'Medium', '16px'],
+      ['lg', 'Large', '24px'],
+      ['xl', 'Extra large', '40px'],
+      ['2xl', 'Huge', '64px'],
+      ['3xl', 'Section', '96px'],
     ]),
     radii: scale([
       ['none', 'None', '0px'],
-      ['sm', 'SM', '6px'],
-      ['md', 'MD', '10px'],
-      ['lg', 'LG', '16px'],
-      ['xl', 'XL', '24px'],
-      ['full', 'Full', '999px'],
+      ['sm', 'Small', '6px'],
+      ['md', 'Medium', '10px'],
+      ['lg', 'Large', '16px'],
+      ['xl', 'Extra large', '24px'],
+      ['full', 'Full / pill', '999px'],
     ]),
     shadows: scale([
       ['none', 'None', 'none'],
-      ['sm', 'SM', '0 1px 2px rgba(11, 18, 32, 0.06)'],
-      ['md', 'MD', '0 4px 16px -4px rgba(11, 18, 32, 0.10), 0 1px 3px rgba(11, 18, 32, 0.05)'],
-      ['lg', 'LG', '0 18px 40px -12px rgba(11, 18, 32, 0.18), 0 2px 8px rgba(11, 18, 32, 0.05)'],
-      ['xl', 'XL', '0 40px 80px -24px rgba(11, 18, 32, 0.28)'],
+      ['sm', 'Small', '0 1px 2px rgba(11, 18, 32, 0.06)'],
+      ['md', 'Medium', '0 4px 16px -4px rgba(11, 18, 32, 0.10), 0 1px 3px rgba(11, 18, 32, 0.05)'],
+      ['lg', 'Large', '0 18px 40px -12px rgba(11, 18, 32, 0.18), 0 2px 8px rgba(11, 18, 32, 0.05)'],
+      ['xl', 'Extra large', '0 40px 80px -24px rgba(11, 18, 32, 0.28)'],
     ]),
     widths: scale([
       ['narrow', 'Narrow', '720px'],

@@ -13,7 +13,9 @@ import React, { useCallback, useRef, useState } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { parseLength } from '@/lib/renderer/styles';
 import type { StyleDecl, StyleProp } from '@/lib/document/types';
+import { useEditor } from '@/lib/editor/store';
 import { Tooltip } from '../ui/primitives';
+import { TokenPicker, tokenFor } from '../ui/token-field';
 import { useStyleBindings, useStyleWriter } from './use-style';
 
 type Side = 'Top' | 'Right' | 'Bottom' | 'Left';
@@ -26,6 +28,21 @@ const MARGIN_PROPS = SIDES.map((s) => `margin${s}`) as StyleProp[];
 export function BoxModel() {
   const bindings = useStyleBindings([...PADDING_PROPS, ...MARGIN_PROPS]);
   const write = useStyleWriter();
+  const spacing = useEditor((s) => s.doc.theme.spacing);
+
+  /**
+   * The scale, applied to all four sides at once.
+   *
+   * One control per box rather than one per cell: the cells are thirty pixels
+   * wide and there are eight of them, and "the same padding all round" is what
+   * somebody reaching for a spacing scale almost always means. A single side
+   * is still a scrub or a typed value away.
+   */
+  const applyAll = (group: 'padding' | 'margin') => (value: string | undefined) => {
+    const patch: StyleDecl = {};
+    for (const side of SIDES) patch[`${group}${side}` as 'paddingTop'] = value as never;
+    write(patch);
+  };
 
   const apply = useCallback(
     (group: 'padding' | 'margin', side: Side, value: string | undefined, modifiers: { all: boolean; pair: boolean }, mergeKey?: string) => {
@@ -41,8 +58,14 @@ export function BoxModel() {
     <div className="relative select-none">
       {/* Margin box */}
       <div className="relative rounded-md border border-dashed border-[var(--border-strong)] bg-[var(--margin-fill)] px-6 py-[22px]">
-        <span className="absolute top-1 left-2 text-[8.5px] font-semibold tracking-[0.08em] text-[var(--text-faint)] uppercase">
+        <span className="absolute top-1 left-2 flex items-center gap-1 text-[8.5px] font-semibold tracking-[0.08em] text-[var(--text-faint)] uppercase">
           Margin
+          <TokenPicker
+            group="spacing"
+            tokens={spacing}
+            value={bindings.marginTop?.value}
+            onChange={applyAll('margin')}
+          />
         </span>
 
         <Edge side="Top" className="top-[3px] left-1/2 -translate-x-1/2">
@@ -121,6 +144,7 @@ function BoxValue({
 }) {
   const raw = binding?.value;
   const parsed = parseLength(raw, 'px');
+  const spacing = useEditor((s) => s.doc.theme.spacing);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const drag = useRef<{
@@ -132,13 +156,27 @@ function BoxValue({
     moved: boolean;
   } | null>(null);
 
+  /*
+   * A cell is thirty pixels wide, and `var(--s-md)` does not fit in it — it
+   * used to be shown anyway, truncated, which is the worst of both: unreadable
+   * *and* jargon. A token now shows the number it resolves to, marked as a
+   * token, with its name in the tooltip. Somebody scanning the box model sees
+   * spacing; somebody who needs to know where 16px came from hovers.
+   */
+  const token = tokenFor('spacing', spacing, raw);
+  const tokenPx = token ? parseLength(token.value, 'px') : null;
+
   const display = binding?.mixed
     ? '–'
-    : parsed.keyword
-      ? raw
-      : parsed.number === null
-        ? '0'
-        : String(Math.round(parsed.number * 10) / 10);
+    : token
+      ? (tokenPx?.number === null || tokenPx === null
+          ? token.name
+          : String(Math.round(tokenPx.number * 10) / 10))
+      : parsed.keyword
+        ? raw
+        : parsed.number === null
+          ? '0'
+          : String(Math.round(parsed.number * 10) / 10);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -203,7 +241,10 @@ function BoxValue({
   }
 
   return (
-    <Tooltip content={raw ?? 'Not set'} side="top">
+    <Tooltip
+      content={token ? `${token.name} — ${token.value}` : (raw ?? 'Not set')}
+      side="top"
+    >
       <button
         type="button"
         onPointerDown={onPointerDown}
@@ -212,6 +253,9 @@ function BoxValue({
         className={cn(
           'scrubbable min-w-[26px] rounded-[3px] px-1 text-center text-[10px] tabular',
           'transition-colors duration-120 hover:bg-[var(--field-hover)]',
+          // A token reads as a token without saying so in words there is no
+          // room for: the underline is the marker, the tooltip is the name.
+          token && 'underline decoration-dotted underline-offset-[3px]',
           binding?.overridden
             ? 'text-[var(--accent)]'
             : raw

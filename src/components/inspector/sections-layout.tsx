@@ -8,7 +8,7 @@
  * a layout model of its own, so what you set is what the published page does.
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   AlignHorizontalSpaceBetween,
   AlignVerticalSpaceBetween,
@@ -29,7 +29,7 @@ import { NumberField } from '../ui/number-field';
 import { Section, Segmented, Select, Tooltip } from '../ui/primitives';
 import { BoxModel } from './box-model';
 import { FieldPair, InspectorGroup, StyleRow } from './controls';
-import { useStyleBindings, useStyleProp, useStyleWriter } from './use-style';
+import { useStyleBindings, useStyleProp, useStyleReset, useStyleWriter } from './use-style';
 
 /* --------------------------------------------------------------------------
  * Layout
@@ -48,6 +48,8 @@ const LAYOUT_PROPS: StyleProp[] = [
 export function LayoutSection() {
   const bindings = useStyleBindings(LAYOUT_PROPS);
   const write = useStyleWriter();
+  const theme = useEditor((s) => s.doc.theme);
+  const resetLayout = useStyleReset();
   /*
    * Any of them, not the first of them. Reading `selection[0]` hid this
    * section whenever a multi-selection happened to start with a heading, even
@@ -105,7 +107,7 @@ export function LayoutSection() {
             <StyleRow
               label="Direction"
               overridden={bindings.flexDirection?.overridden}
-              onReset={() => useEditor.getState().clearStyle(['flexDirection'])}
+              onReset={() => resetLayout(['flexDirection'])}
             >
               <Segmented
                 full
@@ -166,6 +168,7 @@ export function LayoutSection() {
                   value={bindings.gap?.value}
                   overridden={bindings.gap?.overridden}
                   mixed={bindings.gap?.mixed}
+                  scale={{ group: 'spacing', tokens: theme.spacing }}
                   onChange={(value, meta) =>
                     write({ gap: value }, { mergeKey: meta.scrubbing ? 'gap' : undefined })
                   }
@@ -310,10 +313,8 @@ const SIZE_PROPS: StyleProp[] = [
 export function SizeSection() {
   const bindings = useStyleBindings(SIZE_PROPS);
   const write = useStyleWriter();
-  const reset = useCallback(
-    (props: StyleProp[]) => useEditor.getState().clearStyle(props),
-    []
-  );
+  const theme = useEditor((s) => s.doc.theme);
+  const reset = useStyleReset();
 
   return (
     <Section title="Size">
@@ -358,7 +359,8 @@ export function SizeSection() {
               value={bindings.maxWidth?.value}
               overridden={bindings.maxWidth?.overridden}
               onChange={(value) => write({ maxWidth: value })}
-              allowKeywords={['none', 'var(--w-narrow)', 'var(--w-content)', 'var(--w-wide)']}
+              scale={{ group: 'width', tokens: theme.widths }}
+              allowKeywords={['none', ...theme.widths.map((t) => `var(--w-${t.id})`)]}
             />
             <NumberField
               label="H"
