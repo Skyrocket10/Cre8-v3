@@ -27,7 +27,7 @@ import {
   slug,
   slugList,
 } from '@/lib/document/schema';
-import type { Asset, ElementType } from '@/lib/document/types';
+import type { Asset, ElementType, StyleDecl } from '@/lib/document/types';
 import {
   detachInstance,
   exposeProperty,
@@ -537,6 +537,104 @@ function usePopovers(): { id: string; name: string }[] {
   }, [encoded]);
 }
 
+/**
+ * The dimming behind an overlay, as one control rather than a rule to build.
+ *
+ * `::backdrop` has been styleable since parts landed — a rule with
+ * `part: 'backdrop'` and no condition — and a dialog already ships one. What
+ * was missing is that finding it meant knowing to open Conditions, press
+ * Backdrop, and then style an empty rule. That is the right *model* and a bad
+ * road to it: the backdrop is a property of the overlay as far as anybody
+ * designing one is concerned.
+ *
+ * So this writes into exactly the same rule the Conditions panel would create,
+ * and the panel still shows it. Nothing new is stored.
+ */
+function BackdropControls() {
+  const nodeId = useEditor((s) => s.selection[0]);
+  const rule = useEditor((s) => {
+    const id = s.selection[0];
+    return id ? s.doc.nodes[id]?.rules?.find((r) => r.part === 'backdrop') : undefined;
+  });
+  const tokens = useEditor((s) => s.doc.theme.colors);
+
+  const on = Boolean(rule);
+  const fill = rule?.apply.backgroundColor;
+  const blur = /blur\(([^)]+)\)/.exec(String(rule?.apply.backdropFilter ?? ''))?.[1];
+
+  const write = (patch: StyleDecl) => {
+    if (!rule || !nodeId) return;
+    useEditor.getState().setRuleStyle(rule.id, patch, { ids: [nodeId] });
+  };
+
+  return (
+    <>
+      <StyleRow label="Backdrop" hint="Dims whatever is behind the overlay">
+        <Switch
+          checked={on}
+          onChange={(next) => {
+            const store = useEditor.getState();
+            if (!next) {
+              if (rule) store.removeRule(rule.id);
+              return;
+            }
+            // Created with something visible in it. A backdrop switched on
+            // that looks identical to one switched off is a control that
+            // appears broken, and "now go and pick a colour" is a second step
+            // nobody asked for.
+            const created = store.addRule([], 'backdrop');
+            if (created && nodeId) {
+              store.setRuleStyle(
+                created,
+                { backgroundColor: 'rgb(11 18 32 / 0.45)' },
+                { ids: [nodeId] }
+              );
+            }
+          }}
+          label={on ? 'On' : 'Off'}
+        />
+      </StyleRow>
+
+      {on && (
+        <>
+          <StyleRow label="Colour">
+            <ColorField
+              value={fill}
+              tokens={tokens}
+              placeholder="None"
+              onChange={(value) => write({ backgroundColor: value })}
+            />
+          </StyleRow>
+          <StyleRow label="Blur" hint="Frosts the page behind, as well as dimming it">
+            <NumberField
+              value={blur}
+              min={0}
+              onChange={(value) => write({ backdropFilter: value ? `blur(${value})` : undefined })}
+            />
+          </StyleRow>
+        </>
+      )}
+    </>
+  );
+}
+
+/** Takes the editor into the overlay, so panels and clicks aim at it. */
+function EditContentsRow() {
+  const nodeId = useEditor((s) => s.selection[0]);
+  const inside = useEditor((s) => s.editingOverlayId === s.selection[0]);
+  if (!nodeId) return null;
+
+  return (
+    <Button
+      className="w-full"
+      onClick={() => useEditor.getState().editOverlay(inside ? null : nodeId)}
+    >
+      <SquarePen size={11} />
+      {inside ? 'Finish editing contents' : 'Edit contents'}
+    </Button>
+  );
+}
+
 function PopoverContent() {
   const mode = useNodeProp('popoverMode');
   const showWhileEditing = useNodeProp('showWhileEditing');
@@ -555,6 +653,7 @@ function PopoverContent() {
             ]}
           />
         </StyleRow>
+        <BackdropControls />
         <StyleRow label="On canvas">
           <Switch
             checked={showWhileEditing.value !== false}
@@ -562,10 +661,12 @@ function PopoverContent() {
             label="Show while editing"
           />
         </StyleRow>
+        <EditContentsRow />
       </InspectorGroup>
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         Published, it stays hidden until a button opens it. Turn this off and it hides on the canvas
-        too — select it in Layers to bring it back.
+        too — select it in Layers to bring it back. Automatic dismissal is the browser&rsquo;s own
+        light dismiss: Escape, or a click outside. Manual means only a button closes it.
       </p>
     </Section>
   );
@@ -598,6 +699,7 @@ function DialogContent() {
             ]}
           />
         </StyleRow>
+        <BackdropControls />
         <StyleRow label="On canvas">
           <Switch
             checked={showWhileEditing.value !== false}
@@ -605,6 +707,7 @@ function DialogContent() {
             label="Show while editing"
           />
         </StyleRow>
+        <EditContentsRow />
       </InspectorGroup>
       {/* Said here rather than only in a document, because the difference is
           invisible until a keyboard user finds it. */}

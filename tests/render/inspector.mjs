@@ -316,6 +316,96 @@ try {
     listed.includes(survived[0]?.name ?? 'no-such-component'),
     listed.slice(0, 120) || 'no components panel on screen'
   );
+  /* --------------------------- 6. an overlay is a place you can be in ---- */
+
+  /*
+   * A popover sits over the page it belongs to, so "which of these two did you
+   * mean" is a question the editor had no way to answer: an element inserted
+   * while a panel was open landed on the page behind it.
+   */
+  await page.locator('button[aria-label="Insert"]').first().click();
+  const popoverCard = page.locator('button:has(span:text-is("Mega menu"))').first();
+  await popoverCard.waitFor({ state: 'visible', timeout: 8000 });
+  await popoverCard.click();
+  await page.waitForTimeout(1400);
+
+  const overlayId = await page.evaluate(async (pid) => {
+    const r = await fetch(`/api/projects/${pid}`, {
+      credentials: 'include',
+      headers: { 'x-cre8-csrf': '1' },
+    });
+    const { document: doc } = await r.json();
+    return Object.values(doc.nodes).find((n) => n.type === 'popover')?.id ?? null;
+  }, id);
+  report.check('a block with a popover in it is on the page', Boolean(overlayId), overlayId ?? 'none');
+
+  if (overlayId) {
+    // In through the canvas, the same double-click that goes into a component.
+    await clickOnCanvas(overlayId);
+    await page.mouse.dblclick(
+      ...(await page.evaluate((nid) => {
+        const el = document.querySelector(`.cre8-frame.cre8-editing [data-cre8-id="${nid}"]`);
+        const r = el.getBoundingClientRect();
+        return [r.left + 8, r.top + 8];
+      }, overlayId))
+    );
+    await page.waitForTimeout(700);
+
+    const scoped = await page.evaluate(() =>
+      Boolean(document.querySelector('button[aria-label="Stop editing this overlay"]'))
+    );
+    report.check('double-clicking it enters its editing context', scoped, scoped ? 'breadcrumb shown' : 'no breadcrumb');
+
+    // The claim: what gets inserted lands inside the overlay, not on the page.
+    const before = await page.evaluate(async (pid) => {
+      const r = await fetch(`/api/projects/${pid}`, { credentials: 'include', headers: { 'x-cre8-csrf': '1' } });
+      const { document: doc } = await r.json();
+      return Object.keys(doc.nodes).length;
+    }, id);
+
+    // The `h` shortcut rather than the Insert panel's element list: it goes
+    // through the same `insertElement` the panel does, and it does not depend
+    // on how the panel happens to render its rows.
+    await page.locator('.cre8-frame.cre8-editing').click({ position: { x: 4, y: 4 }, force: true });
+    await page.waitForTimeout(200);
+    await page.keyboard.press('h');
+    await page.waitForTimeout(1100);
+
+    const placed = await page.evaluate(
+      async ([pid, oid, was]) => {
+        const r = await fetch(`/api/projects/${pid}`, { credentials: 'include', headers: { 'x-cre8-csrf': '1' } });
+        const { document: doc } = await r.json();
+        const added = Object.keys(doc.nodes).length - was;
+        // Walk up from every new-looking heading and see which tree it is in.
+        const inside = Object.values(doc.nodes).filter((n) => {
+          if (n.type !== 'heading') return false;
+          let cur = n.parentId;
+          for (let i = 0; cur && i < 200; i++) {
+            if (cur === oid) return true;
+            cur = doc.nodes[cur]?.parentId ?? null;
+          }
+          return false;
+        }).length;
+        return { added, inside };
+      },
+      [id, overlayId, before]
+    );
+    report.check(
+      'and an element inserted while it is open lands inside it',
+      placed.added > 0 && placed.inside > 0,
+      `${placed.added} nodes added, ${placed.inside} heading(s) inside the overlay`
+    );
+
+    // Out again, and the page is reachable once more.
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    const stillScoped = await page.evaluate(() =>
+      Boolean(document.querySelector('button[aria-label="Stop editing this overlay"]'))
+    );
+    report.check('and Escape unwinds back out to the page', !stillScoped, stillScoped ? 'still scoped' : 'back on the page');
+  }
 } catch (error) {
   report.check('inspector suite completed', false, error.message);
 } finally {

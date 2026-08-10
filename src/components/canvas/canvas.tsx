@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { BREAKPOINT_DEFS } from '@/lib/document/types';
 import { getElement } from '@/lib/document/schema';
 import { allRoots } from '@/lib/document/components';
@@ -25,7 +26,7 @@ import { designRecord as pickDesignRecord } from '@/lib/renderer/repeat';
 import { behaviourRuntime } from '@/lib/runtime/behaviour';
 import { DATA_ATTR, collectDataSources, designTokens } from '@/lib/runtime/data';
 import { hitTest } from '@/lib/editor/registry';
-import { activeRootId, useEditor } from '@/lib/editor/store';
+import { canvasRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { editorEngine } from './engine';
 import { CanvasOverlays } from './overlays';
@@ -35,6 +36,33 @@ import { CanvasEmptyState } from './empty-state';
 
 const FIT_PADDING = 72;
 const DRAG_THRESHOLD = 4;
+
+/**
+ * A hit, unless an overlay is open and the hit is outside it.
+ *
+ * The canvas still *draws* the page behind an open popover — a popover judged
+ * without the content under it is a box floating in grey — so without this
+ * every click meant for the panel would land on whatever the panel happens to
+ * be covering. Returning `null` makes the page behave exactly as empty canvas
+ * does, which is the honest reading: there is nothing there to select while
+ * the editor is pointed somewhere else.
+ *
+ * The overlay itself is in scope, so its own edges stay grabbable.
+ */
+function inScope(
+  state: { doc: { nodes: NodeMap }; editingOverlayId: string | null },
+  hit: string | null
+): string | null {
+  const overlay = state.editingOverlayId;
+  if (!hit || !overlay || !state.doc.nodes[overlay]) return hit;
+
+  let current: string | null = hit;
+  for (let guard = 0; current && guard < 200; guard++) {
+    if (current === overlay) return hit;
+    current = state.doc.nodes[current]?.parentId ?? null;
+  }
+  return null;
+}
 
 /** The static prelude the canvas shares with preview and published output. */
 const RESET = `${DOCUMENT_RESET}\n${PLACEHOLDER_CSS}`;
@@ -91,7 +119,15 @@ export function Canvas() {
   const showOutlines = useEditor((s) => s.showOutlines);
   const spacePanning = useEditor((s) => s.spacePanning);
   const editingTextId = useEditor((s) => s.editingTextId);
-  const rootId = useEditor((s) => activeRootId(s));
+  /*
+   * What is *drawn*, which is not the same as what is being edited.
+   *
+   * An open popover narrows selection and insertion to itself, but a popover
+   * with the page removed from behind it is a box floating in grey — the thing
+   * a designer is judging is how it sits over the content. So the page stays,
+   * and `activeRootId` narrows everything else.
+   */
+  const rootId = useEditor((s) => canvasRootId(s));
 
   /*
    * A page that is a template for a collection is drawn against a real record
@@ -278,7 +314,7 @@ export function Canvas() {
       }
       if (e.button !== 0) return;
 
-      const hit = hitTest(e.clientX, e.clientY);
+      const hit = inScope(store, hitTest(e.clientX, e.clientY));
 
       if (!hit) {
         store.select(null);
@@ -350,7 +386,7 @@ export function Canvas() {
     }
 
     if (store.drag) return;
-    store.setHover(hitTest(e.clientX, e.clientY));
+    store.setHover(inScope(store, hitTest(e.clientX, e.clientY)));
   }, []);
 
   const endGesture = useCallback((e: React.PointerEvent) => {
@@ -360,13 +396,19 @@ export function Canvas() {
 
   const onDoubleClick = useCallback((e: React.PointerEvent | React.MouseEvent) => {
     const store = useEditor.getState();
-    const hit = hitTest(e.clientX, e.clientY);
+    const hit = inScope(store, hitTest(e.clientX, e.clientY));
     if (!hit) return;
     const node = store.doc.nodes[hit];
     if (!node) return;
 
     if (getElement(node.type).textual) {
       store.beginTextEdit(hit);
+    } else if (node.type === 'popover' || node.type === 'dialog') {
+      // The way in. Double-click is already "go deeper" everywhere else on the
+      // canvas — into a component's master, into a container's first child —
+      // and an overlay is the case where going deeper has to change what the
+      // rest of the editor is aimed at as well.
+      store.editOverlay(hit);
     } else if (node.type === 'instance') {
       const componentId = String(node.props.componentId ?? '');
       // Into the tree this instance is actually wearing. Opening the default
@@ -448,6 +490,13 @@ function FrameHeader({ width, zoom }: { width: number; zoom: number }) {
     }
     return s.doc.pages.find((p) => p.id === s.activePageId)?.name ?? 'Page';
   });
+  // The overlay leg of the breadcrumb, which is also the way out. It is here
+  // rather than in a panel because the scope is a property of the canvas —
+  // whichever panel happens to be open, this is the thing that says what a
+  // click will hit.
+  const overlayName = useEditor((s) =>
+    s.editingOverlayId ? (s.doc.nodes[s.editingOverlayId]?.name ?? 'Overlay') : null
+  );
 
   return (
     <div
@@ -461,7 +510,32 @@ function FrameHeader({ width, zoom }: { width: number; zoom: number }) {
         width: width * zoom,
       }}
     >
-      <span className="text-[11.5px] font-medium text-[var(--text-secondary)]">{pageName}</span>
+      {overlayName ? (
+        <>
+          <button
+            type="button"
+            onClick={() => useEditor.getState().editOverlay(null)}
+            title="Back to the page"
+            className="text-[11.5px] text-[var(--text-faint)] transition-colors hover:text-[var(--text-secondary)]"
+          >
+            {pageName}
+          </button>
+          <span className="text-[11.5px] text-[var(--text-faint)]">›</span>
+          <span className="flex items-center gap-1.5 rounded-md bg-[var(--accent-subtle)] px-1.5 py-0.5 text-[11.5px] font-medium text-[var(--accent)]">
+            {overlayName}
+            <button
+              type="button"
+              aria-label="Stop editing this overlay"
+              onClick={() => useEditor.getState().editOverlay(null)}
+              className="opacity-70 transition-opacity hover:opacity-100"
+            >
+              <X size={10} />
+            </button>
+          </span>
+        </>
+      ) : (
+        <span className="text-[11.5px] font-medium text-[var(--text-secondary)]">{pageName}</span>
+      )}
       <span className="text-[10.5px] text-[var(--text-faint)] tabular">
         {BREAKPOINT_DEFS[breakpoint].label} · {width}
       </span>

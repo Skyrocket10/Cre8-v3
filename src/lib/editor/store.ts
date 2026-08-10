@@ -123,6 +123,21 @@ interface EditorState {
   editingComponentId: string | null;
   /** Which of that component's trees. `null` is the default one. */
   editingVariantId: string | null;
+  /**
+   * An overlay opened *for editing*: a popover or a dialog.
+   *
+   * The third editing context, and the one that is a scope rather than a
+   * place. A page and a component master are two different trees; an overlay
+   * is a subtree of whichever of those is already open, and entering it
+   * narrows what the editor will touch rather than navigating anywhere.
+   *
+   * That narrowing is the whole point. A popover on the canvas sits over the
+   * page it belongs to, so without it the obvious gestures do the wrong thing:
+   * an element dropped from the Insert panel lands on the page *behind* the
+   * panel you are looking at, and a click meant for the panel selects whatever
+   * it happens to be covering.
+   */
+  editingOverlayId: NodeId | null;
 
   /* Selection */
   selection: NodeId[];
@@ -275,6 +290,14 @@ interface EditorActions {
   /* Pages & components */
   setActivePage(pageId: string): void;
   editComponent(componentId: string | null, variantId?: string | null): void;
+  /**
+   * Enter or leave an overlay's editing context.
+   *
+   * `null` returns to the page or master the overlay sits in — the overlay is
+   * still there and still visible, it simply stops being what the editor is
+   * pointed at.
+   */
+  editOverlay(nodeId: NodeId | null): void;
 
   /* Document editing */
   insertElement(type: ElementType, parentId?: NodeId, index?: number): NodeId | null;
@@ -405,6 +428,7 @@ function initialState(): EditorState {
     activePageId: doc.pages[0]?.id ?? '',
     editingComponentId: null,
     editingVariantId: null,
+    editingOverlayId: null,
     selection: [],
     hoverId: null,
     editingTextId: null,
@@ -458,6 +482,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       activePageId: pageId ?? home?.id ?? doc.pages[0]?.id ?? '',
       editingComponentId: null,
       editingVariantId: null,
+      editingOverlayId: null,
       selection: [],
       hoverId: null,
       editingTextId: null,
@@ -670,14 +695,16 @@ export const useEditor = create<EditorStore>()((set, get) => ({
   },
 
   selectParent() {
-    const { selection, doc, activePageId } = get();
-    const first = selection[0];
+    const state = get();
+    const first = state.selection[0];
     if (!first) return;
-    const page = doc.pages.find((p) => p.id === activePageId);
-    const parentId = doc.nodes[first]?.parentId;
+    // The scope is the ceiling. Walking out of an open overlay would select
+    // the page behind it — which is the one thing the context exists to stop,
+    // and it would happen on a keypress people use constantly.
+    if (first === activeRootId(state)) return;
+    const parentId = state.doc.nodes[first]?.parentId;
     if (!parentId) return;
-    // Stop at the page root rather than selecting an unselectable container.
-    get().select(parentId === page?.rootNodeId ? parentId : parentId);
+    get().select(parentId);
   },
 
   selectChild() {
@@ -807,6 +834,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       activePageId: pageId,
       editingComponentId: null,
       editingVariantId: null,
+      editingOverlayId: null,
       selection: [],
       hoverId: null,
       editingTextId: null,
@@ -814,9 +842,39 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     });
   },
 
+  editOverlay(nodeId) {
+    const leaving = get().editingOverlayId;
+    const node = nodeId ? get().doc.nodes[nodeId] : null;
+    // Only the two element types the browser puts in the top layer. Anything
+    // else claiming to be an overlay would be a scope with no visual meaning.
+    if (nodeId && node?.type !== 'popover' && node?.type !== 'dialog') return;
+
+    // Into the overlay's first child on the way in, and onto the overlay
+    // itself on the way out — both are the thing you would have clicked next.
+    const selection = nodeId
+      ? node?.children[0]
+        ? [node.children[0]]
+        : [nodeId]
+      : leaving
+        ? [leaving]
+        : [];
+
+    set({
+      editingOverlayId: nodeId,
+      selection,
+      hoverId: null,
+      editingTextId: null,
+      measureToken: get().measureToken + 1,
+    });
+  },
+
   editComponent(componentId, variantId = null) {
     set({
       editingComponentId: componentId,
+      // A different tree entirely, so any overlay scope inside the old one is
+      // meaningless — and leaving it set would scope the editor to a node that
+      // is no longer on the canvas.
+      editingOverlayId: null,
       editingVariantId: componentId ? variantId : null,
       selection: [],
       hoverId: null,
@@ -1342,8 +1400,29 @@ export const useEditor = create<EditorStore>()((set, get) => ({
  * Derived helpers
  * ----------------------------------------------------------------------- */
 
-/** Root node currently on the canvas: a page root, or a component master. */
+/**
+ * What the editor is currently *pointed at*.
+ *
+ * The layer tree roots here, the Insert panel drops here, select-all selects
+ * here, and the status bar counts from here. An open overlay narrows all four
+ * at once, which is the whole of the scoping — every panel already asked this
+ * question, so none of them needed to learn a new one.
+ *
+ * Deliberately not what the *canvas draws*: see `canvasRootId`. A popover is
+ * meaningless without the page under it, so the page stays on screen and only
+ * what the editor will *touch* narrows.
+ */
 export function activeRootId(
+  state: Pick<EditorState, 'doc' | 'activePageId' | 'editingComponentId' | 'editingVariantId' | 'editingOverlayId'>
+): NodeId | null {
+  const overlay = state.editingOverlayId;
+  if (overlay && state.doc.nodes[overlay]) return overlay;
+  return canvasRootId(state);
+}
+
+
+/** Root node currently on the canvas: a page root, or a component master. */
+export function canvasRootId(
   state: Pick<EditorState, 'doc' | 'activePageId' | 'editingComponentId' | 'editingVariantId'>
 ): NodeId | null {
   if (state.editingComponentId) {

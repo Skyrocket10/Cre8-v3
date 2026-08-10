@@ -336,6 +336,57 @@ they agree across the whole block library.
 
 ---
 
+## 5b. Where the editor is pointed
+
+Three editing contexts, and the third is a different shape from the other two.
+
+A **page** and a **component master** are separate trees: opening one is
+navigation, and `canvasRootId` says which is drawn. An **overlay** — a popover
+or a dialog — is a subtree of whichever of those is already open, so entering
+it narrows what the editor will touch rather than going anywhere.
+
+```
+Page
+├── Header
+├── Hero
+└── Menu popover   ← editingOverlayId
+    ├── Heading
+    └── Link
+```
+
+The narrowing costs one field and one seam. Every panel already asked
+`activeRootId` what it was working in — the layer tree roots there, the Insert
+panel drops there, select-all selects there, the status bar counts there — so
+answering with the overlay narrows all of them at once, and no panel had to
+learn anything.
+
+`canvasRootId` deliberately does *not* narrow. A popover judged without the
+page under it is a box floating in grey, and what a designer is looking at is
+how it sits over the content. So the page stays drawn and only what the editor
+will *touch* changes — which means the canvas needs its own filter: a hit
+outside the overlay resolves to nothing, exactly as empty canvas does.
+
+In by double-click, the same gesture that goes into a component master. Out by
+the breadcrumb, its close button, or Escape — which unwinds one level at a
+time and leaves the overlay once walking up would not move. `selectParent` has
+the scope as its ceiling for the same reason: walking out of the overlay on a
+keypress people use constantly is the one thing the context exists to prevent.
+
+### Backdrops
+
+`::backdrop` has been styleable since parts landed — a rule with
+`part: 'backdrop'` and no condition. The overlay inspector now writes into
+exactly that rule rather than expecting somebody to find Conditions → Backdrop
+and style an empty rule, and the Conditions panel still shows it. Nothing new
+is stored.
+
+Dismissal is the browser's, not ours: `popover=auto` is light dismiss —
+Escape, or a click outside — and `manual` means only a button closes it. There
+is no script here that watches for backdrop clicks, because the platform
+already does it and doing it twice is how the two disagree.
+
+---
+
 ## 6. Storage
 
 ```ts

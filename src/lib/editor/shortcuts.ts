@@ -14,7 +14,7 @@
 import { useEffect } from 'react';
 import { BREAKPOINT_DEFS, type Breakpoint, type ElementType } from '../document/types';
 import { createComponentFromNode } from '../document/operations';
-import { useEditor, type LeftTab } from './store';
+import { activeRootId, useEditor, type LeftTab } from './store';
 
 const INSERT_KEYS: Record<string, ElementType> = {
   f: 'frame',
@@ -63,8 +63,19 @@ export function useKeyboardShortcuts(options: { onSave: () => void; onPublish: (
           return;
         }
         if (isTyping(e.target)) return;
-        if (store.selection.length) {
+        /*
+         * Up one level, then out of the overlay — but only when going up would
+         * actually move. `selectParent` stops at the scope ceiling, so once the
+         * overlay itself is selected it does nothing, and calling it anyway
+         * swallowed the key: Escape became inert instead of leaving.
+         */
+        const first = store.selection[0];
+        if (first && first !== activeRootId(store)) {
           store.selectParent();
+          return;
+        }
+        if (store.editingOverlayId) {
+          store.editOverlay(null);
           return;
         }
         return;

@@ -36,6 +36,12 @@ second tree to wear, with its own styles, chosen per instance. Design
 tokens for colour, type, spacing, radius, shadow and width that compile to CSS
 custom properties.
 
+**Overlays**  Popovers and dialogs are the browser's own — `[popover]` and
+`<dialog>`, so the published page ships nothing for them. Double-click one on
+the canvas to edit *inside* it: insertion, selection and the layer tree all
+narrow to the overlay until you leave, so nothing lands on the page behind it.
+Backdrops are a control on the overlay rather than a rule to go and build.
+
 **Interaction**  Switches, tabs, filters and steppers, all of them a named
 value plus a generated CSS rule — the published page ships about 2 KB for the
 lot, and works with scripting off. Plus continuous values: a number a box holds

@@ -3012,6 +3012,104 @@ report.group('a checked control can be styled, and says it is a switch');
  * moves.
  * ----------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------
+ * The editor knows where it is pointed
+ *
+ * A popover on the canvas sits over the page it belongs to, and until now the
+ * editor had no idea which of the two you meant. An element dropped from the
+ * Insert panel landed on the page *behind* the panel you were looking at, and
+ * a click meant for the panel selected whatever it happened to be covering.
+ *
+ * The fix is one field and one seam: every panel already asked `activeRootId`
+ * what it was working in, so narrowing that answer narrows all of them at
+ * once. What the canvas *draws* is deliberately a different question.
+ * ----------------------------------------------------------------------- */
+
+report.group('the editor knows whether it is editing the page or an overlay');
+
+{
+  const read = (file) => readFileSync(path.join(ROOT, file), 'utf8');
+  const store = read(path.join('src', 'lib', 'editor', 'store.ts'));
+  const canvas = read(path.join('src', 'components', 'canvas', 'canvas.tsx'));
+
+  report.check(
+    'an open overlay narrows what the editor is working in',
+    /export function activeRootId\([\s\S]{0,400}?editingOverlayId/.test(store),
+    'activeRootId answers with the overlay when one is open'
+  );
+  report.check(
+    'and every panel gets the narrowing for free, because they all ask the same question',
+    ['layers-panel.tsx', 'insert-panel.tsx']
+      .map((f) => read(path.join('src', 'components', 'panels', f)))
+      .every((src) => /activeRootId/.test(src)),
+    'the layer tree and the Insert panel both root at it'
+  );
+
+  /*
+   * The one place that must *not* narrow. A popover judged without the page
+   * under it is a box floating in grey, so the canvas keeps drawing the page
+   * and only what the editor will touch changes.
+   */
+  report.check(
+    'but the canvas still draws the page, because that is what a popover sits on',
+    /canvasRootId\(s\)/.test(canvas) && /export function canvasRootId/.test(store),
+    'two questions, two answers'
+  );
+  report.check(
+    'so a click outside the overlay hits nothing rather than the page behind it',
+    /function inScope\(/.test(canvas) &&
+      (canvas.match(/inScope\(store, hitTest\(/g) ?? []).length >= 2,
+    `${(canvas.match(/inScope\(store, hitTest\(/g) ?? []).length} of the hit-test paths are filtered`
+  );
+
+  report.check(
+    'only the two element types the browser puts in the top layer can be one',
+    /node\?\.type !== 'popover' && node\?\.type !== 'dialog'/.test(store),
+    'anything else is refused'
+  );
+  report.check(
+    'there is a way in, a way out, and Escape unwinds to it',
+    /store\.editOverlay\(hit\)/.test(canvas) &&
+      /editOverlay\(null\)/.test(canvas) &&
+      /store\.editOverlay\(null\)/.test(read(path.join('src', 'lib', 'editor', 'shortcuts.ts'))),
+    'double-click in, breadcrumb or Escape out'
+  );
+  report.check(
+    'and walking up the tree stops at the overlay rather than escaping it',
+    /if \(first === activeRootId\(state\)\) return;/.test(store),
+    'selectParent has a ceiling'
+  );
+
+  /* --- The backdrop ------------------------------------------------------- */
+
+  const content = read(path.join('src', 'components', 'inspector', 'section-content.tsx'));
+  report.check(
+    'a backdrop is a control on the overlay, not a rule to go and build',
+    /function BackdropControls/.test(content) &&
+      (content.match(/<BackdropControls \/>/g) ?? []).length === 2,
+    'on both the popover and the dialog'
+  );
+  report.check(
+    'and it writes the same rule the Conditions panel would, so nothing new is stored',
+    /addRule\(\[\], 'backdrop'\)/.test(content) &&
+      /addRule\(\[\], 'backdrop'\)/.test(read(path.join('src', 'components', 'inspector', 'section-rules.tsx'))),
+    "part: 'backdrop', from either door"
+  );
+
+  /* --- Falsification ------------------------------------------------------ */
+
+  report.check(
+    'the scoping check would notice the canvas narrowing too',
+    !/const rootId = useEditor\(\(s\) => activeRootId\(s\)\);/.test(canvas),
+    'the canvas asks the drawing question, not the scope one'
+  );
+  report.check(
+    'and the hit-filter check counts real call sites',
+    (canvas.match(/inScope\(store, hitTest\(/g) ?? []).length !== 0,
+    'a filter applied nowhere would report zero'
+  );
+}
+
 report.group('nobody has to know what a CSS variable is');
 
 {
