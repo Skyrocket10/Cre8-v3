@@ -78,9 +78,13 @@ export {
   uploadSpec,
 } from './app';
 import {
+  carouselSpec,
   drawerSpec,
   lightboxSpec,
   megaMenuSpec,
+  progressSpec,
+  segmentedSpec,
+  toastSpec,
   tooltipSpec,
   userMenuSpec,
 } from './overlay';
@@ -630,6 +634,38 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'commerce',
     keywords: ['delivery', 'returns', 'trust', 'guarantee'],
     build: shippingStripSpec,
+  },
+  {
+    id: 'app-progress',
+    name: 'Progress',
+    description: 'Native <progress>, announced with its value',
+    category: 'app',
+    keywords: ['bar', 'loading', 'percent', 'upload', 'status'],
+    build: progressSpec,
+  },
+  {
+    id: 'app-segmented',
+    name: 'Segmented control',
+    description: 'A radio group the arrow keys can drive',
+    category: 'app',
+    keywords: ['toggle', 'radio', 'options', 'switch', 'choice'],
+    build: segmentedSpec,
+  },
+  {
+    id: 'app-toasts',
+    name: 'Toasts',
+    description: 'Messages the reader dismisses, not a timer',
+    category: 'app',
+    keywords: ['notification', 'alert', 'snackbar', 'message', 'dismiss'],
+    build: toastSpec,
+  },
+  {
+    id: 'editorial-carousel',
+    name: 'Carousel',
+    description: 'One slide at a time, chosen by CSS rather than a transform',
+    category: 'editorial',
+    keywords: ['slider', 'slideshow', 'gallery', 'slides', 'rotator'],
+    build: carouselSpec,
   },
   {
     id: 'app-drawer',

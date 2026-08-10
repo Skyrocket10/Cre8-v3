@@ -39,14 +39,21 @@ import {
   frame,
   grid,
   heading,
+  fieldset,
   media,
   pad,
   paragraph,
   popover,
   popoverButton,
+  progress,
+  radio,
   radius,
   section,
   stack,
+  switchButton,
+  switchCase,
+  switchGroup,
+  switchStep,
   textLink,
 } from './kit';
 
@@ -507,5 +514,358 @@ export function userMenuSpec(): NodeSpec {
     // The name beside the avatar is the first thing to go: on a phone the
     // avatar alone is the control, and the name is in the panel it opens.
     { mobile: { paddingLeft: '14px', paddingRight: '14px' } }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Controls
+ *
+ * Two of these are a native element and an attribute. They are here rather
+ * than in `app.ts` because they belong with the overlays for the same reason
+ * the overlays belong together: the browser already does the work, and the
+ * value of the block is knowing that and not reaching for a library.
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Progress, in the element called progress.
+ *
+ * A `div` with a coloured child looks the same and says nothing: `<progress>`
+ * is announced with its value and its maximum, and it is the difference
+ * between "sixty percent" and a rectangle. The indeterminate one carries no
+ * value at all, which is the honest state for work whose end is unknown.
+ */
+export function progressSpec(): NodeSpec {
+  const row = (label: string, note: string, value: number | null): NodeSpec =>
+    column(
+      label,
+      [
+        stack(
+          `${label} row`,
+          [
+            paragraph(label, { ...SMALL, color: 'var(--c-text)' }),
+            paragraph(note, { ...CAPTION, color: 'var(--c-muted)', marginLeft: 'auto' }),
+          ],
+          { width: '100%', alignItems: 'center', gap: '12px' }
+        ),
+        progress(`${label} bar`, value, { styles: { width: '100%', height: '8px' } }),
+      ],
+      { gap: '8px', width: '100%' }
+    );
+
+  return section(
+    'Progress',
+    [
+      container(
+        [
+          column(
+            'Intro',
+            [
+              heading('Where things are up to', 2, {
+                ...SUBTITLE,
+                color: 'var(--c-text)',
+              }, SUBTITLE_RESPONSIVE),
+              paragraph(
+                'Announced with its value, not just drawn as a rectangle.',
+                { ...BODY, color: 'var(--c-muted)' },
+                BODY_RESPONSIVE
+              ),
+            ],
+            { gap: '10px' }
+          ),
+          column(
+            'Bars',
+            [
+              row('Photographs', '18 of 24', 75),
+              row('Captions', '6 of 24', 25),
+              row('Publishing', 'still going', null),
+            ],
+            { gap: '22px', width: '100%' }
+          ),
+        ],
+        { flexDirection: 'column', alignItems: 'stretch', gap: '30px' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-background)' }
+  );
+}
+
+/**
+ * A segmented control, which is a radio group wearing a different coat.
+ *
+ * Not buttons. Radios in a named `<fieldset>` are one stop on the tab key,
+ * arrow-navigable, announced as "two of three", and they submit with a form —
+ * all of which a row of buttons would have to be given back one at a time.
+ * The legend is the whole point: without it a screen reader reads "Monthly"
+ * with no idea what question it answers.
+ */
+export function segmentedSpec(): NodeSpec {
+  return section(
+    'Segmented control',
+    [
+      container(
+        [
+          column(
+            'Intro',
+            [
+              heading('One of a few, and only one', 2, {
+                ...SUBTITLE,
+                color: 'var(--c-text)',
+              }, SUBTITLE_RESPONSIVE),
+              paragraph(
+                'A radio group, so the arrow keys work and the answer travels with the form.',
+                { ...BODY, color: 'var(--c-muted)' },
+                BODY_RESPONSIVE
+              ),
+            ],
+            { gap: '10px' }
+          ),
+          fieldset(
+            'Billing period',
+            [
+              stack(
+                'Options',
+                [
+                  radio('Monthly', 'billing', 'monthly', true),
+                  radio('Yearly', 'billing', 'yearly'),
+                  radio('Pay as you go', 'billing', 'metered'),
+                ],
+                { gap: '18px', flexWrap: 'wrap' }
+              ),
+            ],
+            {
+              ...pad('16px', '18px'),
+              ...border('1px', 'var(--c-border)'),
+              ...radius('var(--r-lg)'),
+              backgroundColor: 'var(--c-surface)',
+              width: 'fit-content',
+              maxWidth: '100%',
+            },
+            { mobile: { width: '100%' } }
+          ),
+        ],
+        { flexDirection: 'column', alignItems: 'flex-start', gap: '26px' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-background)' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Switch-driven
+ *
+ * These need the state machine rather than a native element, and the trade is
+ * worth naming: about thirty lines of script reach the published page, once,
+ * shared by every switch on it. What they buy is that the *shown* slide is
+ * decided by a generated CSS rule keyed on the group's value — so the first
+ * paint is already correct, and a page with scripting off shows slide one
+ * rather than all of them at once or none.
+ * ----------------------------------------------------------------------- */
+
+const SLIDES = [
+  {
+    value: 'one',
+    title: 'Drawn in the studio',
+    body: 'Every layout starts on paper, which is faster to throw away.',
+    alt: 'A desk covered in printed layout sketches',
+  },
+  {
+    value: 'two',
+    title: 'Built in the browser',
+    body: 'The canvas runs the real page, so there is nothing to hand over.',
+    alt: 'A laptop showing a page being edited',
+  },
+  {
+    value: 'three',
+    title: 'Published as files',
+    body: 'Static HTML on a CDN. Serving one costs a read, not a render.',
+    alt: 'A rack of servers lit from below',
+  },
+];
+
+/**
+ * A carousel, and an honest one.
+ *
+ * The slide on screen is chosen by a CSS rule on the group's value, not by a
+ * script moving a transform — so it is right on the first paint and it is
+ * right with scripting off. The dots are the controls; the arrows are marked
+ * quiet, because "Next" is not a toggle and announcing it as one is worse
+ * than announcing nothing.
+ *
+ * What this deliberately is not is a swipeable, auto-advancing, infinitely
+ * looping carousel. Each of those needs real script, and two of them are
+ * things people ask you to turn off.
+ */
+export function carouselSpec(): NodeSpec {
+  return section(
+    'Carousel',
+    [
+      container(
+        [
+          switchGroup(
+            'slide',
+            'one',
+            [
+              ...SLIDES.map((slide) =>
+                switchCase(
+                  slide.value,
+                  grid(
+                    slide.title,
+                    2,
+                    [
+                      media(`${slide.title} image`, slide.alt, {
+                        width: '100%',
+                        aspectRatio: '4 / 3',
+                        objectFit: 'cover',
+                        ...radius('var(--r-lg)'),
+                      }),
+                      column(
+                        `${slide.title} copy`,
+                        [
+                          heading(slide.title, 2, {
+                            ...SUBTITLE,
+                            color: 'var(--c-text)',
+                          }, SUBTITLE_RESPONSIVE),
+                          paragraph(slide.body, {
+                            ...BODY,
+                            color: 'var(--c-muted)',
+                          }, BODY_RESPONSIVE),
+                        ],
+                        { gap: '12px', justifyContent: 'center' }
+                      ),
+                    ],
+                    { gap: '36px', alignItems: 'center' }
+                  )
+                )
+              ),
+              stack(
+                'Controls',
+                [
+                  switchStep('Back', SLIDES[0]!.value, 'secondary'),
+                  ...SLIDES.map((slide, index) =>
+                    switchButton(`${index + 1}`, slide.value, {
+                      width: '30px',
+                      ...pad('7px', '0px'),
+                      textAlign: 'center',
+                    })
+                  ),
+                  switchStep('Next', SLIDES[SLIDES.length - 1]!.value, 'secondary'),
+                ],
+                { gap: '8px', alignItems: 'center', justifyContent: 'center', width: '100%' },
+                { mobile: { flexWrap: 'wrap' } }
+              ),
+            ],
+            { display: 'flex', flexDirection: 'column', gap: '32px' }
+          ),
+        ],
+        { flexDirection: 'column', alignItems: 'stretch' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-background)' }
+  );
+}
+
+const TOASTS = [
+  { value: 'saved', title: 'Draft saved', body: 'Everything since your last edit is stored.' },
+  { value: 'published', title: 'Site published', body: 'Three files written, four left alone.' },
+  { value: 'failed', title: 'Could not publish', body: 'Two pages want the same address.' },
+];
+
+/**
+ * Messages that arrive and can be sent away.
+ *
+ * A toast that dismisses itself after a few seconds needs a timer, and a timer
+ * needs script that this page does not have — so these are dismissed by the
+ * person instead, which is the accessible behaviour anyway: a message that
+ * vanishes on its own is one a slow reader never finished.
+ *
+ * Each is its own switch, so dismissing one leaves the others alone.
+ */
+export function toastSpec(): NodeSpec {
+  /*
+   * The group is also the case, which is the idiom the dismissible notice
+   * established and which two things recommend.
+   *
+   * Structurally: dismissing takes the whole group out of the flow, where
+   * hiding only the contents would leave an empty box and its gap behind in
+   * the column. And for the model: a value that nothing names reads as a typo
+   * unless some condition is satisfied by "anything else" — a group hiding
+   * itself is exactly that, and the static rule knows it. Written the other
+   * way round, `Dismiss` looked like a button wired to nothing.
+   */
+  const toast = (item: (typeof TOASTS)[number], tone: string): NodeSpec =>
+    switchCase('shown', {
+      ...stack(
+        item.title,
+        [
+          frame('Mark', [], {
+            width: '4px',
+            alignSelf: 'stretch',
+            backgroundColor: tone,
+            ...radius('var(--r-full)'),
+          }),
+          column(
+            `${item.title} copy`,
+            [
+              paragraph(item.title, { ...SMALL, color: 'var(--c-text)' }),
+              paragraph(item.body, { ...CAPTION, color: 'var(--c-muted)' }),
+            ],
+            { gap: '3px' }
+          ),
+          {
+            ...switchButton('Dismiss', 'gone', {
+              marginLeft: 'auto',
+              ...CAPTION,
+              color: 'var(--c-muted)',
+              alignSelf: 'flex-start',
+            }),
+            name: `Dismiss ${item.title.toLowerCase()}`,
+          },
+        ],
+        {
+          ...PANEL,
+          ...pad('13px', '14px'),
+          gap: '12px',
+          width: '100%',
+          alignItems: 'flex-start',
+        }
+      ),
+      props: { switchKey: `toast-${item.value}`, switchDefault: 'shown' },
+    });
+
+  return section(
+    'Toasts',
+    [
+      container(
+        [
+          column(
+            'Intro',
+            [
+              heading('It happened, and here is what', 2, {
+                ...SUBTITLE,
+                color: 'var(--c-text)',
+              }, SUBTITLE_RESPONSIVE),
+              paragraph(
+                'Dismissed by the reader rather than by a timer — a message that vanishes on its own is one a slow reader never finished.',
+                { ...BODY, color: 'var(--c-muted)', maxWidth: '54ch' },
+                BODY_RESPONSIVE
+              ),
+            ],
+            { gap: '10px' }
+          ),
+          column(
+            'Stack',
+            [
+              toast(TOASTS[0]!, 'var(--c-primary)'),
+              toast(TOASTS[1]!, 'var(--c-primary)'),
+              toast(TOASTS[2]!, 'var(--c-danger)'),
+            ],
+            { gap: '12px', width: '100%', maxWidth: '420px' },
+            { mobile: { maxWidth: '100%' } }
+          ),
+        ],
+        { flexDirection: 'column', alignItems: 'flex-start', gap: '28px' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-background)' }
   );
 }
