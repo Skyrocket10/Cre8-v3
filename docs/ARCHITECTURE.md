@@ -933,6 +933,23 @@ Button
 `ElementDefinition.events` already lists which events each element will expose,
 so an Interactions tab can be built against the existing registry.
 
+The Logic and Data axes now have an agreed shape, written down before the code:
+[docs/EXPRESSIONS.md](EXPRESSIONS.md). Two things worth knowing from here.
+
+First, it is **two systems, not one**. Data binding resolves a record into a
+value when the page is rendered; an interaction evaluates values in the browser
+and produces state. They share a grammar and nothing else, and which one you are
+authoring is decided by where you author it — never inferred from what it
+references. An expression system that spanned both would make the renderer
+decide, per value, whether it was looking at content or at behaviour, and the
+two renderers could answer differently. That is the failure §1 exists to prevent.
+
+Second, the rule shape is already here. `StyleRule` is `when` / `apply` / `set`
+— a test, a property assignment and a state assignment. The interaction model is
+that shape with a richer `when`, which means the runtime's whole job is to
+evaluate tests and set state attributes. It never learns what a CSS property is,
+so it does not grow when the inspector does.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.
