@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
 import { Segmented, TextInput, Tooltip } from '../ui/primitives';
 import { ComponentPropertySection, ContentSection } from './section-content';
+import { forgetInspectorTarget, rememberInspectorTarget } from './use-style';
 import { DataSection } from './section-data';
 import { RulesSection, describeRule } from './section-rules';
 import {
@@ -38,7 +39,22 @@ export function Inspector() {
   const tab = useEditor((s) => s.inspectorTab);
 
   return (
-    <aside className="flex h-full min-h-0 flex-col bg-[var(--panel)]">
+    <aside
+      className="flex h-full min-h-0 flex-col bg-[var(--panel)]"
+      /*
+       * Which element the inspector is writing to, decided here rather than at
+       * each control.
+       *
+       * React's `onFocus`/`onBlur` are `focusin`/`focusout`, so they bubble and
+       * one pair covers every field the panel will ever grow. Focusing a field
+       * pins the write target to whatever is selected *now*; a canvas click
+       * that changes the selection before the field blurs cannot move it.
+       * `focusout` fires after the field's own blur handler, so the commit has
+       * already read the pinned value. See `use-style.ts`.
+       */
+      onFocus={rememberInspectorTarget}
+      onBlur={forgetInspectorTarget}
+    >
       <InspectorHeader />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {tab === 'page' ? (

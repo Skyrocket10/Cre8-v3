@@ -297,8 +297,8 @@ interface EditorActions {
   setNodeProps(patch: NodeProps, ids?: NodeId[]): void;
   setStyle(patch: StyleDecl, options?: TransactOptions & { ids?: NodeId[] }): void;
   clearStyle(props: StyleProp[], ids?: NodeId[]): void;
-  setRuleStyle(ruleId: string, patch: StyleDecl, options?: TransactOptions): void;
-  setRuleProps(ruleId: string, patch: NodeProps): void;
+  setRuleStyle(ruleId: string, patch: StyleDecl, options?: TransactOptions & { ids?: NodeId[] }): void;
+  setRuleProps(ruleId: string, patch: NodeProps, ids?: NodeId[]): void;
   /**
    * What one component instance says for itself. `undefined` resets it.
    *
@@ -1001,9 +1001,8 @@ export const useEditor = create<EditorStore>()((set, get) => ({
   },
 
   setRuleStyle(ruleId, patch, options) {
-    const state = get();
-    if (!state.selection.length) return;
-    const targets = state.selection;
+    const targets = options?.ids ?? get().selection;
+    if (!targets.length) return;
     get().transact(
       'Style',
       (draft) => {
@@ -1045,8 +1044,8 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     return created;
   },
 
-  setRuleProps(ruleId, patch) {
-    const targets = get().selection;
+  setRuleProps(ruleId, patch, ids) {
+    const targets = ids ?? get().selection;
     if (!targets.length) return;
     get().transact('Content', (draft) => {
       ops.setRuleProps(draft, targets, ruleId, patch);

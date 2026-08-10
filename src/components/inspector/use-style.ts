@@ -12,6 +12,31 @@
  *
  * Writes are routed to the right layer automatically: the active breakpoint,
  * or the active interaction state when one is selected.
+ *
+ * ## Which element a write lands on
+ *
+ * An inspector field commits on **blur**, and clicking another element on the
+ * canvas changes the selection *first* and blurs the field *second*. A writer
+ * that asks the store "what is selected?" at that moment gets the new element
+ * and writes a half-typed value onto it: the element you were editing keeps
+ * its old value, and one you never touched changes.
+ *
+ * Capturing the selection when the control *renders* is not enough, and that
+ * was the first attempt. The canvas click updates the store, React re-renders
+ * the inspector against the new selection, and only then does the blur fire —
+ * through a handler that has already been rebound to the new closure. The
+ * fixed version failed the check exactly as the broken one did.
+ *
+ * So the target is captured when a field takes **focus**, which is the moment
+ * the edit actually begins, and held until focus leaves the inspector. Nothing
+ * that happens in between — a canvas click, a layer selection, a keyboard
+ * shortcut — can move it. `focusin` and `focusout` are wired once on the
+ * inspector's root; every writer below reads the captured value and falls back
+ * to the live selection when no field has focus, which is the case for a
+ * segmented control or a colour swatch that writes on click.
+ *
+ * A node deleted in between is simply not found, and the operation does
+ * nothing.
  */
 
 import { useCallback, useMemo } from 'react';
@@ -19,6 +44,36 @@ import { isSettable } from '@/lib/renderer/variants';
 import { resolveValue } from '@/lib/renderer/styles';
 import type { StyleDecl, StyleProp } from '@/lib/document/types';
 import { useEditor } from '@/lib/editor/store';
+
+/**
+ * The selection as it was when an inspector field took focus.
+ *
+ * Module scope because there is one inspector and one focused field, and
+ * threading it through every control would mean every new control having to
+ * remember to. `null` means nothing in the inspector has focus, and writers
+ * fall back to the live selection.
+ */
+let focusedTargets: readonly string[] | null = null;
+
+/** Wired to the inspector root's `focusin`. */
+export function rememberInspectorTarget(): void {
+  focusedTargets = useEditor.getState().selection;
+}
+
+/**
+ * Wired to the inspector root's `focusout`.
+ *
+ * Runs after the field's own blur handler — `blur` fires before `focusout` —
+ * so the commit has already read the captured value by the time it is dropped.
+ */
+export function forgetInspectorTarget(): void {
+  focusedTargets = null;
+}
+
+/** What a write should land on: the focused field's element, or the selection. */
+function writeTargets(live: readonly string[]): string[] {
+  return [...(focusedTargets ?? live)];
+}
 
 export interface StyleBinding {
   /** Effective value, or undefined when unset / mixed. */
@@ -89,32 +144,38 @@ export function useStyleBinding(prop: StyleProp): StyleBinding {
 
 export function useStyleWriter() {
   const activeRuleId = useEditor((s) => s.activeRuleId);
+  const targets = useEditor((s) => s.selection);
 
   return useCallback(
     (patch: StyleDecl, options?: StyleWriteOptions) => {
       const store = useEditor.getState();
-      if (!activeRuleId) store.setStyle(patch, options);
-      else store.setRuleStyle(activeRuleId, patch, options);
+      const ids = writeTargets(targets);
+      if (!ids.length) return;
+      if (!activeRuleId) store.setStyle(patch, { ...options, ids });
+      else store.setRuleStyle(activeRuleId, patch, { ...options, ids });
     },
-    [activeRuleId]
+    [activeRuleId, targets]
   );
 }
 
 /** Removes the override at the active breakpoint, falling back to inherited. */
 export function useStyleReset() {
   const activeRuleId = useEditor((s) => s.activeRuleId);
+  const targets = useEditor((s) => s.selection);
 
   return useCallback(
     (props: StyleProp[]) => {
       const store = useEditor.getState();
-      if (!activeRuleId) store.clearStyle(props);
+      const ids = writeTargets(targets);
+      if (!ids.length) return;
+      if (!activeRuleId) store.clearStyle(props, ids);
       else {
         const patch: StyleDecl = {};
         for (const prop of props) patch[prop as 'width'] = undefined as never;
-        store.setRuleStyle(activeRuleId, patch);
+        store.setRuleStyle(activeRuleId, patch, { ids });
       }
     },
-    [activeRuleId]
+    [activeRuleId, targets]
   );
 }
 
@@ -181,10 +242,14 @@ export function useNodeProp(name: string): {
   const set = useCallback(
     (next: string | number | boolean | undefined) => {
       const store = useEditor.getState();
-      if (ruleId) store.setRuleProps(ruleId, { [name]: next });
-      else store.setNodeProps({ [name]: next });
+      // The focused field's element, never `get().selection` — see the note at
+      // the top of the file.
+      const ids = writeTargets(selection);
+      if (!ids.length) return;
+      if (ruleId) store.setRuleProps(ruleId, { [name]: next }, ids);
+      else store.setNodeProps({ [name]: next }, ids);
     },
-    [name, ruleId]
+    [name, ruleId, selection]
   );
 
   return { value, mixed, overridden, set };

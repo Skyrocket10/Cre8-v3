@@ -534,6 +534,21 @@ function InlineTextEditor({
 }) {
   const elementRef = useRef<HTMLElement | null>(null);
   const committed = useRef(false);
+  /*
+   * The text as of the last keystroke, kept here rather than read off the
+   * element when it is needed.
+   *
+   * Because the commit sometimes happens when the element is already going
+   * away. Clicking another element on the canvas sets `editingTextId` to null,
+   * which re-renders this component out of existence — and React does not fire
+   * `onBlur` on an element it is unmounting, so the edit was simply lost and
+   * the only way to keep a change was to press Enter. Reading `innerText` in
+   * an unmount cleanup does not help either: by then the node is detached, has
+   * no layout, and `innerText` is not what it was.
+   *
+   * So the value is captured while the element is alive and well.
+   */
+  const latest = useRef(initial);
 
   const attach = useCallback(
     (el: HTMLElement | null) => {
@@ -560,9 +575,23 @@ function InlineTextEditor({
   const commit = useCallback(() => {
     if (committed.current) return;
     committed.current = true;
-    const value = elementRef.current?.innerText ?? '';
-    onCommit(value.replace(/ /g, ' '));
+    onCommit(latest.current.replace(/ /g, ' '));
   }, [onCommit]);
+
+  /*
+   * Every way out of editing commits, not only a blur.
+   *
+   * Clicking another element on the canvas nulls `editingTextId`, which
+   * unmounts this component — and React fires no `onBlur` on an element it is
+   * removing, so the edit was dropped and Enter was the only way to keep one.
+   * Switching page and deleting the node had the same shape.
+   *
+   * Through a ref so the cleanup is registered once. Depending on `commit`
+   * would re-run it on every keystroke, committing mid-word.
+   */
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(() => () => commitRef.current(), []);
 
   return React.createElement(
     tag as keyof React.JSX.IntrinsicElements,
@@ -574,6 +603,9 @@ function InlineTextEditor({
       spellCheck: false,
       'data-cre8-editing': 'true',
       onBlur: commit,
+      onInput: (e: React.FormEvent) => {
+        latest.current = (e.currentTarget as HTMLElement).innerText;
+      },
       onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
       onKeyDown: (e: React.KeyboardEvent) => {
         e.stopPropagation();

@@ -59,7 +59,10 @@ export const editorEngine: RenderEngine = {
       // worked and then be overwritten the moment the state moved.
       const rule = node.rules?.find((r) => r.id === ruleId);
       if (rule && String(rule.set?.[prop] ?? '') !== value) {
-        store.setRuleProps(ruleId, { [prop]: value });
+        // `[id]`, not the live selection. A commit can arrive after the click
+        // that ended the edit has already selected something else — which is
+        // exactly the bug the inspector had, on a different path.
+        store.setRuleProps(ruleId, { [prop]: value }, [id]);
       }
     } else if (String(node.props[prop] ?? '') !== value) {
       store.setNodeProps({ [prop]: value }, [id]);
