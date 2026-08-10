@@ -1,16 +1,149 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ArrowLeft, Component, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Component,
+  Copy,
+  Layers,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import * as ops from '@/lib/document/operations';
+import type { ComponentDefinition } from '@/lib/document/types';
 import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { Button, EmptyState, Popover } from '../ui/primitives';
 import { MenuItem } from './pages-panel';
 
+/**
+ * The alternate trees under a component, when it has any.
+ *
+ * Indented under their component rather than listed beside it, because a
+ * variant is not a second component — it is the same thing wearing something
+ * else, and a flat list of "Button" and "Button secondary" would invite people
+ * to reach for the wrong one.
+ */
+function VariantRows({ component }: { component: ComponentDefinition }) {
+  const editingComponentId = useEditor((s) => s.editingComponentId);
+  const editingVariantId = useEditor((s) => s.editingVariantId);
+  const [renaming, setRenaming] = useState<string | null>(null);
+
+  if (!component.variants?.length) return null;
+
+  return (
+    <div className="mb-0.5 ml-[18px] border-l border-[var(--border-soft)] pl-1.5">
+      {component.variants.map((variant) => {
+        const active = editingComponentId === component.id && editingVariantId === variant.id;
+        return (
+          <div
+            key={variant.id}
+            onDoubleClick={() => useEditor.getState().editComponent(component.id, variant.id)}
+            className={cn(
+              'group flex h-[26px] items-center gap-2 rounded-md px-2 transition-colors duration-100',
+              active
+                ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--field)]'
+            )}
+          >
+            <Layers size={11} className="shrink-0 opacity-70" />
+
+            {renaming === variant.id ? (
+              <input
+                autoFocus
+                defaultValue={variant.name}
+                onBlur={(e) => {
+                  useEditor.getState().transact('Rename variant', (draft) => {
+                    ops.renameVariant(draft, component.id, variant.id, e.target.value);
+                  });
+                  setRenaming(null);
+                }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') setRenaming(null);
+                }}
+                className="min-w-0 flex-1 rounded-[3px] bg-[var(--panel-raised)] px-1 text-[11px] text-[var(--text)] ring-1 ring-[var(--accent)] outline-none"
+              />
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-[11px]">{variant.name}</span>
+            )}
+
+            <Popover
+              width={168}
+              align="end"
+              trigger={({ toggle, ref }) => (
+                <button
+                  ref={ref}
+                  type="button"
+                  aria-label={`${variant.name} options`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggle();
+                  }}
+                  className="flex size-5 shrink-0 items-center justify-center rounded text-[var(--text-faint)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--field-hover)] hover:text-[var(--text)]"
+                >
+                  <MoreHorizontal size={12} />
+                </button>
+              )}
+            >
+              {(close) => (
+                <div className="p-1">
+                  <MenuItem
+                    icon={<Pencil size={11} />}
+                    label="Edit this variant"
+                    onClick={() => {
+                      useEditor.getState().editComponent(component.id, variant.id);
+                      close();
+                    }}
+                  />
+                  <MenuItem
+                    icon={<Copy size={11} />}
+                    label="Duplicate"
+                    onClick={() => {
+                      useEditor.getState().addComponentVariant(component.id, variant.id);
+                      close();
+                    }}
+                  />
+                  <MenuItem
+                    icon={<Pencil size={11} />}
+                    label="Rename"
+                    onClick={() => {
+                      setRenaming(variant.id);
+                      close();
+                    }}
+                  />
+                  <MenuItem
+                    icon={<Trash2 size={11} />}
+                    label="Delete"
+                    tone="danger"
+                    onClick={() => {
+                      const store = useEditor.getState();
+                      // Back to the default tree first: deleting the root the
+                      // canvas is pointed at would leave it drawing nothing.
+                      if (active) store.editComponent(component.id);
+                      store.transact('Delete variant', (draft) => {
+                        ops.removeVariant(draft, component.id, variant.id);
+                      });
+                      close();
+                    }}
+                  />
+                </div>
+              )}
+            </Popover>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ComponentsPanel() {
   const components = useEditor((s) => s.doc.components);
   const editingComponentId = useEditor((s) => s.editingComponentId);
+  const editingVariantId = useEditor((s) => s.editingVariantId);
   const selection = useEditor((s) => s.selection);
   const nodes = useEditor((s) => s.doc.nodes);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -83,11 +216,13 @@ export function ComponentsPanel() {
             const usage = Object.values(nodes).filter(
               (n) => n.type === 'instance' && n.props.componentId === component.id
             ).length;
-            const active = editingComponentId === component.id;
+            // The default tree, specifically. A component with the secondary
+            // variant open is not "the component" being edited.
+            const active = editingComponentId === component.id && !editingVariantId;
 
             return (
+              <div key={component.id}>
               <div
-                key={component.id}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
                   useEditor.getState().setDrag({
@@ -171,6 +306,15 @@ export function ComponentsPanel() {
                         }}
                       />
                       <MenuItem
+                        icon={<Copy size={11} />}
+                        label="Add a variant"
+                        onClick={() => {
+                          const created = useEditor.getState().addComponentVariant(component.id);
+                          if (created) useEditor.getState().toast('Variant added', 'success');
+                          close();
+                        }}
+                      />
+                      <MenuItem
                         icon={<Pencil size={11} />}
                         label="Rename"
                         onClick={() => {
@@ -194,6 +338,8 @@ export function ComponentsPanel() {
                     </div>
                   )}
                 </Popover>
+                </div>
+                <VariantRows component={component} />
               </div>
             );
           })

@@ -658,12 +658,42 @@ export interface ComponentProperty {
   id: string;
   name: string;
   type: ComponentPropertyType;
-  /** The node inside the master this fills. */
-  nodeId: NodeId;
+  /**
+   * The nodes it fills — one per variant that has a counterpart.
+   *
+   * A list rather than a single id because a variant is a *separate tree*: the
+   * secondary button is its own nodes with its own classes, which is the whole
+   * reason a variant can look different where an override cannot. One property
+   * has to reach the label in whichever tree is on screen, so it names all of
+   * them, and the scope simply carries an entry for each. Only the tree being
+   * drawn is ever visited, so the ones that do not apply cost nothing.
+   *
+   * Kept in step by `addVariant`, which clones a tree and appends the copy of
+   * whatever each property was pointing at.
+   */
+  nodeIds: NodeId[];
   /** Which prop on it. Absent for `visible`, which is not a prop. */
   prop?: string;
   /** What the master says, kept so an instance can be put back to it. */
   defaultValue?: string | number | boolean | null;
+}
+
+/**
+ * An alternate master tree, chosen per instance.
+ *
+ * The answer to the thing a property deliberately cannot do. An override
+ * changes what an element says because two instances share one set of nodes; a
+ * variant changes how it *looks* because it is a different set of nodes, with
+ * classes of its own. Primary and secondary, card with and without an image.
+ *
+ * The definition's own `rootNodeId` is the default and is not listed here — an
+ * instance naming no variant draws it, which is every instance that existed
+ * before variants did.
+ */
+export interface ComponentVariant {
+  id: string;
+  name: string;
+  rootNodeId: NodeId;
 }
 
 /**
@@ -678,8 +708,8 @@ export interface ComponentDefinition {
   rootNodeId: NodeId;
   category?: string;
   createdAt: number;
-  /** RESERVED — alternate master trees, chosen per instance. */
-  variants?: Array<{ id: string; name: string; rootNodeId: NodeId }>;
+  /** Alternate master trees. The default is `rootNodeId` above. */
+  variants?: ComponentVariant[];
   /** What an instance may change about itself. Order is the order shown. */
   properties?: ComponentProperty[];
 }

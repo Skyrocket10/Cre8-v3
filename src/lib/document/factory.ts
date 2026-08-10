@@ -382,7 +382,8 @@ export function hydrateDocument(input: Partial<Cre8Document> & { nodes?: NodeMap
         Boolean(property) &&
         typeof property === 'object' &&
         typeof property.id === 'string' &&
-        typeof property.nodeId === 'string'
+        Array.isArray(property.nodeIds) &&
+        property.nodeIds.length > 0
     );
     if (usable.length) component.properties = usable;
     else delete component.properties;

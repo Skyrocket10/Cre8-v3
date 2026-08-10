@@ -23,6 +23,7 @@ import type {
   ComponentDefinition,
   ComponentProperty,
   ComponentPropertyType,
+  ComponentVariant,
   NodeId,
   NodeProps,
   SceneNode,
@@ -73,8 +74,42 @@ export function targetKey(target: { type: ComponentPropertyType; prop?: string }
   return target.type === 'visible' ? '@visible' : String(target.prop);
 }
 
-export function propertyKey(property: ComponentProperty): string {
-  return `${property.nodeId}:${targetKey(property)}`;
+export function propertyKey(property: ComponentProperty, nodeId: NodeId): string {
+  return `${nodeId}:${targetKey(property)}`;
+}
+
+/* --------------------------------------------------------------------------
+ * Variants
+ * ----------------------------------------------------------------------- */
+
+/** The variant this instance asked for, or `undefined` for the default. */
+export function variantOf(
+  component: ComponentDefinition | undefined,
+  instance: SceneNode
+): ComponentVariant | undefined {
+  const wanted = String(instance.props.variantId ?? '');
+  if (!wanted) return undefined;
+  return component?.variants?.find((v) => v.id === wanted);
+}
+
+/**
+ * The tree this instance draws.
+ *
+ * Falls back to the default rather than to nothing when a variant has been
+ * deleted out from under an instance: a card that vanishes from the page is a
+ * worse answer than a card in the wrong style, and the select in the inspector
+ * shows what happened.
+ */
+export function rootForInstance(
+  component: ComponentDefinition | undefined,
+  instance: SceneNode
+): NodeId | undefined {
+  return variantOf(component, instance)?.rootNodeId ?? component?.rootNodeId;
+}
+
+/** Every master tree a component owns, default first. */
+export function allRoots(component: ComponentDefinition): NodeId[] {
+  return [component.rootNodeId, ...(component.variants ?? []).map((v) => v.rootNodeId)];
 }
 
 /* --------------------------------------------------------------------------
@@ -116,17 +151,22 @@ export function scopeForInstance(
     const value = values[property.id];
     if (value === undefined) continue;
 
-    scope ??= {};
-    const entry = (scope[property.nodeId] ??= {});
+    // Every variant's counterpart, not just the one on screen. Which tree is
+    // being drawn is decided elsewhere, and the entries for the others are
+    // never looked at — cheaper than working out which ones to leave out.
+    for (const nodeId of property.nodeIds) {
+      scope ??= {};
+      const entry = (scope[nodeId] ??= {});
 
-    if (property.type === 'visible') {
-      // Anything but an explicit false leaves it showing. A property that
-      // hides a node on a truthy value would be the opposite of its name.
-      entry.hidden = value === false;
-      continue;
+      if (property.type === 'visible') {
+        // Anything but an explicit false leaves it showing. A property that
+        // hides a node on a truthy value would be the opposite of its name.
+        entry.hidden = value === false;
+        continue;
+      }
+      if (!property.prop) continue;
+      (entry.props ??= {})[property.prop] = value;
     }
-    if (!property.prop) continue;
-    (entry.props ??= {})[property.prop] = value;
   }
 
   return scope;
@@ -193,17 +233,25 @@ export function instanceHidden(node: SceneNode, scope: OverrideScope | null): bo
  * ----------------------------------------------------------------------- */
 
 /**
- * Properties whose target node still exists in the master.
+ * Properties with at least one node left to fill.
  *
- * Deleting a node out of a master leaves any property pointing at it with
- * nothing to fill. Pruned rather than repaired, because there is no sensible
- * repair — the hole is gone.
+ * Deleting a node out of a master leaves a property pointing at nothing *in
+ * that tree*, which is not the same as the property being dead: the same
+ * property fills a counterpart in every other variant, and deleting the label
+ * out of the secondary button must not take the primary's label with it. So
+ * the dead ids are dropped and only an empty list retires the property.
  */
 export function livingProperties(
   component: ComponentDefinition,
   nodes: Record<NodeId, SceneNode | undefined>
 ): ComponentProperty[] {
-  return (component.properties ?? []).filter((p) => Boolean(nodes[p.nodeId]));
+  const out: ComponentProperty[] = [];
+  for (const property of component.properties ?? []) {
+    const living = property.nodeIds.filter((id) => Boolean(nodes[id]));
+    if (!living.length) continue;
+    out.push(living.length === property.nodeIds.length ? property : { ...property, nodeIds: living });
+  }
+  return out;
 }
 
 /**

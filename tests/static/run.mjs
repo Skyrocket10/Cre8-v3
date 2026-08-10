@@ -3058,6 +3058,19 @@ report.group('an instance can say something for itself');
     return ops.exposeProperty(doc, component.id, node.id, target);
   };
 
+  /** Ids of a subtree, captured before something is about to remove it. */
+  const collectSubtreeIds = (doc, rootId) => {
+    const out = [];
+    const walkFrom = (id) => {
+      const n = doc.nodes[id];
+      if (!n) return;
+      out.push(id);
+      for (const child of n.children) walkFrom(child);
+    };
+    walkFrom(rootId);
+    return out;
+  };
+
   /* --- What an instance changes ------------------------------------------ */
 
   {
@@ -3300,6 +3313,138 @@ report.group('an instance can say something for itself');
       'a document with damaged overrides still draws',
       threw === null && drew.includes('Master title'),
       threw ? String(threw.message).slice(0, 90) : 'repaired and drawn'
+    );
+  }
+
+  /* --- Variants ----------------------------------------------------------- */
+
+  /*
+   * The other half, and the one an override deliberately cannot do.
+   *
+   * A property changes what an element says because two instances share one
+   * set of nodes. A variant changes how it *looks* because it is a different
+   * set of nodes — its own ids, its own classes, its own rules. So the two
+   * claims here are opposites and both have to hold: an override must not move
+   * the stylesheet, and a variant must.
+   */
+  {
+    const { doc, component, instances, inside } = withCard(2);
+    const title = expose(doc, component, inside('Title'), 'text');
+    ops.setInstanceOverride(doc, instances[0], title.id, 'Primary card');
+    ops.setInstanceOverride(doc, instances[1], title.id, 'Secondary card');
+
+    const variant = ops.addVariant(doc, component.id, 'Secondary');
+    ops.setInstanceVariant(doc, instances[1], variant.id);
+
+    report.check(
+      'a variant is a tree of its own, not a copy of a pointer',
+      Boolean(variant) &&
+        variant.rootNodeId !== component.rootNodeId &&
+        Boolean(doc.nodes[variant.rootNodeId]),
+      `default ${component.rootNodeId}, variant ${variant?.rootNodeId}`
+    );
+
+    // The point of the whole feature: the second card can look different.
+    doc.nodes[doc.nodes[variant.rootNodeId].children[0]].styles.desktop = { color: '#b91c1c' };
+
+    const out = html(doc);
+    report.check(
+      'and an instance wearing it keeps the words it had chosen',
+      out.includes('Primary card') && out.includes('Secondary card'),
+      out.includes('Secondary card')
+        ? 'the property followed the instance across'
+        : 'switching variant lost the override'
+    );
+    report.check(
+      'because the property gained the counterpart in the new tree',
+      title.nodeIds.length === 2 && title.nodeIds.every((id) => Boolean(doc.nodes[id])),
+      `${title.nodeIds.length} nodes: ${title.nodeIds.join(', ')}`
+    );
+    report.check(
+      'and the two look different, which is what a property could not do',
+      css(doc).includes('#b91c1c') || css(doc).includes('rgb(185'),
+      'the variant contributes rules of its own'
+    );
+
+    /*
+     * Each page pays only for the trees it draws. Keyed by tree rather than by
+     * component, which is the bug this was written against: keying by
+     * component would have shipped the default's rules to a page that only
+     * ever draws the secondary look.
+     */
+    const onlyVariant = withCard(1);
+    const second = ops.addVariant(onlyVariant.doc, onlyVariant.component.id, 'Secondary');
+    onlyVariant.doc.nodes[onlyVariant.inside('Title').id].styles.desktop = { color: '#123456' };
+    ops.setInstanceVariant(onlyVariant.doc, onlyVariant.instances[0], second.id);
+
+    report.check(
+      'a page draws one tree and pays for one tree',
+      !css(onlyVariant.doc).includes('#123456'),
+      css(onlyVariant.doc).includes('#123456')
+        ? 'the unused default tree shipped its rules'
+        : 'only the variant on screen'
+    );
+  }
+
+  /* --- Variants: housekeeping --------------------------------------------- */
+
+  {
+    const { doc, component, instances, inside } = withCard(1);
+    const title = expose(doc, component, inside('Title'), 'text');
+    const variant = ops.addVariant(doc, component.id, 'Secondary');
+    ops.setInstanceVariant(doc, instances[0], variant.id);
+    ops.setInstanceOverride(doc, instances[0], title.id, 'Says its piece');
+
+    const detachedRoot = ops.detachInstance(doc, instances[0]);
+    const detached = [detachedRoot, ...(doc.nodes[detachedRoot]?.children ?? [])].map(
+      (id) => doc.nodes[id]
+    );
+    report.check(
+      'detaching an instance detaches the tree it was wearing',
+      detached.some((n) => n?.props.text === 'Says its piece'),
+      detached.map((n) => n?.name).join(', ')
+    );
+
+    const removing = withCard(1);
+    const gone = ops.addVariant(removing.doc, removing.component.id, 'Secondary');
+    ops.setInstanceVariant(removing.doc, removing.instances[0], gone.id);
+    const strandedNodes = collectSubtreeIds(removing.doc, gone.rootNodeId);
+    ops.removeVariant(removing.doc, removing.component.id, gone.id);
+
+    report.check(
+      'deleting a variant puts its instances back on the default',
+      removing.doc.nodes[removing.instances[0]].props.variantId === undefined &&
+        html(removing.doc).includes('Master title'),
+      'the instance draws the default again'
+    );
+    report.check(
+      'and takes its nodes with it rather than orphaning them',
+      strandedNodes.every((id) => removing.doc.nodes[id] === undefined),
+      `${strandedNodes.filter((id) => removing.doc.nodes[id]).length} of ${strandedNodes.length} left behind`
+    );
+
+    const deleting = withCard(1);
+    const extra = ops.addVariant(deleting.doc, deleting.component.id, 'Secondary');
+    const every = [
+      ...collectSubtreeIds(deleting.doc, deleting.component.rootNodeId),
+      ...collectSubtreeIds(deleting.doc, extra.rootNodeId),
+    ];
+    ops.deleteComponent(deleting.doc, deleting.component.id);
+    report.check(
+      'deleting the component takes every tree, not just the default',
+      every.every((id) => deleting.doc.nodes[id] === undefined),
+      `${every.filter((id) => deleting.doc.nodes[id]).length} of ${every.length} left behind`
+    );
+
+    // A variant root is a root. Deleting one through the ordinary node path
+    // would leave the component pointing at nothing.
+    const guarded = withCard(1);
+    const protectedVariant = ops.addVariant(guarded.doc, guarded.component.id, 'Secondary');
+    ops.removeNodes(guarded.doc, [protectedVariant.rootNodeId]);
+    report.check(
+      'and a variant root cannot be deleted as if it were an ordinary node',
+      Boolean(guarded.doc.nodes[protectedVariant.rootNodeId]),
+      'refused'
     );
   }
 

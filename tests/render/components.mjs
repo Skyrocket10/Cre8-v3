@@ -1,17 +1,25 @@
 /**
- * Two instances of one component, saying different things, drawn by one
- * renderer.
+ * Three instances of one component — two saying different things, one wearing
+ * a different look — drawn by one renderer.
  *
  * The static suite already proves what the publisher emits. What only a
- * browser can answer is the claim the whole design rests on: that an instance
- * filling in a property changes what an element *says* and nothing about how
- * it is drawn. Both cards must carry the same class, compute the same styles,
- * and match the published file — and the page must contain the words each
- * instance chose rather than the ones the master was drawn with.
+ * browser can answer is the pair of claims the design rests on, which are
+ * opposites and both have to hold:
+ *
+ *   a **property** changes what an element says and *nothing* about how it is
+ *   drawn, because two instances share one set of nodes;
+ *
+ *   a **variant** changes how it is drawn, because it is a different set of
+ *   nodes with classes of its own.
+ *
+ * So cards one and two must be pixel-identical apart from their words, card
+ * three must not be, all three must match the published file element for
+ * element, and the page must contain what each instance chose rather than what
+ * the master was drawn with.
  *
  * The last part is the inspector, kept short on purpose. A property nobody can
  * set is a data structure, not a feature; thirty clicks to prove it is a suite
- * that breaks on a layout tweak. Three will do.
+ * that breaks on a layout tweak. Four will do.
  */
 
 import {
@@ -38,7 +46,7 @@ const TITLE = 'p-title';
 const BADGE = 'p-badge';
 
 /**
- * A card component, two instances, and a difference between them.
+ * A card component, two instances of its default tree, one of its variant.
  *
  * Written into the document directly rather than clicked together. The path
  * from "select a box" to "component with an exposed property" is a dozen
@@ -79,25 +87,60 @@ function seed(doc) {
       props: { componentId: 'cmp1' },
       overrides: { [TITLE]: 'Second card', [BADGE]: false },
     }),
+
+    /*
+     * The variant, in the shape `addVariant` produces: a whole second tree
+     * with ids of its own, so it can look different — which is the thing a
+     * property cannot do and the reason variants exist.
+     */
+    varroot001: node('varroot001', 'stack', 'Card — Loud', {
+      children: ['vartitle01', 'varbadge01'],
+      meta: master,
+      styles: { desktop: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px' } },
+    }),
+    vartitle01: node('vartitle01', 'heading', 'Title', {
+      parentId: 'varroot001',
+      props: { text: 'Master title', level: 3 },
+      meta: master,
+      styles: { desktop: { color: '#b91c1c', fontSize: '30px', fontWeight: 800 } },
+    }),
+    varbadge01: node('varbadge01', 'text', 'Badge', {
+      parentId: 'varroot001',
+      props: { text: 'Badge text' },
+      meta: master,
+      styles: { desktop: { color: '#0f766e' } },
+    }),
+    inst000003: node('inst000003', 'instance', 'Card', {
+      parentId: home.rootNodeId,
+      props: { componentId: 'cmp1', variantId: 'var1' },
+      overrides: { [TITLE]: 'Third card', [BADGE]: false },
+    }),
   });
 
-  root.children = ['inst000001', 'inst000002'];
+  root.children = ['inst000001', 'inst000002', 'inst000003'];
   doc.components = [
     {
       id: 'cmp1',
       name: 'Card',
       rootNodeId: 'cardroot01',
       createdAt: 1,
+      variants: [{ id: 'var1', name: 'Loud', rootNodeId: 'varroot001' }],
       properties: [
         {
           id: TITLE,
           name: 'Title',
           type: 'text',
-          nodeId: 'cardtitle1',
+          nodeIds: ['cardtitle1', 'vartitle01'],
           prop: 'text',
           defaultValue: 'Master title',
         },
-        { id: BADGE, name: 'Show badge', type: 'visible', nodeId: 'cardbadge1', defaultValue: true },
+        {
+          id: BADGE,
+          name: 'Show badge',
+          type: 'visible',
+          nodeIds: ['cardbadge1', 'varbadge01'],
+          defaultValue: true,
+        },
       ],
     },
   ];
@@ -160,7 +203,7 @@ try {
   );
   check(
     'the canvas draws each instance saying its own thing',
-    canvasText.join('|') === 'First card|Second card',
+    canvasText.join('|') === 'First card|Second card|Third card',
     canvasText.join(' / ') || 'no headings'
   );
 
@@ -173,7 +216,7 @@ try {
   check(
     'and does not draw a node an instance hid',
     canvasBadges === 1,
-    `${canvasBadges} of 2 instances show the badge`
+    `${canvasBadges} of 3 instances show the badge`
   );
 
   // The claim, on the canvas: two cards, one class. If an override ever
@@ -186,9 +229,31 @@ try {
     ),
   ]);
   check(
-    'both cards are drawn from one node, so they carry one class',
-    titleClasses.length === 1 && titleClasses[0] !== '?',
+    'two instances of one tree carry one class, and the variant carries another',
+    titleClasses.length === 2 && !titleClasses.includes('?'),
     titleClasses.join(', ')
+  );
+
+  /*
+   * The two halves, side by side. Cards one and two differ only in what they
+   * say and are pixel-identical otherwise; card three is a different tree and
+   * looks it. If an override ever reached a style, the first of these goes.
+   */
+  const titleLooks = await page.evaluate(() =>
+    [...document.querySelectorAll('.cre8-frame.cre8-editing h3')].map((el) => {
+      const cs = getComputedStyle(el);
+      return `${cs.color}|${cs.fontSize}|${cs.fontWeight}`;
+    })
+  );
+  check(
+    'an override changes what a card says and nothing about how it looks',
+    titleLooks[0] === titleLooks[1],
+    `${titleLooks[0]} vs ${titleLooks[1]}`
+  );
+  check(
+    'and a variant changes how it looks, which is the thing a property cannot',
+    titleLooks[2] !== undefined && titleLooks[2] !== titleLooks[0],
+    `default ${titleLooks[0]} / variant ${titleLooks[2]}`
   );
 
   /* ------------------------------------------------- 2. and in the file --- */
@@ -210,13 +275,14 @@ try {
     'and says what each instance said, not what the master says',
     published.includes('First card') &&
       published.includes('Second card') &&
+      published.includes('Third card') &&
       !published.includes('Master title'),
     published.includes('Master title') ? 'the master text is in the file' : 'both, master gone'
   );
   check(
     'and drops the hidden node from the file rather than hiding it with a rule',
     (published.match(/Badge text/g) ?? []).length === 1,
-    `${(published.match(/Badge text/g) ?? []).length} badges in the markup`
+    `${(published.match(/Badge text/g) ?? []).length} of 3 badges in the markup`
   );
 
   /* ---------------------------------------- 3. and the two agree exactly --- */
@@ -271,8 +337,23 @@ try {
   );
   check(
     'and typing into one changes that instance and no other',
-    afterEdit.join('|') === 'First card|Typed in the inspector',
+    afterEdit.join('|') === 'First card|Typed in the inspector|Third card',
     afterEdit.join(' / ')
+  );
+
+  // The variant select only exists once a component has one, so its presence
+  // is itself the check that the panel noticed.
+  await page.click('.cre8-frame.cre8-editing h3 >> nth=2');
+  await page.waitForTimeout(400);
+  const variantShown = await page
+    .locator('aside label:text-is("Variant")')
+    .first()
+    .isVisible()
+    .catch(() => false);
+  check(
+    'and an instance wearing a variant says which one',
+    variantShown,
+    variantShown ? 'the Variant control is on screen' : 'no control named Variant'
   );
 } finally {
   await browser.close();

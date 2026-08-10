@@ -17,6 +17,7 @@ import { create } from 'zustand';
 import { createEmptyDocument } from '../document/factory';
 import { getElement } from '../document/schema';
 import * as ops from '../document/operations';
+import { allRoots } from '../document/components';
 import {
   getHomePage,
   isEffectivelyLocked,
@@ -120,6 +121,8 @@ interface EditorState {
   activePageId: string;
   /** When set, the canvas edits a component master instead of a page. */
   editingComponentId: string | null;
+  /** Which of that component's trees. `null` is the default one. */
+  editingVariantId: string | null;
 
   /* Selection */
   selection: NodeId[];
@@ -271,7 +274,7 @@ interface EditorActions {
 
   /* Pages & components */
   setActivePage(pageId: string): void;
-  editComponent(componentId: string | null): void;
+  editComponent(componentId: string | null, variantId?: string | null): void;
 
   /* Document editing */
   insertElement(type: ElementType, parentId?: NodeId, index?: number): NodeId | null;
@@ -307,6 +310,10 @@ interface EditorActions {
     propertyId: string,
     value: string | number | boolean | null | undefined
   ): void;
+  /** Which of the component's looks this instance wears. */
+  setInstanceVariant(instanceId: NodeId, variantId: string | undefined): void;
+  /** Clone a tree into a new variant and open it. Returns its id. */
+  addComponentVariant(componentId: string, fromVariantId?: string): string | null;
   toggleHidden(ids?: NodeId[]): void;
   toggleLocked(ids?: NodeId[]): void;
   reorderInParent(id: NodeId, direction: 1 | -1): void;
@@ -397,6 +404,7 @@ function initialState(): EditorState {
     loaded: false,
     activePageId: doc.pages[0]?.id ?? '',
     editingComponentId: null,
+    editingVariantId: null,
     selection: [],
     hoverId: null,
     editingTextId: null,
@@ -449,6 +457,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       loaded: true,
       activePageId: pageId ?? home?.id ?? doc.pages[0]?.id ?? '',
       editingComponentId: null,
+      editingVariantId: null,
       selection: [],
       hoverId: null,
       editingTextId: null,
@@ -690,11 +699,9 @@ export const useEditor = create<EditorStore>()((set, get) => ({
   },
 
   selectAll() {
-    const { doc, activePageId, editingComponentId } = get();
-    const rootId = editingComponentId
-      ? doc.components.find((c) => c.id === editingComponentId)?.rootNodeId
-      : doc.pages.find((p) => p.id === activePageId)?.rootNodeId;
-    const root = rootId ? doc.nodes[rootId] : undefined;
+    const state = get();
+    const rootId = activeRootId(state);
+    const root = rootId ? state.doc.nodes[rootId] : undefined;
     if (root) get().select([...root.children]);
   },
 
@@ -799,6 +806,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     set({
       activePageId: pageId,
       editingComponentId: null,
+      editingVariantId: null,
       selection: [],
       hoverId: null,
       editingTextId: null,
@@ -806,9 +814,10 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     });
   },
 
-  editComponent(componentId) {
+  editComponent(componentId, variantId = null) {
     set({
       editingComponentId: componentId,
+      editingVariantId: componentId ? variantId : null,
       selection: [],
       hoverId: null,
       editingTextId: null,
@@ -1015,6 +1024,25 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       // another should be two undo steps, because they are two decisions.
       { mergeKey: `override:${instanceId}:${propertyId}` }
     );
+  },
+
+  setInstanceVariant(instanceId, variantId) {
+    get().transact('Change variant', (draft) => {
+      ops.setInstanceVariant(draft, instanceId, variantId);
+      return [instanceId];
+    });
+  },
+
+  addComponentVariant(componentId, fromVariantId) {
+    let created: string | null = null;
+    get().transact('Add variant', (draft) => {
+      created = ops.addVariant(draft, componentId, undefined, fromVariantId)?.id ?? null;
+    });
+    // Opened rather than merely created. A variant you cannot see is a tree in
+    // a document, and the next thing anybody wants is to change what makes it
+    // different from the one it was cloned from.
+    if (created) get().editComponent(componentId, created);
+    return created;
   },
 
   setRuleProps(ruleId, patch) {
@@ -1316,16 +1344,24 @@ export const useEditor = create<EditorStore>()((set, get) => ({
  * ----------------------------------------------------------------------- */
 
 /** Root node currently on the canvas: a page root, or a component master. */
-export function activeRootId(state: Pick<EditorState, 'doc' | 'activePageId' | 'editingComponentId'>): NodeId | null {
+export function activeRootId(
+  state: Pick<EditorState, 'doc' | 'activePageId' | 'editingComponentId' | 'editingVariantId'>
+): NodeId | null {
   if (state.editingComponentId) {
-    return state.doc.components.find((c) => c.id === state.editingComponentId)?.rootNodeId ?? null;
+    const component = state.doc.components.find((c) => c.id === state.editingComponentId);
+    if (!component) return null;
+    // A variant is a tree of its own, so opening one is the same operation as
+    // opening the master — a different root, and everything downstream of
+    // "what is on the canvas" follows without knowing which it got.
+    const variant = component.variants?.find((v) => v.id === state.editingVariantId);
+    return variant?.rootNodeId ?? component.rootNodeId;
   }
   return state.doc.pages.find((p) => p.id === state.activePageId)?.rootNodeId ?? null;
 }
 
 function isDeletable(doc: Cre8Document, id: NodeId): boolean {
   if (doc.pages.some((p) => p.rootNodeId === id)) return false;
-  if (doc.components.some((c) => c.rootNodeId === id)) return false;
+  if (doc.components.some((c) => allRoots(c).includes(id))) return false;
   return !isEffectivelyLocked(doc.nodes, id);
 }
 

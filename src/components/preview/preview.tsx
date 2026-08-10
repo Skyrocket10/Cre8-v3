@@ -13,6 +13,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Monitor, Smartphone, Tablet, X } from 'lucide-react';
 import { BREAKPOINT_DEFS, type Breakpoint, type Cre8Document } from '@/lib/document/types';
 import { themeToStyleObject } from '@/lib/document/theme';
+import { allRoots } from '@/lib/document/components';
 import { collectSubtree } from '@/lib/document/tree';
 import { generateNodeCss, DOCUMENT_RESET, PLACEHOLDER_CSS } from '@/lib/renderer/css';
 import { createSnapshotEngine, NodeView, RecordScope, RenderProvider } from '@/lib/renderer/render';
@@ -143,7 +144,9 @@ function PreviewSurface({
   const css = useMemo(() => {
     if (!page) return '';
     const ids = collectSubtree(doc.nodes, page.rootNodeId);
-    for (const component of doc.components) ids.push(...collectSubtree(doc.nodes, component.rootNodeId));
+    for (const component of doc.components) {
+      for (const root of allRoots(component)) ids.push(...collectSubtree(doc.nodes, root));
+    }
     return [
       DOCUMENT_RESET,
       PLACEHOLDER_CSS,

@@ -87,7 +87,7 @@ preferring an installed copy over downloading one.
 | `collections` | Can somebody make a collection, write a record and see it on the canvas — every step a click, no fixtures |
 | `republish` | Does the live site follow its records with nobody pressing Publish, does a second publish write nothing, and do the two things that must *not* republish stay put |
 | `history` | Is every publish kept and honestly labelled, can a design be put back on the canvas and the site, and does the content written since survive it |
-| `components` | Two instances of one component saying different things — same class, same computed styles, canvas and file agreeing, and a property somebody can actually set |
+| `components` | Three instances of one component: two saying different things and pixel-identical, one wearing a variant and visibly not. Same classes where they should be shared, canvas and file agreeing element by element, and controls somebody can actually reach |
 | `schema` | Can a deployment read its own schema and add the columns it is missing — the one thing `node:sqlite` cannot answer for D1, which is whether a pragma comes back with rows |
 | `editor-perf` | What one edit costs on a 761-node document — open time, selection, long tasks during a burst of style writes, layer-tree windowing. A probe: it prints the numbers and fails only on what would be a bug at any speed. `CRE8_PERF_SECTIONS` scales the fixture so the curve can be read rather than a single point |
 | `forms` | Do published forms reach the submissions endpoint, and what does it refuse |

@@ -10,9 +10,11 @@
  */
 
 import {
+  allRoots,
   bakeOverrides,
   exposableTargets,
   livingProperties,
+  rootForInstance,
   scopeForInstance,
   targetKey,
   type ExposableTarget,
@@ -34,6 +36,7 @@ import type {
   Collection,
   ComponentDefinition,
   ComponentProperty,
+  ComponentVariant,
   Cre8Document,
   ElementType,
   Field,
@@ -125,7 +128,7 @@ export function removeNodes(doc: Cre8Document, ids: NodeId[]): void {
     if (!node) continue;
     // Never delete a page root or a component master through this path.
     if (doc.pages.some((p) => p.rootNodeId === id)) continue;
-    if (doc.components.some((c) => c.rootNodeId === id)) continue;
+    if (doc.components.some((c) => allRoots(c).includes(id))) continue;
 
     detachChild(doc.nodes, id);
     for (const descendant of collectSubtree(doc.nodes, id)) delete doc.nodes[descendant];
@@ -579,9 +582,12 @@ export function detachInstance(doc: Cre8Document, instanceId: NodeId): NodeId | 
   const parent = doc.nodes[instance.parentId];
   if (!parent) return null;
 
+  // The tree this instance was actually wearing, not the default one.
   const subtree: NodeMap = {};
   const remap = new Map<NodeId, NodeId>();
-  const rootId = cloneSubtree(doc.nodes, component.rootNodeId, subtree, instance.parentId, remap);
+  const from = rootForInstance(component, instance);
+  if (!from) return null;
+  const rootId = cloneSubtree(doc.nodes, from, subtree, instance.parentId, remap);
   if (!rootId) return null;
   for (const n of Object.values(subtree)) delete n.meta.componentId;
   // What this instance was saying becomes what these nodes say. Without it,
@@ -623,13 +629,20 @@ export function exposeProperty(
   if (!exposableTargets(node).some((t) => targetKey(t) === targetKey(target))) return null;
 
   const properties = (component.properties ??= []);
-  if (properties.some((p) => p.nodeId === nodeId && targetKey(p) === targetKey(target))) return null;
+  if (properties.some((p) => p.nodeIds.includes(nodeId) && targetKey(p) === targetKey(target))) {
+    return null;
+  }
 
   const property: ComponentProperty = {
     id: uid(),
     name: name?.trim() || uniquePropertyName(properties, `${node.name} ${target.label.toLowerCase()}`),
     type: target.type,
-    nodeId,
+    // The one node it starts on. A property exposed while a component already
+    // has variants reaches only the tree it was exposed from — the trees have
+    // diverged by then and there is no honest way to guess which node in the
+    // other one it meant. Exposing it before adding a variant, or exposing it
+    // again inside the variant, both work; guessing does not.
+    nodeIds: [nodeId],
     ...(target.prop ? { prop: target.prop } : {}),
     defaultValue: target.type === 'visible' ? !node.meta.hidden : (node.props[target.prop!] ?? ''),
   };
@@ -714,6 +727,121 @@ function pruneComponentProperties(doc: Cre8Document): void {
   }
 }
 
+/* --- Variants ------------------------------------------------------------ */
+
+/**
+ * A second look for the same component: a whole new tree, cloned from one that
+ * exists.
+ *
+ * Cloned rather than started empty, and that is the design rather than a
+ * convenience. "Secondary button" is "primary button, three declarations
+ * different" — starting from nothing means rebuilding it and getting the
+ * padding subtly wrong. Cloning also gives the one thing that makes properties
+ * survive the jump: `cloneSubtree`'s remap says which node in the new tree
+ * corresponds to which in the old, so every property picks up its counterpart
+ * and an instance switching variant keeps its words.
+ */
+export function addVariant(
+  doc: Cre8Document,
+  componentId: string,
+  name?: string,
+  fromVariantId?: string
+): ComponentVariant | null {
+  const component = doc.components.find((c) => c.id === componentId);
+  if (!component) return null;
+
+  const sourceRoot =
+    component.variants?.find((v) => v.id === fromVariantId)?.rootNodeId ?? component.rootNodeId;
+  if (!doc.nodes[sourceRoot]) return null;
+
+  const subtree: NodeMap = {};
+  const remap = new Map<NodeId, NodeId>();
+  const rootId = cloneSubtree(doc.nodes, sourceRoot, subtree, null, remap);
+  if (!rootId) return null;
+
+  const variants = (component.variants ??= []);
+  const variant: ComponentVariant = {
+    id: uid(),
+    name: uniqueVariantName(component, name?.trim() || `Variant ${variants.length + 2}`),
+    rootNodeId: rootId,
+  };
+
+  for (const [id, node] of Object.entries(subtree)) {
+    node.meta.componentId = componentId;
+    doc.nodes[id] = node;
+  }
+  const newRoot = doc.nodes[rootId];
+  if (newRoot) newRoot.name = `${component.name} — ${variant.name}`;
+  variants.push(variant);
+
+  // Every property gains the counterpart of whatever it was already pointing
+  // at. A property with nothing in the source tree — one exposed inside a
+  // different variant — is left alone rather than guessed at.
+  for (const property of component.properties ?? []) {
+    const added = property.nodeIds.map((id) => remap.get(id)).filter((id): id is NodeId => Boolean(id));
+    property.nodeIds.push(...added.filter((id) => !property.nodeIds.includes(id)));
+  }
+
+  return variant;
+}
+
+function uniqueVariantName(component: ComponentDefinition, wanted: string): string {
+  const taken = new Set((component.variants ?? []).map((v) => v.name));
+  if (!taken.has(wanted)) return wanted;
+  for (let n = 2; ; n++) if (!taken.has(`${wanted} ${n}`)) return `${wanted} ${n}`;
+}
+
+export function renameVariant(
+  doc: Cre8Document,
+  componentId: string,
+  variantId: string,
+  name: string
+): void {
+  const component = doc.components.find((c) => c.id === componentId);
+  const variant = component?.variants?.find((v) => v.id === variantId);
+  if (!component || !variant) return;
+  variant.name = name.trim() || variant.name;
+  const root = doc.nodes[variant.rootNodeId];
+  if (root) root.name = `${component.name} — ${variant.name}`;
+}
+
+/**
+ * Remove a variant, and put every instance that was using it back on the
+ * default.
+ *
+ * The instances are moved explicitly rather than left to fall back. They would
+ * render correctly either way — `rootForInstance` returns the default for a
+ * variant that no longer exists — but a document carrying a `variantId`
+ * nothing answers to is a document where the inspector shows a select with no
+ * matching option, and where undo has nothing to restore the choice from.
+ */
+export function removeVariant(doc: Cre8Document, componentId: string, variantId: string): void {
+  const component = doc.components.find((c) => c.id === componentId);
+  const variant = component?.variants?.find((v) => v.id === variantId);
+  if (!component || !variant) return;
+
+  for (const node of Object.values(doc.nodes)) {
+    if (node.type === 'instance' && node.props.variantId === variantId) delete node.props.variantId;
+  }
+
+  for (const id of collectSubtree(doc.nodes, variant.rootNodeId)) delete doc.nodes[id];
+  component.variants = (component.variants ?? []).filter((v) => v.id !== variantId);
+  if (!component.variants.length) delete component.variants;
+  pruneComponentProperties(doc);
+}
+
+/** Which look this instance wears. `undefined` is the default tree. */
+export function setInstanceVariant(
+  doc: Cre8Document,
+  instanceId: NodeId,
+  variantId: string | undefined
+): void {
+  const instance = doc.nodes[instanceId];
+  if (!instance || instance.type !== 'instance') return;
+  if (variantId) instance.props.variantId = variantId;
+  else delete instance.props.variantId;
+}
+
 export function renameComponent(doc: Cre8Document, componentId: string, name: string): void {
   const component = doc.components.find((c) => c.id === componentId);
   if (!component) return;
@@ -732,7 +860,12 @@ export function deleteComponent(doc: Cre8Document, componentId: string): void {
   );
   for (const instance of instances) detachInstance(doc, instance.id);
 
-  for (const id of collectSubtree(doc.nodes, component.rootNodeId)) delete doc.nodes[id];
+  // Every tree, not just the default: a variant left behind would be a subtree
+  // parented to nothing, invisible everywhere and carried in the document for
+  // ever.
+  for (const root of allRoots(component)) {
+    for (const id of collectSubtree(doc.nodes, root)) delete doc.nodes[id];
+  }
   doc.components = doc.components.filter((c) => c.id !== componentId);
 }
 

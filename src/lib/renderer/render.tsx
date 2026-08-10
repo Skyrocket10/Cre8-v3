@@ -26,6 +26,7 @@ import { getElement } from '../document/schema';
 import {
   instanceHidden,
   overriddenProps,
+  rootForInstance,
   scopeForInstance,
   type OverrideScope,
 } from '../document/components';
@@ -272,7 +273,7 @@ function InstanceView({
     [properties, overrides]
   );
 
-  const rootId = component?.rootNodeId;
+  const rootId = rootForInstance(component, node);
   if (!rootId) {
     return engine.mode === 'edit' ? (
       <div

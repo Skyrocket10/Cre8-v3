@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BREAKPOINT_DEFS } from '@/lib/document/types';
 import { getElement } from '@/lib/document/schema';
+import { allRoots } from '@/lib/document/components';
 import { collectSubtree, isEffectivelyLocked } from '@/lib/document/tree';
 import type { NodeMap } from '@/lib/document/tree';
 import { themeToStyleObject } from '@/lib/document/theme';
@@ -144,7 +145,14 @@ export function Canvas() {
   const scopedIds = useMemo(() => {
     if (!rootId) return [];
     const ids = collectSubtree(nodes, rootId);
-    for (const component of components) ids.push(...collectSubtree(nodes, component.rootNodeId));
+    // Every tree a component owns, not only its default. A variant's nodes
+    // are nodes of their own with classes of their own, and leaving them out
+    // gave the canvas an instance drawn with no rules at all while the
+    // published file had them — which is precisely the divergence the whole
+    // one-renderer arrangement exists to prevent.
+    for (const component of components) {
+      for (const root of allRoots(component)) ids.push(...collectSubtree(nodes, root));
+    }
     return ids;
   }, [nodes, components, rootId]);
 
@@ -361,7 +369,10 @@ export function Canvas() {
       store.beginTextEdit(hit);
     } else if (node.type === 'instance') {
       const componentId = String(node.props.componentId ?? '');
-      if (componentId) store.editComponent(componentId);
+      // Into the tree this instance is actually wearing. Opening the default
+      // from a secondary button would show a design that has nothing to do
+      // with what was double-clicked.
+      if (componentId) store.editComponent(componentId, String(node.props.variantId ?? '') || null);
     } else if (node.children.length) {
       store.select(node.children[0]!);
     }

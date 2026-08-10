@@ -276,8 +276,31 @@ property said.
 Detaching bakes the values into the copies it makes — without that, Detach is
 data loss with a friendly label.
 
-`variants` is still declared on `ComponentDefinition` and unused, so adding
-alternate master trees remains additive.
+### Variants
+
+The other half, and deliberately the opposite of a property. A **variant** is a
+whole second master tree — its own nodes, its own ids, its own classes — so it
+*can* look different, which is exactly what an override cannot do. The
+definition's own `rootNodeId` is the default and is not listed in `variants`,
+so every document written before variants existed is already valid; an instance
+names one in `props.variantId`, and naming none draws the default.
+
+A variant is created by cloning a tree rather than starting empty, and that is
+load-bearing rather than a convenience. `cloneSubtree` returns its id remap, so
+every property picks up the counterpart of whatever it was pointing at — which
+is why `ComponentProperty.nodeIds` is a list. One property fills the label in
+whichever tree is on screen, and an instance switching variant keeps its words.
+A property exposed *after* the trees diverged reaches only the tree it was
+exposed from; guessing which node in the other one it meant would be worse than
+saying so.
+
+Everything that enumerates a component's trees uses `allRoots`: deleting a
+component, refusing to delete a root as an ordinary node, and — the one that
+bit — collecting the nodes each surface needs rules for. The publisher keys
+that collection by *tree* rather than by component, so a page that only ever
+draws the secondary look does not ship the default's rules; the canvas and
+preview collect every tree, because any instance on screen may be wearing any
+of them.
 
 ---
 

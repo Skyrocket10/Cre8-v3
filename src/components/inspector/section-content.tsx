@@ -1544,8 +1544,44 @@ function InstanceContent() {
           elements.
         </p>
       </InspectorGroup>
+      <InstanceVariant componentId={component.id} instanceId={instanceId} />
       <InstanceProperties componentId={component.id} instanceId={instanceId} />
     </Section>
+  );
+}
+
+/**
+ * Which of the component's looks this instance wears.
+ *
+ * Absent entirely until a second look exists — a select with one option is
+ * furniture, and the whole panel is already dense.
+ */
+function InstanceVariant({
+  componentId,
+  instanceId,
+}: {
+  componentId: string;
+  instanceId: string;
+}) {
+  const variants = useEditor((s) => s.doc.components.find((c) => c.id === componentId)?.variants);
+  const chosen = useEditor((s) => String(s.doc.nodes[instanceId]?.props.variantId ?? ''));
+
+  if (!variants?.length) return null;
+
+  return (
+    <InspectorGroup>
+      <StyleRow label="Variant" hint="A different look, drawn from its own tree">
+        <Select
+          className="flex-1"
+          value={chosen}
+          onChange={(value) => useEditor.getState().setInstanceVariant(instanceId, value || undefined)}
+          options={[
+            { value: '', label: 'Default' },
+            ...variants.map((variant) => ({ value: variant.id, label: variant.name })),
+          ]}
+        />
+      </StyleRow>
+    </InspectorGroup>
   );
 }
 
@@ -1698,7 +1734,10 @@ export function ComponentPropertySection() {
   if (!editingComponentId || !node || !nodeId) return null;
   if (node.meta.componentId !== editingComponentId) return null;
 
-  const mine = (properties ?? []).filter((p) => p.nodeId === nodeId);
+  // A property reaches one node per variant, and this is the variant on
+  // screen — so the same property appears under whichever of its nodes is
+  // selected, named the same and editing the same thing.
+  const mine = (properties ?? []).filter((p) => p.nodeIds.includes(nodeId));
   const taken = new Set(mine.map((p) => targetKey(p)));
   const available = targets.filter((t) => !taken.has(targetKey(t)));
 

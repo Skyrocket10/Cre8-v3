@@ -30,7 +30,9 @@ hide and component badges. Multiple pages with slugs and SEO metadata.
 every instance, everywhere. Expose a property and each instance can say
 something different: its own text, its own picture, its own link, or nothing at
 all where another shows a badge. Properties change what an element says, never
-how it is drawn, so a page of customised instances costs no extra CSS. Design
+how it is drawn, so a page of customised instances costs no extra CSS — and
+when a different *look* is what you want, a variant gives the component a
+second tree to wear, with its own styles, chosen per instance. Design
 tokens for colour, type, spacing, radius, shadow and width that compile to CSS
 custom properties.
 

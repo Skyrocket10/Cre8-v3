@@ -28,6 +28,7 @@ import { collectSubtree } from '../document/tree';
 import {
   instanceHidden,
   overriddenProps,
+  rootForInstance,
   scopeForInstance,
   type OverrideScope,
 } from '../document/components';
@@ -110,11 +111,13 @@ export function renderNodeToHtml(
   if (node.type === 'instance') {
     const component = doc.components.find((c) => c.id === node.props.componentId);
     if (!component) return '';
+    const root = rootForInstance(component, node);
+    if (!root) return '';
     // Replaced, not merged. An instance nested inside a master still answers
     // to the outer scope for its own visibility — that is the check above,
     // which ran before this branch — but the nodes it is about to draw belong
     // to another component, and the outer scope cannot address them.
-    return renderNodeToHtml(doc, component.rootNodeId, {
+    return renderNodeToHtml(doc, root, {
       ...options,
       overrides: scopeForInstance(component, node),
       depth: depth + 1,
@@ -623,12 +626,19 @@ function componentsUsedOn(doc: Cre8Document, pageNodes: NodeId[]): NodeId[] {
     const node = doc.nodes[queue.pop()!];
     if (node?.type !== 'instance') continue;
     const componentId = String(node.props.componentId ?? '');
-    if (!componentId || seen.has(componentId)) continue;
-    seen.add(componentId);
+    if (!componentId) continue;
 
     const component = doc.components.find((c) => c.id === componentId);
-    if (!component) continue;
-    const subtree = collectSubtree(doc.nodes, component.rootNodeId);
+    const root = rootForInstance(component, node);
+    // Keyed by the *tree*, not the component. Two instances of one component
+    // at two variants are two trees, and both have to be in this page's
+    // stylesheet; the same variant twice is still one. Keying by component
+    // alone would have shipped the default's rules for a page that only ever
+    // draws the secondary look.
+    if (!root || seen.has(root)) continue;
+    seen.add(root);
+
+    const subtree = collectSubtree(doc.nodes, root);
     out.push(...subtree);
     queue.push(...subtree);
   }
