@@ -319,6 +319,22 @@ interface EditorActions {
 
   /* Pages & components */
   setActivePage(pageId: string): void;
+
+  /* Pages, components and assets — lifted out of the three panels that each
+     had their own transaction for these. See `commands.ts`. */
+  addPage(name?: string): string | null;
+  duplicatePage(pageId: string): void;
+  removePage(pageId: string): void;
+  setHomePage(pageId: string): void;
+  renamePage(pageId: string, name: string): void;
+  movePage(pageId: string, delta: 1 | -1): void;
+  renameComponent(componentId: string, name: string): void;
+  deleteComponent(componentId: string): void;
+  renameVariant(componentId: string, variantId: string, name: string): void;
+  removeComponentVariant(componentId: string, variantId: string): void;
+  renameAsset(assetId: string, name: string): void;
+  removeAsset(assetId: string): void;
+  placeAsset(assetId: string, parentId?: NodeId, index?: number): NodeId | null;
   editComponent(componentId: string | null, variantId?: string | null): void;
   /**
    * Enter or leave an overlay's editing context.
@@ -414,6 +430,7 @@ interface EditorActions {
   setSaveStatus(status: SaveStatus): void;
   markSaved(): void;
   toast(message: string, tone?: Toast['tone'], action?: Toast['action']): void;
+  copyToClipboard(text: string, message: string): void;
   dismissToast(id: string): void;
 }
 
@@ -915,6 +932,141 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       editingTextId: null,
       measureToken: get().measureToken + 1,
     });
+  },
+
+  /* --------------------------------------------------- pages and library -- */
+
+  addPage(name) {
+    let created: string | null = null;
+    get().transact('Add page', (draft) => {
+      created = ops.addPage(draft, name ?? `Page ${draft.pages.length + 1}`).id;
+    });
+    if (created) {
+      get().setActivePage(created);
+      // Straight into rename: a page called "Page 3" is a placeholder, and the
+      // moment it is created is the moment somebody knows what to call it.
+      get().requestRename(created);
+    }
+    return created;
+  },
+
+  duplicatePage(pageId) {
+    let created: string | null = null;
+    get().transact('Duplicate page', (draft) => {
+      created = ops.duplicatePage(draft, pageId)?.id ?? null;
+    });
+    if (created) get().setActivePage(created);
+  },
+
+  removePage(pageId) {
+    const state = get();
+    // The last page cannot go: a document with no pages has nothing to draw
+    // and no way back to having one.
+    if (state.doc.pages.length <= 1) return;
+    get().transact('Delete page', (draft) => {
+      ops.removePage(draft, pageId);
+    });
+    if (state.activePageId === pageId) {
+      const next = get().doc.pages.find((p) => p.id !== pageId);
+      if (next) get().setActivePage(next.id);
+    }
+  },
+
+  setHomePage(pageId) {
+    get().transact('Set home page', (draft) => ops.setHomePage(draft, pageId));
+  },
+
+  renamePage(pageId, name) {
+    const page = get().doc.pages.find((p) => p.id === pageId);
+    if (!page || !name || name === page.name) return;
+    get().transact('Rename page', (draft) => ops.updatePage(draft, pageId, { name }), {
+      quiet: true,
+    });
+  },
+
+  movePage(pageId, delta) {
+    const ordered = [...get().doc.pages].sort((a, b) => a.order - b.order);
+    const index = ordered.findIndex((p) => p.id === pageId);
+    const next = index + delta;
+    if (index < 0 || next < 0 || next >= ordered.length) return;
+    get().transact('Reorder pages', (draft) => ops.reorderPages(draft, index, next));
+  },
+
+  renameComponent(componentId, name) {
+    if (!name) return;
+    get().transact('Rename component', (draft) => ops.renameComponent(draft, componentId, name), {
+      quiet: true,
+    });
+  },
+
+  deleteComponent(componentId) {
+    // Leaving the canvas pointed at a master that is about to stop existing
+    // would draw nothing and offer no way out.
+    if (get().editingComponentId === componentId) get().editComponent(null);
+    get().transact('Delete component', (draft) => ops.deleteComponent(draft, componentId));
+  },
+
+  renameVariant(componentId, variantId, name) {
+    if (!name) return;
+    get().transact(
+      'Rename variant',
+      (draft) => ops.renameVariant(draft, componentId, variantId, name),
+      { quiet: true }
+    );
+  },
+
+  removeComponentVariant(componentId, variantId) {
+    if (get().editingVariantId === variantId) get().editComponent(componentId, null);
+    get().transact('Delete variant', (draft) => ops.removeVariant(draft, componentId, variantId));
+  },
+
+  renameAsset(assetId, name) {
+    if (!name) return;
+    get().transact('Rename asset', (draft) => ops.renameAsset(draft, assetId, name), {
+      quiet: true,
+    });
+  },
+
+  removeAsset(assetId) {
+    get().transact('Delete asset', (draft) => ops.removeAsset(draft, assetId));
+  },
+
+  /**
+   * Put an asset on the page.
+   *
+   * Both ways in come here: the drop controller passes the parent and index it
+   * worked out from the pointer, the menu passes nothing and takes whatever
+   * `resolveInsertTarget` would have given an inserted element. Dragging an
+   * image in and placing one from a menu therefore produce the same node —
+   * same type, same name, same props — which they did not when the drop
+   * controller owned its own copy of this.
+   */
+  placeAsset(assetId, parentId, index) {
+    const state = get();
+    const asset = state.doc.assets.find((a) => a.id === assetId);
+    if (!asset) return null;
+
+    const type: ElementType = asset.type === 'video' ? 'video' : 'image';
+    const rootId = activeRootId(state);
+    const target =
+      parentId !== undefined
+        ? { parentId, index: index ?? Number.MAX_SAFE_INTEGER }
+        : rootId
+          ? ops.resolveInsertTarget(state.doc, state.selection[0] ?? null, rootId, type)
+          : null;
+    if (!target) return null;
+
+    let created: NodeId | null = null;
+    get().transact('Add image', (draft) => {
+      created = ops.insertElement(draft, type, target.parentId, target.index);
+      const node = created ? draft.nodes[created] : undefined;
+      if (node) {
+        node.name = ops.uniqueName(draft.nodes, asset.name);
+        node.props = { ...node.props, src: asset.url, alt: asset.name };
+      }
+      return created ? [created] : undefined;
+    });
+    return created;
   },
 
   editComponent(componentId, variantId = null) {
@@ -1486,10 +1638,18 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     const { selection } = get();
     const id = selection.length === 1 ? selection[0] : undefined;
     if (!id) return;
+    let created: string | null = null;
     get().transact('Create component', (draft) => {
       const result = ops.createComponentFromNode(draft, id);
-      return result ? [result.instanceId] : undefined;
+      if (!result) return;
+      created = result.component.id;
+      return [result.instanceId];
     });
+    if (created) {
+      get().toast('Component created', 'success');
+      // Named at the moment somebody knows what it is, like a new page.
+      get().requestRename(created);
+    }
   },
 
   selectChildren() {
@@ -1501,9 +1661,16 @@ export const useEditor = create<EditorStore>()((set, get) => ({
 
   requestRename(id) {
     if (get().renameRequest === id) return;
-    // Renaming happens in the layer tree, so asking for it has to put the tree
-    // in front of the person who asked.
-    if (id) get().revealInLayers();
+    /*
+     * One request, four panels. Whichever of them owns a row with that id
+     * takes it and clears it — the layer tree for a node, and the Pages,
+     * Components or Assets panel for their own.
+     *
+     * Only a *node* reveals the layer tree. Asking for a page to be renamed
+     * and being thrown into Layers, where no such row exists, would be a
+     * request that visibly did the wrong thing.
+     */
+    if (id && get().doc.nodes[id]) get().revealInLayers();
     set({ renameRequest: id });
   },
 
@@ -1763,6 +1930,20 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     set({ toasts: [...get().toasts.slice(-3), { id, message, tone, action }] });
     setTimeout(() => get().dismissToast(id), tone === 'error' ? 6000 : 2600);
   },
+  /**
+   * Text to the system clipboard, with a toast either way.
+   *
+   * The write can be refused — an insecure origin, a document that is not
+   * focused — and a copy that silently did nothing is worse than one that
+   * says so, because the paste happens somewhere else entirely.
+   */
+  copyToClipboard(text, message) {
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => get().toast(message))
+      .catch(() => get().toast('Could not reach the clipboard', 'error'));
+  },
+
   dismissToast(id) {
     set({ toasts: get().toasts.filter((t) => t.id !== id) });
   },

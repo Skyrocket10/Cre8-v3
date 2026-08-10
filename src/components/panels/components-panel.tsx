@@ -11,9 +11,9 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import * as ops from '@/lib/document/operations';
 import type { ComponentDefinition } from '@/lib/document/types';
 import { useEditor } from '@/lib/editor/store';
+import { openContextMenu } from '../ui/context-menu';
 import { cn } from '@/lib/utils/cn';
 import { Button, EmptyState, Popover } from '../ui/primitives';
 import { MenuItem } from './pages-panel';
@@ -31,6 +31,13 @@ function VariantRows({ component }: { component: ComponentDefinition }) {
   const editingVariantId = useEditor((s) => s.editingVariantId);
   const [renaming, setRenaming] = useState<string | null>(null);
 
+  const renameRequest = useEditor((s) => s.renameRequest);
+  React.useEffect(() => {
+    if (!renameRequest || !component.variants?.some((v) => v.id === renameRequest)) return;
+    setRenaming(renameRequest);
+    useEditor.getState().requestRename(null);
+  }, [renameRequest, component.variants]);
+
   if (!component.variants?.length) return null;
 
   return (
@@ -40,7 +47,17 @@ function VariantRows({ component }: { component: ComponentDefinition }) {
         return (
           <div
             key={variant.id}
+            data-variant-row={variant.id}
             onDoubleClick={() => useEditor.getState().editComponent(component.id, variant.id)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openContextMenu(e.clientX, e.clientY, {
+                kind: 'variant',
+                componentId: component.id,
+                variantId: variant.id,
+              });
+            }}
             className={cn(
               'group flex h-[26px] items-center gap-2 rounded-md px-2 transition-colors duration-100',
               active
@@ -55,9 +72,7 @@ function VariantRows({ component }: { component: ComponentDefinition }) {
                 autoFocus
                 defaultValue={variant.name}
                 onBlur={(e) => {
-                  useEditor.getState().transact('Rename variant', (draft) => {
-                    ops.renameVariant(draft, component.id, variant.id, e.target.value);
-                  });
+                  useEditor.getState().renameVariant(component.id, variant.id, e.target.value);
                   setRenaming(null);
                 }}
                 onKeyDown={(e) => {
@@ -120,13 +135,7 @@ function VariantRows({ component }: { component: ComponentDefinition }) {
                     label="Delete"
                     tone="danger"
                     onClick={() => {
-                      const store = useEditor.getState();
-                      // Back to the default tree first: deleting the root the
-                      // canvas is pointed at would leave it drawing nothing.
-                      if (active) store.editComponent(component.id);
-                      store.transact('Delete variant', (draft) => {
-                        ops.removeVariant(draft, component.id, variant.id);
-                      });
+                      useEditor.getState().removeComponentVariant(component.id, variant.id);
                       close();
                     }}
                   />
@@ -155,21 +164,16 @@ export function ComponentsPanel() {
     Boolean(candidate!.parentId) &&
     !components.some((c) => c.rootNodeId === candidate!.id);
 
-  const createComponent = () => {
-    if (!candidate) return;
-    const store = useEditor.getState();
-    let createdId: string | null = null;
-    store.transact('Create component', (draft) => {
-      const result = ops.createComponentFromNode(draft, candidate.id);
-      if (!result) return;
-      createdId = result.component.id;
-      return [result.instanceId];
-    });
-    if (createdId) {
-      setRenaming(createdId);
-      store.toast('Component created', 'success');
-    }
-  };
+  // The same command ⌘E and the canvas menu run. It asks for a rename of what
+  // it made, which the effect below picks up.
+  const createComponent = () => useEditor.getState().createComponentFromSelection();
+
+  const renameRequest = useEditor((s) => s.renameRequest);
+  React.useEffect(() => {
+    if (!renameRequest || !components.some((c) => c.id === renameRequest)) return;
+    setRenaming(renameRequest);
+    useEditor.getState().requestRename(null);
+  }, [renameRequest, components]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -223,6 +227,14 @@ export function ComponentsPanel() {
             return (
               <div key={component.id}>
               <div
+                data-component-row={component.id}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openContextMenu(e.clientX, e.clientY, {
+                    kind: 'component',
+                    componentId: component.id,
+                  });
+                }}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
                   useEditor.getState().setDrag({
@@ -250,9 +262,7 @@ export function ComponentsPanel() {
                     defaultValue={component.name}
                     onPointerDown={(e) => e.stopPropagation()}
                     onBlur={(e) => {
-                      useEditor.getState().transact('Rename component', (draft) => {
-                        ops.renameComponent(draft, component.id, e.target.value);
-                      });
+                      useEditor.getState().renameComponent(component.id, e.target.value);
                       setRenaming(null);
                     }}
                     onKeyDown={(e) => {
@@ -327,11 +337,7 @@ export function ComponentsPanel() {
                         label="Delete"
                         tone="danger"
                         onClick={() => {
-                          const store = useEditor.getState();
-                          if (store.editingComponentId === component.id) store.editComponent(null);
-                          store.transact('Delete component', (draft) => {
-                            ops.deleteComponent(draft, component.id);
-                          });
+                          useEditor.getState().deleteComponent(component.id);
                           close();
                         }}
                       />

@@ -169,6 +169,16 @@ panel root reads the nearest of them, so no control knows anything about menus.
 A row that never said falls back to the element's menu, and a text field keeps
 the browser's own — cut, paste and spelling are not ours to reimplement.
 
+The same mechanism reaches the library panels. A page row, a component, one of
+its variants and an asset are each a subject kind with a menu of its own, which
+meant lifting what those three panels had been doing inline: Pages and
+Components now write no transactions at all, and the only one left in Assets is
+the file upload. Two things fell out of that which were not equal before —
+creating a component from ⌘E, the canvas menu and the panel's Create button is
+now one action that also asks for a rename, and an asset dropped on the canvas
+produces the same node as one placed from its menu, because the drop controller
+had been building its own.
+
 The subject travels with the command when it runs. That is worth stating
 because getting it wrong is silent: `runCommand` rebuilds the context against
 live state, and rebuilding it without the subject left every property command

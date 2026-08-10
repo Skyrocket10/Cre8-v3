@@ -24,7 +24,15 @@
 import { BREAKPOINT_DEFS, type Breakpoint } from '../document/types';
 import { ELEMENTS, getElement } from '../document/schema';
 import { describeElement } from '../renderer/element-model';
-import type { ElementType, NodeId, SceneNode, StyleProp } from '../document/types';
+import type {
+  Asset,
+  ComponentDefinition,
+  ElementType,
+  NodeId,
+  Page,
+  SceneNode,
+  StyleProp,
+} from '../document/types';
 import {
   activeRootId,
   alignableSelection,
@@ -51,9 +59,10 @@ import {
  */
 export type MenuSubject =
   | { kind: 'style'; props: StyleProp[]; label: string }
-  | { kind: 'prop'; name: string; label: string }
   | { kind: 'page'; pageId: string }
-  | { kind: 'component'; componentId: string };
+  | { kind: 'component'; componentId: string }
+  | { kind: 'variant'; componentId: string; variantId: string }
+  | { kind: 'asset'; assetId: string };
 
 /* --------------------------------------------------------------------------
  * Context
@@ -143,6 +152,44 @@ function styleSubject(ctx: CommandContext): { props: StyleProp[]; label: string 
   return ctx.subject?.kind === 'style' && ctx.subject.props.length ? ctx.subject : null;
 }
 
+/*
+ * The library subjects, each resolved to the thing it names.
+ *
+ * Resolved rather than trusted: a menu can outlive what it was opened on — a
+ * collaborator deleting a page while somebody's pointer is over its menu is
+ * not exotic — and a command that ran on a missing id would be a silent no-op
+ * at best. Returning null disables the row instead.
+ */
+function pageOf(ctx: CommandContext): Page | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'page') return null;
+  return ctx.store.doc.pages.find((p) => p.id === subject.pageId) ?? null;
+}
+
+function componentOf(ctx: CommandContext): ComponentDefinition | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'component' && subject?.kind !== 'variant') return null;
+  return ctx.store.doc.components.find((c) => c.id === subject.componentId) ?? null;
+}
+
+function variantOf(
+  ctx: CommandContext
+): { component: ComponentDefinition; variantId: string } | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'variant') return null;
+  const component = componentOf(ctx);
+  const variantId = subject.variantId;
+  return component?.variants?.some((v) => v.id === variantId)
+    ? { component, variantId }
+    : null;
+}
+
+function assetOf(ctx: CommandContext): Asset | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'asset') return null;
+  return ctx.store.doc.assets.find((a) => a.id === subject.assetId) ?? null;
+}
+
 /* --------------------------------------------------------------------------
  * Commands
  * ----------------------------------------------------------------------- */
@@ -219,6 +266,27 @@ function declaredInMoreThanOnePlace(ctx: CommandContext): boolean {
     }
     return false;
   });
+}
+
+/**
+ * How many instances a component has, and how many nodes use an asset.
+ *
+ * Both go in the Delete label. Deleting a component detaches every instance
+ * and deleting an asset leaves images pointing at nothing; a count is the
+ * difference between an informed decision and a surprise.
+ */
+function instanceCount(ctx: CommandContext): number {
+  const component = componentOf(ctx);
+  if (!component) return 0;
+  return Object.values(ctx.store.doc.nodes).filter(
+    (n) => n.type === 'instance' && n.props.componentId === component.id
+  ).length;
+}
+
+function assetUses(ctx: CommandContext): number {
+  const asset = assetOf(ctx);
+  if (!asset) return 0;
+  return Object.values(ctx.store.doc.nodes).filter((n) => n.props.src === asset.url).length;
 }
 
 /** Nothing may be edited at all: read-only access, or the caret is in a field. */
@@ -643,6 +711,223 @@ export const COMMANDS: Record<string, EditorCommand> = {
     enabled: (ctx) => Boolean(ctx.store.editingOverlayId),
     run: (ctx) => ctx.store.editOverlay(null),
   },
+  /* --- A page in the Pages panel ----------------------------------------- */
+  /*
+   * All gated on `pageOf`, so none of them can appear anywhere but a page row,
+   * and none can act on a page a collaborator has meanwhile deleted.
+   */
+  openPage: {
+    id: 'openPage',
+    icon: 'file',
+    label: 'Open',
+    enabled: (ctx) => Boolean(pageOf(ctx)) && ctx.store.activePageId !== pageOf(ctx)?.id,
+    run: (ctx) => {
+      const page = pageOf(ctx);
+      if (page) ctx.store.setActivePage(page.id);
+    },
+  },
+  duplicatePage: {
+    id: 'duplicatePage',
+    icon: 'copyPlus',
+    label: 'Duplicate page',
+    enabled: (ctx) => editable(ctx) && Boolean(pageOf(ctx)),
+    run: (ctx) => {
+      const page = pageOf(ctx);
+      if (page) ctx.store.duplicatePage(page.id);
+    },
+  },
+  setHomePage: {
+    id: 'setHomePage',
+    icon: 'home',
+    label: 'Set as home',
+    enabled: (ctx) => editable(ctx) && Boolean(pageOf(ctx)) && !pageOf(ctx)?.isHome,
+    run: (ctx) => {
+      const page = pageOf(ctx);
+      if (page) ctx.store.setHomePage(page.id);
+    },
+  },
+  movePage: {
+    id: 'movePage',
+    icon: 'layers',
+    label: (_ctx, arg) => (arg === 'up' ? 'Move up' : 'Move down'),
+    enabled: (ctx, arg) => {
+      const page = pageOf(ctx);
+      if (!editable(ctx) || !page) return false;
+      const ordered = [...ctx.store.doc.pages].sort((a, b) => a.order - b.order);
+      const index = ordered.findIndex((p) => p.id === page.id);
+      return arg === 'up' ? index > 0 : index >= 0 && index < ordered.length - 1;
+    },
+    run: (ctx, arg) => {
+      const page = pageOf(ctx);
+      if (page) ctx.store.movePage(page.id, arg === 'up' ? -1 : 1);
+    },
+  },
+  renamePage: {
+    id: 'renamePage',
+    icon: 'pencil',
+    label: 'Rename',
+    enabled: (ctx) => editable(ctx) && Boolean(pageOf(ctx)),
+    run: (ctx) => {
+      const page = pageOf(ctx);
+      if (page) ctx.store.requestRename(page.id);
+    },
+  },
+  deletePage: {
+    id: 'deletePage',
+    icon: 'trash',
+    label: 'Delete page',
+    danger: true,
+    // The last page cannot go, and the store refuses it too — this is so the
+    // row says so rather than looking live and doing nothing.
+    enabled: (ctx) => editable(ctx) && Boolean(pageOf(ctx)) && ctx.store.doc.pages.length > 1,
+    run: (ctx) => {
+      const page = pageOf(ctx);
+      if (page) ctx.store.removePage(page.id);
+    },
+  },
+  addPage: {
+    id: 'addPage',
+    icon: 'plus',
+    label: 'New page',
+    enabled: editable,
+    run: (ctx) => ctx.store.addPage(),
+  },
+
+  /* --- A component, or one of its variants -------------------------------- */
+  editComponentMain: {
+    id: 'editComponentMain',
+    icon: 'squarePen',
+    label: 'Edit main component',
+    enabled: (ctx) => Boolean(componentOf(ctx)),
+    run: (ctx) => {
+      const component = componentOf(ctx);
+      if (component) ctx.store.editComponent(component.id);
+    },
+  },
+  insertInstance: {
+    id: 'insertInstance',
+    icon: 'plus',
+    label: 'Insert instance',
+    enabled: (ctx) => editable(ctx) && Boolean(componentOf(ctx)) && Boolean(ctx.root),
+    run: (ctx) => {
+      const component = componentOf(ctx);
+      if (component) ctx.store.insertComponentInstance(component.id);
+    },
+  },
+  addVariant: {
+    id: 'addVariant',
+    icon: 'copyPlus',
+    label: 'Add a variant',
+    enabled: (ctx) => editable(ctx) && Boolean(componentOf(ctx)),
+    run: (ctx) => {
+      const component = componentOf(ctx);
+      if (!component) return;
+      // From the variant you right-clicked when you right-clicked one, so
+      // "add a variant" from a variant means "another like this".
+      const from = ctx.subject?.kind === 'variant' ? ctx.subject.variantId : undefined;
+      if (ctx.store.addComponentVariant(component.id, from)) {
+        ctx.store.toast('Variant added', 'success');
+      }
+    },
+  },
+  renameComponent: {
+    id: 'renameComponent',
+    icon: 'pencil',
+    label: 'Rename',
+    enabled: (ctx) => editable(ctx) && Boolean(componentOf(ctx)),
+    run: (ctx) => {
+      const variant = variantOf(ctx);
+      const component = componentOf(ctx);
+      ctx.store.requestRename(variant ? variant.variantId : (component?.id ?? null));
+    },
+  },
+  deleteComponent: {
+    id: 'deleteComponent',
+    icon: 'trash',
+    label: (ctx) => {
+      const count = instanceCount(ctx);
+      return count ? `Delete component (${count} in use)` : 'Delete component';
+    },
+    danger: true,
+    enabled: (ctx) => editable(ctx) && ctx.subject?.kind === 'component' && Boolean(componentOf(ctx)),
+    run: (ctx) => {
+      const component = componentOf(ctx);
+      if (component) ctx.store.deleteComponent(component.id);
+    },
+  },
+  editVariant: {
+    id: 'editVariant',
+    icon: 'squarePen',
+    label: 'Edit this variant',
+    enabled: (ctx) => Boolean(variantOf(ctx)),
+    run: (ctx) => {
+      const variant = variantOf(ctx);
+      if (variant) ctx.store.editComponent(variant.component.id, variant.variantId);
+    },
+  },
+  deleteVariant: {
+    id: 'deleteVariant',
+    icon: 'trash',
+    label: 'Delete variant',
+    danger: true,
+    enabled: (ctx) => editable(ctx) && Boolean(variantOf(ctx)),
+    run: (ctx) => {
+      const variant = variantOf(ctx);
+      if (variant) ctx.store.removeComponentVariant(variant.component.id, variant.variantId);
+    },
+  },
+
+  /* --- An asset ------------------------------------------------------------ */
+  placeAsset: {
+    id: 'placeAsset',
+    icon: 'image',
+    label: (ctx) => (assetOf(ctx)?.type === 'video' ? 'Place video' : 'Place image'),
+    enabled: (ctx) => editable(ctx) && Boolean(assetOf(ctx)) && Boolean(ctx.root),
+    run: (ctx) => {
+      const asset = assetOf(ctx);
+      if (asset) ctx.store.placeAsset(asset.id);
+    },
+  },
+  copyAssetUrl: {
+    id: 'copyAssetUrl',
+    icon: 'link',
+    label: 'Copy address',
+    // Not for a blob or a data URL, which mean nothing outside this tab — an
+    // address copied out of here has to be one somebody can paste somewhere.
+    enabled: (ctx) => {
+      const url = assetOf(ctx)?.url ?? '';
+      return url.length > 0 && !url.startsWith('blob:') && !url.startsWith('data:');
+    },
+    run: (ctx) => {
+      const asset = assetOf(ctx);
+      if (asset) ctx.store.copyToClipboard(asset.url, 'Address copied');
+    },
+  },
+  renameAsset: {
+    id: 'renameAsset',
+    icon: 'pencil',
+    label: 'Rename',
+    enabled: (ctx) => editable(ctx) && Boolean(assetOf(ctx)),
+    run: (ctx) => {
+      const asset = assetOf(ctx);
+      if (asset) ctx.store.requestRename(asset.id);
+    },
+  },
+  deleteAsset: {
+    id: 'deleteAsset',
+    icon: 'trash',
+    label: (ctx) => {
+      const uses = assetUses(ctx);
+      return uses ? `Delete asset (used ${uses}\u00d7)` : 'Delete asset';
+    },
+    danger: true,
+    enabled: (ctx) => editable(ctx) && Boolean(assetOf(ctx)),
+    run: (ctx) => {
+      const asset = assetOf(ctx);
+      if (asset) ctx.store.removeAsset(asset.id);
+    },
+  },
+
   /* --- What the canvas shows -------------------------------------------- */
   toggleRulers: {
     id: 'toggleRulers',

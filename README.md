@@ -49,6 +49,11 @@ detached, renamed, deleted, pasted inside — the keyboard runs the same entries
 and the shortcut printed beside a menu item *is* the chord that fires it. There
 is no second implementation of Duplicate to drift from the first.
 
+Right-click a page, a component, one of its variants or an asset and the menu
+is about that: duplicate the page, set it as home, add a variant, place the
+image on the canvas, copy its address. Delete says what it will cost —
+*Delete component (3 in use)* — rather than asking afterwards.
+
 Right-click in the inspector and the menu is about the control you clicked:
 reset this padding, copy this shadow and paste it onto something else, take
 what you set for mobile and apply it at every width. It knows which breakpoint

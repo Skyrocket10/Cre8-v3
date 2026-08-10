@@ -2,9 +2,9 @@
 
 import React, { useState } from 'react';
 import { ArrowDown, ArrowUp, Copy, FileText, Home, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
-import * as ops from '@/lib/document/operations';
 import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
+import { openContextMenu } from '../ui/context-menu';
 import { Button, IconButton, Popover } from '../ui/primitives';
 
 export function PagesPanel() {
@@ -15,17 +15,16 @@ export function PagesPanel() {
 
   const ordered = [...pages].sort((a, b) => a.order - b.order);
 
-  const addPage = () => {
-    const store = useEditor.getState();
-    let created: string | null = null;
-    store.transact('Add page', (draft) => {
-      created = ops.addPage(draft, `Page ${draft.pages.length + 1}`).id;
-    });
-    if (created) {
-      store.setActivePage(created);
-      setRenaming(created);
-    }
-  };
+  const addPage = () => useEditor.getState().addPage();
+
+  // The store asks for a rename when it creates a page, and the same request
+  // arrives from the context menu. One consumer, either way.
+  const renameRequest = useEditor((s) => s.renameRequest);
+  React.useEffect(() => {
+    if (!renameRequest || !pages.some((p) => p.id === renameRequest)) return;
+    setRenaming(renameRequest);
+    useEditor.getState().requestRename(null);
+  }, [renameRequest, pages]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -42,8 +41,13 @@ export function PagesPanel() {
           return (
             <div
               key={page.id}
+              data-page-row={page.id}
               onClick={() => useEditor.getState().setActivePage(page.id)}
               onDoubleClick={() => setRenaming(page.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openContextMenu(e.clientX, e.clientY, { kind: 'page', pageId: page.id });
+              }}
               className={cn(
                 'group flex h-[30px] cursor-default items-center gap-2 rounded-md px-2',
                 'transition-colors duration-100',
@@ -67,9 +71,7 @@ export function PagesPanel() {
                   onFocus={(e) => e.currentTarget.select()}
                   onClick={(e) => e.stopPropagation()}
                   onBlur={(e) => {
-                    useEditor.getState().transact('Rename page', (draft) => {
-                      ops.updatePage(draft, page.id, { name: e.target.value || page.name });
-                    });
+                    useEditor.getState().renamePage(page.id, e.target.value || page.name);
                     setRenaming(null);
                   }}
                   onKeyDown={(e) => {
@@ -111,9 +113,7 @@ export function PagesPanel() {
                       icon={<Copy size={11} />}
                       label="Duplicate"
                       onClick={() => {
-                        useEditor.getState().transact('Duplicate page', (draft) => {
-                          ops.duplicatePage(draft, page.id);
-                        });
+                        useEditor.getState().duplicatePage(page.id);
                         close();
                       }}
                     />
@@ -122,9 +122,7 @@ export function PagesPanel() {
                       label="Move up"
                       disabled={index === 0}
                       onClick={() => {
-                        useEditor.getState().transact('Reorder pages', (draft) => {
-                          ops.reorderPages(draft, index, index - 1);
-                        });
+                        useEditor.getState().movePage(page.id, -1);
                         close();
                       }}
                     />
@@ -133,9 +131,7 @@ export function PagesPanel() {
                       label="Move down"
                       disabled={index === ordered.length - 1}
                       onClick={() => {
-                        useEditor.getState().transact('Reorder pages', (draft) => {
-                          ops.reorderPages(draft, index, index + 1);
-                        });
+                        useEditor.getState().movePage(page.id, 1);
                         close();
                       }}
                     />
@@ -144,9 +140,7 @@ export function PagesPanel() {
                         icon={<Home size={11} />}
                         label="Set as home"
                         onClick={() => {
-                          useEditor.getState().transact('Set home page', (draft) => {
-                            ops.setHomePage(draft, page.id);
-                          });
+                          useEditor.getState().setHomePage(page.id);
                           close();
                         }}
                       />
@@ -157,12 +151,7 @@ export function PagesPanel() {
                       tone="danger"
                       disabled={pages.length <= 1}
                       onClick={() => {
-                        const store = useEditor.getState();
-                        store.transact('Delete page', (draft) => {
-                          ops.removePage(draft, page.id);
-                        });
-                        const next = store.doc.pages.find((p) => p.id !== page.id);
-                        if (page.id === activePageId && next) store.setActivePage(next.id);
+                        useEditor.getState().removePage(page.id);
                         close();
                       }}
                     />

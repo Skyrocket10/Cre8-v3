@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Trash2, Upload } from 'lucide-react';
 import { ACCEPTED_TYPES, assetBytes, ingestFile, outputFormat } from '@/lib/api/assets';
 import { getStorage } from '@/lib/api/storage';
-import { removeAsset, renameAsset } from '@/lib/document/operations';
 import { useEditor } from '@/lib/editor/store';
+import { openContextMenu } from '../ui/context-menu';
 import { cn, formatBytes } from '@/lib/utils/cn';
 import { Button, EmptyState, Tooltip } from '../ui/primitives';
 
@@ -15,6 +15,14 @@ export function AssetsPanel() {
   const [dropping, setDropping] = useState(false);
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
+
+  // The Assets panel's share of the one rename request. See `requestRename`.
+  const renameRequest = useEditor((s) => s.renameRequest);
+  useEffect(() => {
+    if (!renameRequest || !assets.some((a) => a.id === renameRequest)) return;
+    setRenaming(renameRequest);
+    useEditor.getState().requestRename(null);
+  }, [renameRequest, assets]);
 
   const upload = async (files: FileList | File[]) => {
     const list = [...files];
@@ -124,6 +132,11 @@ export function AssetsPanel() {
             {assets.map((asset) => (
               <div
                 key={asset.id}
+                data-asset-row={asset.id}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openContextMenu(e.clientX, e.clientY, { kind: 'asset', assetId: asset.id });
+                }}
                 className="group relative overflow-hidden rounded-md border border-[var(--border)] bg-[var(--field)]"
               >
                 <button
@@ -152,9 +165,7 @@ export function AssetsPanel() {
                       autoFocus
                       defaultValue={asset.name}
                       onBlur={(e) => {
-                        useEditor.getState().transact('Rename asset', (draft) => {
-                          renameAsset(draft, asset.id, e.target.value);
-                        });
+                        useEditor.getState().renameAsset(asset.id, e.target.value);
                         setRenaming(null);
                       }}
                       onKeyDown={(e) => {
@@ -176,11 +187,7 @@ export function AssetsPanel() {
                   <Tooltip content="Delete" side="left">
                     <button
                       type="button"
-                      onClick={() =>
-                        useEditor.getState().transact('Delete asset', (draft) => {
-                          removeAsset(draft, asset.id);
-                        })
-                      }
+                      onClick={() => useEditor.getState().removeAsset(asset.id)}
                       className="flex size-4 shrink-0 items-center justify-center rounded text-[var(--text-faint)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--danger)]"
                       aria-label={`Delete ${asset.name}`}
                     >

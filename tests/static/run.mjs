@@ -4356,8 +4356,124 @@ report.group('one catalogue, and every surface dispatches through it');
     'they live in styleMenu, which only a style subject reaches'
   );
 
+  /* --- The library panels ------------------------------------------------- */
+
+  const panel = (name) => read(path.join('src', 'components', 'panels', `${name}-panel.tsx`));
+  const pagesPanel = panel('pages');
+  const componentsPanel = panel('components');
+  const assetsPanel = panel('assets');
+
+  /*
+   * These three each had their own `transact` for every action they offered —
+   * add a page, delete a component, rename an asset — which is the same
+   * duplication the menu was built to end. Two of them now have none at all.
+   */
+  report.check(
+    'the Pages and Components panels write no transactions of their own',
+    !/transact\(/.test(pagesPanel) && !/transact\(/.test(componentsPanel),
+    'both go through store actions'
+  );
+  report.check(
+    'and the only one left in Assets is the upload',
+    (assetsPanel.match(/transact\(/g) ?? []).length === 1 &&
+      /transact\('Upload asset'/.test(assetsPanel),
+    'ingesting a file is not a menu action'
+  );
+
+  /*
+   * An asset dropped on the canvas and one placed from its menu have to be the
+   * same node. They were not: the drop controller built its own.
+   */
+  report.check(
+    'a dropped asset and a placed one are the same command',
+    /store\.placeAsset\(payload\.assetId, parentId, index\)/.test(
+      read(path.join('src', 'components', 'canvas', 'drag-controller.tsx'))
+    ) && /placeAsset\(assetId, parentId, index\)/.test(read(path.join('src', 'lib', 'editor', 'store.ts'))),
+    'one definition, two ways to reach it'
+  );
+
+  /* Each panel names a subject and nothing else. */
+  const SUBJECT_ROWS = [
+    ['pages', pagesPanel, "kind: 'page'"],
+    ['components', componentsPanel, "kind: 'component'"],
+    ['components', componentsPanel, "kind: 'variant'"],
+    ['assets', assetsPanel, "kind: 'asset'"],
+  ];
+  const wired = SUBJECT_ROWS.filter(([, file, subject]) => file.includes(subject));
+  report.check(
+    'every library panel opens the menu with a subject',
+    wired.length === SUBJECT_ROWS.length,
+    wired.map(([name, , subject]) => `${name}:${subject.slice(7)}`).join(' ')
+  );
+  report.check(
+    'and none of them passes anything else to it',
+    [pagesPanel, componentsPanel, assetsPanel].every(
+      (file) => !/openContextMenu\([^)]*items/.test(file)
+    ),
+    'a caller can say what was clicked, never what to do about it'
+  );
+
+  /*
+   * Same rule as the property commands: unreachable without the subject they
+   * are about, so none of them can turn up on the canvas menu acting on
+   * nothing.
+   */
+  const LIBRARY_COMMANDS = [
+    'openPage',
+    'duplicatePage',
+    'setHomePage',
+    'movePage',
+    'renamePage',
+    'deletePage',
+    'editComponentMain',
+    'insertInstance',
+    'addVariant',
+    'renameComponent',
+    'deleteComponent',
+    'editVariant',
+    'deleteVariant',
+    'placeAsset',
+    'copyAssetUrl',
+    'renameAsset',
+    'deleteAsset',
+  ];
+  const RESOLVERS = /pageOf\(ctx\)|componentOf\(ctx\)|variantOf\(ctx\)|assetOf\(ctx\)/;
+  const ungatedLibrary = LIBRARY_COMMANDS.filter((id) => {
+    const start = commands.indexOf(`\n  ${id}: {`);
+    if (start < 0) return true;
+    const body = commands.slice(start, commands.indexOf('\n  },', start));
+    return !RESOLVERS.test(body);
+  });
+  report.check(
+    'every library command is gated on the thing it is about',
+    ungatedLibrary.length === 0,
+    ungatedLibrary.length ? `ungated: ${ungatedLibrary.join(', ')}` : `${LIBRARY_COMMANDS.length} commands`
+  );
+
+  /*
+   * A subject with no menu is a right-click that opens nothing. `menuFor`
+   * switches on the kind, so every kind the type allows must appear there.
+   */
+  const kinds = [...commands.matchAll(/\| \{ kind: '(\w+)'/g)].map(([, kind]) => kind);
+  const unhandled = kinds.filter((kind) => !menus.includes(`case '${kind}':`));
+  report.check(
+    'and every subject the type allows has a menu',
+    kinds.length >= 5 && unhandled.length === 0,
+    unhandled.length ? `no menu for: ${unhandled.join(', ')}` : kinds.join(', ')
+  );
+
   /* --- Falsification ------------------------------------------------------ */
 
+  report.check(
+    'the subject-coverage rule would notice a kind nobody handled',
+    !menus.includes("case 'nosuchkind':"),
+    'a new subject with no menu fails the build'
+  );
+  report.check(
+    'and the gating rule rejects a library command with no resolver',
+    !RESOLVERS.test("run: (ctx) => ctx.store.removePage('page-1')"),
+    'a hardcoded id would be caught'
+  );
   report.check(
     'the annotation count would notice the rows going away',
     !(0 >= 30),

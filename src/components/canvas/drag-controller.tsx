@@ -19,7 +19,6 @@ import { getElement } from '@/lib/document/schema';
 import * as ops from '@/lib/document/operations';
 import { collectSubtree } from '@/lib/document/tree';
 import { activeRootId, useEditor } from '@/lib/editor/store';
-import { createNode } from '@/lib/document/factory';
 import type { Cre8Document, ElementType, NodeId } from '@/lib/document/types';
 
 export function DragController() {
@@ -140,17 +139,11 @@ function commitDrop(payload: DragPayload, parentId: NodeId, index: number): void
       break;
     }
     case 'asset': {
-      const asset = store.doc.assets.find((a) => a.id === payload.assetId);
-      if (!asset) break;
-      store.transact('Add image', (draft) => {
-        const node = createNode(asset.type === 'video' ? 'video' : 'image', {
-          name: asset.name,
-          props: { src: asset.url, alt: asset.name },
-        });
-        draft.nodes[node.id] = node;
-        ops.attachChild(draft.nodes, parentId, node.id, index);
-        return [node.id];
-      });
+      // The store owns this, so a dropped asset and one placed from the Assets
+      // panel's menu produce the same node rather than two that merely look
+      // alike. The pointer already worked out where it goes; that is all this
+      // path knows that the menu does not.
+      store.placeAsset(payload.assetId, parentId, index);
       break;
     }
     case 'move': {

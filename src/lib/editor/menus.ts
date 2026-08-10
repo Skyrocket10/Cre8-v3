@@ -89,7 +89,20 @@ function insertItems(id: 'insert' | 'insertChild'): MenuItem[] {
  * context-specific item is the way back out.
  */
 export function menuFor(ctx: CommandContext): MenuItem[] {
-  if (ctx.subject?.kind === 'style') return styleMenu(ctx, ctx.subject.label);
+  switch (ctx.subject?.kind) {
+    case 'style':
+      return styleMenu(ctx, ctx.subject.label);
+    case 'page':
+      return prune(PAGE_MENU, ctx);
+    case 'component':
+      return prune(COMPONENT_MENU, ctx);
+    case 'variant':
+      return prune(VARIANT_MENU, ctx);
+    case 'asset':
+      return prune(ASSET_MENU, ctx);
+    default:
+      break;
+  }
 
   const items: MenuItem[] = [];
 
@@ -181,6 +194,62 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
 
   return prune(items, ctx);
 }
+
+/* --------------------------------------------------------------------------
+ * The library panels
+ * ----------------------------------------------------------------------- */
+
+/*
+ * Static lists, because none of these vary with the selection — a page row
+ * offers the same six things every time and `prune` drops what a particular
+ * page cannot do. The element menu is built rather than declared because its
+ * *shape* changes: an instance grows a Component block, a container grows Add
+ * child. Nothing here does.
+ */
+const PAGE_MENU: MenuItem[] = [
+  { kind: 'command', id: 'openPage' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'duplicatePage' },
+  { kind: 'command', id: 'renamePage' },
+  { kind: 'command', id: 'setHomePage' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'movePage', arg: 'up' },
+  { kind: 'command', id: 'movePage', arg: 'down' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'addPage' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'deletePage' },
+];
+
+const COMPONENT_MENU: MenuItem[] = [
+  { kind: 'command', id: 'editComponentMain' },
+  { kind: 'command', id: 'insertInstance' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'addVariant' },
+  { kind: 'command', id: 'renameComponent' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'deleteComponent' },
+];
+
+const VARIANT_MENU: MenuItem[] = [
+  { kind: 'heading', label: 'Variant' },
+  { kind: 'command', id: 'editVariant' },
+  { kind: 'command', id: 'addVariant' },
+  { kind: 'command', id: 'renameComponent' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'editComponentMain' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'deleteVariant' },
+];
+
+const ASSET_MENU: MenuItem[] = [
+  { kind: 'command', id: 'placeAsset' },
+  { kind: 'command', id: 'copyAssetUrl' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'renameAsset' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'deleteAsset' },
+];
 
 /**
  * The menu for one inspector row, or one whole section of them.

@@ -732,6 +732,174 @@ try {
     (await page.locator('[data-cre8-rulers]').count()) !== rulersBefore,
     'rulers toggled'
   );
+  /* ------------------------------------------- 12. the library panels ----- */
+
+  /*
+   * Pages, Components and Assets. Each row now answers for itself, and each of
+   * these actions used to be a transaction the panel wrote by hand — which is
+   * how the inspector and the toolbar came to detach instances differently.
+   */
+  /*
+   * Clicking the tab of the panel already showing *collapses* it — the same
+   * trap `showLayers` exists for. So: click, and click again if the rows did
+   * not appear.
+   */
+  const openPanel = async (label, rowSelector) => {
+    if (await page.locator(rowSelector).first().isVisible().catch(() => false)) return;
+    await page.locator(`button[aria-label="${label}"]`).first().click();
+    await page.waitForTimeout(450);
+    if (await page.locator(rowSelector).first().isVisible().catch(() => false)) return;
+    await page.locator(`button[aria-label="${label}"]`).first().click();
+    await page.waitForTimeout(450);
+  };
+
+  /* --- Pages ------------------------------------------------------------- */
+
+  await openPanel('Pages', '[data-page-row]');
+  const pageRow = page.locator('[data-page-row]').first();
+  await pageRow.waitFor({ state: 'visible', timeout: 6000 });
+  const pagesBefore = await page.locator('[data-page-row]').count();
+
+  const pbox = await pageRow.boundingBox();
+  await page.mouse.click(pbox.x + 40, pbox.y + pbox.height / 2, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  const pageItems = await menuLabels();
+  report.check(
+    'a page row has a menu about that page',
+    pageItems.includes('Duplicate page') && pageItems.includes('New page'),
+    pageItems.join(', ')
+  );
+  report.check(
+    'and the last page cannot be deleted from it',
+    await page.locator('[data-menu-item="Delete page"]').first().isDisabled(),
+    pagesBefore === 1 ? 'one page, Delete greyed' : `${pagesBefore} pages`
+  );
+
+  await clickItem('Duplicate page');
+  await page.waitForTimeout(600);
+  const pagesAfter = await page.locator('[data-page-row]').count();
+  report.check(
+    'Duplicate page adds one',
+    pagesAfter === pagesBefore + 1,
+    `${pagesBefore} → ${pagesAfter}`
+  );
+
+  // And now Delete is available, because there is more than one.
+  const secondRow = page.locator('[data-page-row]').nth(1);
+  const sbox = await secondRow.boundingBox();
+  await page.mouse.click(sbox.x + 40, sbox.y + sbox.height / 2, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  await clickItem('Delete page');
+  await page.waitForTimeout(600);
+  report.check(
+    'and Delete takes it away again once there is a spare',
+    (await page.locator('[data-page-row]').count()) === pagesBefore,
+    `back to ${await page.locator('[data-page-row]').count()}`
+  );
+
+  /* --- Components -------------------------------------------------------- */
+
+  await selectLayer('Box A');
+  await page.keyboard.press('Control+e');
+  await page.waitForTimeout(900);
+  await openPanel('Components', '[data-component-row]');
+  const componentRow = page.locator('[data-component-row]').first();
+  await componentRow.waitFor({ state: 'visible', timeout: 6000 });
+
+  const cbox = await componentRow.boundingBox();
+  await page.mouse.click(cbox.x + 40, cbox.y + cbox.height / 2, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  const componentItems = await menuLabels();
+  report.check(
+    'a component row has a menu about that component',
+    componentItems.includes('Edit main component') && componentItems.includes('Add a variant'),
+    componentItems.join(', ')
+  );
+  report.check(
+    'and Delete says how many instances would be affected',
+    componentItems.some((l) => /^Delete component \(\d+ in use\)$/.test(l)),
+    componentItems.find((l) => l.startsWith('Delete component')) ?? 'no delete row'
+  );
+
+  await clickItem('Add a variant');
+  await page.waitForTimeout(700);
+  const variantRow = page.locator('[data-variant-row]').first();
+  report.check(
+    'Add a variant makes one',
+    (await variantRow.count()) > 0,
+    `${await page.locator('[data-variant-row]').count()} variants`
+  );
+
+  const vbox = await variantRow.boundingBox();
+  await page.mouse.click(vbox.x + 30, vbox.y + vbox.height / 2, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  const variantItems = await menuLabels();
+  report.check(
+    'and a variant row has its own menu, not the component’s',
+    variantItems.includes('Delete variant') && !variantItems.includes('Delete component'),
+    variantItems.join(', ')
+  );
+  await clickItem('Delete variant');
+  await page.waitForTimeout(700);
+  report.check(
+    'which deletes the variant and leaves the component',
+    (await page.locator('[data-variant-row]').count()) === 0 &&
+      (await page.locator('[data-component-row]').count()) > 0,
+    'variant gone, component stays'
+  );
+
+  /* --- Assets ------------------------------------------------------------ */
+
+  /*
+   * Seeded through the document rather than uploaded: this suite is about the
+   * menu, and a real file upload is the `assets` suite's question.
+   */
+  const withAsset = await getDocument(page, id);
+  withAsset.assets = [
+    {
+      id: 'seedasset',
+      name: 'Seed picture',
+      type: 'image',
+      url: 'https://example.invalid/seed.webp',
+      width: 800,
+      height: 600,
+      createdAt: 1,
+    },
+  ];
+  const assetSaved = await saveDocument(page, withAsset);
+  report.check('an asset is in the library', assetSaved === 200, `HTTP ${assetSaved}`);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1400);
+
+  await openPanel('Assets', '[data-asset-row]');
+  const assetTile = page.locator('[data-asset-row]').first();
+  await assetTile.waitFor({ state: 'visible', timeout: 6000 });
+  const abox = await assetTile.boundingBox();
+  await page.mouse.click(abox.x + 20, abox.y + 20, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  const assetItems = await menuLabels();
+  report.check(
+    'an asset has a menu about that asset',
+    assetItems.includes('Place image') && assetItems.includes('Copy address'),
+    assetItems.join(', ')
+  );
+
+  const imagesBefore = await page.locator('.cre8-frame.cre8-editing img').count();
+  await clickItem('Place image');
+  await page.waitForTimeout(900);
+  const placed = await page.evaluate(() => {
+    const img = [...document.querySelectorAll('.cre8-frame.cre8-editing img')].pop();
+    return img ? { src: img.getAttribute('src'), alt: img.getAttribute('alt') } : null;
+  });
+  report.check(
+    'Place image puts it on the canvas with its name as the alt text',
+    (await page.locator('.cre8-frame.cre8-editing img').count()) === imagesBefore + 1 &&
+      placed?.src === 'https://example.invalid/seed.webp' &&
+      placed?.alt === 'Seed picture',
+    JSON.stringify(placed)
+  );
 } catch (error) {
   report.check('menus suite completed', false, error.message);
 } finally {
