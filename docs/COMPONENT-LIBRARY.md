@@ -45,10 +45,16 @@ meet that bar or it drags the product down rather than filling it out.
 
 **Since:** 35 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
 `dialog`, `table`, `tableRow`, `tableCell`, `range`, `file`, `progress`,
-`fieldset` added in B) and 67 blocks across nine categories, held to that bar
-by 1064 static checks and 15 browser suites. `◐` marks something that ships and
-is partly gated — the dialog is a real `<dialog>`, announced as one, but not
-modal until there is a runtime to call `showModal()`.
+`fieldset` added in B) and 84 blocks across nine categories, held to that bar
+by 1,518 static checks and 23 browser suites.
+
+Two marks in the tables below mean something other than done-or-not-yet. `◐`
+is something that ships and is partly gated — the dialog is a real `<dialog>`,
+announced as one, but not modal until there is a runtime to call
+`showModal()`. `✗` is a row that was **scoped wrong when this was written**:
+the capability named in its **Needs** column cannot deliver it, whatever gets
+built. Both are called out where they appear, because "not yet" invites
+somebody to try and these two would waste their afternoon.
 
 ---
 
@@ -132,7 +138,7 @@ In the tables that follow, the **Needs** column refers to these letters.
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Navbar — links + CTA | B | ✅ | |
-| Navbar — mega menu | B | | a |
+| Navbar — mega menu | B | ✅ | |
 | Navbar — mobile drawer | B | ✅ | |
 | Announcement / promo bar | B | | |
 | Breadcrumbs | B | | |
@@ -187,14 +193,14 @@ private helper to a reusable piece rather than rebuilding it per hero.
 | Timeline / roadmap | B | | |
 | Comparison table — vs competitors | B | | table primitives |
 | Integrations directory | B | | |
-| Feature — tabbed showcase | B | | b |
+| Feature — tabbed showcase | B | ✅ | |
 
 ### 4.5 Conversion
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Pricing — three tier | B | ✅ | |
-| Pricing — monthly/annual toggle | B | | b |
+| Pricing — monthly/annual toggle | B | ✅ | |
 | Pricing — comparison matrix | B | | table primitives |
 | CTA panel | B | ✅ | |
 | CTA — split with image | B | | |
@@ -207,15 +213,15 @@ private helper to a reusable piece rather than rebuilding it per hero.
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | FAQ — two column | B | ✅ | |
-| FAQ — accordion | B | | a |
+| FAQ — accordion | B | ✅ | |
 | Team grid | B | | |
 | Open roles list | B | | |
 | Legal / long-form prose layout | B | | |
 | Gallery grid | B | | |
 | Masonry gallery | B | | |
-| Lightbox | B | | a |
-| Carousel | B | | b |
-| Before / after slider | B | | b |
+| Lightbox | B | ✅ | |
+| Carousel | B | ✅ | |
+| Before / after slider | B | ✗ | see §5.7 |
 
 ### 4.7 Editorial
 
@@ -235,9 +241,9 @@ private helper to a reusable piece rather than rebuilding it per hero.
 |---|---|---|---|
 | Product card grid | B | | c for real data |
 | Product detail — gallery + buy box | B | | |
-| Cart summary / drawer | B | | b, c |
+| Cart summary / drawer | B | ✅ | |
 | Checkout form layout | B | | form target |
-| Collection header + filters | B | | b |
+| Collection header + filters | B | ✅ | |
 | Shipping / trust strip | B | | |
 
 **Marketing total: 63 blocks, of which 9 ship today.** Of the 54 remaining, 37
@@ -279,7 +285,7 @@ These are the honest primitives — real form semantics cannot be faked with a
 |---|---|---|---|
 | Field — label + help + error | B | ✅ | |
 | Switch | B | | a |
-| Segmented control | B | | a |
+| Segmented control | B | ✅ | |
 | Search field | B | ✅ | |
 | Form layouts — one/two column, inline | B | | |
 | Sign in / sign up / reset | B | | form target |
@@ -290,8 +296,9 @@ These are the honest primitives — real form semantics cannot be faked with a
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Table family — `table`/`tr`/`td`/`th` | P | ✅ | |
-| Repeater / collection list | P | | c |
-| Data table — sortable, filterable | B | | b, c |
+| Repeater / collection list | P | ✅ | shipped as a property, not a primitive — see §5.7 |
+| Data table — filterable | B | ✅ | |
+| Data table — sortable | B | ✗ | see §5.7 |
 | Description list | P | ✅ | |
 | Stat card | B | | |
 | Badge / tag / pill | B | | |
@@ -306,29 +313,37 @@ Charts are deliberately excluded — see §9.
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Modal / dialog | P | ◐ | b for modality |
-| Drawer / sheet | B | | a |
+| Drawer / sheet | B | ✅ | |
 | Popover | P | ✅ | |
 | Dropdown menu | B | ✅ | |
-| Tooltip | B | | a |
-| Toast | B | | b |
-| Command palette | B | | b |
+| Tooltip | B | ✅ | |
+| Toast | B | ✅ | |
+| Command palette | B | ✅ | |
 
-Every one of these except toast and the command palette is native platform
-behaviour now. Building them on `<dialog>` and `popover` instead of on a
-JavaScript overlay manager is the single biggest quality-per-effort win in the
-application set: focus trapping, escape-to-close, the top layer and inert
+All of these ship. Every one except the toast is native platform behaviour —
+the toast is a switch, because dismissing is a state and the runtime already
+holds states. Building the rest on `<dialog>` and `popover` instead of on a
+JavaScript overlay manager was the single biggest quality-per-effort win in
+the application set: focus trapping, escape-to-close, the top layer and inert
 backgrounds all come from the browser, correct on the first try.
+
+The tooltip is the one to look at if you are wondering how far the native
+route goes. It opens on click rather than hover — a hover-only tooltip is
+unreachable by keyboard and unreachable on a phone — and the trigger stays a
+button so it is in the tab order. That is not a compromise forced by the
+platform; it is the behaviour the platform makes easy and the right one
+anyway.
 
 ### 5.5 Navigation and disclosure
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
-| Accordion | P | | a |
+| Accordion | P | ✅ | |
 | Tabs | B | ✅ | |
-| Stepper / wizard | B | | b |
+| Stepper / wizard | B | ✅ | |
 | Pagination | B | | |
 | App shell — sidebar + topbar | B | | |
-| User menu | B | | a |
+| User menu | B | ✅ | |
 
 ### 5.6 Feedback
 
@@ -336,11 +351,65 @@ backgrounds all come from the browser, correct on the first try.
 |---|---|---|---|
 | Alert / inline banner | B | | |
 | Spinner | B | | |
-| Progress bar | B | | a |
+| Progress bar | B | ✅ | |
 | Notification list | B | | |
 
 **Application total: 45 components — 18 primitives, of which 4 ship today, and
 27 blocks.**
+
+### 5.7 Three rows this document got wrong
+
+Every other row in this document is either built or waiting on a capability
+that is now named and understood. Three are not, in two different ways, and
+both mistakes were made *here* rather than in the implementation.
+
+Two rows promise a component to a capability that cannot deliver it. They are
+marked `✗`, meaning *not buildable as described* — a different thing from
+*not built yet*, and worth its own mark because the second invites somebody to
+spend an afternoon finding out.
+
+The third shipped, in a shape this document did not predict. That is the
+quieter failure: nothing looks wrong, the row simply stays blank while the
+thing it describes has been working for weeks.
+
+**Before / after slider — not (b).** The behaviour runtime is a state machine
+over named values: something holds `monthly`, a control sets `yearly`, a
+generated CSS rule decides what is on screen. A divider dragged across a
+photograph produces a *continuous* value, and there is nothing in that model
+to hold one. What it would actually need is either a new kind of action —
+pointer position written to a custom property — or a native control whose
+value CSS can read, which the platform does not have.
+
+A two-state *before / after toggle* is buildable today with the switch, and
+would be a good block. It is not this block, and shipping it under this name
+would be the near-duplicate problem §7 warns about, so it is left unbuilt
+rather than quietly substituted.
+
+**Repeater — built, but not as the row describes.** Listed here as a
+primitive, an element type you insert. It shipped as `repeat` on the node
+model: a *property* any container can carry, which turns that container into
+one copy per record. Same capability, different shape, and the different
+shape is better — a card, a table row and a whole section can each repeat
+without three element types that differ only in what they wrap. Recorded
+because the row reads as pending and is not, and because "we predicted an
+element and built a property" is the sort of drift that quietly makes a
+planning document untrustworthy.
+
+**Data table, sortable — not (b, c) either.** The filterable half is done and
+now marked as such: a filter is exactly a named value, which is what the
+switch is for. Sorting is not. Expressing it with switches means emitting one
+`<tbody>` per sort order, which multiplies the markup by the number of
+sortable columns and breaks the property the whole model is built on — that
+content varies on *one* state, exclusively, so the expansion stays linear.
+There is a static rule enforcing that, and it would rightly refuse this.
+
+Real sorting wants one of two things, and the second is more interesting.
+Either an action in the runtime that reorders DOM — a genuine extension, not
+composition — or **edge rendering**, which `DATA-LAYER.md` §5 already names as
+the documented upgrade for per-request data. A sort order is a query
+parameter, a sorted table is a page rendered for that parameter, and it stays
+indexable and works with scripting off. That is an architecture decision, not
+a block, and it belongs in a stage of its own.
 
 ---
 
@@ -440,7 +509,7 @@ not after.**
 | **B** | Native primitives: form controls, table family, `<details>`, `<dialog>`, popover, `tag` prop on container/section | a | All native. Each one is a schema row plus a renderer branch, and behaves identically on all three surfaces. All landed, `<dialog>` included |
 | **B′** | The ~25 blocks those primitives unlock: accordion, overlays, form composition, comparison tables | a | Composition only, once B lands |
 | **C** | Behaviour runtime, design-time state, behavioural fidelity harness | b | The gated one. §6 |
-| **C′** | Tabs ✅, pricing toggle ✅, stepper ✅, filter ✅, install tabs ✅, command palette ✅ (native), toast, carousel | b | |
+| **C′** | Tabs ✅, pricing toggle ✅, stepper ✅, filter ✅, install tabs ✅, command palette ✅ (native), toasts ✅, carousel ✅ | b | Complete. The carousel chooses a slide by CSS rule rather than animating between them — see the build plan |
 | **D** | Data bindings + repeater | c | Unlocks real tables, blog indexes, product grids, CMS. Scoped in [DATA-LAYER.md](DATA-LAYER.md) — it makes eighteen existing blocks real rather than adding new ones |
 | **E** | Patterns: dashboard, settings, auth flow, docs site, changelog, store, help centre | — | Multi-page arrangements of everything above |
 

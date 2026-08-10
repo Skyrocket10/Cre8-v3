@@ -550,9 +550,18 @@ switch. The chips are pressed rather than selected because the grid below is
 a filtered list, not a panel each chip owns. Getting that backwards is the
 common mistake in this pattern.
 
-A carousel is still not on this list. It wants transforms, gestures and a
-reduced-motion story, and it should wait until there is a reason to build it
-rather than a slot in a table.
+**A carousel is on the list now, and it is not the carousel this paragraph
+used to refuse.** What was ruled out — transforms, gestures, a reduced-motion
+story — was a carousel that *animates between* slides. The one that shipped
+picks a slide the way everything else here picks a case: a generated CSS rule
+on the group's value, so the first paint is already right and a page with
+scripting off shows slide one rather than three at once.
+
+That leaves out swiping, auto-advance and infinite looping, and the omission
+is worth stating rather than hiding. Each needs real script; two of them are
+things people ask you to switch off. The block is honest about being a slide
+*chooser* rather than a slide *player*, which is the version most pages
+actually wanted.
 
 
 ---
