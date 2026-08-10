@@ -1072,6 +1072,115 @@ try {
     }
   }
 
+  /* --- A record ------------------------------------------------------------ */
+
+  /*
+   * Records are content: they live in D1, not in the document, so a command
+   * about one resolves it from `store.records` and every action is a request
+   * over the network. Which is also why Duplicate makes a *draft* — writing a
+   * published record republishes the site on its own.
+   */
+  const panel = () => page.locator('[role="region"][aria-label="Collections panel"]');
+  await panel().locator('button:text-is("content")').first().click();
+  await page.waitForTimeout(400);
+  const addRecord = panel().locator('button:has-text("Add record")').first();
+  if ((await addRecord.count()) > 0) {
+    await addRecord.click();
+    await page.waitForTimeout(500);
+    /*
+     * Every text field, not just the first. The form's primary button reads
+     * "<Field> needed" until the required ones are filled — and the field
+     * checks above have just marked one required — so a form with a blank left
+     * in it has no button called Save to click.
+     */
+    const formInputs = panel().locator('input[type="text"], input:not([type])');
+    for (let i = 0; i < (await formInputs.count()); i++) {
+      await formInputs.nth(i).fill(i === 0 ? 'First post' : `Value ${i}`);
+    }
+    await panel().locator('button:has-text("Save")').first().click();
+    await page.waitForTimeout(1500);
+  }
+
+  const recordRow = page.locator('[data-record-row]').first();
+  /*
+   * Settled, like `drawnCount`. A record write is a round trip and a reload,
+   * and reading the list straight afterwards reported 1 when the server had
+   * already returned 2 — which looked exactly like Duplicate doing nothing.
+   */
+  const recordCount = async () => {
+    let previous = -1;
+    for (let i = 0; i < 24; i++) {
+      const now = await page.locator('[data-record-row]').count();
+      if (now === previous) return now;
+      previous = now;
+      await page.waitForTimeout(200);
+    }
+    return previous;
+  };
+  if (report.check('a record exists', (await recordRow.count()) > 0, `${await recordCount()} rows`)) {
+    await rightClickIn(recordRow, 40, 14);
+    const recordItems = await menuLabels();
+    report.check(
+      'a record row has a menu about that record',
+      recordItems.includes('Edit record') &&
+        recordItems.includes('Duplicate as a draft') &&
+        recordItems.includes('Delete record'),
+      recordItems.join(', ')
+    );
+    report.check(
+      'and it reports whether the record is published',
+      (await page.evaluate(() =>
+        document.querySelector('[data-menu-item="Published"]')?.getAttribute('aria-checked')
+      )) === 'true',
+      'the new record is live'
+    );
+
+    const before = await recordCount();
+    await clickItem('Duplicate as a draft');
+    await page.waitForTimeout(1600);
+    const after = await recordCount();
+    // From the document, not the DOM: the collection list is not rendered
+    // while its detail view is open, so there is no row to read an id off.
+    report.check('Duplicate adds a row', after === before + 1, `${before} → ${after}`);
+
+    /*
+     * And the copy is *not* published, because a record write republishes the
+     * site — a duplicate that inherited `published` would put a second copy of
+     * somebody's post live the moment they asked for a draft.
+     */
+    const draft = page.locator('[data-record-row]').nth(after - 1);
+    await rightClickIn(draft, 40, 14);
+    const draftPublished = await page.evaluate(() =>
+      document.querySelector('[data-menu-item="Published"]')?.getAttribute('aria-checked')
+    );
+    report.check(
+      'and the copy is a draft rather than a second live page',
+      draftPublished === 'false',
+      `published=${draftPublished}`
+    );
+
+    await clickItem('Delete record');
+    await page.waitForTimeout(1600);
+    report.check(
+      'Delete takes the one that was right-clicked',
+      (await recordCount()) === before,
+      `back to ${await recordCount()}`
+    );
+
+    await useMenuOn(recordRow, 'Edit record', 40, 14);
+    await page.waitForTimeout(700);
+    report.check(
+      'and Edit opens the form on it',
+      await panel()
+        .locator('input[type="text"], input:not([type])')
+        .first()
+        .inputValue()
+        .then((v) => v === 'First post')
+        .catch(() => false),
+      'the form is showing that record'
+    );
+  }
+
   /* --- A card in the Insert panel ----------------------------------------- */
 
   await page.locator('button[aria-label="Insert"]').first().click();

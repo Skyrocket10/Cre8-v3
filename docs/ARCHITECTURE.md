@@ -181,6 +181,22 @@ now one action that also asks for a rename, and an asset dropped on the canvas
 produces the same node as one placed from its menu, because the drop controller
 had been building its own.
 
+A record is the one subject that is not in the document at all — content lives
+in D1 — so its commands resolve from `store.records` and every one of them is a
+round trip. That is also why Duplicate makes a *draft*: writing a published
+record republishes the site on its own, so inheriting `published` would put a
+second copy of somebody's post live the moment they asked for something to work
+from.
+
+Building it surfaced a bug older than the menu. The editor's storage adapter
+asked for records with `publishedOnly: true` welded in, so the Collections
+panel could not list a draft — including one it had just created, which looked
+exactly like Duplicate silently failing. The flag is now the caller's, and the
+default is the safe one: the publisher and the ZIP export take it and ship no
+drafts, the editor asks for everything explicitly. A static check pins both
+halves, because either one alone is a bug — an editor that hides your work, or
+a publisher that ships it.
+
 One place the catalogue deliberately holds two entries for one store call:
 `insert`/`insertChild` name the element type, because they appear under a
 parent row that already says "Add element"; `insertOnPage`/`insertInSelection`

@@ -51,8 +51,8 @@ is no second implementation of Duplicate to drift from the first.
 
 Right-click anything in a panel and the menu is about that thing: duplicate the
 page, set it as home, add a variant, place the image on the canvas, reorder a
-collection's fields, copy a token as `var(--c-primary)` so it can be pasted
-into an advanced field. Delete says what it will cost — *Delete component
+collection's fields, duplicate a record as a draft, copy a token as
+`var(--c-primary)` so it can be pasted into an advanced field. Delete says what it will cost — *Delete component
 (3 in use)*, *Delete token (used 12×)* — rather than asking afterwards.
 
 Right-click in the inspector and the menu is about the control you clicked:

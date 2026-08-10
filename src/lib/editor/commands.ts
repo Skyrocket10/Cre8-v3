@@ -30,6 +30,7 @@ import { TOKEN_PREFIX } from '../document/theme';
 import type {
   Asset,
   Collection,
+  CollectionRecord,
   ComponentDefinition,
   Field,
   ElementType,
@@ -72,7 +73,8 @@ export type MenuSubject =
   | { kind: 'field'; collectionId: string; fieldKey: string }
   | { kind: 'token'; group: ThemeScaleGroup; tokenId: string }
   | { kind: 'block'; blockId: string }
-  | { kind: 'elementType'; elementType: ElementType };
+  | { kind: 'elementType'; elementType: ElementType }
+  | { kind: 'record'; collectionId: string; recordId: string };
 
 /* --------------------------------------------------------------------------
  * Context
@@ -224,6 +226,22 @@ function tokenOf(
     | undefined;
   const token = scale?.find((t) => t.id === subject.tokenId);
   return token ? { group: subject.group, token } : null;
+}
+
+/**
+ * A record, from `store.records` rather than the document.
+ *
+ * Content, not design: it arrives over the network, it is not in the patch
+ * stream, and it can vanish between a menu opening and an item being chosen
+ * for reasons that have nothing to do with this browser tab.
+ */
+function recordOf(
+  ctx: CommandContext
+): { collectionId: string; record: CollectionRecord } | null {
+  const subject = ctx.subject;
+  if (subject?.kind !== 'record') return null;
+  const record = ctx.store.records[subject.collectionId]?.find((r) => r.id === subject.recordId);
+  return record ? { collectionId: subject.collectionId, record } : null;
 }
 
 function elementTypeOf(ctx: CommandContext): ElementType | null {
@@ -1156,6 +1174,78 @@ export const COMMANDS: Record<string, EditorCommand> = {
     run: (ctx) => {
       const found = tokenOf(ctx);
       if (found) ctx.store.removeToken(found.group, found.token.id);
+    },
+  },
+
+  /* --- A record ------------------------------------------------------------ */
+  editRecord: {
+    id: 'editRecord',
+    icon: 'squarePen',
+    label: 'Edit record',
+    enabled: (ctx) => Boolean(recordOf(ctx)),
+    run: (ctx) => {
+      const found = recordOf(ctx);
+      if (found) {
+        ctx.store.requestRecordEdit({
+          collectionId: found.collectionId,
+          recordId: found.record.id,
+        });
+      }
+    },
+  },
+  duplicateRecord: {
+    id: 'duplicateRecord',
+    icon: 'copyPlus',
+    label: 'Duplicate as a draft',
+    enabled: (ctx) => editable(ctx) && Boolean(recordOf(ctx)),
+    run: (ctx) => {
+      const found = recordOf(ctx);
+      if (found) void ctx.store.duplicateRecord(found.collectionId, found.record.id);
+    },
+  },
+  toggleRecordPublished: {
+    id: 'toggleRecordPublished',
+    icon: 'eye',
+    label: 'Published',
+    checked: (ctx) => Boolean(recordOf(ctx)?.record.published),
+    enabled: (ctx) => editable(ctx) && Boolean(recordOf(ctx)),
+    run: (ctx) => {
+      const found = recordOf(ctx);
+      if (!found) return;
+      void ctx.store.saveRecord(found.collectionId, {
+        id: found.record.id,
+        data: found.record.data,
+        published: !found.record.published,
+      });
+    },
+  },
+  designAgainstRecord: {
+    id: 'designAgainstRecord',
+    icon: 'monitor',
+    label: 'Draw the canvas with this',
+    checked: (ctx) => {
+      const found = recordOf(ctx);
+      return Boolean(
+        found && ctx.store.doc.settings.designRecord?.[found.collectionId] === found.record.id
+      );
+    },
+    enabled: (ctx) => editable(ctx) && Boolean(recordOf(ctx)),
+    run: (ctx) => {
+      const found = recordOf(ctx);
+      if (!found) return;
+      const already = ctx.store.doc.settings.designRecord?.[found.collectionId] === found.record.id;
+      ctx.store.designAgainst(found.collectionId, already ? null : found.record.id);
+    },
+  },
+  deleteRecord: {
+    id: 'deleteRecord',
+    icon: 'trash',
+    label: 'Delete record',
+    danger: true,
+    enabled: (ctx) => editable(ctx) && Boolean(recordOf(ctx)),
+    run: (ctx) => {
+      const found = recordOf(ctx);
+      if (found) void ctx.store.deleteRecord(found.collectionId, found.record.id);
     },
   },
 

@@ -21,6 +21,7 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  Copy,
   Database,
   GripVertical,
   MoreHorizontal,
@@ -31,6 +32,7 @@ import {
 import * as ops from '@/lib/document/operations';
 import { useEditor, type RecordDraft } from '@/lib/editor/store';
 import { openContextMenu } from '../ui/context-menu';
+import { runCommand } from '@/lib/editor/commands';
 import { hasBackend } from '@/lib/api/client';
 import { LIMITS, type Collection, type CollectionRecord, type Field, type FieldType } from '@/lib/document/types';
 import { cn } from '@/lib/utils/cn';
@@ -224,6 +226,25 @@ function CollectionList({
 function CollectionDetail({ collection, onBack }: { collection: Collection; onBack: () => void }) {
   const [tab, setTab] = useState<'content' | 'fields'>('content');
   const [editing, setEditing] = useState<RecordDraft | null>(null);
+
+  /*
+   * "Edit record" from the menu. The form lives here, so the request comes
+   * through the store and is consumed here — the same channel `renameRequest`
+   * uses, for the same reason: a menu cannot reach into a panel's state.
+   *
+   * It also switches to the Content tab, because a request to edit a record
+   * that leaves you looking at the field editor has visibly not been honoured.
+   */
+  const recordEditRequest = useEditor((s) => s.recordEditRequest);
+  const rows = useEditor((s) => s.records[collection.id]);
+  useEffect(() => {
+    if (!recordEditRequest || recordEditRequest.collectionId !== collection.id) return;
+    const record = rows?.find((r) => r.id === recordEditRequest.recordId);
+    if (!record) return;
+    setTab('content');
+    setEditing({ ...record, id: record.id });
+    useEditor.getState().requestRecordEdit(null);
+  }, [recordEditRequest, rows, collection.id]);
 
   if (editing) {
     return (
@@ -620,7 +641,17 @@ function RecordRow({
 
   return (
     <div
+      data-record-row={record.id}
       onClick={() => onEdit({ ...record, id: record.id })}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openContextMenu(e.clientX, e.clientY, {
+          kind: 'record',
+          collectionId: collection.id,
+          recordId: record.id,
+        });
+      }}
       className="group flex h-[30px] cursor-default items-center gap-2 rounded-md px-2 text-[var(--text-secondary)] transition-colors duration-100 hover:bg-[var(--field)]"
     >
       <span
@@ -656,36 +687,42 @@ function RecordRow({
           </button>
         )}
       >
-        {(close) => (
-          <div className="p-1">
-            <MenuItem
-              icon={<Check size={11} />}
-              label={designing ? 'Stop designing against' : 'Design against this'}
-              onClick={() => {
-                useEditor.getState().designAgainst(collection.id, designing ? null : record.id);
-                close();
-              }}
-            />
-            <MenuItem
-              label={record.published ? 'Unpublish' : 'Publish'}
-              onClick={() => {
-                void useEditor
-                  .getState()
-                  .saveRecord(collection.id, { id: record.id, data: record.data, published: !record.published });
-                close();
-              }}
-            />
-            <MenuItem
-              icon={<Trash2 size={11} />}
-              label="Delete"
-              tone="danger"
-              onClick={() => {
-                void useEditor.getState().deleteRecord(collection.id, record.id);
-                close();
-              }}
-            />
-          </div>
-        )}
+        {(close) => {
+          /*
+           * The same catalogue entries the right-click menu runs, named by id.
+           * The hover button and the right-click are two doors to one room —
+           * this list used to be a third implementation with its own wording.
+           */
+          const subject = { kind: 'record' as const, collectionId: collection.id, recordId: record.id };
+          const run = (id: string) => {
+            runCommand(id, undefined, subject);
+            close();
+          };
+          return (
+            <div className="p-1">
+              <MenuItem
+                icon={<Check size={11} />}
+                label={designing ? 'Stop drawing with this' : 'Draw the canvas with this'}
+                onClick={() => run('designAgainstRecord')}
+              />
+              <MenuItem
+                label={record.published ? 'Unpublish' : 'Publish'}
+                onClick={() => run('toggleRecordPublished')}
+              />
+              <MenuItem
+                icon={<Copy size={11} />}
+                label="Duplicate as a draft"
+                onClick={() => run('duplicateRecord')}
+              />
+              <MenuItem
+                icon={<Trash2 size={11} />}
+                label="Delete"
+                tone="danger"
+                onClick={() => run('deleteRecord')}
+              />
+            </div>
+          );
+        }}
       </Popover>
     </div>
   );

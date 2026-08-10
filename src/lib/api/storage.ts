@@ -54,7 +54,19 @@ export interface StorageAdapter {
    * an error: it draws its template row on the canvas and nothing anywhere
    * else.
    */
-  listRecords?(projectId: string, collectionId: string): Promise<CollectionRecord[]>;
+  /**
+   * `publishedOnly` defaults to true, and the default is the safe one.
+   *
+   * The publisher must never ship a draft, so it takes the default. The editor
+   * must be able to *see* one — a panel that hides the record you are working
+   * on is a panel that reports your last write as having failed — so it asks
+   * for everything explicitly.
+   */
+  listRecords?(
+    projectId: string,
+    collectionId: string,
+    options?: { publishedOnly?: boolean }
+  ): Promise<CollectionRecord[]>;
   /**
    * Ask the host to render and store the site itself.
    *

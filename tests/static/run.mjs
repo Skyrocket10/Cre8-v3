@@ -4418,6 +4418,7 @@ report.group('one catalogue, and every surface dispatches through it');
     ['theme', themePanel, "kind: 'token'"],
     ['insert', insertPanel, "kind: 'block'"],
     ['insert', insertPanel, "kind: 'elementType'"],
+    ['collections', collectionsPanel, "kind: 'record'"],
   ];
   const wired = SUBJECT_ROWS.filter(([, file, subject]) => file.includes(subject));
   report.check(
@@ -4431,6 +4432,48 @@ report.group('one catalogue, and every surface dispatches through it');
       (file) => !/openContextMenu\([^)]*items/.test(file)
     ),
     'a caller can say what was clicked, never what to do about it'
+  );
+
+  /*
+   * A draft must be visible where it is worked on and invisible where it is
+   * shipped. The adapter had `publishedOnly: true` welded in, so the editor's
+   * own Collections panel could not list a record it had just created as a
+   * draft — Duplicate looked like it had silently failed.
+   */
+  const adapter = read(path.join('src', 'lib', 'api', 'cloudflare.ts'));
+  const publisher = read(path.join('src', 'lib', 'publishing', 'publish.ts'));
+  report.check(
+    'the editor lists drafts and the publisher does not',
+    /publishedOnly: options\.publishedOnly \?\? true/.test(adapter) &&
+      (read(path.join('src', 'lib', 'editor', 'store.ts')).match(
+        /publishedOnly: false/g
+      ) ?? []).length === 2 &&
+      !/publishedOnly/.test(publisher),
+    'the safe answer is the default; only the editor asks for more'
+  );
+  report.check(
+    'and the rule would notice the publisher asking for drafts',
+    /publishedOnly/.test('listRecords(id, c, { publishedOnly: false })'),
+    'a publisher that asked would be caught'
+  );
+
+  /*
+   * A record row has two doors — the hover button and the right-click — and
+   * they used to be two implementations. The hover one now names catalogue
+   * ids, so the wording and the behaviour cannot come apart.
+   */
+  report.check(
+    'a record’s hover menu runs the same commands its right-click does',
+    /runCommand\(id, undefined, subject\)/.test(collectionsPanel) &&
+      ['designAgainstRecord', 'toggleRecordPublished', 'duplicateRecord', 'deleteRecord'].every(
+        (id) => collectionsPanel.includes(`run('${id}')`)
+      ),
+    'four actions, named by id'
+  );
+  report.check(
+    'and it reaches none of them any other way',
+    !/\.deleteRecord\(|\.saveRecord\(collection\.id, \{ id:/.test(collectionsPanel),
+    'no direct calls left in the row'
   );
 
   /*
@@ -4470,9 +4513,14 @@ report.group('one catalogue, and every surface dispatches through it');
     'insertBlock',
     'insertOnPage',
     'insertInSelection',
+    'editRecord',
+    'duplicateRecord',
+    'toggleRecordPublished',
+    'designAgainstRecord',
+    'deleteRecord',
   ];
   const RESOLVERS =
-    /pageOf\(ctx\)|componentOf\(ctx\)|variantOf\(ctx\)|assetOf\(ctx\)|collectionOf\(ctx\)|fieldOf\(ctx\)|tokenOf\(ctx\)|blockOf\(ctx\)|elementTypeOf\(ctx\)/;
+    /pageOf\(ctx\)|componentOf\(ctx\)|variantOf\(ctx\)|assetOf\(ctx\)|collectionOf\(ctx\)|fieldOf\(ctx\)|tokenOf\(ctx\)|blockOf\(ctx\)|elementTypeOf\(ctx\)|recordOf\(ctx\)/;
   const ungatedLibrary = LIBRARY_COMMANDS.filter((id) => {
     const start = commands.indexOf(`\n  ${id}: {`);
     if (start < 0) return true;
@@ -4493,7 +4541,7 @@ report.group('one catalogue, and every surface dispatches through it');
   const unhandled = kinds.filter((kind) => !menus.includes(`case '${kind}':`));
   report.check(
     'and every subject the type allows has a menu',
-    kinds.length >= 10 && unhandled.length === 0,
+    kinds.length >= 11 && unhandled.length === 0,
     unhandled.length ? `no menu for: ${unhandled.join(', ')}` : kinds.join(', ')
   );
 

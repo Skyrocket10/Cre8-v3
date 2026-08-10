@@ -110,6 +110,8 @@ export function menuFor(ctx: CommandContext): MenuItem[] {
       return prune(BLOCK_MENU, ctx);
     case 'elementType':
       return prune(ELEMENT_CARD_MENU, ctx);
+    case 'record':
+      return prune(RECORD_MENU, ctx);
     default:
       break;
   }
@@ -282,6 +284,16 @@ const TOKEN_MENU: MenuItem[] = [
 ];
 
 const BLOCK_MENU: MenuItem[] = [{ kind: 'command', id: 'insertBlock' }];
+
+const RECORD_MENU: MenuItem[] = [
+  { kind: 'command', id: 'editRecord' },
+  { kind: 'command', id: 'duplicateRecord' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'toggleRecordPublished' },
+  { kind: 'command', id: 'designAgainstRecord' },
+  { kind: 'separator' },
+  { kind: 'command', id: 'deleteRecord' },
+];
 
 const ELEMENT_CARD_MENU: MenuItem[] = [
   { kind: 'command', id: 'insertOnPage' },

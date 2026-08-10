@@ -130,7 +130,11 @@ export class CloudflareAdapter implements StorageAdapter {
    * The record table (D5) pages against the same route with its own window;
    * this is the renderer's view, not the editor's.
    */
-  async listRecords(projectId: string, collectionId: string): Promise<CollectionRecord[]> {
+  async listRecords(
+    projectId: string,
+    collectionId: string,
+    options: { publishedOnly?: boolean } = {}
+  ): Promise<CollectionRecord[]> {
     // Fetched a window at a time, because the API caps one response at 200
     // rows and asking for a thousand would quietly have got two hundred. That
     // cap is right — it stops one request pulling a whole table — so the
@@ -147,7 +151,9 @@ export class CloudflareAdapter implements StorageAdapter {
       const { records } = await api.listRecords(projectId, collectionId, {
         limit: Math.min(page, wanted - out.length),
         offset: out.length,
-        publishedOnly: true,
+        // True unless the caller says otherwise: the publisher and the ZIP
+        // export both take the default, and only the editor asks for drafts.
+        publishedOnly: options.publishedOnly ?? true,
       });
       out.push(...records);
       if (records.length < page) break;

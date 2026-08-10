@@ -209,6 +209,14 @@ interface EditorState {
   renameRequest: NodeId | null;
 
   /**
+   * A record somebody asked to edit from outside the form.
+   *
+   * Same shape as `renameRequest` and for the same reason: the Collections
+   * panel owns the form, the menu does not, and a ref would not reach across.
+   */
+  recordEditRequest: { collectionId: string; recordId: string } | null;
+
+  /**
    * A handful of declarations lifted off one element, for `pasteStyleValues`.
    *
    * Not `styleSource`, which names a whole node and means "make this look like
@@ -442,6 +450,9 @@ interface EditorActions {
   reloadRecords(collectionId: string): Promise<void>;
   saveRecord(collectionId: string, input: RecordDraft): Promise<boolean>;
   deleteRecord(collectionId: string, recordId: string): Promise<boolean>;
+  duplicateRecord(collectionId: string, recordId: string): Promise<boolean>;
+  /** Ask the Collections panel to open its form on a record. It clears this. */
+  requestRecordEdit(request: { collectionId: string; recordId: string } | null): void;
   /** Which record a dynamic page is drawn against on the canvas. */
   designAgainst(collectionId: string, recordId: string | null): void;
 
@@ -540,6 +551,7 @@ function initialState(): EditorState {
     clipboard: null,
     styleSource: null,
     renameRequest: null,
+    recordEditRequest: null,
     valueClipboard: null,
     records: {},
     saveStatus: 'idle',
@@ -1911,6 +1923,28 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     });
   },
 
+  /**
+   * A copy of a record, deliberately unpublished.
+   *
+   * Writing a record republishes the site on its own — that is the whole point
+   * of the alarm in `room.ts` — so a duplicate that inherited `published: true`
+   * would put a second copy of somebody's post on the live site the moment
+   * they asked for a draft to work from.
+   */
+  async duplicateRecord(collectionId, recordId) {
+    const record = get().records[collectionId]?.find((r) => r.id === recordId);
+    if (!record) return false;
+    return get().saveRecord(collectionId, {
+      data: { ...record.data },
+      published: false,
+      position: (get().records[collectionId]?.length ?? 0) + 1,
+    });
+  },
+
+  requestRecordEdit(request) {
+    set({ recordEditRequest: request });
+  },
+
   /* -------------------------------------------------------- interaction -- */
 
   setDrag(drag) {
@@ -1957,7 +1991,10 @@ export const useEditor = create<EditorStore>()((set, get) => ({
 
     inFlight.add(collectionId);
     void adapter
-      .listRecords(projectId, collectionId)
+      // Drafts included. The panel is where somebody works on a record before
+      // it is live, and a duplicate made as a draft has to appear in the list
+      // it was made from — it did not, and looked like Duplicate doing nothing.
+      .listRecords(projectId, collectionId, { publishedOnly: false })
       .then((rows) => {
         // The project changed while this was in the air. Its rows belong to a
         // document nobody is looking at any more.
@@ -1976,7 +2013,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     const projectId = get().doc.id;
     if (!collectionId || !adapter.listRecords) return;
     try {
-      const rows = await adapter.listRecords(projectId, collectionId);
+      const rows = await adapter.listRecords(projectId, collectionId, { publishedOnly: false });
       if (get().doc.id !== projectId) return;
       set((state) => ({ records: { ...state.records, [collectionId]: rows } }));
     } catch {
