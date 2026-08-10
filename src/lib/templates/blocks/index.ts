@@ -77,6 +77,13 @@ export {
   stepperSpec,
   uploadSpec,
 } from './app';
+import {
+  drawerSpec,
+  lightboxSpec,
+  megaMenuSpec,
+  tooltipSpec,
+  userMenuSpec,
+} from './overlay';
 export {
   cartSummarySpec,
   productDetailSpec,
@@ -623,6 +630,46 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'commerce',
     keywords: ['delivery', 'returns', 'trust', 'guarantee'],
     build: shippingStripSpec,
+  },
+  {
+    id: 'app-drawer',
+    name: 'Drawer',
+    description: 'A side panel that opens over the page',
+    category: 'app',
+    keywords: ['sheet', 'panel', 'filters', 'basket', 'sidebar', 'off-canvas'],
+    build: drawerSpec,
+  },
+  {
+    id: 'app-tooltip',
+    name: 'Tooltip',
+    description: 'A short explanation, on a keyboard-reachable trigger',
+    category: 'app',
+    keywords: ['hint', 'help', 'popover', 'explain', 'definition'],
+    build: tooltipSpec,
+  },
+  {
+    id: 'app-user-menu',
+    name: 'Account menu',
+    description: 'Avatar in the corner, account items under it',
+    category: 'app',
+    keywords: ['profile', 'avatar', 'dropdown', 'sign out', 'settings'],
+    build: userMenuSpec,
+  },
+  {
+    id: 'chrome-mega',
+    name: 'Mega menu',
+    description: 'A navigation panel wide enough to need columns',
+    category: 'chrome',
+    keywords: ['navigation', 'dropdown', 'header', 'menu', 'columns'],
+    build: megaMenuSpec,
+  },
+  {
+    id: 'editorial-lightbox',
+    name: 'Lightbox',
+    description: 'Thumbnails that open full size',
+    category: 'editorial',
+    keywords: ['gallery', 'images', 'photos', 'zoom', 'modal'],
+    build: lightboxSpec,
   },
   {
     id: 'app-shell',
