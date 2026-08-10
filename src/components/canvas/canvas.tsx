@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { BREAKPOINT_DEFS } from '@/lib/document/types';
 import { getElement } from '@/lib/document/schema';
 import { collectSubtree, isEffectivelyLocked } from '@/lib/document/tree';
+import type { NodeMap } from '@/lib/document/tree';
 import { themeToStyleObject } from '@/lib/document/theme';
 import { DOCUMENT_RESET, PLACEHOLDER_CSS, generateNodeCss } from '@/lib/renderer/css';
 import { NodeView, RecordScope, RenderProvider } from '@/lib/renderer/render';
@@ -33,6 +34,50 @@ import { CanvasEmptyState } from './empty-state';
 
 const FIT_PADDING = 72;
 const DRAG_THRESHOLD = 4;
+
+/** The static prelude the canvas shares with preview and published output. */
+const RESET = `${DOCUMENT_RESET}\n${PLACEHOLDER_CSS}`;
+
+/**
+ * CSS for a set of nodes, regenerated only when one of them actually moved.
+ *
+ * `useMemo` on the node map cannot do this: immer hands back a new map for
+ * every edit, so the memo misses every time and the generator runs over the
+ * whole document on each keystroke — which is most of what was left after the
+ * sheet was split in two.
+ *
+ * What is true instead is that immer keeps the *identity* of nodes it did not
+ * touch. So the cache key is the identity of each node in the set, and
+ * checking it is a pointer comparison per node rather than a rule compiled per
+ * node — the difference between a scan measured in microseconds and a
+ * generation measured in milliseconds.
+ *
+ * Safe against the one thing that looks like it might break it: a rule whose
+ * selector reaches for an ancestor uses that ancestor's *class*, which comes
+ * from its id, and an id does not change when a style does.
+ */
+function useNodeSetCss(nodes: NodeMap, ids: readonly string[], prelude = ''): string {
+  const cache = useRef<{ ids: readonly string[]; seen: unknown[]; css: string } | null>(null);
+  const previous = cache.current;
+
+  let unchanged = previous !== null && previous.ids.length === ids.length;
+  if (unchanged && previous) {
+    for (let i = 0; i < ids.length; i++) {
+      if (previous.ids[i] !== ids[i] || previous.seen[i] !== nodes[ids[i]!]) {
+        unchanged = false;
+        break;
+      }
+    }
+  }
+  if (unchanged && previous) return previous.css;
+
+  const generated = ids.length
+    ? generateNodeCss(nodes, { mode: 'container', nodeIds: ids as string[], includeStates: false })
+    : '';
+  const css = prelude ? `${prelude}\n${generated}` : generated;
+  cache.current = { ids, seen: ids.map((id) => nodes[id]), css };
+  return css;
+}
 
 export function Canvas() {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -79,9 +124,15 @@ export function Canvas() {
      job on either surface — a generated CSS rule does that, from the same
      attribute, which is why the two cannot disagree. */
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const nodesForSweep = useEditor((s) => s.doc.nodes);
   useEffect(() => {
     if (frameRef.current) behaviourRuntime(frameRef.current, false);
-  });
+    // Keyed on the document rather than run bare. It used to have no
+    // dependency array at all, so a full `querySelectorAll` pass over every
+    // element on the canvas ran after *every* render — including the ones that
+    // change nothing it reads: panning, zooming, hovering, selecting. Roles and
+    // pairing are, in the runtime's own words, fixed for the life of the page.
+  }, [nodesForSweep]);
 
   /* --- Stylesheet ---------------------------------------------------------
      Regenerated only when the node map changes; per-node rules are memoised
@@ -97,18 +148,44 @@ export function Canvas() {
     return ids;
   }, [nodes, components, rootId]);
 
+  /* --- Two sheets, because one of them is being typed into ----------------
+   *
+   * The stylesheet used to be one string memoised on the node map, so every
+   * keystroke produced a new one, React rewrote the `<style>` element, and the
+   * browser reparsed the whole sheet and recalculated style for every element
+   * on the canvas. Measured on a 761-node document that was thirty long tasks
+   * and two seconds of blocked main thread for forty arrow-key nudges — the
+   * cost of an edit scaled with the size of the document rather than the size
+   * of the edit, which is the opposite of what this was supposed to do.
+   *
+   * So the selection is generated separately. Scrubbing a value rewrites a
+   * sheet holding one node's rules; the sheet holding the other seven hundred
+   * is a stable string, React leaves the element alone, and nothing is
+   * reparsed. Inserting or deleting *does* rewrite the big one, but that is a
+   * discrete action rather than something that happens sixty times a second.
+   *
+   * Splitting is safe because of a property the generator already relies on:
+   * within a phase every node contributes at most one rule and every selector
+   * is a different node's class, so nothing here can be reordered relative to
+   * anything it overlaps. A node's own rules — the order-sensitive ones — stay
+   * contiguous, in the same order, in whichever sheet holds them.
+   */
+  const selection = useEditor((s) => s.selection);
+  const hotIds = useMemo(
+    () => selection.filter((id) => Boolean(nodes[id])),
+    // Deliberately not on `nodes`: this is the *set* being edited, and
+    // recomputing it per keystroke is the walk this split exists to avoid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selection]
+  );
+  const hot = useMemo(() => new Set(hotIds), [hotIds]);
+  const coldIds = useMemo(() => scopedIds.filter((id) => !hot.has(id)), [scopedIds, hot]);
+
   // The same reset the preview and the published file get. Without it the
   // canvas would be styled by whatever the editor app's own stylesheet happens
   // to reset, and the three surfaces would only agree by coincidence.
-  const css = useMemo(
-    () =>
-      [
-        DOCUMENT_RESET,
-        PLACEHOLDER_CSS,
-        generateNodeCss(nodes, { mode: 'container', nodeIds: scopedIds, includeStates: false }),
-      ].join('\n'),
-    [nodes, scopedIds]
-  );
+  const coldCss = useNodeSetCss(nodes, coldIds, RESET);
+  const hotCss = useNodeSetCss(nodes, hotIds);
 
   const themeVars = useMemo(() => themeToStyleObject(theme), [theme]);
 
@@ -326,7 +403,8 @@ export function Canvas() {
               boxShadow: '0 4px 32px -4px rgba(0,0,0,0.34), 0 0 0 1px rgba(0,0,0,0.22)',
             }}
           >
-            <style dangerouslySetInnerHTML={{ __html: css }} />
+            <style dangerouslySetInnerHTML={{ __html: coldCss }} />
+            <style dangerouslySetInnerHTML={{ __html: hotCss }} />
             {rootId && (
               <RenderProvider engine={editorEngine} editingId={editingTextId}>
                 <RecordScope record={designRecord}>
