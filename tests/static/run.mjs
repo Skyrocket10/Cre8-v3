@@ -2767,6 +2767,82 @@ report.group('the panel is not narrower than the model');
 }
 
 /* --------------------------------------------------------------------------
+ * The suites are wired up, and address the app rather than guessing at it
+ *
+ * Two ways a browser suite stops being worth anything without ever going red.
+ *
+ * It can simply never run — a file in `tests/render` that nothing invokes
+ * rots quietly, and the first anyone hears of it is a rewrite.
+ *
+ * Or it can run against the wrong element. `collections.mjs` found the left
+ * panel with `nav + div`, which means "the sidebar" only until the *page being
+ * edited* has a `<nav>` of its own — and then it matches canvas content. It
+ * passed for months because that suite happens to use a Blank project. A green
+ * suite checking the wrong element is worse than a missing one, because it
+ * reads as proof.
+ * ----------------------------------------------------------------------- */
+
+report.group('every browser suite runs, and none of them guess');
+
+{
+  const dir = path.join(ROOT, 'tests', 'render');
+  const suites = readdirSync(dir)
+    .filter((name) => name.endsWith('.mjs') && !['run.mjs', 'harness.mjs'].includes(name))
+    .map((name) => name.replace(/\.mjs$/, ''))
+    .sort();
+
+  const runner = readFileSync(path.join(dir, 'run.mjs'), 'utf8');
+  const listed = [...runner.matchAll(/^\s*\['([\w-]+)',/gm)].map((m) => m[1]).sort();
+
+  const orphans = suites.filter((name) => !listed.includes(name));
+  report.check(
+    'every suite in the directory is in the list the runner walks',
+    orphans.length === 0,
+    orphans.join(', ') || `${suites.length} suites, all wired up`
+  );
+  const ghosts = listed.filter((name) => !suites.includes(name));
+  report.check(
+    'and the list names nothing that is not there',
+    ghosts.length === 0,
+    ghosts.join(', ') || `${listed.length} listed`
+  );
+  report.check(
+    'and the table in tests/README.md describes each of them',
+    (() => {
+      const readme = readFileSync(path.join(ROOT, 'tests', 'README.md'), 'utf8');
+      return suites.every((name) => readme.includes(`\`${name}\``));
+    })(),
+    suites
+      .filter((name) => !readFileSync(path.join(ROOT, 'tests', 'README.md'), 'utf8').includes(`\`${name}\``))
+      .join(', ') || `${suites.length} documented`
+  );
+
+  /*
+   * Sibling-combinator locators rooted at a bare tag name. The editor's chrome
+   * and the document being edited share one DOM, so any selector that does not
+   * say which of the two it means will eventually find the other.
+   */
+  const ambiguous = [];
+  for (const name of suites) {
+    const source = readFileSync(path.join(dir, `${name}.mjs`), 'utf8');
+    for (const [, selector] of source.matchAll(/locator\('([a-z]+ ?\+ ?[a-z]+)'\)/g)) {
+      ambiguous.push(`${name}: ${selector}`);
+    }
+  }
+  report.check(
+    'no suite finds a panel by what happens to sit next to a bare tag',
+    ambiguous.length === 0,
+    ambiguous.join(', ') || `${suites.length} suites scanned`
+  );
+  // A regex over source is a thing that can quietly stop matching.
+  report.check(
+    'and the scan would still recognise the selector that caused this',
+    /locator\('([a-z]+ ?\+ ?[a-z]+)'\)/.test("page.locator('nav + div')"),
+    'the original is caught'
+  );
+}
+
+/* --------------------------------------------------------------------------
  * Characters that should not be in source
  *
  * Twice now a file has ended up holding a byte that makes every tool treat it

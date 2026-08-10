@@ -72,7 +72,19 @@ export function Sidebar() {
       </nav>
 
       {open && (
+        /*
+         * A named region, not an anonymous box.
+         *
+         * A screen reader had nothing to announce here and no landmark to jump
+         * to — the whole left half of the editor was an unlabelled `div`. It is
+         * also the only stable way to address the panel from outside: a test
+         * reaching for it as "the div after the nav" finds canvas content the
+         * moment the page being edited contains a `<nav>` of its own, which
+         * every site with a header does.
+         */
         <div
+          role="region"
+          aria-label={`${TABS.find((item) => item.id === tab)?.label ?? 'Editor'} panel`}
           className="relative flex min-h-0 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--panel)]"
           style={{ width }}
         >

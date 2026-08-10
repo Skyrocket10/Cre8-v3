@@ -29,8 +29,17 @@ const openPanel = async (label) => {
   await page.waitForTimeout(250);
 };
 
-/** The panel column, so a locator cannot wander into the canvas. */
-const panel = () => page.locator('nav + div');
+/**
+ * The panel column, addressed by its landmark.
+ *
+ * This was `nav + div`, which means "the sidebar" only until the *page being
+ * edited* contains a `<nav>` — and then it silently matches canvas content
+ * instead. Found while probing on the SaaS template, where it reported the
+ * panel's text as "Sign in | Start free". It passed here only because this
+ * suite builds on a Blank project, which is the worst way for a locator to be
+ * correct: the suite would have gone green while checking the wrong element.
+ */
+const panel = () => page.locator('[role="region"][aria-label$=" panel"]');
 
 /** The inspector column on the right. */
 const inspector = () => page.locator('aside').last();
