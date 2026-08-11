@@ -38,7 +38,7 @@ import {
 } from '@/lib/renderer/test';
 import { varReference } from '@/lib/renderer/values';
 import { isSettable } from '@/lib/renderer/variants';
-import { useEditor } from '@/lib/editor/store';
+import { activeRootId, useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
 import { Sentence, type Part } from '../ui/sentence';
 import { bindingSentence, blankTest, filterSentence, testSentence } from './sentences';
@@ -364,6 +364,7 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
   const rules = node.assign ?? [];
   const key = String(node.props.switchKey ?? '');
   const controls = namedControlsInside(nodes, node);
+  const elements = controlsOnPage(nodes, activeRootId(useEditor.getState()) ?? undefined, node);
   const problem = unfinished(node);
   const live = needsRuntime(node);
   const exposed = live
@@ -452,6 +453,7 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
                   test: rule.when,
                   fields: collection.fields,
                   controls,
+                  elements,
                   onChange: (next: Test) => write(rule.id, (target) => (target.when = next)),
                 }),
                 { kind: 'break', key: 'b1' },
@@ -633,6 +635,46 @@ const EFFECT_PROPS = ['opacity', 'color', 'backgroundColor', 'borderColor', 'tex
  * state — not to reach across the page from the button, which is the
  * arbitrary targeting the model defers.
  */
+/**
+ * Every control on the page, whether or not it is inside this node.
+ *
+ * The other half of the source list, and the one that could not exist before
+ * references did: a control here is offered by *node*, so the rule survives the
+ * field being renamed and is cleared when the field is deleted. Named controls
+ * inside the node stay on offer beside them — they are one string in the
+ * document rather than a reference, which is the lighter thing to reach for
+ * when the control really is a child.
+ */
+function controlsOnPage(
+  nodes: Record<string, SceneNode>,
+  rootId: string | undefined,
+  exclude: SceneNode
+): { id: string; name: string }[] {
+  if (!rootId) return [];
+  const inside = new Set<string>();
+  const mark = (id: string, depth: number): void => {
+    if (depth > 60) return;
+    inside.add(id);
+    for (const child of nodes[id]?.children ?? []) mark(child, depth + 1);
+  };
+  mark(exclude.id, 0);
+
+  const out: { id: string; name: string }[] = [];
+  const walk = (id: string, depth: number): void => {
+    if (depth > 60) return;
+    const node = nodes[id];
+    if (!node) return;
+    // Not the ones already offered as "what is typed" — the same control twice
+    // under two spellings is a menu nobody can choose from.
+    if (READABLE_TYPES.has(node.type) && !inside.has(id)) out.push({ id, name: node.name });
+    for (const child of node.children) walk(child, depth + 1);
+  };
+  walk(rootId, 0);
+  return out;
+}
+
+const READABLE_TYPES = new Set(['input', 'textarea', 'select', 'checkbox', 'radio', 'range', 'file']);
+
 function namedControlsInside(nodes: Record<string, SceneNode>, root: SceneNode): string[] {
   const found: string[] = [];
   const walk = (id: string, depth: number): void => {

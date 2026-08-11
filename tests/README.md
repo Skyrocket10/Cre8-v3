@@ -45,6 +45,20 @@ checked in both directions — a check that only ever sees one ordering cannot
 tell order from luck — and the overlap warning is checked for staying quiet as
 well as for firing, since a warning on every pair is a warning nobody reads.
 
+The operand that reads *another element* is checked separately from the
+matrix, because the model's answer for it is "undecidable" by construction —
+all the behaviour is in the runtime, and the interesting half is where it
+looks. So the fake DOM is built with the reader and the control as siblings,
+neither inside the other, which is the arrangement the old scoping could not
+express at all. A missing control is undecidable rather than empty, the same as
+a named one.
+
+The handle those rules find a control by is checked against real markup, not
+the fake DOM. The fake one sets `data-cre8-el` by hand, so it proves the
+runtime uses the attribute and says nothing about anything emitting it — which
+is exactly how that check first stayed green with the renderer no longer
+writing it.
+
 A number mapped onto a scale is checked at both ends and past them: the clamp,
 a span of nothing that must not divide by zero, a row with no number that must
 land on the fallback rather than on zero, and the rounding that keeps

@@ -38,6 +38,7 @@ const {
   anchorId,
   everyRef,
   pruneRefs,
+  danglingReads,
   migrateDocument,
   buildTree,
   generateNodeCss,
@@ -1288,6 +1289,45 @@ report.group('a reference is a thing the document knows about');
   }
 
   /* Each of the above, handed something it must reject. */
+  /* ------------------------------------- a reference inside an expression */
+
+  {
+    const { doc: d6, panel: p6, beside: b6 } = wired();
+    const reader = d6.nodes[p6.id];
+    reader.props.switchKey = 'form';
+    reader.props.switchDefault = 'idle';
+    reader.assign = [
+      {
+        id: 'r1',
+        when: { kind: 'compare', left: { kind: 'element', ref: { node: b6.id } }, op: 'notEmpty' },
+        value: 'ready',
+      },
+    ];
+    report.check(
+      'a reference inside a rule is found by the same walk',
+      [...everyRef(d6.nodes)].some((one) => one.slot === 'expression' && one.ref.node === b6.id),
+      // Not in `refs` — nested in `assign[].when` — and leaving it out of the
+      // walk would have re-created the dangling-reference bug one layer down.
+      `${[...everyRef(d6.nodes)].length} references in all`
+    );
+    report.check(
+      'and nothing is dangling while the element it reads is there',
+      danglingReads(d6.nodes).length === 0,
+      'clean'
+    );
+
+    ops.removeNodes(d6, [b6.id]);
+    report.check(
+      'deleting what a rule reads is reported rather than silently rewritten',
+      danglingReads(d6.nodes).length === 1 &&
+        d6.nodes[p6.id].assign.length === 1,
+      // Deliberately not pruned: throwing away a rule somebody wrote is a
+      // bigger decision than cleanup gets to make. The node falls back to its
+      // declared Otherwise, and this is what lets the editor say why.
+      `${danglingReads(d6.nodes).length} reported, rule kept`
+    );
+  }
+
   report.check(
     'the cleanup only removes what is actually gone',
     (() => {
@@ -2939,6 +2979,9 @@ report.group('a Test the browser has to answer agrees with the one the publisher
     return {
       bound,
       querySelectorAll: (selector) => descendants(root).filter((d) => matches(d, selector)),
+      // From the page, which is what an operand reading an element elsewhere
+      // needs and what the rule's own node cannot give it.
+      querySelector: (selector) => descendants(root).find((d) => matches(d, selector)) ?? null,
       addEventListener: (type) => bound.push(type),
       removeEventListener: (type) => {
         const at = bound.indexOf(type);
@@ -3338,6 +3381,132 @@ report.group('a Test the browser has to answer agrees with the one the publisher
       'nothing the Tests do not read is published about a record',
       !live.includes('secret'),
       'only referenced fields travel'
+    );
+  }
+
+  /* --------------------------------------------------------------------
+   * Reading a control that is not inside the rule's own node
+   *
+   * The lifting of `SCOPING`, which the model recorded as deferred until
+   * references existed. Worth its own checks rather than a row in the matrix,
+   * because the model's answer is "undecidable" by construction — the whole
+   * behaviour is in the runtime, and the interesting half is *where* it looks.
+   * ----------------------------------------------------------------------- */
+
+  {
+    const reader = el({ 'data-cre8-switch': 'form', 'data-cre8-value': 'idle', 'data-cre8-test': 'n1', 'data-cre8-else': 'idle' });
+    const faraway = el({ 'data-cre8-el': 'email-node', name: 'email', value: '' });
+    // Deliberately siblings: neither contains the other, which is exactly the
+    // arrangement the old scoping could not express.
+    const page = el({}, [el({}, [reader]), el({}, [faraway])]);
+    const table = {
+      n1: [
+        {
+          when: { kind: 'compare', left: { kind: 'element', ref: { node: 'email-node' } }, op: 'notEmpty' },
+          value: 'ready',
+        },
+      ],
+    };
+
+    testRuntime(hostFor(page), false, table);
+    report.check(
+      'an empty control elsewhere on the page leaves the reader at its fallback',
+      reader.attrs['data-cre8-value'] === 'idle',
+      reader.attrs['data-cre8-value']
+    );
+
+    faraway.value = 'someone@example.test';
+    testRuntime(hostFor(page), false, table);
+    report.check(
+      'and filling it in reaches a rule three branches away',
+      reader.attrs['data-cre8-value'] === 'ready',
+      // The sentence the old model could not express: the rule is on the
+      // button, the control is somewhere else entirely.
+      reader.attrs['data-cre8-value']
+    );
+
+    const orphan = el({ 'data-cre8-switch': 'form', 'data-cre8-value': 'idle', 'data-cre8-test': 'n2', 'data-cre8-else': 'idle' });
+    testRuntime(hostFor(el({}, [orphan])), false, {
+      n2: [
+        {
+          when: { kind: 'compare', left: { kind: 'element', ref: { node: 'not-here' } }, op: 'empty' },
+          value: 'ready',
+        },
+      ],
+    });
+    report.check(
+      'a control that is not there is undecidable, not empty',
+      orphan.attrs['data-cre8-value'] === 'idle',
+      // The same rule a named control gets, and for the same reason: "no such
+      // element" is not the same fact as "the element holds nothing".
+      orphan.attrs['data-cre8-value']
+    );
+  }
+
+  {
+    /*
+     * The handle itself, off real markup.
+     *
+     * The fake DOM above sets `data-cre8-el` by hand, so it proves the runtime
+     * uses the attribute and says nothing about anything emitting it — which
+     * is how the first version of these checks stayed green with the renderer
+     * no longer writing it at all.
+     */
+    const doc = createEmptyDocument('Controls');
+    const page = doc.pages[0];
+    const sub = {};
+    const { rootId } = buildTree(
+      {
+        type: 'form',
+        name: 'Form',
+        children: [
+          { type: 'input', name: 'Email', props: { name: 'email' } },
+          { type: 'textarea', name: 'Note', props: { name: 'note' } },
+          { type: 'text', name: 'Label', props: { text: 'not a control' } },
+        ],
+      },
+      sub,
+      page.rootNodeId
+    );
+    Object.assign(doc.nodes, sub);
+    doc.nodes[page.rootNodeId].children.push(rootId);
+    const html = renderPage(doc, page, {});
+    const marked = [...html.matchAll(/data-cre8-el="([^"]+)"/g)].map((m) => m[1]);
+    const controls = Object.values(doc.nodes).filter((n) =>
+      ['input', 'textarea'].includes(n.type)
+    );
+
+    report.check(
+      'every control publishes the handle a rule finds it by',
+      controls.length === 2 && controls.every((n) => marked.includes(n.id)),
+      `${marked.length} marked, ${controls.length} controls`
+    );
+    report.check(
+      'and nothing else does',
+      marked.length === controls.length,
+      // Bounded on purpose: this is bytes on every published form, so it goes
+      // on the things whose value can change and nowhere else.
+      `${marked.length} handles on the page`
+    );
+  }
+
+  {
+    const read = { kind: 'compare', left: { kind: 'element', ref: { node: 'n9' } }, op: 'notEmpty' };
+    report.check(
+      'an element read is never folded at publish',
+      foldable(read) === false && evaluate(read, record({ f: 1 })) === null,
+      'the publisher cannot know what nobody has typed'
+    );
+    report.check(
+      'and the node carrying it is told it needs the runtime, and an Otherwise',
+      needsRuntime({ props: { switchKey: 'form' }, assign: [{ id: 'a', when: read, value: 'ready' }] }) &&
+        Boolean(unfinished({ props: { switchKey: 'form' }, assign: [{ id: 'a', when: read, value: 'ready' }] })),
+      'the same two consequences a typed operand has'
+    );
+    report.check(
+      'and what it depends on is reportable',
+      tests.elementsRead(read).join() === 'n9' && tests.inputsRead(read).length === 0,
+      tests.elementsRead(read).join() || 'nothing'
     );
   }
 

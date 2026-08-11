@@ -83,6 +83,7 @@ export function loadBlocks() {
     // reason to check it rather than infer it from a rendered page.
     everyRef: require(path.join(OUT, 'document/factory.js')).everyRef,
     pruneRefs: require(path.join(OUT, 'document/factory.js')).pruneRefs,
+    danglingReads: require(path.join(OUT, 'document/factory.js')).danglingReads,
     migrateDocument: require(path.join(OUT, 'document/migrate.js')).migrateDocument,
     // The generator, so the checks can assert on real compiled selectors
     // rather than on a description of what they are supposed to be.

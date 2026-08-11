@@ -23,6 +23,7 @@ import { iconMarkup } from './icons';
 import {
   CASE_ATTR,
   DRIVE_ATTR,
+  EL_ATTR,
   ELSE_ATTR,
   NOT_ATTR,
   QUIET_ATTR,
@@ -161,6 +162,23 @@ export function anchorNameFor(panelNodeId: string): string {
  * accident.
  */
 export const ANCHORED_ATTR = 'data-cre8-anchor';
+
+/**
+ * What an expression may read the live value of.
+ *
+ * Controls, because a control is the only thing whose value changes without
+ * the page reloading — everything else on a page is either static, and so
+ * knowable at publish, or comes from a record, which `field` already reads.
+ */
+const READABLE = new Set<string>([
+  'input',
+  'textarea',
+  'select',
+  'checkbox',
+  'radio',
+  'range',
+  'file',
+]);
 
 export function resolveHref(doc: Cre8Document, href: string | undefined, mode: RenderMode): string {
   if (!href) return mode === 'publish' ? '#' : '#';
@@ -465,6 +483,19 @@ function describeBase(
   if (anchorFor) {
     base.style = mergeStyle(base.style, `anchor-name:${anchorNameFor(anchorFor)}`);
   }
+
+  /*
+   * A handle for a rule somewhere else on the page to read this control by.
+   *
+   * On every control rather than only where something reads one, because
+   * "does anything read this" is a question about the document and the canvas
+   * renderer is deliberately handed an empty one. Emitting it conditionally
+   * would mean a rule that answers in the published file and not in the
+   * editor — the class of divergence this file exists to prevent — so the
+   * bytes are the price. Bounded by construction: it is the controls, not the
+   * page.
+   */
+  if (READABLE.has(node.type)) base[EL_ATTR] = node.id;
 
   switch (node.type) {
     case 'heading':

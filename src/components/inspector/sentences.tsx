@@ -66,19 +66,37 @@ export function testSentence(options: {
   fields: Field[];
   /** Named form controls inside the node, offered alongside the record's fields. */
   controls?: string[];
+  /**
+   * Controls anywhere on the page, by node.
+   *
+   * Offered beside the two above because to the person writing the sentence
+   * they are the same kind of thing — something on the page that holds a
+   * value. What differs is underneath: this one survives a rename and dies
+   * with the element.
+   */
+  elements?: { id: string; name: string }[];
   onChange?: (next: Test) => void;
   /** Prefix. "When" in an assignment, "Only when" in a filter, "" inside a group. */
   opening?: string;
   /** How deep this sentence already is, for keys and for what may be added. */
   depth?: number;
 }): Part[] {
-  const { test, fields, controls = [], onChange, opening = 'When', depth = 0 } = options;
+  const {
+    test,
+    fields,
+    controls = [],
+    elements = [],
+    onChange,
+    opening = 'When',
+    depth = 0,
+  } = options;
   const parts: Part[] = opening ? [{ kind: 'word', text: opening, key: 'open' }] : [];
   const nest = (inner: Test, index: number) =>
     testSentence({
       test: inner,
       fields,
       controls,
+      elements,
       opening: '',
       depth: depth + 1,
       onChange:
@@ -204,7 +222,12 @@ export function testSentence(options: {
   }
 
   const left = test.left;
-  const source = left.kind === 'field' ? left.key : `${TYPED}${left.name}`;
+  const source =
+    left.kind === 'field'
+      ? left.key
+      : left.kind === 'input'
+        ? `${TYPED}${left.name}`
+        : `${ON_PAGE}${left.ref.node}`;
   const field =
     left.kind === 'field' ? fields.find((f) => f.key === left.key) : AS_TEXT;
   const operators = field ? OPS_FOR[field.type] : [];
@@ -218,19 +241,28 @@ export function testSentence(options: {
     options: [
       ...fields.map((f) => ({ value: f.key, label: f.label })),
       ...controls.map((name) => ({ value: `${TYPED}${name}`, label: `${name} — what is typed` })),
+      ...elements.map((one) => ({
+        value: `${ON_PAGE}${one.id}`,
+        label: `${one.name} — what it holds`,
+      })),
     ],
     onChange:
       onChange &&
       ((next) => {
         const typed = next.startsWith(TYPED);
-        const picked = typed ? AS_TEXT : fields.find((f) => f.key === next);
+        const onPage = next.startsWith(ON_PAGE);
+        const picked = typed || onPage ? AS_TEXT : fields.find((f) => f.key === next);
         if (!picked) return;
         // A new source is a new type, and an operator the new type cannot
         // answer. Rebuilt rather than patched, so the sentence is never
         // momentarily ungrammatical.
         onChange({
           kind: 'compare',
-          left: typed ? { kind: 'input', name: next.slice(TYPED.length) } : { kind: 'field', key: next },
+          left: typed
+            ? { kind: 'input', name: next.slice(TYPED.length) }
+            : onPage
+              ? { kind: 'element', ref: { node: next.slice(ON_PAGE.length) } }
+              : { kind: 'field', key: next },
           op: (OPS_FOR[picked.type][0] ?? 'eq') as CompareOp,
           right: literalFor(picked.type, ''),
         });
@@ -308,6 +340,12 @@ export function testSentence(options: {
 
 /** Marks a source that is a form control rather than a record field. */
 const TYPED = 'typed:';
+/**
+ * Marks a picked option as an element on the page rather than a field or a
+ * named control. A prefix for the same reason `TYPED` is one: the picker deals
+ * in strings, and the three kinds of source have to stay tellable apart.
+ */
+const ON_PAGE = 'on-page:';
 
 /**
  * The sentence somebody starts with: the first field, its first operator, and

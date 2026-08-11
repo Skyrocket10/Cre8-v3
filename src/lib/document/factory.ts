@@ -27,6 +27,7 @@ import {
   type StyleDecl,
   type Ref,
   type RefSlot,
+  type Test,
   type SceneNode as SceneNodeType,
   type StyleRule,
 } from './types';
@@ -241,21 +242,59 @@ function defaultAnchors(nodes: NodeMap): void {
  */
 export function* everyRef(
   nodes: NodeMap
-): Generator<{ node: SceneNode; slot: RefSlot; ref: Ref }> {
+): Generator<{ node: SceneNode; slot: RefSlot | 'expression'; ref: Ref }> {
   for (const node of Object.values(nodes)) {
     for (const [slot, ref] of Object.entries(node.refs ?? {})) {
       if (ref) yield { node, slot: slot as RefSlot, ref };
     }
+    /*
+     * And the ones inside expressions, which are references in every sense
+     * that matters and live somewhere else entirely: a `Value` reading a
+     * control holds one, nested in `assign[].when`. Leaving them out would
+     * have re-created the exact bug this map exists to prevent, one layer
+     * down — delete the email box and the rule reading it keeps a node id
+     * that is no longer in the document.
+     *
+     * Yielded as `expression` rather than a slot because they are not
+     * *removable* the way a slot is: the fix for a rule reading a deleted
+     * control is the designer's, not a silent deletion of the rule they
+     * wrote. Reporting is what enumerability buys here.
+     */
+    for (const rule of node.assign ?? []) {
+      for (const ref of refsInTest(rule.when)) yield { node, slot: 'expression', ref };
+    }
   }
+}
+
+/** Every element reference in a Test, however deeply grouped. */
+function refsInTest(test: Test): Ref[] {
+  if (test.kind === 'compare') {
+    return test.left.kind === 'element' ? [test.left.ref] : [];
+  }
+  if (test.kind === 'every' || test.kind === 'some') return test.tests.flatMap(refsInTest);
+  return [];
 }
 
 /** Drop every reference pointing at a node that is no longer here. */
 export function pruneRefs(nodes: NodeMap): void {
   for (const { node, slot, ref } of everyRef(nodes)) {
-    if (nodes[ref.node]) continue;
+    // An expression's reference is left where it is. Deleting the rule
+    // somebody wrote because the control it reads went away is a bigger
+    // decision than cleanup gets to make; the node falls back to its
+    // "Otherwise", which is the declared answer for an unanswerable rule.
+    if (slot === 'expression' || nodes[ref.node]) continue;
     delete node.refs?.[slot];
     if (node.refs && !Object.keys(node.refs).length) delete node.refs;
   }
+}
+
+/** Rules reading an element the document no longer has. */
+export function danglingReads(nodes: NodeMap): { node: SceneNode; missing: NodeId }[] {
+  const out: { node: SceneNode; missing: NodeId }[] = [];
+  for (const { node, slot, ref } of everyRef(nodes)) {
+    if (slot === 'expression' && !nodes[ref.node]) out.push({ node, missing: ref.node });
+  }
+  return out;
 }
 
 /** Deep-copy a subtree with fresh ids. Returns the new root id. */

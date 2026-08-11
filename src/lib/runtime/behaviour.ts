@@ -74,6 +74,8 @@ interface Tagged {
 /** What the runtime is mounted on: the page, or the editor's frame. */
 interface Host {
   querySelectorAll(selectors: string): ArrayLike<Tagged>;
+  /** For the one operand that reads an element outside the rule's own node. */
+  querySelector(selectors: string): Tagged | null;
   addEventListener(type: string, handler: (event: Fired) => void): void;
   removeEventListener(type: string, handler: (event: Fired) => void): void;
 }
@@ -157,6 +159,22 @@ export const RANGE_VAR_PREFIX = '--cre8-';
  */
 export const TEST_ATTR = 'data-cre8-test';
 /**
+ * A control a rule somewhere else on the page may read.
+ *
+ * The node id, on every form control, whether or not anything reads it. That
+ * is a deliberate ~22 bytes per control rather than the alternative, which is
+ * emitting it only where the document says it is needed — and the document is
+ * exactly what the canvas renderer does not have. A marker that appeared in
+ * the published file and not in the editor would mean a rule that answers on
+ * one surface and not the other, which is worse than the bytes.
+ *
+ * Not the control's `name`: that is a submission concern, two forms on a page
+ * may share one, and renaming a field must not silently break a rule reading
+ * it. Not the generated class either — those are shortened at publish, so the
+ * runtime cannot derive one from a node id.
+ */
+export const EL_ATTR = 'data-cre8-el';
+/**
  * The record values this instance's Tests read. Raw, never formatted.
  *
  * Per instance, and only the fields a Test actually reads — which means they
@@ -188,7 +206,7 @@ export const ELSE_ATTR = 'data-cre8-else';
 type TestRaw = string | number | boolean | null | undefined;
 /** The record values one element publishes, keyed by field. */
 type TestValues = Record<string, TestRaw>;
-type TestOperand = { kind: string; key?: string; name?: string };
+type TestOperand = { kind: string; key?: string; name?: string; ref?: { node: string } };
 interface TestNode {
   kind: string;
   tests?: TestNode[];
@@ -425,8 +443,16 @@ export function testRuntime(root: Host, live: boolean, tests: TestTable): () => 
   function operand(left: TestOperand, holder: Tagged, values: TestValues): TestRaw {
     const key = left.key || '';
     if (left.kind === 'field') return key in values ? values[key] : undefined;
-    if (left.kind !== 'input') return undefined;
-    const control = holder.querySelector('[name="' + left.name + '"]');
+    var control = null;
+    if (left.kind === 'input') {
+      control = holder.querySelector('[name="' + left.name + '"]');
+    } else if (left.kind === 'element' && left.ref) {
+      // From the page, not from the node that owns the rule. That one line is
+      // the scoping lift: a rule on the Submit button can read the email box
+      // three sections away, where before it had to live on their common
+      // ancestor.
+      control = root.querySelector('[data-cre8-el="' + left.ref.node + '"]');
+    }
     if (!control) return undefined;
     return control.value === undefined ? '' : control.value;
   }
@@ -449,7 +475,9 @@ export function testRuntime(root: Host, live: boolean, tests: TestTable): () => 
     const raw = operand(test.left, holder, values);
     const op = test.op;
     // A control that is not there is not an empty one.
-    if (test.left.kind === 'input' && raw === undefined) return null;
+    if ((test.left.kind === 'input' || test.left.kind === 'element') && raw === undefined) {
+      return null;
+    }
     const absent = raw === null || raw === undefined || raw === '';
     if (op === 'empty') return absent;
     if (op === 'notEmpty') return !absent;

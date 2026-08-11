@@ -545,6 +545,40 @@ match, and the menu could not be opened. The static rule at the time asked
 whether the name existed, which it did. There is now one that asks what it
 resolves to.
 
+### An expression can read an element, not just a field
+
+`Value` had two arms: a field of the record in scope, and a form control *by
+name inside the node owning the rule*. The second carried a documented
+restriction — arbitrary element targeting deferred — which in practice meant
+"enable Submit when the email box has something in it" had to be written on a
+common ancestor of the button and the box, not on the button.
+
+A third arm holds a `Ref`, and the whole of the lift is one line in the
+runtime: `root.querySelector` instead of `holder.querySelector`. A reference
+rather than a name, because a control's `name` is a submission concern, two
+forms on a page may share one, and renaming a field should not silently break
+a rule reading it — the reference survives the rename, and `everyRef` finds it
+when the element is deleted.
+
+Controls carry `data-cre8-el` with their node id, on every control whether or
+not anything reads one. That is bytes on every published form, chosen over the
+alternative: emitting it only where the document says it is needed, when the
+document is exactly what the canvas renderer does not have. A marker present in
+the file and absent in the editor is a rule that answers on one surface and not
+the other.
+
+Only a *control*, and only live. Reading an ordinary element's text would have
+to resolve where the document is known, and the canvas renderer is deliberately
+handed an empty one and memoised per node — the two surfaces would disagree.
+That case needs dependency tracking in the canvas memo and is a different piece
+of work.
+
+References inside expressions are enumerated by the same walk as the ones in
+`refs`, and reported rather than pruned: throwing away a rule somebody wrote
+because the control it reads was deleted is a bigger decision than cleanup gets
+to make. The node falls back to its declared Otherwise, and `danglingReads` is
+what lets the editor say why.
+
 ### A menu is a popover that knows where it is
 
 The popover element centres itself: `inset: 0` with four auto margins, which is

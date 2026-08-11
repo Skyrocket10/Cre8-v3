@@ -517,14 +517,35 @@ export type Value =
    *
    * Named rather than pointed at a node id, because the name is what the
    * control already has and what a form submission uses. Scoped to the node
-   * that owns the rule — `SCOPING` in the interaction model: a rule evaluates
-   * against its own node, descendants react to the resulting state, and
-   * arbitrary element targeting is deferred.
+   * that owns the rule: a rule evaluates against its own node and descendants
+   * react to the resulting state.
    *
    * This is the operand that cannot be known when the site is published, which
    * is the whole reason the execution model has two schedules.
    */
-  | { kind: 'input'; name: string };
+  | { kind: 'input'; name: string }
+  /**
+   * What a control *anywhere on the page* currently holds.
+   *
+   * The lifting of `SCOPING`, which this file used to record as deferred: a
+   * rule could only read a control inside the node that owned it, so "enable
+   * Submit when the email box has something in it" meant the rule had to live
+   * on an ancestor of the email box. Now it can live on the button.
+   *
+   * A `Ref` rather than a name, and the difference is identity: a control's
+   * `name` is a submission concern, two forms on a page may share one, and
+   * renaming a field should not silently break a rule that reads it. The
+   * reference survives the rename and dies with the element, because
+   * `pruneRefs` walks it.
+   *
+   * Only a *control*, and only live. Reading the text of an ordinary element
+   * would have to be resolved where the document is known, and the canvas
+   * renderer is deliberately handed an empty one and memoised per node — so
+   * the two surfaces would answer differently, which is the one thing this
+   * codebase does not trade away. That case needs dependency tracking in the
+   * canvas memo and is honestly a different piece of work.
+   */
+  | { kind: 'element'; ref: Ref };
 
 /**
  * A presentation transform. Never part of a `Value`, and that is the point.

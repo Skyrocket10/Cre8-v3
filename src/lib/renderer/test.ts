@@ -238,6 +238,24 @@ export function inputsRead(test: Test): string[] {
 }
 
 /**
+ * Every element a Test reads, by node id.
+ *
+ * The counterpart to `inputsRead` for the operand that names an element rather
+ * than a form field. Exported for the same reason: what a Test depends on is
+ * how the editor knows when to warn, and how a check knows what to plant.
+ */
+export function elementsRead(test: Test): string[] {
+  const found = new Set<string>();
+  const walk = (inner: Test): void => {
+    if (inner.kind === 'compare') {
+      if (inner.left.kind === 'element') found.add(inner.left.ref.node);
+    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
+  };
+  walk(test);
+  return [...found];
+}
+
+/**
  * Whether every input a Test reads is known when the site is published.
  *
  * This is the whole of the execution model's scheduling decision, and it is
@@ -481,7 +499,12 @@ export function provablyOverlap(a: Test, b: Test): boolean {
 
 /** How an operand is identified when two of them are compared. */
 function operandName(value: Value): string {
-  return value.kind === 'field' ? value.key : value.name;
+  if (value.kind === 'field') return value.key;
+  if (value.kind === 'input') return value.name;
+  // The node id, which is exactly the identity wanted: two rules reading the
+  // same element overlap, and two reading different ones do not, whatever
+  // those elements happen to be called.
+  return value.ref.node;
 }
 
 /** Do the two numeric half-lines share a point? */
