@@ -446,6 +446,39 @@ export type ElementType =
 export type NodeProps = Record<string, string | number | boolean | null | undefined>;
 
 /**
+ * One element naming another.
+ *
+ * An object rather than a bare id, and the reason is greppability more than
+ * structure: `refs.popover` typed as `NodeId` reads like every other string in
+ * the model, and the point of making references first-class is that they can
+ * be found — by a person, by a check, and by the cleanup that walks them. It
+ * also leaves the obvious room, since the thing being referred to is not
+ * always going to be a whole node.
+ */
+export interface Ref {
+  node: NodeId;
+}
+
+/**
+ * Which relationship a reference expresses.
+ *
+ * Closed, so adding one is a deliberate edit rather than a new string appearing
+ * in a map. Two today, and they point in opposite directions on purpose:
+ *
+ * - `popover` — a button naming the panel it opens.
+ * - `anchorFor` — an element naming the panel positioned against it.
+ *
+ * The second is stored the way the *renderer* needs it rather than the way a
+ * person says it. Somebody means "this menu opens next to that button", but the
+ * element that has to carry `anchor-name` is the button, and the canvas
+ * renderer is handed an empty document and memoised per node — so it can only
+ * emit what the node it is drawing already holds. Storing the back-reference
+ * keeps every read local; the inspector does the one scan needed to show it the
+ * right way round, because the inspector has the document and the time.
+ */
+export type RefSlot = 'popover' | 'anchorFor';
+
+/**
  * RESERVED — not written by this release.
  *
  * Behaviour ("what it does") is deliberately modelled as a separate axis from
@@ -626,6 +659,28 @@ export interface SceneNode {
    * point: a hundred rows carry a hundred numbers and share one rule.
    */
   vars?: Record<string, ValueVar>;
+
+  /**
+   * What this element points at, by slot.
+   *
+   * Elements have referred to each other since the first popover, and every
+   * time it was spelled differently: a node id in `props.popoverTarget`, a
+   * `popover@Name` awaiting a resolution pass, a `componentId`, a list of node
+   * ids inside a component property. Two of those had their own resolver in
+   * `factory.ts` and only one had cleanup, which is why deleting a panel left
+   * every button that opened it pointing at an id that no longer existed —
+   * silently, because a `popovertarget` naming nothing simply does nothing.
+   *
+   * A map fixes that where a prop could not: references can be *enumerated*,
+   * so one function can walk them all when a node is deleted, when a subtree
+   * is copied, or when a document is checked. `NodeProps` is primitives only,
+   * so this could never have lived there anyway.
+   *
+   * A stored reference always holds a node id. The authoring form — a *name*,
+   * written before ids exist — is a `NodeSpec` concern and is resolved by
+   * `buildTree`, so nothing downstream has to know two shapes.
+   */
+  refs?: Partial<Record<RefSlot, Ref>>;
 
   /**
    * Conditional overrides, in the order they apply.

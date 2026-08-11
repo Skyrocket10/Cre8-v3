@@ -511,6 +511,40 @@ Escape, or a click outside — and `manual` means only a button closes it. There
 is no script here that watches for backdrop clicks, because the platform
 already does it and doing it twice is how the two disagree.
 
+### References are a thing, not a prop
+
+Elements have pointed at each other since the first popover, and every time it
+was spelled differently: a node id in `props.popoverTarget`, a `popover@Name`
+awaiting its own resolution pass, a `componentId`, a list of node ids inside a
+component property. Two of those had a resolver and only one had cleanup —
+which is why deleting a panel left every button that opened it holding an id no
+longer in the document. Nothing reported it, because a `popovertarget` naming
+nothing renders perfectly and does nothing.
+
+A `Ref` is now a node-level `refs` map keyed by slot, beside `bind` and
+`repeat`. `NodeProps` is primitives only, so it could never have lived in props
+anyway — but the reason that matters is enumerability. One walk services every
+reference: `resolveRefs` turns authored names into ids once, `pruneRefs` runs
+on delete, and `rewireInternalRefs` re-points them inside a copy. Each of those
+used to name `popoverTarget` explicitly, so a second kind of reference would
+have been silently wrong in all three.
+
+Two slots today, pointing in opposite directions. `popover` is a button naming
+the panel it opens. `anchorFor` is an element naming the panel positioned
+against it — stored backwards from how anybody says it, because the element
+that must carry `anchor-name` is the button, and the canvas renderer is handed
+an empty document and memoised per node. It can only emit what the node it is
+drawing already holds. The inspector does the one scan needed to show it the
+right way round, and says **Relative to**, because that is the sentence
+somebody means. Nobody types an anchor name.
+
+Resolution is scoped per slot, and that is not a detail. Indexing every node by
+name wired the command menu's buttons to a *wrapper* sharing the panel's layer
+name: the published page carried an id and a `popovertarget` that did not
+match, and the menu could not be opened. The static rule at the time asked
+whether the name existed, which it did. There is now one that asks what it
+resolves to.
+
 ### A menu is a popover that knows where it is
 
 The popover element centres itself: `inset: 0` with four auto margins, which is

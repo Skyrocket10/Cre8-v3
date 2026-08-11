@@ -447,6 +447,25 @@ function describeBase(
   const anchor = anchorId(props.anchor);
   if (anchor) base.id = anchor;
 
+  /*
+   * "A panel is positioned against me."
+   *
+   * Stored on this element rather than on the panel, which is the opposite of
+   * how a person says it — and the reason is that this is the element that has
+   * to carry `anchor-name`, and it can only emit what it holds. A panel naming
+   * its anchor would need a reverse lookup, and the canvas renderer is handed
+   * an empty document and memoised per node: the lookup would work in the
+   * publisher and find nothing in the editor, which is a menu in the right
+   * place in the file and the wrong place on the canvas.
+   *
+   * The inspector does the one scan needed to show it the way round somebody
+   * means it. It has the document, and it is not in a render loop.
+   */
+  const anchorFor = node.refs?.anchorFor?.node;
+  if (anchorFor) {
+    base.style = mergeStyle(base.style, `anchor-name:${anchorNameFor(anchorFor)}`);
+  }
+
   switch (node.type) {
     case 'heading':
       return {
@@ -575,7 +594,11 @@ function describeBase(
     case 'button':
     case 'link': {
       const rawHref = str(props.href);
-      const tag = resolveTag(node.type, props);
+      // Node-level, not per-variant: what a button opens is structure, and a
+      // variant that changed it would be a different element rather than the
+      // same one saying something else.
+      const popoverTarget = node.refs?.popover?.node ?? '';
+      const tag = resolveTag(node.type, props, { opensPopover: Boolean(popoverTarget) });
       const target = str(props.target, '_self');
       const attrs: Record<string, AttrValue> = { ...base };
       if (tag === 'a') {
@@ -612,22 +635,10 @@ function describeBase(
       }
       // Opening a popover is the browser's job, not a script's: name the panel
       // and it handles the top layer, light dismiss, Escape and focus return.
-      const popoverTarget = str(props.popoverTarget);
       if (popoverTarget && tag === 'button') {
         attrs.popovertarget = popoverDomId(popoverTarget);
         const action = str(props.popoverAction, 'toggle');
         if (action !== 'toggle') attrs.popovertargetaction = action;
-        /*
-         * And the anchor half, unconditionally.
-         *
-         * The button cannot see whether its panel asked to be anchored — that
-         * is a prop on the other element, and the canvas renderer has no
-         * document to look it up in. `anchor-name` on an element nothing
-         * points at costs 28 bytes and changes no layout, which is a better
-         * trade than a menu that is centred on one surface and anchored on
-         * the other.
-         */
-        attrs.style = mergeStyle(attrs.style, `anchor-name:${anchorNameFor(popoverTarget)}`);
       }
       /*
        * Children win over the text prop, and that is the whole of the

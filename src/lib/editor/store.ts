@@ -391,6 +391,15 @@ interface EditorActions {
   ungroupSelection(): void;
   renameNode(id: NodeId, name: string): void;
   setNodeProps(patch: NodeProps, ids?: NodeId[]): void;
+  /**
+   * Which element a panel is positioned against.
+   *
+   * `undefined` means "whatever opens it", which is the default somebody
+   * means; `null` un-anchors. One step in history, because the document
+   * stores it as a back-reference on the other element and two steps would
+   * let undo leave half a relationship behind.
+   */
+  setAnchor(panelId: NodeId, anchorNodeId?: NodeId | null): void;
   setStyle(patch: StyleDecl, options?: TransactOptions & { ids?: NodeId[] }): void;
   clearStyle(props: StyleProp[], ids?: NodeId[]): void;
   setRuleStyle(ruleId: string, patch: StyleDecl, options?: TransactOptions & { ids?: NodeId[] }): void;
@@ -1367,6 +1376,13 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     get().transact('Edit content', (draft) => {
       ops.setProps(draft, targets, patch);
       return targets;
+    });
+  },
+
+  setAnchor(panelId, anchorNodeId) {
+    get().transact(anchorNodeId === null ? 'Unanchor panel' : 'Anchor panel', (draft) => {
+      ops.setAnchor(draft, panelId, anchorNodeId);
+      return [panelId];
     });
   },
 

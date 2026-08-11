@@ -78,6 +78,11 @@ export function loadBlocks() {
     canContain: require(path.join(OUT, 'document/schema.js')).canContain,
     readCase: require(path.join(OUT, 'document/schema.js')).readCase,
     anchorId: require(path.join(OUT, 'document/schema.js')).anchorId,
+    // References, on their own: "one walk services all of them" is a claim
+    // about a function, and the cleanup that was missing for years is the
+    // reason to check it rather than infer it from a rendered page.
+    everyRef: require(path.join(OUT, 'document/factory.js')).everyRef,
+    pruneRefs: require(path.join(OUT, 'document/factory.js')).pruneRefs,
     migrateDocument: require(path.join(OUT, 'document/migrate.js')).migrateDocument,
     // The generator, so the checks can assert on real compiled selectors
     // rather than on a description of what they are supposed to be.

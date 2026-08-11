@@ -19,7 +19,14 @@ import {
   targetKey,
   type ExposableTarget,
 } from './components';
-import { cloneSubtree, createNode, structuredCloneCompat, type NodeSpec, buildTree } from './factory';
+import {
+  buildTree,
+  cloneSubtree,
+  createNode,
+  pruneRefs,
+  structuredCloneCompat,
+  type NodeSpec,
+} from './factory';
 import { uid, slugify } from './id';
 import { fieldsRead } from '../renderer/test';
 import { SWITCH_SHOW_ALL, canContain, getElement, readCase, slug } from './schema';
@@ -135,6 +142,67 @@ export function removeNodes(doc: Cre8Document, ids: NodeId[]): void {
     for (const descendant of collectSubtree(doc.nodes, id)) delete doc.nodes[descendant];
   }
   pruneComponentProperties(doc);
+  // And every reference into what was just deleted. Component properties had
+  // this and references did not, so deleting a panel left each button that
+  // opened it pointing at an id no longer in the document — which renders as
+  // `popovertarget="p-<gone>"` and makes the button do nothing at all.
+  pruneRefs(doc.nodes);
+}
+
+/* --------------------------------------------------------------------------
+ * References
+ * ----------------------------------------------------------------------- */
+
+/** Which button, if any, opens this panel. */
+export function invokerOf(doc: Cre8Document, panelId: NodeId): NodeId | null {
+  for (const node of Object.values(doc.nodes)) {
+    if (node.refs?.popover?.node === panelId) return node.id;
+  }
+  return null;
+}
+
+/** Which element a panel is currently positioned against. */
+export function anchorOf(doc: Cre8Document, panelId: NodeId): NodeId | null {
+  for (const node of Object.values(doc.nodes)) {
+    if (node.refs?.anchorFor?.node === panelId) return node.id;
+  }
+  return null;
+}
+
+/**
+ * "Put this menu next to that button."
+ *
+ * One call for what the document stores as a back-reference on the *other*
+ * element, because that is the sentence somebody means and it should be one
+ * action in history rather than two. Any previous anchor for this panel is
+ * cleared first: two elements claiming the name resolves to whichever is
+ * lower in the tree, which is a menu that moves when an unrelated part of the
+ * page is reordered.
+ *
+ * `null` un-anchors. Passing no anchor at all falls back to the button that
+ * opens the panel, which is what somebody means nine times in ten and saves
+ * them naming a thing they already named.
+ */
+export function setAnchor(
+  doc: Cre8Document,
+  panelId: NodeId,
+  anchorNodeId?: NodeId | null
+): NodeId | null {
+  const previous = anchorOf(doc, panelId);
+  if (previous) {
+    const node = doc.nodes[previous];
+    if (node?.refs) {
+      delete node.refs.anchorFor;
+      if (!Object.keys(node.refs).length) delete node.refs;
+    }
+  }
+
+  const wanted = anchorNodeId === undefined ? invokerOf(doc, panelId) : anchorNodeId;
+  if (!wanted) return null;
+  const node = doc.nodes[wanted];
+  if (!node || !doc.nodes[panelId]) return null;
+  node.refs = { ...node.refs, anchorFor: { node: panelId } };
+  return wanted;
 }
 
 export function moveNodes(

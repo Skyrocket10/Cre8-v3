@@ -15,6 +15,7 @@ width will never show you:
 - no nesting the HTML parser would rearrange on the way out
 - every popover button names a popover that is in the same block
 - a panel is a modal or a menu, never half of one
+- a wired button reaches a panel, not something that shares its name
 - every state has something depending on it, and every control changes something
 - every tab has one panel and every panel has one tab
 - buttons and links respond to hover
@@ -113,6 +114,21 @@ submit, so the renderer wrote `type="button"` on everything to stop a
 decorative button posting — which left every contact form the app shipped with
 a Send that did nothing, and the render suite green throughout, because it
 submitted the form itself rather than pressing the thing a visitor presses.
+
+References between elements get their own group, and the checks are the
+properties a *first-class* reference has that the old spelling did not: it
+resolves once, it is enumerable, it survives a copy, and it does not outlive
+what it points at. That last one is the bug the primitive exists for — deleting
+a panel left every button that opened it holding a dead id, silently, because
+nothing walked the references and a prop gives you nothing to walk.
+
+Two of the rules there exist because of mistakes made while writing it. Name
+resolution is scoped per slot after indexing every node wired the command
+menu's buttons to a wrapper sharing the panel's layer name — the existing rule
+asked whether the name existed, which it did, so only the browser noticed.
+And the block wiring rule counts what it saw: it read `props.popoverTarget`
+until references moved, and the moment they did it matched nothing and passed
+on all 49 blocks.
 
 The anchoring rule is there because half an edit is invisible. A popover
 centres itself by default — `inset: 0` and four auto margins — and anchoring it

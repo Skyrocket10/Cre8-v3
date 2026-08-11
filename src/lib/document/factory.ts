@@ -25,6 +25,9 @@ import {
   type SceneNode,
   type StateStyles,
   type StyleDecl,
+  type Ref,
+  type RefSlot,
+  type SceneNode as SceneNodeType,
   type StyleRule,
 } from './types';
 import type { NodeMap } from './tree';
@@ -83,6 +86,13 @@ export interface NodeSpec {
    * into a `Binding` on the way in by the same function the migration uses.
    */
   bind?: Record<string, string | Binding>;
+  /**
+   * What this node points at, by the *name* of the node it points at.
+   *
+   * A spec has no ids, so a block writes `{ popover: 'Menu' }` and `buildTree`
+   * turns it into a real reference once every node exists.
+   */
+  refs?: Partial<Record<RefSlot, string>>;
   children?: NodeSpec[];
 }
 
@@ -92,8 +102,9 @@ export function buildTree(
   parentId: NodeId | null = null
 ): { rootId: NodeId; nodes: NodeMap } {
   const rootId = buildSubtree(spec, into, parentId);
-  // Only once the whole tree exists do the popovers have ids to point at.
-  resolvePopoverRefs(into);
+  // Only once the whole tree exists do the referenced nodes have ids.
+  resolveRefs(into);
+  defaultAnchors(into);
   return { rootId, nodes: into };
 }
 
@@ -114,6 +125,11 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
   }
   if (spec.meta) node.meta = { ...node.meta, ...spec.meta };
   if (spec.repeat) node.repeat = structuredCloneCompat(spec.repeat);
+  if (spec.refs) {
+    node.refs = Object.fromEntries(
+      Object.entries(spec.refs).map(([slot, name]) => [slot, namedRef(name)])
+    );
+  }
   if (spec.bind) {
     node.bind = Object.fromEntries(
       Object.entries(spec.bind).map(([prop, entry]) => [prop, bindingFrom(entry)])
@@ -128,28 +144,117 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
 }
 
 /**
- * Point every deferred popover reference at the popover it names.
+ * Point every authored reference at the node it names.
  *
  * A block describes its own wiring — "this button opens the Menu popover" —
- * but a spec has no ids, so the reference travels as a name until the nodes
- * exist. A name that matches nothing has the prop removed rather than left
- * dangling: a `popovertarget` pointing at no element makes the button do
- * nothing at all, which is worse than the button simply not being an invoker.
+ * but a spec has no ids, so the reference travels as a *name* until the nodes
+ * exist. This is where that stops: past this point a `Ref` always holds an id,
+ * and nothing downstream has to know the two shapes apart.
+ *
+ * A name matching nothing is dropped rather than left dangling. A
+ * `popovertarget` pointing at no element makes the button do nothing at all,
+ * which is worse than the button simply not being an invoker — and an anchor
+ * naming a missing element silently un-anchors the panel it was placed by.
  */
-const POPOVER_REF = 'popover@';
+const NAME_REF = 'name@';
 
-function resolvePopoverRefs(nodes: NodeMap): void {
-  const byName = new Map<string, NodeId>();
-  for (const node of Object.values(nodes)) {
-    if (node.type === 'popover' || node.type === 'dialog') byName.set(node.name, node.id);
+/** How a spec points at a node it cannot yet have the id of. */
+export const namedRef = (name: string): Ref => ({ node: `${NAME_REF}${name}` });
+
+/**
+ * What each slot may point at.
+ *
+ * Scoped per slot, not "any node with that name", and the difference is not
+ * theoretical: the command menu has a wrapper carrying the same layer name as
+ * the panel inside it, so a name index over every node resolved the button to
+ * the wrapper. Two buttons then pointed at an element that is not a popover,
+ * the published page had an id and a `popovertarget` that did not match, and
+ * the menu could not be opened. Nothing static saw it — the *name* existed,
+ * which is all the old rule asked.
+ */
+const REF_SCOPE: Record<RefSlot, (node: SceneNodeType) => boolean> = {
+  popover: (node) => node.type === 'popover' || node.type === 'dialog',
+  anchorFor: () => true,
+};
+
+function resolveRefs(nodes: NodeMap): void {
+  const byName = new Map<RefSlot, Map<string, NodeId>>();
+  for (const slot of Object.keys(REF_SCOPE) as RefSlot[]) {
+    const index = new Map<string, NodeId>();
+    for (const node of Object.values(nodes)) {
+      // First wins. Two layers with one name is a thing people do, and the
+      // alternative — last wins — would mean a block's wiring changing when
+      // somebody duplicates something further down it.
+      if (REF_SCOPE[slot](node) && !index.has(node.name)) index.set(node.name, node.id);
+    }
+    byName.set(slot, index);
   }
 
   for (const node of Object.values(nodes)) {
-    const target = node.props.popoverTarget;
-    if (typeof target !== 'string' || !target.startsWith(POPOVER_REF)) continue;
-    const id = byName.get(target.slice(POPOVER_REF.length));
-    if (id) node.props.popoverTarget = id;
-    else delete node.props.popoverTarget;
+    if (!node.refs) continue;
+    for (const [slot, ref] of Object.entries(node.refs)) {
+      // The prefix rather than "is it in `nodes`": an id and a name are both
+      // strings, and deciding between them by lookup means a name that happens
+      // to match an id resolves to the wrong element. Rare enough never to be
+      // found, which is the kind of bug worth spending a sentinel on.
+      if (!ref?.node.startsWith(NAME_REF)) continue;
+      const found = byName.get(slot as RefSlot)?.get(ref.node.slice(NAME_REF.length));
+      if (found) node.refs[slot as RefSlot] = { node: found };
+      else delete node.refs[slot as RefSlot];
+    }
+    if (!Object.keys(node.refs).length) delete node.refs;
+  }
+}
+
+/**
+ * A panel that asked to be anchored, and nobody said to what.
+ *
+ * The answer is almost always "the button that opens it", and making a block
+ * say so twice — once on the panel, once on the button — is how one of the two
+ * gets forgotten. So the default is derived here, once, at the moment the spec
+ * becomes a document. The editor applies the same default through `setAnchor`
+ * when somebody turns anchoring on.
+ *
+ * Only where nothing already claims it: an explicit anchor beats the guess,
+ * which is the whole point of being able to point at something else.
+ */
+function defaultAnchors(nodes: NodeMap): void {
+  const claimed = new Set<NodeId>();
+  for (const node of Object.values(nodes)) {
+    const at = node.refs?.anchorFor?.node;
+    if (at) claimed.add(at);
+  }
+  for (const panel of Object.values(nodes)) {
+    if (!panel.props.anchorTo || claimed.has(panel.id)) continue;
+    const invoker = Object.values(nodes).find((n) => n.refs?.popover?.node === panel.id);
+    if (invoker) invoker.refs = { ...invoker.refs, anchorFor: { node: panel.id } };
+  }
+}
+
+/**
+ * Every reference in a document, so one walk can service all of them.
+ *
+ * The function that did not exist, and whose absence is the whole argument for
+ * a `refs` map: deleting a panel used to leave every button that opened it
+ * pointing at an id no longer in the document, because nothing enumerated the
+ * references and a prop gives you nothing to enumerate.
+ */
+export function* everyRef(
+  nodes: NodeMap
+): Generator<{ node: SceneNode; slot: RefSlot; ref: Ref }> {
+  for (const node of Object.values(nodes)) {
+    for (const [slot, ref] of Object.entries(node.refs ?? {})) {
+      if (ref) yield { node, slot: slot as RefSlot, ref };
+    }
+  }
+}
+
+/** Drop every reference pointing at a node that is no longer here. */
+export function pruneRefs(nodes: NodeMap): void {
+  for (const { node, slot, ref } of everyRef(nodes)) {
+    if (nodes[ref.node]) continue;
+    delete node.refs?.[slot];
+    if (node.refs && !Object.keys(node.refs).length) delete node.refs;
   }
 }
 
@@ -206,14 +311,18 @@ function copySubtree(
  * only shows up when someone clicks. A reference that leaves the subtree is
  * left pointing where it did, which is the right answer for copying a button
  * out of a nav that stays where it is.
+ *
+ * Every slot, not one named prop. That is the difference the `refs` map makes:
+ * this used to rewire `popoverTarget` and nothing else, so any second kind of
+ * reference would have been silently wrong in every copy.
  */
 function rewireInternalRefs(nodes: NodeMap, remap: Map<NodeId, NodeId>): void {
   for (const id of remap.values()) {
     const node = nodes[id];
-    const target = node?.props.popoverTarget;
-    if (!node || typeof target !== 'string') continue;
-    const moved = remap.get(target);
-    if (moved) node.props.popoverTarget = moved;
+    for (const [slot, ref] of Object.entries(node?.refs ?? {})) {
+      const moved = ref && remap.get(ref.node);
+      if (moved) node!.refs![slot as RefSlot] = { node: moved };
+    }
   }
 }
 

@@ -816,19 +816,14 @@ export const popoverButton = (
     ...base,
     props: {
       label: text,
-      popoverTarget: `${POPOVER_REF}${target}`,
       ...(options.action && options.action !== 'toggle' ? { popoverAction: options.action } : {}),
     },
+    // By name, because a spec has no ids. `buildTree` turns it into a real
+    // reference once every node in the block exists.
+    refs: { popover: target },
     styles: { ...base.styles, ...options.styles },
   };
 };
-
-/**
- * Marks a `popoverTarget` that still names a popover rather than pointing at
- * one. Same shape as the `page@` deferred link references, and resolved at the
- * same moment — when the spec becomes real nodes with real ids.
- */
-export const POPOVER_REF = 'popover@';
 
 /* --------------------------------------------------------------------------
  * Native form controls

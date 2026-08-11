@@ -36,6 +36,8 @@ const {
   PLACEHOLDER_MIN_HEIGHT,
   canContain,
   anchorId,
+  everyRef,
+  pruneRefs,
   migrateDocument,
   buildTree,
   generateNodeCss,
@@ -351,14 +353,22 @@ function checkPopoverRefs(spec) {
   for (const { node } of walk(spec)) {
     if (node.type === 'popover' || node.type === 'dialog') names.add(node.name);
   }
+  let wired = 0;
   for (const { node, path } of walk(spec)) {
-    const target = node.props?.popoverTarget;
-    if (typeof target !== 'string') continue;
-    const wanted = target.replace(/^popover@/, '');
+    const wanted = node.refs?.popover;
+    if (typeof wanted !== 'string') continue;
+    wired++;
     if (!names.has(wanted)) bad.push(`${path}: opens "${wanted}", which is not in this block`);
   }
+  // A block with no invokers is ordinary; a *registry* with none means this
+  // rule has stopped reading whatever the wiring is spelled as now. It read
+  // `props.popoverTarget` until the reference moved to `refs`, and went
+  // silently green the moment it did.
+  seenPopoverRefs += wired;
   return bad;
 }
+
+let seenPopoverRefs = 0;
 
 /**
  * A panel is either a modal or a menu, never half of one.
@@ -405,6 +415,62 @@ function checkAnchoring(spec) {
       } else if (styles.positionArea || styles.inset === 'auto') {
         bad.push(`${at}: positioned like a menu without asking to be one`);
       }
+    }
+  }
+  return bad;
+}
+
+/**
+ * The name resolves to a *popover*, not to whatever else is called that.
+ *
+ * `checkPopoverRefs` asks whether the name exists in the block, which is not
+ * the same question and cannot see the failure that matters: the command menu
+ * has a wrapper carrying the same layer name as its panel, so a resolver
+ * indexing every node wired both buttons to the wrapper. The published page
+ * had an id and a `popovertarget` that did not match, and the menu could not
+ * be opened by anybody. Only the browser noticed.
+ *
+ * Asked of the built tree rather than the spec, because resolution is the
+ * thing under test.
+ */
+function checkPopoverResolves(spec) {
+  const nodes = {};
+  buildTree(spec, nodes);
+  const bad = [];
+  for (const node of Object.values(nodes)) {
+    const target = node.refs?.popover?.node;
+    if (!target) continue;
+    const panel = nodes[target];
+    if (!panel) bad.push(`${node.name}: opens a node that is not in the tree`);
+    else if (panel.type !== 'popover' && panel.type !== 'dialog') {
+      bad.push(`${node.name}: opens “${panel.name}”, which is a ${panel.type}`);
+    }
+  }
+  return bad;
+}
+
+/**
+ * A panel positioned against nothing.
+ *
+ * `anchorTo` says "follow an element"; the element it follows is derived at
+ * build time from whatever opens the panel, so at *spec* level the thing to
+ * check is that something does. A panel anchored with no invoker publishes as
+ * a fixed box with no insets and lands in the top-left corner.
+ *
+ * Asked of the spec rather than of the built tree because that is where the
+ * mistake is made — and asking the built tree would be asking `buildTree` to
+ * confirm its own default, which it always would.
+ */
+function checkAnchorTargets(spec) {
+  const opened = new Set();
+  for (const { node } of walk(spec)) {
+    const target = node.refs?.popover;
+    if (typeof target === 'string') opened.add(target);
+  }
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    if (node.props?.anchorTo && !opened.has(node.name)) {
+      bad.push(`${path}: anchored, but nothing in this block opens it`);
     }
   }
   return bad;
@@ -680,6 +746,8 @@ const RULES = [
   ['no nesting the HTML parser would rearrange', checkNesting],
   ['every popover button names a popover in its block', checkPopoverRefs],
   ['a panel is a modal or a menu, never half of one', checkAnchoring],
+  ['an anchored panel has something to be anchored to', checkAnchorTargets],
+  ['and a wired button reaches a panel, not something that shares its name', checkPopoverResolves],
   ['every switch is wired to its own cases', checkSwitches],
   ['no block still says when it shows in props', checkRetiredProps],
   ['content varies on one state, exclusively', checkContentRules],
@@ -862,7 +930,7 @@ const VIOLATIONS = [
   [
     checkPopoverRefs,
     'a button opening a popover that is not in the block',
-    { type: 'frame', name: 'F', children: [{ type: 'button', name: 'B', props: { popoverTarget: 'popover@Ghost' } }] },
+    { type: 'frame', name: 'F', children: [{ type: 'button', name: 'B', refs: { popover: 'Ghost' } }] },
   ],
   [
     checkSwitches,
@@ -1025,6 +1093,18 @@ const VIOLATIONS = [
   [checkNames, 'a node with a blank name', { type: 'frame', name: '   ' }],
 ];
 
+/*
+ * The wiring rule read `props.popoverTarget` until references moved into
+ * `refs`, and the moment they did it matched nothing and passed on all 49
+ * blocks. A rule that reads a field is only as good as the field still being
+ * the one in use, so it counts what it saw.
+ */
+report.check(
+  'and the wiring rule is still reading whatever wiring is spelled as',
+  seenPopoverRefs > 5,
+  `${seenPopoverRefs} invokers seen across the registry`
+);
+
 report.group('the checks would catch a violation');
 for (const [fn, description, spec] of VIOLATIONS) {
   report.check(`rejects ${description}`, fn(spec).length > 0);
@@ -1049,6 +1129,199 @@ const asDocument = (nodes) => ({
   version: 1,
   nodes: Object.fromEntries(nodes.map((node, i) => [`n${i}`, { id: `n${i}`, props: {}, ...node }])),
 });
+
+/* --------------------------------------------------------------------------
+ * References between elements
+ *
+ * Elements have pointed at each other since the first popover, and every time
+ * it was spelled differently — a node id in a prop, a `popover@Name` awaiting
+ * a resolver, a `componentId`, a list of node ids in a component property.
+ * Two had their own resolution pass and only one had cleanup, which is why
+ * deleting a panel left every button that opened it pointing at an id no
+ * longer in the document. Nothing reported it: a `popovertarget` naming
+ * nothing renders fine and does nothing.
+ *
+ * So the checks are about the properties a *first-class* reference has, and
+ * each of them is one the old spelling did not: it resolves once, it is
+ * enumerable, it survives a copy, and it does not outlive what it points at.
+ * ----------------------------------------------------------------------- */
+
+report.group('a reference is a thing the document knows about');
+
+{
+  /** A button, the panel it opens, and something else to point at. */
+  const wired = () => {
+    const doc = createEmptyDocument('Refs');
+    const page = doc.pages[0];
+    const nodes = {};
+    const { rootId } = buildTree(
+      {
+        type: 'frame',
+        name: 'Bar',
+        children: [
+          { type: 'button', name: 'Open', props: { label: 'Open' }, refs: { popover: 'Panel' } },
+          { type: 'text', name: 'Beside', props: { text: 'x' } },
+          { type: 'popover', name: 'Panel', props: { anchorTo: 'below' }, children: [] },
+        ],
+      },
+      nodes,
+      page.rootNodeId
+    );
+    Object.assign(doc.nodes, nodes);
+    doc.nodes[page.rootNodeId].children.push(rootId);
+    const by = (name) => Object.values(doc.nodes).find((n) => n.name === name);
+    return { doc, button: by('Open'), panel: by('Panel'), beside: by('Beside') };
+  };
+
+  const { doc, button, panel, beside } = wired();
+
+  report.check(
+    'a name in a spec becomes an id in the document',
+    button.refs?.popover?.node === panel.id,
+    JSON.stringify(button.refs)
+  );
+  report.check(
+    'and a name matching nothing is dropped rather than left dangling',
+    (() => {
+      const nodes = {};
+      buildTree({ type: 'button', name: 'B', refs: { popover: 'Ghost' } }, nodes);
+      return Object.values(nodes).every((n) => !n.refs);
+    })(),
+    'no reference to a node that is not there'
+  );
+  report.check(
+    'a panel that asked to be anchored is anchored to whatever opens it',
+    button.refs?.anchorFor?.node === panel.id,
+    'the default nobody should have to state twice'
+  );
+  report.check(
+    'every reference is reachable from one walk',
+    [...everyRef(doc.nodes)].length === 2,
+    `${[...everyRef(doc.nodes)].length} found — the property a prop could never have`
+  );
+
+  /* ------------------------------------------------ pointing somewhere else */
+
+  ops.setAnchor(doc, panel.id, beside.id);
+  report.check(
+    'pointing a panel at something else moves the reference',
+    !button.refs?.anchorFor && beside.refs?.anchorFor?.node === panel.id,
+    'one claim at a time — two would resolve to whichever is lower in the tree'
+  );
+  report.check(
+    'and the button still opens it',
+    button.refs?.popover?.node === panel.id,
+    'the two slots are independent'
+  );
+  report.check(
+    'un-anchoring leaves no reference behind',
+    (ops.setAnchor(doc, panel.id, null), !beside.refs?.anchorFor),
+    'and no empty map either'
+  );
+
+  /* -------------------------------------------------- integrity on deletion */
+
+  {
+    const { doc: d2, button: b2, panel: p2 } = wired();
+    ops.removeNodes(d2, [p2.id]);
+    report.check(
+      'deleting a panel clears the reference to it',
+      !b2.refs?.popover,
+      // The bug this whole primitive is for: the button used to keep an id
+      // that was no longer in the document and silently stop working.
+      b2.refs ? JSON.stringify(b2.refs) : 'nothing left pointing at a ghost'
+    );
+    report.check(
+      'and the anchor back-reference with it',
+      !b2.refs?.anchorFor,
+      'both slots, because cleanup walks the map rather than a named prop'
+    );
+  }
+
+  /* ------------------------------------------------------ surviving a copy */
+
+  {
+    const { doc: d3, button: b3, panel: p3 } = wired();
+    const bar = d3.nodes[b3.parentId];
+    const copies = ops.duplicateNodes(d3, [bar.id]);
+    const inside = collectSubtreeNames(d3, copies[0]);
+    report.check(
+      'a copied button opens the copied panel, not the original',
+      inside.button?.refs?.popover?.node === inside.panel?.id &&
+        inside.panel?.id !== p3.id,
+      inside.button?.refs?.popover?.node === p3.id
+        ? 'both copies open the first panel'
+        : 'rewired to its own'
+    );
+  }
+
+  /* ------------------------------------------------------------- migration */
+
+  {
+    const old = createEmptyDocument('Older');
+    const page = old.pages[0];
+    const nodes = {};
+    const { rootId } = buildTree(
+      { type: 'button', name: 'Legacy', props: { label: 'Open' } },
+      nodes,
+      page.rootNodeId
+    );
+    Object.assign(old.nodes, nodes);
+    old.nodes[page.rootNodeId].children.push(rootId);
+    // The shape every project in the wild carries: a bare node id in a prop.
+    old.nodes[rootId].props.popoverTarget = page.rootNodeId;
+
+    migrateDocument(old);
+    report.check(
+      'a project saved before this opens with its wiring intact',
+      old.nodes[rootId].refs?.popover?.node === page.rootNodeId &&
+        old.nodes[rootId].props.popoverTarget === undefined,
+      JSON.stringify(old.nodes[rootId].refs ?? null)
+    );
+    const again = JSON.stringify(old.nodes[rootId]);
+    migrateDocument(old);
+    report.check(
+      'and running it twice changes nothing',
+      JSON.stringify(old.nodes[rootId]) === again,
+      'idempotent'
+    );
+  }
+
+  /* Each of the above, handed something it must reject. */
+  report.check(
+    'the cleanup only removes what is actually gone',
+    (() => {
+      const { doc: d4, button: b4, panel: p4 } = wired();
+      pruneRefs(d4.nodes);
+      return b4.refs?.popover?.node === p4.id;
+    })(),
+    'a live reference survives a prune'
+  );
+  report.check(
+    'and it would notice one that is',
+    (() => {
+      const { doc: d5, button: b5 } = wired();
+      b5.refs.popover = { node: 'a-node-that-was-never-here' };
+      pruneRefs(d5.nodes);
+      return !b5.refs?.popover;
+    })(),
+    'the half of the rule that could quietly do nothing'
+  );
+}
+
+/** The button and panel inside a copied subtree, by name. */
+function collectSubtreeNames(doc, rootId) {
+  const out = {};
+  const stack = [rootId];
+  while (stack.length) {
+    const node = doc.nodes[stack.pop()];
+    if (!node) continue;
+    if (node.name === 'Open') out.button = node;
+    if (node.name === 'Panel') out.panel = node;
+    stack.push(...node.children);
+  }
+  return out;
+}
 
 report.group('a document saved before rules still opens');
 

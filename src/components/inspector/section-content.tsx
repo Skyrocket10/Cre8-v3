@@ -28,7 +28,7 @@ import {
   slug,
   slugList,
 } from '@/lib/document/schema';
-import type { Asset, ElementType, StyleDecl, StyleProp } from '@/lib/document/types';
+import type { Asset, ElementType, RefSlot, StyleDecl, StyleProp } from '@/lib/document/types';
 import {
   exposeProperty,
   removeComponentProperty,
@@ -269,6 +269,28 @@ function useInsideForm(): boolean {
     }
     return false;
   });
+}
+
+/**
+ * Point one element at another, as one step in history.
+ *
+ * The whole of the editor's side of a reference: a slot, a target, and `null`
+ * to clear. Deliberately not a style write and not a prop write — a reference
+ * is neither, and giving it its own verb is what stops the next one being
+ * spelled a third way.
+ */
+function useSetRef() {
+  return React.useCallback((nodeId: string, slot: RefSlot, target: string | null) => {
+    useEditor.getState().transact(target ? 'Point at element' : 'Clear reference', (draft) => {
+      const node = draft.nodes[nodeId];
+      if (!node) return;
+      if (target) node.refs = { ...node.refs, [slot]: { node: target } };
+      else if (node.refs) {
+        delete node.refs[slot];
+        if (!Object.keys(node.refs).length) delete node.refs;
+      }
+    });
+  }, []);
 }
 
 /** Every named anchor under the root being edited. */
@@ -788,41 +810,64 @@ const ANCHOR_PROPS: StyleProp[] = [
  * which opened in the middle of the viewport.
  */
 function PlacementRows() {
+  const panelId = useEditor((s) => s.selection[0]);
   const anchorTo = useNodeProp('anchorTo');
   const area = useStyleProp('positionArea');
+  const offset = useStyleProp('marginTop');
+  const flips = useStyleProp('positionTryFallbacks');
   const write = useStyleWriter();
   const reset = useStyleReset();
+  const candidates = useAnchorCandidates();
+
+  // The reference is stored on the *other* element, pointing back here. This
+  // is the one scan that buys the panel the right to say "Relative to", and
+  // the inspector is where it belongs: it has the document, and it is not in
+  // a render loop.
+  const anchoredTo = useEditor((s) => {
+    const id = s.selection[0];
+    if (!id) return '';
+    return Object.values(s.doc.nodes).find((n) => n.refs?.anchorFor?.node === id)?.id ?? '';
+  });
 
   const to = String(anchorTo.value ?? '');
   const align = String(area.value ?? '').includes('span-inline-start') ? 'end' : 'start';
+  const gap = String(offset.value ?? '8px');
 
-  const place = (nextTo: string, nextAlign: string) => {
+  const place = (
+    nextTo: string,
+    nextAlign: string,
+    nextGap = gap,
+    nextFlips = String(flips.value ?? 'flip-block, flip-inline')
+  ) => {
     if (!nextTo) {
       anchorTo.set(undefined);
       // Back to the element's own centring, which is what removing the
       // overrides restores rather than something this has to restate.
       reset(ANCHOR_PROPS);
+      if (panelId) useEditor.getState().setAnchor(panelId, null);
       return;
     }
     anchorTo.set(nextTo);
     write({
       position: 'fixed',
       inset: 'auto',
-      marginTop: nextTo === 'below' ? '8px' : '0px',
-      marginBottom: nextTo === 'above' ? '8px' : '0px',
+      marginTop: nextTo === 'below' ? nextGap : '0px',
+      marginBottom: nextTo === 'above' ? nextGap : '0px',
       marginLeft: '0px',
       marginRight: '0px',
       positionArea: `${nextTo === 'below' ? 'block-end' : 'block-start'} ${
         nextAlign === 'end' ? 'span-inline-start' : 'span-inline-end'
       }`,
-      // A menu near the edge turns instead of hanging off it.
-      positionTryFallbacks: 'flip-block, flip-inline',
+      positionTryFallbacks: nextFlips,
     });
+    // No element named yet means the button that opens it, which is what
+    // somebody means nine times in ten.
+    if (panelId && !anchoredTo) useEditor.getState().setAnchor(panelId, undefined);
   };
 
   return (
     <>
-      <StyleRow label="Opens" hint="Centred is a modal; the others follow the button">
+      <StyleRow label="Opens" hint="Centred is a modal; the others follow an element">
         <Segmented
           full
           value={to || 'centred'}
@@ -835,20 +880,86 @@ function PlacementRows() {
         />
       </StyleRow>
       {to && (
-        <StyleRow label="Aligned">
-          <Segmented
-            full
-            value={align}
-            onChange={(value) => place(to, value)}
-            options={[
-              { value: 'start', label: 'Left edges' },
-              { value: 'end', label: 'Right edges' },
-            ]}
-          />
-        </StyleRow>
+        <>
+          <StyleRow label="Relative to">
+            <Select
+              className="flex-1"
+              value={anchoredTo}
+              onChange={(value) => panelId && useEditor.getState().setAnchor(panelId, value || null)}
+              options={candidates.map((one) => ({
+                value: one.id,
+                label: one.name,
+                hint: one.hint,
+              }))}
+            />
+          </StyleRow>
+          <StyleRow label="Aligned">
+            <Segmented
+              full
+              value={align}
+              onChange={(value) => place(to, value)}
+              options={[
+                { value: 'start', label: 'Left edges' },
+                { value: 'end', label: 'Right edges' },
+              ]}
+            />
+          </StyleRow>
+          <StyleRow label="Offset" hint="The gap between the panel and what it follows">
+            <TextInput
+              className="flex-1"
+              value={gap}
+              onValueChange={(value) => place(to, align, value || '0px')}
+            />
+          </StyleRow>
+          <StyleRow label="Near an edge" hint="What to do when it would leave the window">
+            <Segmented
+              full
+              value={flips.value ? 'flip' : 'stay'}
+              onChange={(value) =>
+                place(to, align, gap, value === 'flip' ? 'flip-block, flip-inline' : 'none')
+              }
+              options={[
+                { value: 'flip', label: 'Turn round' },
+                { value: 'stay', label: 'Stay put' },
+              ]}
+            />
+          </StyleRow>
+        </>
       )}
     </>
   );
+}
+
+/**
+ * What a panel may be positioned against.
+ *
+ * Everything on the page that is not the panel itself or inside it — an
+ * element cannot follow its own child, and offering it would produce a layout
+ * that resolves to nothing. Named by the layer name, because that is the
+ * handle a person has on an element.
+ */
+function useAnchorCandidates(): { id: string; name: string; hint?: string }[] {
+  const encoded = useEditor((s) => {
+    const rootId = activeRootId(s);
+    const panelId = s.selection[0];
+    if (!rootId || !panelId) return '';
+    const inside = new Set(collectSubtree(s.doc.nodes, panelId));
+    const opener = Object.values(s.doc.nodes).find((n) => n.refs?.popover?.node === panelId)?.id;
+    return collectSubtree(s.doc.nodes, rootId)
+      .filter((id) => !inside.has(id))
+      .map((id) => s.doc.nodes[id])
+      .filter((node): node is NonNullable<typeof node> => Boolean(node) && node!.type !== 'page')
+      .map((node) => `${node.id}${FIELD}${node.name}${FIELD}${node.id === opener ? 'opens it' : ''}`)
+      .join(ENTRY);
+  });
+
+  return useMemo(() => {
+    if (!encoded) return [];
+    return encoded.split(ENTRY).map((entry) => {
+      const [id = '', name = '', hint = ''] = entry.split(FIELD);
+      return hint ? { id, name, hint } : { id, name };
+    });
+  }, [encoded]);
 }
 
 function DialogContent() {
@@ -907,13 +1018,17 @@ function DialogContent() {
  * so choosing a popover clears the link.
  */
 function PopoverTargetRows() {
-  const target = useNodeProp('popoverTarget');
+  const nodeId = useEditor((s) => s.selection[0]);
+  const current = useEditor((s) => {
+    const id = s.selection[0];
+    return (id && s.doc.nodes[id]?.refs?.popover?.node) || '';
+  });
+  const setRef = useSetRef();
   const action = useNodeProp('popoverAction');
   const href = useNodeProp('href');
   const popovers = usePopovers();
 
-  if (popovers.length === 0) return null;
-  const current = String(target.value ?? '');
+  if (popovers.length === 0 || !nodeId) return null;
 
   return (
     <>
@@ -922,7 +1037,7 @@ function PopoverTargetRows() {
           className="flex-1"
           value={current}
           onChange={(value) => {
-            target.set(value || undefined);
+            setRef(nodeId, 'popover', value || null);
             if (value) href.set(undefined);
             else action.set(undefined);
           }}
@@ -1721,7 +1836,10 @@ function LinkContent({
   const label = useNodeProp(labelProp);
   const href = useNodeProp('href');
   const target = useNodeProp('target');
-  const popoverTarget = useNodeProp('popoverTarget');
+  const opensAPopover = useEditor((s) => {
+    const id = s.selection[0];
+    return Boolean(id && s.doc.nodes[id]?.refs?.popover);
+  });
   const pages = useEditor((s) => s.doc.pages);
   /*
    * Children replace the label rather than sitting beside it — both renderers
@@ -1737,7 +1855,7 @@ function LinkContent({
   const submit = useNodeProp('submit');
   const insideForm = useInsideForm();
   const submits = Boolean(submit.value);
-  const opensPopover = Boolean(popoverTarget.value);
+  const opensPopover = opensAPopover;
   const current = String(href.value ?? '');
   const isPageLink = current.startsWith('page:');
   /*

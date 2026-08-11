@@ -122,8 +122,30 @@ function migrateBindings(node: SceneNode): void {
 /** The props the visibility condition used to live in. */
 const RETIRED_PROPS = ['switchCase', 'whenIs', 'whenState', 'whenNot', 'hideMode'] as const;
 
+/**
+ * `props.popoverTarget` becomes `refs.popover`.
+ *
+ * Recognised by shape, like everything else here: the prop existing is the
+ * whole signal, because `version` was written from the beginning and read by
+ * nothing. Idempotent by construction — the prop is deleted, so a second run
+ * finds nothing to do.
+ *
+ * A reference already in `refs` wins. A document could be part-way through if
+ * it was open in one tab while another wrote it, and the newer spelling is the
+ * one somebody chose most recently.
+ */
+function migrateRefs(node: SceneNode): void {
+  const target = node.props.popoverTarget;
+  if (typeof target !== 'string') return;
+  if (target && !node.refs?.popover) {
+    node.refs = { ...node.refs, popover: { node: target } };
+  }
+  delete node.props.popoverTarget;
+}
+
 function migrateNode(node: SceneNode): void {
   migrateBindings(node);
+  migrateRefs(node);
 
   const legacy = (node as SceneNode & { states?: StateStyles }).states;
   const hasRetired = RETIRED_PROPS.some((key) => node.props[key] !== undefined);
