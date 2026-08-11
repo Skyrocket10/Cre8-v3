@@ -991,6 +991,14 @@ refused; it cannot be spelled. The formatter itself is longhand, with no `Intl`
 and no time zone anywhere in it, because it runs on the canvas and in the Worker
 and §7's gate is that those two produce the same bytes.
 
+Duplicating a component is the one entry that needed a document operation
+written for it rather than lifted from a panel, and the reason is worth
+keeping: a component is not a subtree. It is a master tree, a tree per
+variant, and properties naming nodes inside all of them — so every tree is
+cloned through *one* id map. A map per tree could only remap the one it was
+built for, and the copy's property would reach its own master and the
+original's variants at the same time.
+
 ### Expressions are written as sentences, not forms
 
 A labelled row per property is right for `padding` and `font-size` — that is

@@ -6291,6 +6291,164 @@ report.group('one catalogue, and every surface dispatches through it');
  * anybody can assert on.
  * ----------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------
+ * Duplicating a component
+ *
+ * The one operation in the component set that could not be assembled out of
+ * the others, and the reason the menu had been missing it. A component is not
+ * a subtree: it is a master tree, a tree per variant, and properties naming
+ * nodes inside all of them. Clone the master and stop, and the copy shares the
+ * original's variants — edit the copy's secondary button and the original
+ * changes with it, which is exactly what a duplicate exists to avoid.
+ *
+ * So the checks are about independence rather than about the copy existing.
+ * Every one of them is a way for two components to stay joined.
+ * ----------------------------------------------------------------------- */
+
+report.group('a duplicated component shares nothing with the one it came from');
+
+{
+  /** A component with a variant and a property reaching into both trees. */
+  const build = () => {
+    const doc = createEmptyDocument('Kit');
+    const page = doc.pages[0];
+    const built = buildTree(
+      { type: 'frame', name: 'Card', children: [{ type: 'paragraph', name: 'Label', props: { text: 'Hello' } }] },
+      doc.nodes
+    );
+    doc.nodes[built.rootId].parentId = page.rootNodeId;
+    doc.nodes[page.rootNodeId].children.push(built.rootId);
+
+    const made = ops.createComponentFromNode(doc, built.rootId, 'Card');
+    const label = Object.values(doc.nodes).find(
+      (n) => n.name === 'Label' && n.meta.componentId === made.component.id
+    );
+    // Through the real target list, so the fixture cannot expose something
+    // the editor would refuse.
+    const target = componentLib.exposableTargets(label).find((t) => t.type === 'text');
+    ops.exposeProperty(doc, made.component.id, label.id, target, 'Label text');
+    ops.addVariant(doc, made.component.id, 'Compact');
+    return { doc, source: doc.components[0] };
+  };
+
+  const { doc, source } = build();
+  const before = {
+    nodes: Object.keys(doc.nodes).length,
+    variants: source.variants.length,
+    properties: source.properties.length,
+  };
+  const copy = ops.duplicateComponent(doc, source.id);
+
+  report.check('the copy exists and is a second component', Boolean(copy) && doc.components.length === 2);
+  report.check(
+    'it is named so the two can be told apart',
+    copy.name !== source.name && copy.name.startsWith(source.name),
+    `${source.name} → ${copy.name}`
+  );
+
+  /* Independence, tree by tree. */
+  report.check(
+    'its master is a different tree',
+    copy.rootNodeId !== source.rootNodeId && Boolean(doc.nodes[copy.rootNodeId])
+  );
+  report.check(
+    'and so is every variant — not the original’s, borrowed',
+    copy.variants?.length === before.variants &&
+      copy.variants.every((v) => !source.variants.some((s) => s.rootNodeId === v.rootNodeId)),
+    `${copy.variants?.length ?? 0} variants, none shared`
+  );
+  report.check(
+    'the nodes really were copied rather than moved',
+    Object.keys(doc.nodes).length > before.nodes &&
+      Object.values(doc.nodes).filter((n) => n.meta.componentId === source.id).length > 0,
+    `${Object.keys(doc.nodes).length - before.nodes} nodes added`
+  );
+  report.check(
+    'and every one of them belongs to the copy, not to the original',
+    Object.values(doc.nodes)
+      .filter((n) => [copy.rootNodeId, ...copy.variants.map((v) => v.rootNodeId)].includes(n.id))
+      .every((n) => n.meta.componentId === copy.id),
+    'meta.componentId follows the copy'
+  );
+
+  /*
+   * The properties, which is where a per-tree id map would have gone wrong.
+   * One property names a node in the master *and* one in each variant, so a
+   * map built for a single tree could only remap the one it was built for —
+   * the copy's property would reach its own master and the original's variant
+   * at the same time.
+   */
+  const ownNodes = new Set(
+    Object.values(doc.nodes)
+      .filter((n) => n.meta.componentId === copy.id)
+      .map((n) => n.id)
+  );
+  report.check(
+    'a property came across with the same name',
+    copy.properties?.length === before.properties &&
+      copy.properties[0].name === source.properties[0].name,
+    `${copy.properties?.length ?? 0} properties`
+  );
+  report.check(
+    'with a new id, because an override is keyed by it',
+    copy.properties[0].id !== source.properties[0].id
+  );
+  report.check(
+    'and every node it names is inside the copy',
+    copy.properties[0].nodeIds.length === source.properties[0].nodeIds.length &&
+      copy.properties[0].nodeIds.every((id) => ownNodes.has(id)),
+    `${copy.properties[0].nodeIds.length} of ${source.properties[0].nodeIds.length} remapped, all owned`
+  );
+  report.check(
+    'reaching every tree, not only the master',
+    copy.properties[0].nodeIds.length > 1,
+    'a property spans the master and each variant'
+  );
+
+  /* Editing one must not move the other. */
+  {
+    const copyLabel = copy.properties[0].nodeIds[0];
+    doc.nodes[copyLabel].props.text = 'Changed';
+    const sourceLabel = source.properties[0].nodeIds[0];
+    report.check(
+      'editing the copy leaves the original alone',
+      doc.nodes[sourceLabel].props.text === 'Hello',
+      String(doc.nodes[sourceLabel].props.text)
+    );
+  }
+
+  /* A property with nothing to point at. */
+  {
+    const fresh = build();
+    const stray = ops.duplicateComponent(fresh.doc, fresh.source.id);
+    // A property naming a node in another component would follow the original
+    // across, which is not a property — it is a thread back.
+    fresh.source.properties[0].nodeIds.push('somewhere-else');
+    const second = ops.duplicateComponent(fresh.doc, fresh.source.id);
+    report.check(
+      'a property naming a node outside the component drops that name',
+      !second.properties[0].nodeIds.includes('somewhere-else'),
+      second.properties[0].nodeIds.join(', ')
+    );
+    report.check(
+      'and the duplicate is still named apart from both',
+      new Set([fresh.source.name, stray.name, second.name]).size === 3,
+      [fresh.source.name, stray.name, second.name].join(' / ')
+    );
+  }
+
+  /* Each of the above, handed something it must reject. */
+  report.check(
+    'duplicating something that is not there produces nothing',
+    ops.duplicateComponent(doc, 'no-such-component') === null
+  );
+  report.check(
+    'the independence checks are comparing two real things',
+    source.variants.length > 0 && source.properties[0].nodeIds.length > 1,
+    'the fixture has a variant and a property that spans it'
+  );
+}
+
 report.group('an expression is described in one place');
 
 {

@@ -909,6 +909,20 @@ export const COMMANDS: Record<string, EditorCommand> = {
       if (component) ctx.store.insertComponentInstance(component.id);
     },
   },
+  duplicateComponent: {
+    id: 'duplicateComponent',
+    icon: 'copy',
+    label: 'Duplicate component',
+    enabled: (ctx) => editable(ctx) && Boolean(componentOf(ctx)),
+    run: (ctx) => {
+      const component = componentOf(ctx);
+      if (!component) return;
+      if (ctx.store.duplicateComponent(component.id)) {
+        ctx.store.toast('Component duplicated', 'success');
+      }
+    },
+  },
+
   addVariant: {
     id: 'addVariant',
     icon: 'copyPlus',

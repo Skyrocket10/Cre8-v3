@@ -410,6 +410,7 @@ interface EditorActions {
   setInstanceVariant(instanceId: NodeId, variantId: string | undefined): void;
   /** Clone a tree into a new variant and open it. Returns its id. */
   addComponentVariant(componentId: string, fromVariantId?: string): string | null;
+  duplicateComponent(componentId: string): string | null;
   toggleHidden(ids?: NodeId[]): void;
   toggleLocked(ids?: NodeId[]): void;
   reorderInParent(id: NodeId, direction: 1 | -1): void;
@@ -1434,6 +1435,18 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     // a document, and the next thing anybody wants is to change what makes it
     // different from the one it was cloned from.
     if (created) get().editComponent(componentId, created);
+    return created;
+  },
+
+  duplicateComponent(componentId) {
+    let created: string | null = null;
+    get().transact('Duplicate component', (draft) => {
+      created = ops.duplicateComponent(draft, componentId)?.id ?? null;
+    });
+    // Not opened, unlike a new variant. A variant you cannot see is a tree in
+    // a document and the next thing anybody does is change it; a duplicated
+    // component is usually the *start* of something, and dropping somebody
+    // into the master editor is one Escape they did not ask for.
     return created;
   },
 

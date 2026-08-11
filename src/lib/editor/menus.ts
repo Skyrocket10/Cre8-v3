@@ -238,6 +238,7 @@ const COMPONENT_MENU: MenuItem[] = [
   { kind: 'command', id: 'insertInstance' },
   { kind: 'separator' },
   { kind: 'command', id: 'addVariant' },
+  { kind: 'command', id: 'duplicateComponent' },
   { kind: 'command', id: 'renameComponent' },
   { kind: 'separator' },
   { kind: 'command', id: 'deleteComponent' },

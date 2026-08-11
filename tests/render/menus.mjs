@@ -211,6 +211,12 @@ const closeMenu = async () => {
   await page.waitForTimeout(200);
 };
 
+/** Dismiss anything still open, so the next right-click lands on the panel. */
+const dismissMenu = async () => {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+};
+
 try {
   await signUp(page, 'Mona Menu', 'menu');
   await page.locator('button:has-text("Blank")').first().click();
@@ -864,13 +870,49 @@ try {
     variantItems.includes('Delete variant') && !variantItems.includes('Delete component'),
     variantItems.join(', ')
   );
+  /*
+   * Duplicate, with the variant still there — which is the case worth taking
+   * the menu through. A component is a master tree, a tree per variant and
+   * properties naming nodes in all of them, so a duplicate that only cloned
+   * the master would leave the two sharing variants: edit the copy's and the
+   * original changes with it.
+   */
+  const cbox2 = await componentRow.boundingBox();
+  await page.mouse.click(cbox2.x + 40, cbox2.y + cbox2.height / 2, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
+  report.check(
+    'a component can be duplicated from its own menu',
+    (await menuLabels()).includes('Duplicate component'),
+    (await menuLabels()).join(', ')
+  );
+  await clickItem('Duplicate component');
+  await page.waitForTimeout(800);
+
+  const componentNames = await page
+    .locator('[data-component-row]')
+    .allTextContents()
+    .then((all) => all.map((one) => one.replace(/\s+/g, ' ').trim()));
+  report.check(
+    'which makes a second one, named apart from the first',
+    componentNames.length === 2 && new Set(componentNames).size === 2,
+    componentNames.join(' / ')
+  );
+  report.check(
+    'and the copy brought the variant with it rather than sharing one',
+    (await page.locator('[data-variant-row]').count()) >= 1,
+    `${await page.locator('[data-variant-row]').count()} variant rows across both`
+  );
+
+  await dismissMenu();
+  const vbox2 = await page.locator('[data-variant-row]').first().boundingBox();
+  await page.mouse.click(vbox2.x + 30, vbox2.y + vbox2.height / 2, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 4000 });
   await clickItem('Delete variant');
   await page.waitForTimeout(700);
   report.check(
     'which deletes the variant and leaves the component',
-    (await page.locator('[data-variant-row]').count()) === 0 &&
-      (await page.locator('[data-component-row]').count()) > 0,
-    'variant gone, component stays'
+    (await page.locator('[data-component-row]').count()) === 2,
+    'variant gone, both components stay'
   );
 
   /* --- Assets ------------------------------------------------------------ */

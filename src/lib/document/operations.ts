@@ -745,6 +745,94 @@ export function createComponentFromNode(
   return { component, instanceId };
 }
 
+/**
+ * A second component with the same design, and no thread back to the first.
+ *
+ * The one operation in the component set that could not be assembled out of
+ * the others, which is why the menu has been missing it: a component is not a
+ * subtree, it is a *master tree, plus a tree per variant, plus properties that
+ * name nodes inside all of them*. Cloning the master and stopping leaves a
+ * component whose variants are shared with the original — edit the copy's
+ * secondary button and the original's changes with it, which is the exact
+ * confusion a duplicate exists to avoid.
+ *
+ * So every tree is cloned through **one** id map. That is the load-bearing
+ * detail: `properties.nodeIds` names a node in each tree it reaches, and a map
+ * per tree could only remap the one it was built for — the property would
+ * follow the copy's master and the original's variants at the same time.
+ */
+export function duplicateComponent(
+  doc: Cre8Document,
+  componentId: string,
+  name?: string
+): ComponentDefinition | null {
+  const source = doc.components.find((c) => c.id === componentId);
+  if (!source || !doc.nodes[source.rootNodeId]) return null;
+
+  const subtree: NodeMap = {};
+  const remap = new Map<NodeId, NodeId>();
+  const rootNodeId = cloneSubtree(doc.nodes, source.rootNodeId, subtree, null, remap);
+  if (!rootNodeId) return null;
+
+  const variants: ComponentVariant[] = [];
+  for (const variant of source.variants ?? []) {
+    if (!doc.nodes[variant.rootNodeId]) continue;
+    const cloned = cloneSubtree(doc.nodes, variant.rootNodeId, subtree, null, remap);
+    if (cloned) variants.push({ id: uid(), name: variant.name, rootNodeId: cloned });
+  }
+
+  const copy: ComponentDefinition = {
+    id: uid(),
+    name: uniqueComponentName(doc, name?.trim() || source.name),
+    rootNodeId,
+    createdAt: Date.now(),
+    ...(source.category ? { category: source.category } : {}),
+    ...(variants.length ? { variants } : {}),
+  };
+
+  /*
+   * Properties keep their names and their defaults and get new ids, because a
+   * property id is what an instance's overrides are keyed by — sharing them
+   * would make an override written against the original apply to the copy.
+   * A `nodeId` with no counterpart is dropped rather than carried across: it
+   * would point into the original's tree, and a property that reaches into
+   * another component is not a property, it is a bug with a name.
+   */
+  const properties = (source.properties ?? [])
+    .map((property) => ({
+      ...structuredCloneCompat(property),
+      id: uid(),
+      nodeIds: property.nodeIds
+        .map((id) => remap.get(id))
+        .filter((id): id is NodeId => Boolean(id)),
+    }))
+    .filter((property) => property.nodeIds.length > 0);
+  if (properties.length) copy.properties = properties;
+
+  for (const [id, node] of Object.entries(subtree)) {
+    node.meta.componentId = copy.id;
+    doc.nodes[id] = node;
+  }
+  // The trees are named after the component, and the copy is not that
+  // component any more. Left alone they would all read "Card" in the layer
+  // tree, which is where somebody goes to work out which one they are editing.
+  const newRoot = doc.nodes[rootNodeId];
+  if (newRoot) newRoot.name = copy.name;
+  for (const variant of variants) {
+    const root = doc.nodes[variant.rootNodeId];
+    if (root) root.name = `${copy.name} — ${variant.name}`;
+  }
+
+  doc.components.push(copy);
+  return copy;
+}
+
+function uniqueComponentName(doc: Cre8Document, wanted: string): string {
+  const taken = new Set(doc.components.map((c) => c.name));
+  if (!taken.has(wanted)) return wanted;
+  for (let n = 2; ; n++) if (!taken.has(`${wanted} ${n}`)) return `${wanted} ${n}`;
+}
+
 export function insertInstance(
   doc: Cre8Document,
   componentId: string,
