@@ -22,6 +22,7 @@ import { ICON_NAMES, ICON_PATHS } from '@/lib/renderer/icons';
 import {
   SEMANTIC_TAGS,
   SWITCH_SHOW_ALL,
+  anchorId,
   getElement,
   readCase,
   slug,
@@ -197,9 +198,98 @@ function SemanticContent() {
             className="flex-1"
           />
         </StyleRow>
+        <AnchorRow />
       </InspectorGroup>
     </Section>
   );
+}
+
+/**
+ * Naming a section so a link can point at it.
+ *
+ * The one-page site is most of what people build, and until this existed the
+ * app could not make one: a nav could point at a page or at a URL, so the
+ * "Work / Services / About" across the top of a single-page design had nowhere
+ * to go and shipped as `#`. Seven of the eight templates were in that state.
+ *
+ * The typed text is not the fragment — `anchorId` lowercases it and drops
+ * everything a URL would have to escape — so the field shows what the link
+ * will actually say underneath. A control that silently rewrites its own value
+ * is a control people stop trusting.
+ */
+function AnchorRow() {
+  const nodeId = useEditor((s) => s.selection[0]);
+  const anchor = useNodeProp('anchor');
+  const anchors = useAnchors();
+  const typed = String(anchor.value ?? '');
+  const fragment = anchorId(typed);
+  // Two elements answering to one id is a link that scrolls to whichever the
+  // browser met first — invisible in the editor, wrong half the time live.
+  const taken = anchors.find((one) => one.anchor === fragment && one.id !== nodeId);
+
+  return (
+    <>
+      <StyleRow label="Anchor">
+        <TextInput
+          className="flex-1"
+          value={typed}
+          placeholder="none"
+          onValueChange={(value) => anchor.set(value.trim() ? value : undefined)}
+        />
+      </StyleRow>
+      {fragment && (
+        <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+          {taken ? (
+            <span className="text-[var(--danger)]">
+              “{taken.name}” already answers to #{fragment}. Links will reach whichever comes
+              first.
+            </span>
+          ) : (
+            <>
+              Links can point here as <code>#{fragment}</code>.
+            </>
+          )}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Whether the selection sits anywhere inside a form. */
+function useInsideForm(): boolean {
+  return useEditor((s) => {
+    let id = s.selection[0];
+    // Bounded by the tree it walks: `parentId` is a chain to a root, and a
+    // root has none.
+    while (id) {
+      const node = s.doc.nodes[id];
+      if (!node) return false;
+      if (node.type === 'form') return true;
+      id = node.parentId ?? undefined;
+    }
+    return false;
+  });
+}
+
+/** Every named anchor under the root being edited. */
+function useAnchors(): { id: string; name: string; anchor: string }[] {
+  const encoded = useEditor((s) => {
+    const rootId = activeRootId(s);
+    if (!rootId) return '';
+    return collectSubtree(s.doc.nodes, rootId)
+      .map((id) => s.doc.nodes[id])
+      .filter((node) => node && anchorId(node.props.anchor))
+      .map((node) => `${node!.id}${FIELD}${node!.name}${FIELD}${anchorId(node!.props.anchor)}`)
+      .join(ENTRY);
+  });
+
+  return useMemo(() => {
+    if (!encoded) return [];
+    return encoded.split(ENTRY).map((entry) => {
+      const [id = '', name = '', anchor = ''] = entry.split(FIELD);
+      return { id, name, anchor };
+    });
+  }, [encoded]);
 }
 
 /* --------------------------------------------------------------------------
@@ -1554,10 +1644,29 @@ function LinkContent({
     return id ? (s.doc.nodes[id]?.children.length ?? 0) > 0 : false;
   });
 
+  const submit = useNodeProp('submit');
+  const insideForm = useInsideForm();
+  const submits = Boolean(submit.value);
   const opensPopover = Boolean(popoverTarget.value);
   const current = String(href.value ?? '');
   const isPageLink = current.startsWith('page:');
-  const mode = isPageLink ? 'page' : 'url';
+  /*
+   * A bare `#` is the default href, not a section link — it is what an
+   * unfinished link says. So the section mode needs a fragment after it, which
+   * also means switching to Section on a page with nothing named leaves the
+   * link where it was rather than silently claiming to point somewhere.
+   */
+  const isSectionLink = current.length > 1 && current.startsWith('#');
+  const anchors = useAnchors();
+  /*
+   * Picking Section on a page with nothing named cannot write an href — there
+   * is no fragment to write — so the choice is remembered here instead, long
+   * enough to explain itself. Held against the node it was made on rather than
+   * as a bare flag, so selecting something else does not inherit it.
+   */
+  const nodeId = useEditor((s) => s.selection[0]);
+  const [sectionFor, setSectionFor] = useState<string | undefined>(undefined);
+  const mode = isPageLink ? 'page' : isSectionLink || sectionFor === nodeId ? 'section' : 'url';
 
   return (
     <Section title={title}>
@@ -1576,26 +1685,49 @@ function LinkContent({
           </StyleRow>
         )}
 
-        {canOpenPopover && <PopoverTargetRows />}
+        {/* Only inside a form, because outside one there is nothing to
+            submit — and a toggle that does nothing wherever you meet it is
+            how a control stops being read. */}
+        {insideForm && (
+          <StyleRow label="Submits" hint="Sends the form it is in">
+            <Switch
+              checked={submits}
+              onChange={(on) => submit.set(on ? true : undefined)}
+              label="Submits the form"
+            />
+          </StyleRow>
+        )}
+
+        {canOpenPopover && !submits && <PopoverTargetRows />}
 
         {/* A popover invoker has to be a <button>, so the two are exclusive —
             and offering a URL that would silently stop working is worse than
-            not offering it. */}
-        {!opensPopover && (
+            not offering it. A submitting button is a `<button>` for the same
+            reason, so its href would be ignored too. */}
+        {!opensPopover && !submits && (
           <>
             <StyleRow label="Links to">
               <Segmented
                 full
                 value={mode}
-                onChange={(value) => href.set(value === 'page' ? `page:${pages[0]?.id ?? ''}` : '#')}
+                onChange={(value) => {
+                  setSectionFor(value === 'section' ? nodeId : undefined);
+                  if (value === 'page') href.set(`page:${pages[0]?.id ?? ''}`);
+                  else if (value === 'url') href.set('#');
+                  // Section with nothing named leaves the link alone: a link
+                  // quietly emptied because a panel had no answer is worse
+                  // than one that stayed where it was.
+                  else if (anchors[0]) href.set(`#${anchors[0].anchor}`);
+                }}
                 options={[
                   { value: 'page', label: 'Page' },
+                  { value: 'section', label: 'Section' },
                   { value: 'url', label: 'URL' },
                 ]}
               />
             </StyleRow>
 
-            {isPageLink ? (
+            {isPageLink && (
               <StyleRow label="Page">
                 <Select
                   className="flex-1"
@@ -1611,7 +1743,32 @@ function LinkContent({
                     }))}
                 />
               </StyleRow>
-            ) : (
+            )}
+
+            {/* A page with nothing named on it has nowhere to point, and an
+                empty dropdown does not say why. */}
+            {isSectionLink &&
+              (anchors.length ? (
+                <StyleRow label="Section">
+                  <Select
+                    className="flex-1"
+                    value={current.slice(1)}
+                    onChange={(value) => href.set(`#${value}`)}
+                    options={anchors.map((one) => ({
+                      value: one.anchor,
+                      label: one.name,
+                      hint: `#${one.anchor}`,
+                    }))}
+                  />
+                </StyleRow>
+              ) : (
+                <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+                  Nothing on this page is named yet. Select the section you want to link to and
+                  give it an Anchor, under Semantics.
+                </p>
+              ))}
+
+            {mode === 'url' && (
               <StyleRow label="URL">
                 <TextInput
                   className="flex-1"

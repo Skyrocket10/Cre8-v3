@@ -153,7 +153,7 @@ export function formSpec(): NodeSpec {
                   {
                     type: 'button',
                     name: 'Create project',
-                    props: { label: 'Create project', href: '' },
+                    props: { label: 'Create project', submit: true },
                     styles: {},
                     states: { hover: { backgroundColor: 'var(--c-secondary)' } },
                   },
@@ -1077,7 +1077,7 @@ export function authSpec(): NodeSpec {
                   {
                     type: 'button',
                     name: 'Sign in button',
-                    props: { label: 'Sign in', href: '' },
+                    props: { label: 'Sign in', submit: true },
                     styles: { width: '100%' },
                     states: { hover: { backgroundColor: 'var(--c-secondary)' } },
                   },
@@ -1562,7 +1562,7 @@ export function filterPanelSpec(): NodeSpec {
                   {
                     type: 'button',
                     name: 'Apply filters',
-                    props: { label: 'Apply filters', href: '' },
+                    props: { label: 'Apply filters', submit: true },
                     styles: { width: '100%', ...pad('11px', '18px'), fontSize: '14px' },
                     states: { hover: { backgroundColor: 'var(--c-secondary)' } },
                   },
@@ -1727,7 +1727,7 @@ export function uploadSpec(): NodeSpec {
                   {
                     type: 'button',
                     name: 'Start import',
-                    props: { label: 'Start import', href: '' },
+                    props: { label: 'Start import', submit: true },
                     styles: { ...pad('11px', '18px'), fontSize: '14px' },
                     states: { hover: { backgroundColor: 'var(--c-secondary)' } },
                   },
@@ -1982,7 +1982,7 @@ export function stepperSpec(): NodeSpec {
                     {
                       type: 'button' as const,
                       name: 'Finish',
-                      props: { label: 'Finish setup', href: '' },
+                      props: { label: 'Finish setup', submit: true },
                       styles: { marginLeft: 'auto', fontSize: '14px', ...pad('10px', '18px') },
                       states: { hover: { backgroundColor: 'var(--c-secondary)' } },
                     },

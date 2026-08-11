@@ -35,6 +35,7 @@ const {
   ELEMENTS,
   PLACEHOLDER_MIN_HEIGHT,
   canContain,
+  anchorId,
   migrateDocument,
   buildTree,
   generateNodeCss,
@@ -49,6 +50,7 @@ const {
   tests,
   values,
   behaviour,
+  TEMPLATES,
 } = loadBlocks();
 
 /** The selector of the first generated rule mentioning `needle`. */
@@ -6304,6 +6306,402 @@ report.group('one catalogue, and every surface dispatches through it');
  * So the checks are about independence rather than about the copy existing.
  * Every one of them is a way for two components to stay joined.
  * ----------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+ * Every template, not one of them
+ *
+ * Eight templates ship and, until this group existed, exactly one of them was
+ * ever checked — `fidelity` opens the SaaS page and nothing looks at the other
+ * seven. That is the gap the block sweep was built to close, left open in the
+ * one place it matters most: a template is the first thing anybody sees, and a
+ * broken link or a hard-coded colour in one is a first impression rather than
+ * a bug report.
+ *
+ * These are the template's own questions rather than the block rules borrowed.
+ * A block is a `NodeSpec` and a template is a finished document, so "does this
+ * grid say what it does when narrow" has already been answered by the blocks
+ * it is made of. What has not been answered is whether the *assembly* holds
+ * together: do its links go anywhere, does every page publish, is the theme it
+ * ships complete.
+ * ----------------------------------------------------------------------- */
+
+report.group(`Templates — ${TEMPLATES.length}, every one of them`);
+
+{
+  /*
+   * There is no alt-text rule here, and that is a decision rather than an
+   * omission: not one of the eight templates contains an `image` node. They
+   * cannot — a template ships as code and an image ships as a file in a
+   * project's own storage, so the artwork is gradient panels, which are
+   * decorative by construction and correctly invisible to a screen reader. A
+   * rule written against zero nodes passes for ever and reads, to whoever
+   * comes next, as a covered case. The block sweep checks alt text where
+   * images actually exist.
+   *
+   * Word boundaries below, because without them "Mastodon" contains "todo" —
+   * which the rule duly reported as filler copy in the blog template's footer
+   * on its first run.
+   */
+  /** Where a literal colour is never the right answer. A gradient is a picture. */
+  const THEME_PROPS = new Set([
+    'color',
+    'backgroundColor',
+    'borderColor',
+    'borderTopColor',
+    'borderRightColor',
+    'borderBottomColor',
+    'borderLeftColor',
+    'outlineColor',
+  ]);
+  const PLACEHOLDER = /lorem ipsum|your text here|\buntitled\b|\btodo\b|\btbd\b|\bxxx\b|placeholder text/i;
+
+  report.check(
+    'template ids are unique',
+    new Set(TEMPLATES.map((t) => t.id)).size === TEMPLATES.length,
+    TEMPLATES.map((t) => t.id).join(', ')
+  );
+  report.check(
+    'every one says what it is, and what colour it is',
+    TEMPLATES.every(
+      (t) => t.name?.trim() && t.description?.trim() && t.swatch?.length === 2
+    ),
+    TEMPLATES.filter((t) => !t.description?.trim()).map((t) => t.id).join(', ') || 'all described'
+  );
+
+  const built = TEMPLATES.map((template) => {
+    try {
+      return { template, doc: template.build(), error: null };
+    } catch (error) {
+      return { template, doc: null, error: String(error?.message ?? error) };
+    }
+  });
+
+  report.check(
+    'every template builds',
+    built.every((one) => one.doc),
+    built.filter((one) => !one.doc).map((one) => `${one.template.id}: ${one.error}`).join(' | ') ||
+      'all eight'
+  );
+
+  /* Collected across every template, so one failure names the template. */
+  const noPages = [];
+  const deadLinks = [];
+  const brokenLinks = [];
+  const rawColour = [];
+  const unnamed = [];
+  const placeholder = [];
+  const skippedHeading = [];
+  const noHeading = [];
+  const wontPublish = [];
+  const formsWithoutSubmit = [];
+  const notSubmittable = [];
+  const unreachable = [];
+  let pagesSwept = 0;
+  let nodesSwept = 0;
+  let linksWalked = 0;
+
+  for (const { template, doc } of built) {
+    if (!doc) continue;
+    const label = template.id;
+    if (!doc.pages.length) noPages.push(label);
+
+    for (const page of doc.pages) {
+      pagesSwept++;
+      // Heading order per page, not per document: a level 1 on the home page
+      // says nothing about what the pricing page may open with.
+      let previous = null;
+      let sawH1 = false;
+      const stack = [page.rootNodeId];
+      let seen = 0;
+      while (stack.length && seen < 5000) {
+        const id = stack.pop();
+        const node = doc.nodes[id];
+        if (!node) continue;
+        seen++;
+        nodesSwept++;
+        // Depth-first in document order, so "skips a level" means what it says.
+        for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
+
+        if (!String(node.name ?? '').trim()) unnamed.push(`${label}/${page.slug || '/'}: a node`);
+
+        if (node.type === 'heading') {
+          const level = Number(node.props?.level ?? 2);
+          if (level === 1) sawH1 = true;
+          if (previous !== null && level > previous + 1) {
+            skippedHeading.push(`${label}/${page.slug || '/'}: h${previous} → h${level}`);
+          }
+          previous = level;
+        }
+        for (const value of Object.values(node.props ?? {})) {
+          if (typeof value === 'string' && PLACEHOLDER.test(value)) {
+            placeholder.push(`${label}: “${value.slice(0, 40)}”`);
+          }
+        }
+        // A form nobody can send. The button inside one is a `<button>`, whose
+        // HTML default is `type="submit"` — so the app writing `type="button"`
+        // on everything meant every contact form it shipped had a Send that
+        // did nothing at all.
+        if (node.type === 'form') {
+          const inside = [];
+          const forStack = [...node.children];
+          while (forStack.length) {
+            const child = doc.nodes[forStack.pop()];
+            if (!child || child.type === 'form') continue;
+            inside.push(child);
+            forStack.push(...child.children);
+          }
+          if (!inside.some((one) => one.props?.submit)) {
+            formsWithoutSubmit.push(`${label}/${page.slug || '/'}: ${node.name}`);
+          }
+        }
+
+        /*
+         * Through the block suite's own `colourOffences`, not a second rule.
+         * Written stricter the first time and it reported four colours that
+         * are already decided — the macOS traffic lights and the mock's
+         * healthy-status green, each in `LITERAL_COLOURS` with a reason. Two
+         * copies of one policy is how the reasons get lost.
+         *
+         * `backgroundImage` is deliberately out of scope. A gradient panel is
+         * a stand-in *picture* — a portfolio's six projects each have their
+         * own colour, and a rule that forced them onto tokens would make the
+         * grid one colour and destroy the point of it. The rule for pictures
+         * is alt text, which is checked above.
+         *
+         * That leaves a real case unguarded, and it is worth naming rather
+         * than pretending otherwise: the SaaS and startup heroes had gradients
+         * that were frozen copies of `--c-primary` and `--c-accent`, so
+         * retheming left the product panel on the old brand. Those are tokens
+         * now. The rule that would have caught them — no literal may equal a
+         * theme value — fired on the agency's project cards, whose artwork
+         * shares a colour with its theme on purpose, and a rule that cannot
+         * tell harmony from staleness is one that gets silenced.
+         */
+        for (const styles of Object.values(node.styles ?? {})) {
+          for (const [prop, value] of Object.entries(styles ?? {})) {
+            if (typeof value !== 'string') continue;
+            if (THEME_PROPS.has(prop)) {
+              for (const offence of colourOffences(value)) {
+                rawColour.push(`${label} ${prop}: ${offence}`);
+              }
+            }
+            if (prop === 'fontFamily' && !value.startsWith('var(')) {
+              rawColour.push(`${label} fontFamily: ${value}`);
+            }
+          }
+        }
+      }
+      // A page with no headings at all is not a page missing its first one —
+      // Blank is an empty canvas, and demanding an h1 of it would be demanding
+      // content the template exists to not have.
+      if (previous !== null && !sawH1) noHeading.push(`${label}/${page.slug || '/'}`);
+    }
+
+    try {
+      const site = generateSite(doc, { pretty: false });
+      const files = (site.files ?? []).map((file) => file.path ?? '');
+      if (!files.some((name) => name.endsWith('.html'))) wontPublish.push(`${label}: no html`);
+      if (files.length < doc.pages.length) {
+        wontPublish.push(`${label}: ${files.length} files for ${doc.pages.length} pages`);
+      }
+      followEveryLink(
+        label,
+        site,
+        // Named sections, from the document rather than from the markup: the
+        // question is whether what the *template* declared is reachable, and
+        // reading it back out of the output the renderer produced would be
+        // asking the renderer to mark its own work.
+        Object.values(doc.nodes)
+          .map((node) => anchorId(node.props?.anchor))
+          .filter(Boolean)
+      );
+    } catch (error) {
+      wontPublish.push(`${label}: ${String(error?.message ?? error)}`);
+    }
+  }
+
+  /**
+   * Follow every link in the published site, as a visitor would.
+   *
+   * Written against the *output* rather than against `props.href`, because the
+   * document cannot answer the question. `resolvePageRefs` rewrites a template
+   * link naming a page that does not exist to `#` — so by the time anything
+   * can read the built document, a mistyped destination and a link that was
+   * always inert look identical. Checking props for a dangling `page:<id>`
+   * therefore checks for a state the pipeline makes unreachable: it passed on
+   * eight templates that between them shipped ninety dead links.
+   *
+   * What is left after the laundering is the honest signal, and it is in the
+   * markup: an `<a>` whose href is `#`.
+   */
+  function followEveryLink(label, site, declared) {
+    const reached = new Set();
+    const pages = new Map(
+      (site.files ?? []).filter((file) => file.path?.endsWith('.html')).map((f) => [f.path, f.contents])
+    );
+
+    for (const [path, html] of pages) {
+      // The rendered half of the submit rule. The document one above says the
+      // designer asked for it; this one says the renderer did it — and it is
+      // the renderer that had been writing `type="button"` on everything.
+      for (const form of html.matchAll(/<form\b[\s\S]*?<\/form>/g)) {
+        if (!/<(button|input)\b[^>]*type="submit"/.test(form[0])) {
+          notSubmittable.push(`${label} ${path}: a form with no submit control`);
+        }
+      }
+
+      const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+      for (const match of html.matchAll(/<a\b[^>]*\shref="([^"]*)"/g)) {
+        const href = match[1];
+        linksWalked++;
+
+        if (href === '#' || href.trim() === '') {
+          deadLinks.push(`${label} ${path}: a link goes nowhere`);
+          continue;
+        }
+        if (/^(https?|mailto|tel):/.test(href)) {
+          // Not fetched — a suite that reaches the network is a suite that
+          // fails when a train goes into a tunnel. Only the shape is checked,
+          // which is what a typo breaks.
+          const shaped =
+            (href.startsWith('mailto:') && /^mailto:[^@\s]+@[^@\s]+\.[^@\s]+/.test(href)) ||
+            (href.startsWith('tel:') && /^tel:\+?[\d\s-]{6,}$/.test(href)) ||
+            (/^https?:/.test(href) && /^https?:\/\/[^/\s]+\./.test(href));
+          if (!shaped) deadLinks.push(`${label} ${path}: ${href}`);
+          continue;
+        }
+
+        // Everything else is inside the site: a path, a fragment, or both.
+        const [target, fragment] = href.includes('#')
+          ? [href.slice(0, href.indexOf('#')), href.slice(href.indexOf('#') + 1)]
+          : [href, ''];
+        const file = target === '' ? path : resolveSitePath(dir, target);
+        const contents = pages.get(file);
+        if (contents === undefined) {
+          brokenLinks.push(`${label} ${path}: ${href} → no ${file}`);
+          continue;
+        }
+        if (fragment) {
+          reached.add(fragment);
+          if (!contents.includes(` id="${fragment}"`)) {
+            brokenLinks.push(`${label} ${path}: ${href} — nothing on that page answers to it`);
+          }
+        }
+      }
+    }
+
+    /*
+     * And the other direction, which is the one that catches a *silent* loss.
+     * If the publisher drops the fragment off a cross-page link, every link
+     * still arrives at a real file and the check above stays green — the page
+     * simply opens at the top instead of at the section. So the sections a
+     * template names have to be reachable from inside the site, which is also
+     * a fair thing to ask of a template: a named section nobody links to is
+     * either dead weight or a nav entry somebody forgot.
+     */
+    for (const anchor of new Set(declared)) {
+      if (!reached.has(anchor)) unreachable.push(`${label}: nothing links to #${anchor}`);
+    }
+  }
+
+  /** `../pricing/` from `about/index.html`, the way a browser reads it. */
+  function resolveSitePath(dir, target) {
+    const parts = `${dir}${target}`.split('/');
+    const out = [];
+    for (const part of parts) {
+      if (part === '' || part === '.') continue;
+      if (part === '..') out.pop();
+      else out.push(part);
+    }
+    const joined = out.join('/');
+    // A directory reference is served by its index, which is the file the
+    // publisher wrote and the name the check has to look up.
+    return target.endsWith('/') || joined === '' ? `${joined ? `${joined}/` : ''}index.html` : joined;
+  }
+
+  report.check('every template has at least one page', noPages.length === 0, noPages.join(', '));
+  report.check(
+    'and the sweep really walked them',
+    pagesSwept >= TEMPLATES.length && nodesSwept > 500,
+    `${pagesSwept} pages, ${nodesSwept} nodes`
+  );
+  report.check(
+    'and followed every link in what they publish',
+    linksWalked > 100,
+    `${linksWalked} links`
+  );
+  report.check(
+    'not one of them goes nowhere',
+    deadLinks.length === 0,
+    deadLinks.slice(0, 4).join(' | ') || `${linksWalked} links, none of them a “#”`
+  );
+  report.check(
+    'and every one that stays on the site arrives',
+    brokenLinks.length === 0,
+    brokenLinks.slice(0, 4).join(' | ') || 'every page and every section reached'
+  );
+  report.check(
+    'every section a template names is linked to from inside it',
+    unreachable.length === 0,
+    unreachable.slice(0, 4).join(' | ') || 'no section named for nobody'
+  );
+  report.check(
+    'every page opens with a level-one heading',
+    noHeading.length === 0,
+    noHeading.join(', ') || `${pagesSwept} pages`
+  );
+  report.check('no heading level is skipped', skippedHeading.length === 0, skippedHeading.slice(0, 4).join(' | '));
+  report.check(
+    'every form has something that submits it',
+    formsWithoutSubmit.length === 0,
+    formsWithoutSubmit.join(' | ') || 'every Send sends'
+  );
+  report.check(
+    'a submitting button is a real submit button',
+    notSubmittable.length === 0,
+    notSubmittable.slice(0, 3).join(' | ') || 'type="submit" in the published markup'
+  );
+  report.check(
+    'every colour and font comes from the theme',
+    rawColour.length === 0,
+    rawColour.slice(0, 4).join(' | ') || 'tokens throughout'
+  );
+  report.check('every node is named for the layer tree', unnamed.length === 0, unnamed.slice(0, 3).join(' | '));
+  report.check(
+    'no template ships filler copy',
+    placeholder.length === 0,
+    placeholder.slice(0, 3).join(' | ') || 'written, not filled'
+  );
+  report.check(
+    'and every one of them publishes',
+    wontPublish.length === 0,
+    wontPublish.slice(0, 3).join(' | ') || `${TEMPLATES.length} sites generated`
+  );
+
+  /* Each of the above, handed something it must reject. */
+  report.check(
+    'a path is resolved the way a browser resolves it',
+    resolveSitePath('about/', '../pricing/') === 'pricing/index.html' &&
+      resolveSitePath('', './') === 'index.html' &&
+      resolveSitePath('a/b/', '../../c/') === 'c/index.html' &&
+      resolveSitePath('', 'sitemap.xml') === 'sitemap.xml',
+    'the half of the link check that could quietly answer “file not found” to everything'
+  );
+  report.check(
+    'the colour rule matches a colour and not a token or an allowed depiction',
+    colourOffences('#ff0000').length === 1 &&
+      colourOffences('rgb(1,2,3)').length === 1 &&
+      colourOffences('var(--c-primary)').length === 0 &&
+      colourOffences('#ff5f57').length === 0,
+    'one policy, shared with the block sweep'
+  );
+  report.check(
+    'the filler rule matches filler and not prose',
+    PLACEHOLDER.test('Lorem ipsum dolor') &&
+      !PLACEHOLDER.test('The platform layer for product teams') &&
+      !PLACEHOLDER.test('Mastodon')
+  );
+}
 
 report.group('a duplicated component shares nothing with the one it came from');
 

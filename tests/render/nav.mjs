@@ -35,12 +35,10 @@ try {
   await page.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
   await page.waitForTimeout(1500);
 
-  // Templates ship '#' placeholder links, so make a real page link the way a
-  // designer would: select a nav link and point it at a page in the inspector.
-  // The template's own navbar already points at the pages it creates — no
-  // inspector work needed. The canvas deliberately renders page links as '#'
-  // so clicking one does not navigate away mid-edit, so the published output
-  // is where this has to be checked.
+  // No inspector work needed: the template's navbar, footer and every button
+  // on it already point at the pages and sections it creates. The canvas
+  // deliberately renders a page link as '#' so clicking one does not navigate
+  // away mid-edit, so the published output is where this has to be checked.
   await page.click('button:has-text("Publish")');
   await page.waitForSelector('text=/pages? published/', { timeout: PUBLISH_TIMEOUT });
   const slugs = await page.locator('div[role="dialog"] span.font-mono').allTextContents();
@@ -125,7 +123,64 @@ try {
     new URL(site.url()).pathname
   );
 
-  /* ---------------------------------------- 5. nothing escapes to the app root */
+  /* ------------------------------- 5. a link into a section of a page */
+
+  // Scrolling to a named section is the whole of what a one-page site's nav
+  // does, and every template but this one is a one-pager. Checked here because
+  // it is a claim about a *browser*: the id has to reach the markup, the
+  // fragment has to survive the publisher, and the two have to agree.
+  await site.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await site.waitForTimeout(500);
+  const before = await site.evaluate(() => window.scrollY);
+  const intoPage = site.locator('a[href="#features"]').first();
+  const named = await intoPage.count();
+  check('the published page carries a link into one of its own sections', named > 0);
+
+  if (named) {
+    await intoPage.click();
+    await site.waitForTimeout(900);
+    const after = await site.evaluate(() => window.scrollY);
+    check('clicking it moves the page rather than reloading it', after > before + 100, `${before} → ${after}`);
+    check(
+      'and it stops where the section starts, clear of the sticky navbar',
+      await site.evaluate(() => {
+        const target = document.getElementById('features');
+        if (!target) return false;
+        const top = target.getBoundingClientRect().top;
+        // Below the viewport top — the scroll-margin — and not pushed so far
+        // down that the section's own heading is off screen.
+        return top >= 0 && top < 200;
+      }),
+      'the anchored element sits just below the top of the viewport'
+    );
+  }
+
+  // A section of *another* page, which is the case the relative maths and the
+  // fragment have to survive together.
+  const crossPage = site.locator('a[href="pricing/#faq"]').first();
+  const cross = await crossPage.count();
+  check('a footer link reaches a section of another page', cross > 0);
+  if (cross) {
+    await crossPage.click();
+    // `load`, not `domcontentloaded`: a fragment arrived at by navigation is
+    // scrolled to once the render-blocking stylesheets are in, because until
+    // then the browser does not know where the section will be.
+    await site.waitForLoadState('load');
+    await site.waitForTimeout(900);
+    check(
+      'and it arrives on that page, at that section',
+      new URL(site.url()).pathname.endsWith('/pricing/') &&
+        (await site.evaluate(() => {
+          const target = document.getElementById('faq');
+          if (!target) return false;
+          const top = target.getBoundingClientRect().top;
+          return window.scrollY > 100 && top >= 0 && top < 200;
+        })),
+      `${new URL(site.url()).pathname}${new URL(site.url()).hash} at ${await site.evaluate(() => window.scrollY)}`
+    );
+  }
+
+  /* ---------------------------------------- 6. nothing escapes to the app root */
 
   const escaped = await fetch(`${APP}/pricing`, { redirect: 'manual' });
   check(

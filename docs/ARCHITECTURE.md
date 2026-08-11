@@ -684,6 +684,36 @@ card inside a repeater points at its own record. `series:prev` and
 `series:next` step through a paginated index and resolve to nothing at the
 ends, which hides the link rather than pointing it at `#`.
 
+### A link into the middle of a page
+
+A section can carry an `anchor`, which becomes an `id` in the markup and the
+`#work` in a URL. Nothing else is needed to make it work: the browser does the
+scrolling, so a one-page site's navigation runs with no script at all, which
+is what most sites people build actually are. Three details are load-bearing.
+
+The id is written in `describeBase`, beside the class, rather than in the arm
+for any particular element type — "somewhere to scroll to" is not a property of
+being a `section`, and a one-pager's nav points at whatever holds the content.
+Two elements given the same anchor collide, and the renderer cannot see the
+other one; the editor can, so the warning lives in the Semantics panel.
+
+`page:<id>#faq` is one href with two answers in it, and three resolvers had to
+learn the same trick — the template resolver, the canvas one and the
+publisher's. They share `splitFragment`, and the publisher adds one rule of its
+own: a link into the page it is already on is written as the bare fragment,
+because the relative path to yourself is a real path and following it reloads
+the document instead of scrolling.
+
+`scroll-margin-top` is in the shared reset, keyed on `[id]` — the only ids a
+document emits are an anchor's and a popover's, and a popover is fixed rather
+than scrolled to. Without it the browser puts the section's first line exactly
+under the sticky navbar: the page moves and the visitor still cannot see what
+they clicked. Smooth scrolling is in the *published* reset only, since the
+editor's scrolling element is a pane of the app, and it is turned off outright
+under `prefers-reduced-motion` — a full-page slide is one of the movements that
+genuinely makes people ill, and unlike a decorative animation you cannot look
+away from it.
+
 Two ceilings apply and they are not the same number: a repeater shows at most
 500 rows because a page holding more is unusable, and a route publishes at
 most 1,000 files because a publish writing more is unmanageable. Both refuse

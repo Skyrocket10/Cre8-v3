@@ -76,6 +76,34 @@ local-time getter, a clock. Alongside them are the two structural checks that
 keep formatting out of comparisons — `formatValue` has exactly one caller, and
 the record is unchanged after a binding resolves.
 
+All eight templates are built, walked and published, and then every link in
+what they publish is followed. That last part is written against the *output*
+on purpose. Reading `props.href` cannot answer the question: `resolvePageRefs`
+rewrites a template link naming a page that does not exist to `#`, so by the
+time anything can inspect the built document a mistyped destination and a link
+that was always inert look identical. A prop-level rule passed on eight
+templates carrying ninety dead links between them. The published markup still
+knows: an `<a href="#">` goes nowhere, a relative path either names a file the
+site contains or it does not, and a fragment either names an `id` on the page
+it lands on or it does not. The reverse direction is checked too — every
+section a template names has to be linked to from inside it — because a
+publisher that silently dropped fragments would otherwise leave every link
+arriving at a real file, just at the top of it.
+
+Forms are checked twice in that group, from both ends: the document says a
+button submits, and the published markup says `type="submit"`. Both, because
+each half failed on its own. HTML's default for a button inside a form *is*
+submit, so the renderer wrote `type="button"` on everything to stop a
+decorative button posting — which left every contact form the app shipped with
+a Send that did nothing, and the render suite green throughout, because it
+submitted the form itself rather than pressing the thing a visitor presses.
+
+There is deliberately no alt-text rule in that group. Not one of the templates
+contains an image node — a template ships as code and an image ships as a file
+in a project's own storage, so the artwork is gradient panels, which are
+decorative and correctly invisible to a screen reader. A rule written against
+zero nodes passes for ever and reads as a covered case.
+
 It also runs `migrateDocument()` over a hand-written older document. That
 function upgrades every project every time one is opened and rewrites the part
 of a node that decides whether the node is visible, so the checks cover the
@@ -120,7 +148,7 @@ preferring an installed copy over downloading one.
 | `fidelity` | Does the canvas compute the same styles as the published file, on one template |
 | `blocks` | The same question of every block in the registry, alone, at 390 / 768 / 1440 |
 | `panel` | The Insert panel at library scale: grouping, search, live previews |
-| `nav` | Do page links work inside a published site |
+| `nav` | Do page links work inside a published site — and does a link into a named section scroll to it, stopping clear of the sticky navbar rather than under it, from the same page and from another one |
 | `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime |
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces. And does a state decided by what somebody types follow them as they type, put itself back when they clear the field, and land on the declared fallback when nothing is running |
@@ -136,7 +164,7 @@ preferring an installed copy over downloading one.
 | `components` | Three instances of one component: two saying different things and pixel-identical, one wearing a variant and visibly not. Same classes where they should be shared, canvas and file agreeing element by element, and controls somebody can actually reach |
 | `schema` | Can a deployment read its own schema and add the columns it is missing — the one thing `node:sqlite` cannot answer for D1, which is whether a pragma comes back with rows |
 | `editor-perf` | What one edit costs on a 761-node document — open time, selection, long tasks during a burst of style writes, layer-tree windowing. A probe: it prints the numbers and fails only on what would be a bug at any speed. `CRE8_PERF_SECTIONS` scales the fixture so the curve can be read rather than a single point |
-| `forms` | Do published forms reach the submissions endpoint, and what does it refuse |
+| `forms` | Do published forms reach the submissions endpoint when a visitor *presses the button*, and what does the endpoint refuse |
 | `assets` | Do images survive publish and ZIP export — re-encoded, carrying their intrinsic size, offered at four widths, and eager where it matters |
 | `bodyreset` | Does the published page start at the viewport edge |
 | `borders` | Per-side border widths, canvas to published |

@@ -3,6 +3,7 @@
 import type { NodeSpec } from '../../document/factory';
 import type { NodeSpec as Spec } from '../../document/factory';
 import {
+  type BlockLink,
   DISPLAY,
   DISPLAY_RESPONSIVE,
   EYEBROW,
@@ -26,7 +27,11 @@ import {
   tint,
 } from './kit';
 
-export function heroSectionSpec(): NodeSpec {
+export function heroSectionSpec(
+  actions: { primary?: BlockLink; secondary?: BlockLink } = {}
+): NodeSpec {
+  const primary = actions.primary ?? { label: 'Start building free' };
+  const secondary = actions.secondary ?? { label: 'Book a demo' };
   return section(
     'Hero',
     [
@@ -78,7 +83,10 @@ export function heroSectionSpec(): NodeSpec {
 
               stack(
                 'Hero actions',
-                [button('Start building free'), button('Book a demo', 'secondary')],
+                [
+                  button(primary.label, 'primary', primary.href ?? '#'),
+                  button(secondary.label, 'secondary', secondary.href ?? '#'),
+                ],
                 { gap: '12px', marginTop: '8px' },
                 { mobile: { flexDirection: 'column', alignItems: 'stretch', width: '100%' } }
               ),

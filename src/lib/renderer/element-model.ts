@@ -8,7 +8,7 @@
  * promise someone has to keep re-checking.
  */
 
-import { SWITCH_SHOW_ALL, resolveTag, slug } from '../document/schema';
+import { SWITCH_SHOW_ALL, anchorId, resolveTag, slug, splitFragment } from '../document/schema';
 import {
   BREAKPOINT_DEFS,
   type CollectionRecord,
@@ -132,13 +132,19 @@ export function popoverDomId(nodeId: string): string {
 
 export function resolveHref(doc: Cre8Document, href: string | undefined, mode: RenderMode): string {
   if (!href) return mode === 'publish' ? '#' : '#';
-  if (!href.startsWith(PAGE_HREF_PREFIX)) return href;
+  // A fragment on its own is a scroll on this page and needs no resolving.
+  const [target, fragment] = splitFragment(href);
+  if (!target.startsWith(PAGE_HREF_PREFIX)) return href;
 
-  const pageId = href.slice(PAGE_HREF_PREFIX.length);
+  const pageId = target.slice(PAGE_HREF_PREFIX.length);
   const page = doc.pages.find((p) => p.id === pageId);
   if (!page) return '#';
-  if (page.isHome || page.slug === '') return mode === 'publish' ? '/' : '#';
-  return mode === 'publish' ? `/${page.slug}` : '#';
+  // The editor does not navigate, so a page link is inert there — but the
+  // fragment still names something on the page being drawn when the link
+  // points at that page, and dropping it would make the canvas disagree with
+  // the file about where the link goes.
+  if (page.isHome || page.slug === '') return mode === 'publish' ? `/${fragment}` : fragment || '#';
+  return mode === 'publish' ? `/${page.slug}${fragment}` : fragment || '#';
 }
 
 function str(value: unknown, fallback = ''): string {
@@ -386,6 +392,29 @@ function describeBase(
   const props: NodeProps = variant.props;
   const base: Record<string, AttrValue> = { class: variant.className };
 
+  /*
+   * A named section is a place a link can point at, so it needs a real id —
+   * the same reason a popover has one. Written here rather than in a per-type
+   * arm because "somewhere to scroll to" is not a property of being a section:
+   * a one-page site's nav points at whatever holds the content, which is as
+   * often a frame or a stack.
+   *
+   * `describeBase`'s callers spread `base` first, so the popover arm's own id
+   * still wins where a node is both.
+   *
+   * Two nodes given the same anchor collide, and nothing here can see the
+   * other one — the Semantics panel can, and warns. What neither catches is an
+   * anchor on a node inside a *component master* used twice, or inside a
+   * repeater: the document holds one node and the page draws several. Left
+   * rather than suppressed, because the signal that would suppress it —
+   * "there is an override scope" — is also true of a component used once,
+   * where the anchor is exactly right. A browser scrolls to the first match,
+   * so the failure is a link that lands on the wrong copy rather than a page
+   * that breaks.
+   */
+  const anchor = anchorId(props.anchor);
+  if (anchor) base.id = anchor;
+
   switch (node.type) {
     case 'heading':
       return {
@@ -538,7 +567,16 @@ function describeBase(
           attrs.rel = 'noopener noreferrer';
         }
       } else {
-        attrs.type = 'button';
+        /*
+         * `type` is not optional on a button inside a form: the HTML default
+         * is `submit`, so a decorative button would post the form, and a
+         * button meant to post it needs to say so. Everything the app makes
+         * was a `<button type="button">` — including the Send button on every
+         * contact form it shipped, which therefore did nothing at all. The
+         * `forms` suite passed throughout, because it submitted the form
+         * itself rather than pressing the thing a visitor presses.
+         */
+        attrs.type = props.submit ? 'submit' : 'button';
       }
       // Opening a popover is the browser's job, not a script's: name the panel
       // and it handles the top layer, light dismiss, Escape and focus return.

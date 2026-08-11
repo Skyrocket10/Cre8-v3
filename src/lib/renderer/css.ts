@@ -536,6 +536,15 @@ export function generateNodeCss(
  * `1.25em` list indent below included — resolved to a different number on each
  * surface. Production is the truth, so both are pinned to it.
  *
+ * `[id]` is every scroll target: the only ids a document emits are a named
+ * section's and a popover's, and a popover is fixed rather than scrolled to.
+ * The offset is what a link into the middle of a page needs so the heading it
+ * landed on is not sitting under a sticky navbar — the failure is that the
+ * page moves and the visitor still cannot see what they clicked. 96px clears
+ * the navbars this app produces; with no sticky header it reads as breathing
+ * room above the section rather than as a mistake. At (0,0,1) a node that sets
+ * its own `scroll-margin-top` beats it.
+ *
  * The one line that is deliberately *not* wrapped in `:where()` is the closed
  * popover. A user-agent rule loses to any author rule regardless of
  * specificity, so the browser's own `[popover]:not(:popover-open) { display:
@@ -554,6 +563,7 @@ export const DOCUMENT_RESET = `
 :where([data-cre8-root]) :is(img, video) { display: block; }
 :where([data-cre8-root]) a { color: inherit; text-decoration: none; }
 :where([data-cre8-root]) :focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+:where([data-cre8-root]) [id] { scroll-margin-top: 96px; }
 
 /* Form controls — parity with the preflight the canvas gets and production does not. */
 :where([data-cre8-root]) button { font: inherit; color: inherit; background: none; cursor: pointer; }
@@ -593,9 +603,17 @@ export const DOCUMENT_RESET = `
  * Deliberately separate from `DOCUMENT_RESET`, because that one is also
  * injected into the editor page, where `body` is the *editor's* body and must
  * not be touched.
+ *
+ * Smooth scrolling belongs here for the same reason. It is a property of the
+ * scrolling element, which published is `html` and in the editor is a pane of
+ * the app — and an editor whose whole canvas eases when a panel jumps is an
+ * editor that feels slow. Turned off outright under `prefers-reduced-motion`:
+ * a full-page slide is one of the movements that actually makes people ill,
+ * and unlike a decorative animation it cannot be looked away from.
  */
 export const PUBLISHED_DOCUMENT_RESET = `
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 body { margin: 0; padding: 0; }
 `.trim();
 

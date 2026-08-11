@@ -55,7 +55,16 @@ const brand = (size: '22px' | '26px'): NodeSpec =>
     { gap: size === '26px' ? '9px' : '8px' }
   );
 
-export function navbarSpec(links: (string | BlockLink)[] = DEFAULT_NAV_LINKS): NodeSpec {
+/**
+ * @param actions The two things on the right, which a template knows the
+ *   destinations of and a block dropped onto an empty page does not.
+ */
+export function navbarSpec(
+  links: (string | BlockLink)[] = DEFAULT_NAV_LINKS,
+  actions: { signIn?: BlockLink; cta?: BlockLink } = {}
+): NodeSpec {
+  const signIn = actions.signIn ?? { label: 'Sign in' };
+  const cta = actions.cta ?? { label: 'Start free' };
   return {
     type: 'section',
     name: 'Navbar',
@@ -88,14 +97,14 @@ export function navbarSpec(links: (string | BlockLink)[] = DEFAULT_NAV_LINKS): N
             'Nav actions',
             [
               {
-                ...textLink('Sign in'),
-                name: 'Sign in',
+                ...textLink(signIn.label, signIn.href ?? '#'),
+                name: signIn.label,
                 responsive: { mobile: { display: 'none' } },
               },
               {
                 type: 'button',
-                name: 'Start free button',
-                props: { label: 'Start free', href: '#' },
+                name: `${cta.label} button`,
+                props: { label: cta.label, href: cta.href ?? '#' },
                 styles: { fontSize: '14px', ...pad('9px', '16px') },
                 states: { hover: { backgroundColor: 'var(--c-secondary)' } },
               },

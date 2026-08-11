@@ -45,6 +45,9 @@ export function loadBlocks() {
       // reason about what one would contain.
       'src/lib/publishing/html.ts',
       'src/lib/publishing/routes.ts',
+      // Every template. Eight of them ship, they are the first thing anybody
+      // sees, and until this line nothing checked one of them.
+      'src/lib/templates/index.ts',
       '--outDir',
       OUT,
       // Pinned so the emitted path is predictable no matter which files tsc
@@ -74,6 +77,7 @@ export function loadBlocks() {
     ELEMENTS: require(path.join(OUT, 'document/schema.js')).ELEMENTS,
     canContain: require(path.join(OUT, 'document/schema.js')).canContain,
     readCase: require(path.join(OUT, 'document/schema.js')).readCase,
+    anchorId: require(path.join(OUT, 'document/schema.js')).anchorId,
     migrateDocument: require(path.join(OUT, 'document/migrate.js')).migrateDocument,
     // The generator, so the checks can assert on real compiled selectors
     // rather than on a description of what they are supposed to be.
@@ -99,6 +103,7 @@ export function loadBlocks() {
     // and an arbitration order are claims about a function.
     tests: require(path.join(OUT, 'renderer/test.js')),
     values: require(path.join(OUT, 'renderer/values.js')),
+    TEMPLATES: require(path.join(OUT, 'templates/index.js')).TEMPLATES,
     // And the runtime itself, so the second implementation of the comparison
     // can be driven against the first rather than read alongside it.
     behaviour: require(path.join(OUT, 'runtime/behaviour.js')),

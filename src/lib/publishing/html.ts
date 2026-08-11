@@ -33,7 +33,7 @@ import {
   scopeForInstance,
   type OverrideScope,
 } from '../document/components';
-import { getElement } from '../document/schema';
+import { getElement, splitFragment } from '../document/schema';
 import type { CollectionRecord, Cre8Document, NodeId, SceneNode } from '../document/types';
 import { depthOf, plan, relativePath, type Output, type PageWindow } from './routes';
 
@@ -333,18 +333,32 @@ function hrefResolverFor(doc: Cre8Document, from: Output, all: Output[]) {
     if (href.startsWith('page@')) return '#';
     if (href === 'series:prev') return seriesAt(-1);
     if (href === 'series:next') return seriesAt(1);
-    if (!href.startsWith('page:')) return href;
+    // A page reference may name a section of that page — the fragment is not
+    // this function's business beyond carrying it to the end.
+    const [wanted, fragment] = splitFragment(href);
+    if (!wanted.startsWith('page:')) return href;
 
-    const pageId = href.slice(5);
+    /*
+     * A link into the page it is already on is the fragment and nothing else.
+     * The relative path to yourself is a real path — `../pricing/` from
+     * `pricing/index.html` — and following it reloads the document instead of
+     * scrolling, which loses the smooth scroll and the scroll position both.
+     * Never the empty string: that is the "nowhere to go" signal, and it hides
+     * the link.
+     */
+    const here = (target: Output): string =>
+      target === from && fragment ? fragment : `${relativePath(from.path, target.path)}${fragment}`;
+
+    const pageId = wanted.slice(5);
     const page = doc.pages.find((p) => p.id === pageId);
     if (!page) return '#';
     if (!page.dynamic) {
       const target = all.find((o) => o.page.id === pageId);
-      return target ? relativePath(from.path, target.path) : '#';
+      return target ? here(target) : '#';
     }
     if (!record) return '#';
     const target = all.find((o) => o.page.id === pageId && o.record?.id === record.id);
-    return target ? relativePath(from.path, target.path) : '#';
+    return target ? here(target) : '#';
   };
 }
 

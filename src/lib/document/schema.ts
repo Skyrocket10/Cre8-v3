@@ -1186,6 +1186,41 @@ export function slug(value: unknown): string {
 }
 
 /**
+ * The fragment a section answers to, from whatever the designer typed.
+ *
+ * Lowercase where `slug` preserves case, because this one ends up in the
+ * address bar: `#Pricing` and `#pricing` are different fragments, and a
+ * visitor who types the obvious one gets nothing. Case is the designer's
+ * business in a state name and the visitor's business in a URL.
+ *
+ * Kept to what a fragment may hold with no escaping at all, so the same string
+ * is safe as an `id`, as the tail of an `href` and inside `getElementById`.
+ */
+export function anchorId(value: unknown): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+/**
+ * Split a link into where it goes and which part of it.
+ *
+ * Every resolver in the app has to do this now that a link can name a page
+ * *and* a section of it — `page:<id>#faq` is one href with two answers in it,
+ * and three separate places were about to learn the same trick. The fragment
+ * comes back with its `#` so re-attaching is concatenation rather than another
+ * conditional.
+ */
+export function splitFragment(href: string): [target: string, fragment: string] {
+  const at = href.indexOf('#');
+  return at === -1 ? [href, ''] : [href.slice(0, at), href.slice(at)];
+}
+
+/**
  * The design-time value that means "show every case at once".
  *
  * Not a case value — a case named `all` is an ordinary thing a filter has, so
@@ -1303,8 +1338,11 @@ export function resolveTag(type: ElementType, props: NodeProps): string {
     // on an anchor — so opening a panel and going somewhere are exclusive.
     // A switch setter is a button for a plainer reason: it does not navigate,
     // and an anchor that goes nowhere is a link a screen reader announces and
-    // a keyboard user follows into nothing.
-    return props.href && !props.popoverTarget && !props.switchSet ? 'a' : 'button';
+    // a keyboard user follows into nothing. Submitting is the same story: no
+    // element but `<button>` submits a form.
+    return props.href && !props.popoverTarget && !props.switchSet && !props.submit
+      ? 'a'
+      : 'button';
   }
   if (type === 'tableCell') return props.header ? 'th' : 'td';
   if (RETAGGABLE.has(type)) {

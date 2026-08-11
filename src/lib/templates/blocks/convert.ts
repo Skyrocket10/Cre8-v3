@@ -2,6 +2,7 @@
 
 import type { NodeSpec } from '../../document/factory';
 import {
+  type BlockLink,
   BODY,
   BODY_RESPONSIVE,
   CAPTION,
@@ -75,7 +76,12 @@ const TIERS = [
   },
 ];
 
-export function pricingSpec(): NodeSpec {
+/**
+ * @param href Where a plan's button goes. A block on its own has nowhere to
+ *   send anybody; a template does, and every plan sends them to the same
+ *   place, so it is one argument rather than three.
+ */
+export function pricingSpec(href = '#'): NodeSpec {
   return section('Pricing', [
     container(
       [
@@ -136,7 +142,7 @@ export function pricingSpec(): NodeSpec {
                 {
                   type: 'button',
                   name: `${tier.name} CTA`,
-                  props: { label: tier.featured ? 'Start free trial' : 'Get started', href: '#' },
+                  props: { label: tier.featured ? 'Start free trial' : 'Get started', href },
                   styles: {
                     width: '100%',
                     ...(tier.featured
@@ -172,7 +178,11 @@ export function pricingSpec(): NodeSpec {
   ]);
 }
 
-export function ctaSpec(): NodeSpec {
+export function ctaSpec(
+  actions: { primary?: BlockLink; secondary?: BlockLink } = {}
+): NodeSpec {
+  const primary = actions.primary ?? { label: 'Start building free' };
+  const secondary = actions.secondary ?? { label: 'Talk to sales' };
   return section('Call to action', [
     container(
       [
@@ -218,14 +228,14 @@ export function ctaSpec(): NodeSpec {
                 {
                   type: 'button',
                   name: 'Primary CTA',
-                  props: { label: 'Start building free', href: '#' },
+                  props: { label: primary.label, href: primary.href ?? '#' },
                   styles: { backgroundColor: 'var(--c-on-inverse)', color: 'var(--c-inverse)' },
                   states: { hover: { opacity: '0.9' } },
                 },
                 {
                   type: 'button',
                   name: 'Secondary CTA',
-                  props: { label: 'Talk to sales', href: '#' },
+                  props: { label: secondary.label, href: secondary.href ?? '#' },
                   styles: {
                     backgroundColor: 'transparent',
                     color: 'var(--c-on-inverse)',

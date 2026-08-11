@@ -9,7 +9,7 @@
 
 import { uid } from './id';
 import { bindingFrom, migrateDocument, rulesFromLegacy } from './migrate';
-import { getElement } from './schema';
+import { getElement, splitFragment } from './schema';
 import { createDefaultTheme } from './theme';
 import {
   DOCUMENT_VERSION,
@@ -253,14 +253,23 @@ export const pageRef = (slug: string): string => `${PAGE_REF}${slug}`;
  * A slug that matches no page becomes `#` rather than shipping a href nothing
  * can resolve — a template that names a page it does not have should produce an
  * inert link, not a broken one.
+ *
+ * Worth knowing when reading a template: that laundering means a mistyped
+ * `pageRef` cannot be told apart afterwards from a link that was always going
+ * nowhere. The check that catches it has to run against the *template*, which
+ * is why the static suite builds all eight and looks for `#`.
+ *
+ * A fragment rides along untouched, so `pageRef('pricing') + '#faq'` reaches
+ * the FAQ on the pricing page.
  */
 export function resolvePageRefs(doc: Cre8Document): void {
   const bySlug = new Map(doc.pages.map((page) => [page.slug, page.id]));
   for (const node of Object.values(doc.nodes)) {
     const href = node.props.href;
     if (typeof href !== 'string' || !href.startsWith(PAGE_REF)) continue;
-    const id = bySlug.get(href.slice(PAGE_REF.length));
-    node.props.href = id ? `page:${id}` : '#';
+    const [target, fragment] = splitFragment(href);
+    const id = bySlug.get(target.slice(PAGE_REF.length));
+    node.props.href = id ? `page:${id}${fragment}` : '#';
   }
 }
 

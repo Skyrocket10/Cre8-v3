@@ -14,6 +14,36 @@ import type { ResponsiveStyles, StyleDecl } from '../document/types';
  * Primitives
  * ----------------------------------------------------------------------- */
 
+/**
+ * A link, with somewhere to go if the caller knows where.
+ *
+ * The bare-string spelling is kept because most of these lists read better as
+ * words, and a block dropped from the insert panel genuinely has nowhere to
+ * point — it has no idea what else is on the page. A *template* does know, and
+ * every one of its links now says so.
+ */
+export type LinkSpec = string | { label: string; href?: string };
+
+export const linkLabel = (link: LinkSpec): string =>
+  typeof link === 'string' ? link : link.label;
+
+/** `#` is the honest answer for a link with no destination: it goes nowhere. */
+export const linkHref = (link: LinkSpec): string =>
+  typeof link === 'string' ? '#' : (link.href ?? '#');
+
+/**
+ * Give a section a name a link can point at.
+ *
+ * A wrapper rather than an argument on each block builder, because every one
+ * of them returns a section and none of them should have to care. `#work` is
+ * then an ordinary href — the renderer emits the `id`, the browser does the
+ * scrolling, and nothing about it needs scripting.
+ */
+export const anchored = (spec: NodeSpec, anchor: string): NodeSpec => ({
+  ...spec,
+  props: { ...spec.props, anchor },
+});
+
 export const pad = (top: string, right = top, bottom = top, left = right): StyleDecl => ({
   paddingTop: top,
   paddingRight: right,
@@ -193,8 +223,8 @@ const TITLE_RESPONSIVE: ResponsiveStyles = {
 export interface NavOptions {
   brand: string;
   brandIcon?: string;
-  links: string[];
-  cta?: string;
+  links: LinkSpec[];
+  cta?: LinkSpec;
   sticky?: boolean;
 }
 
@@ -233,10 +263,10 @@ export function navBlock({ brand, brandIcon = 'sparkles', links, cta, sticky = t
             name: 'Nav links',
             styles: { gap: '28px', alignItems: 'center' },
             responsive: { mobile: { display: 'none' } },
-            children: links.map((label) => ({
+            children: links.map((link) => ({
               type: 'link' as const,
-              name: label,
-              props: { text: label, href: '#' },
+              name: linkLabel(link),
+              props: { text: linkLabel(link), href: linkHref(link) },
               styles: { fontSize: '14.5px', color: 'var(--c-muted)' },
               states: { hover: { color: 'var(--c-text)' } },
             })),
@@ -245,8 +275,8 @@ export function navBlock({ brand, brandIcon = 'sparkles', links, cta, sticky = t
             ? [
                 {
                   type: 'button' as const,
-                  name: `${cta} button`,
-                  props: { label: cta, href: '#' },
+                  name: `${linkLabel(cta)} button`,
+                  props: { label: linkLabel(cta), href: linkHref(cta) },
                   styles: {
                     fontSize: '14px',
                     paddingTop: '9px',
@@ -907,7 +937,7 @@ export function contactBlock(title: string, copy: string, buttonLabel = 'Send me
             {
               type: 'button',
               name: 'Submit',
-              props: { label: buttonLabel, href: '' },
+              props: { label: buttonLabel, submit: true },
               styles: { width: '100%' },
               states: { hover: { backgroundColor: 'var(--c-secondary)' } },
             },
@@ -926,7 +956,7 @@ export function contactBlock(title: string, copy: string, buttonLabel = 'Send me
 export function footerBlock(
   brand: string,
   tagline: string,
-  columns: { title: string; links: string[] }[],
+  columns: { title: string; links: LinkSpec[] }[],
   brandIcon = 'sparkles'
 ): NodeSpec {
   return section(
@@ -978,10 +1008,10 @@ export function footerBlock(
                       textTransform: 'uppercase',
                       color: 'var(--c-text)',
                     }),
-                    ...column.links.map((label) => ({
+                    ...column.links.map((link) => ({
                       type: 'link' as const,
-                      name: label,
-                      props: { text: label, href: '#' },
+                      name: linkLabel(link),
+                      props: { text: linkLabel(link), href: linkHref(link) },
                       styles: { fontSize: '13.5px', color: 'var(--c-muted)' },
                       states: { hover: { color: 'var(--c-text)' } },
                     })),

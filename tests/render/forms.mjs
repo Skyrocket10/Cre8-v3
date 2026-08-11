@@ -66,16 +66,32 @@ try {
   const site = await ctx.newPage();
   await site.goto(`${APP}/s/${id}/`, { waitUntil: 'domcontentloaded' });
   await site.locator('form input').first().fill('Real Visitor');
+
+  /*
+   * Pressed, not submitted.
+   *
+   * This used to call `form.submit()`, which posts the form whatever the
+   * button does — so it proved the endpoint worked and never proved a visitor
+   * could reach it. They could not: every button the app rendered carried
+   * `type="button"`, including the Send on every contact form it shipped, and
+   * this check stayed green throughout. The button is the feature.
+   */
+  const send = site.locator('form button[type="submit"]').first();
+  report.check(
+    'the published form has a button that submits it',
+    await send.isVisible().catch(() => false),
+    (await site.locator('form button').first().getAttribute('type')) ?? 'no button'
+  );
   // Wait on the navigation the submit causes. `waitForLoadState` resolves
   // against the document already loaded, so it returns before the POST has
   // even left and the URL read afterwards is the old one.
   await Promise.all([
     site.waitForURL(/sent=1|\/api\/f\//, { timeout: 15000 }).catch(() => {}),
-    site.locator('form').first().evaluate((f) => f.submit()),
+    send.click(),
   ]);
   await site.waitForTimeout(500);
   report.check(
-    'submitting sends the visitor back to the page they were on',
+    'and pressing it sends the visitor back to the page they were on',
     site.url().startsWith(`${APP}/s/${id}/`) && site.url().includes('sent=1'),
     site.url()
   );
