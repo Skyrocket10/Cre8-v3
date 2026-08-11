@@ -128,6 +128,34 @@ function brokenRule(doc) {
   return doc;
 }
 
+/**
+ * A one-cell table, for the `only` gate.
+ *
+ * Small on purpose: the claim is about which rows the inspector offers, not
+ * about tables, and the smallest thing with both a table and a cell in it is
+ * the honest fixture for that.
+ */
+function aTable(doc) {
+  const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
+  const root = doc.nodes[home.rootNodeId];
+  Object.assign(doc.nodes, {
+    pricetable: node('pricetable', 'table', 'Price table', {
+      parentId: home.rootNodeId,
+      children: ['pricerow'],
+    }),
+    pricerow: node('pricerow', 'tableRow', 'First row', {
+      parentId: 'pricetable',
+      children: ['pricecell'],
+    }),
+    pricecell: node('pricecell', 'tableCell', 'First cell', {
+      parentId: 'pricerow',
+      props: { text: 'Free' },
+    }),
+  });
+  root.children = [...root.children, 'pricetable'];
+  return doc;
+}
+
 const propsOf = (id) =>
   page.evaluate(async (pid) => {
     const r = await fetch(`/api/projects/${pid}`, {
@@ -585,6 +613,134 @@ try {
     'deleting the element in the editor turns the rule that read it broken, there and then',
     /element this reads is gone/i.test(afterDelete) && afterDelete.includes('a deleted element'),
     afterDelete.slice(0, 240) || 'no Data section on screen'
+  );
+  /* ------------------- 8. a row that nobody wrote by hand ---------------- */
+
+  /*
+   * The vocabulary's claim, at the only place it can be tested: the screen.
+   *
+   * A property with a table entry is supposed to become a working row — one
+   * that reads the effective value, writes the document, and resets. Nothing in
+   * the static suite can say whether that happened; it can only say a section
+   * renders `<StyleFields>`. So this drives three of them, chosen because they
+   * are three different control kinds and all three were unreachable before:
+   * a switch (italic), a menu (blend), and the grid span that made every
+   * template's grid uniform.
+   */
+  await selectLayer('Second');
+  await page.waitForTimeout(300);
+
+  const styleOf = async (nodeId) =>
+    page.evaluate(
+      async ([pid, nid]) => {
+        const r = await fetch(`/api/projects/${pid}`, {
+          credentials: 'include',
+          headers: { 'x-cre8-csrf': '1' },
+        });
+        const { document: doc } = await r.json();
+        return doc.nodes[nid]?.styles?.desktop ?? {};
+      },
+      [id, nodeId]
+    );
+
+  const rowFor = (label) =>
+    page.locator('aside').last().locator(`label:text-is("${label}")`).locator('xpath=../..');
+
+  // Italic — a `switch`, where off is the absence of the declaration rather
+  // than `normal`, because writing `normal` in a narrow breakpoint would pin
+  // the property and stop the base layer ever reaching it again.
+  const italic = rowFor('Italic').locator('button[role="switch"]');
+  report.check(
+    'a property with only a table entry still gets a row',
+    (await italic.count()) === 1,
+    // Typography had no italic at all before the table: not a decision, just a
+    // row nobody had written.
+    `${await italic.count()} Italic switch(es) in the inspector`
+  );
+
+  if (await italic.count()) {
+    await italic.first().click();
+    await page.waitForTimeout(700);
+    report.check(
+      'and the row writes the document',
+      (await styleOf('headingtwo')).fontStyle === 'italic',
+      JSON.stringify((await styleOf('headingtwo')).fontStyle ?? null)
+    );
+
+    await italic.first().click();
+    await page.waitForTimeout(700);
+    report.check(
+      'and turning it off removes the declaration rather than writing the other value',
+      (await styleOf('headingtwo')).fontStyle === undefined,
+      // `normal` would pin the property. Absent is the only spelling of "off"
+      // that a wider breakpoint can still speak through.
+      JSON.stringify((await styleOf('headingtwo')).fontStyle ?? null)
+    );
+  }
+
+  // Spans across — the control the whole grid gap comes down to. A number on
+  // screen, `span 2` in the document.
+  await page.locator('aside').last().locator('button:has-text("In parent")').first().click();
+  await page.waitForTimeout(400);
+  const span = rowFor('Spans across').locator('input').first();
+  report.check(
+    'the grid span control is a count, not a CSS phrase',
+    (await span.count()) === 1 && (await span.inputValue()) === '1',
+    // Every grid in all eight templates is a uniform `repeat(n, 1fr)`, because
+    // until this row a child could not be told to cover two cells.
+    `${await span.count()} field(s), showing “${await span.inputValue().catch(() => '')}”`
+  );
+
+  if (await span.count()) {
+    await span.fill('2');
+    await span.press('Enter');
+    await page.waitForTimeout(700);
+    report.check(
+      'and it writes the phrase CSS actually wants',
+      (await styleOf('headingtwo')).gridColumn === 'span 2',
+      JSON.stringify((await styleOf('headingtwo')).gridColumn ?? null)
+    );
+  }
+
+  /* Each of the above, handed something it must reject. */
+
+  /*
+   * The `only` gate, tested where it actually does work.
+   *
+   * The first version of this asserted that a heading has no "Focal point" row
+   * and passed with the gate switched off — a heading never renders that
+   * section at all, so nothing was ever gated. Vacuous, and it took a
+   * deliberate break to find out.
+   *
+   * A table is the one place the gate carries weight: the Table section and the
+   * Cell section make the *same* `<StyleFields section="table" />` call, and
+   * which rows appear is decided by `only` alone.
+   */
+  const withTable = await saveDocument(page, aTable(await getDocument(page, id)));
+  report.check('a table seeded', withTable === 200, `HTTP ${withTable}`);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+
+  await selectLayer('Price table');
+  const onTable = {
+    widths: await rowFor('Widths').count(),
+    vertically: await rowFor('Vertically').count(),
+  };
+  await selectLayer('First cell');
+  const onCell = {
+    widths: await rowFor('Widths').count(),
+    vertically: await rowFor('Vertically').count(),
+  };
+
+  report.check(
+    'one call to the table renders different rows on a table and on a cell',
+    onTable.widths === 1 && onTable.vertically === 0 &&
+      onCell.widths === 0 && onCell.vertically === 1,
+    // Without the gate every element carries every row, which is the panel the
+    // table exists to avoid — and the same call site would have to be four
+    // hand-written ones again.
+    `table: ${JSON.stringify(onTable)} · cell: ${JSON.stringify(onCell)}`
   );
 } catch (error) {
   report.check('inspector suite completed', false, error.message);

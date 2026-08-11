@@ -31,6 +31,11 @@ export function loadBlocks() {
       // can hold children. Both import types only.
       'src/lib/renderer/icons.ts',
       'src/lib/document/schema.ts',
+      // The style vocabulary: what every property is called and what edits it.
+      // Data, and therefore checkable — the coverage claim it makes is the
+      // audit that produced it, and a regex over the panel source is exactly
+      // the way that audit used to have to be done.
+      'src/lib/document/style-vocabulary.ts',
       // The upgrade every stored document goes through on load. It runs on
       // every project every time and would otherwise be exercised only by
       // accident, which is a poor arrangement for the one piece of code that
@@ -78,6 +83,7 @@ export function loadBlocks() {
     canContain: require(path.join(OUT, 'document/schema.js')).canContain,
     readCase: require(path.join(OUT, 'document/schema.js')).readCase,
     anchorId: require(path.join(OUT, 'document/schema.js')).anchorId,
+    vocabulary: require(path.join(OUT, 'document/style-vocabulary.js')),
     // References, on their own: "one walk services all of them" is a claim
     // about a function, and the cleanup that was missing for years is the
     // reason to check it rather than infer it from a rendered page.

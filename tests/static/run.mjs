@@ -36,6 +36,7 @@ const {
   PLACEHOLDER_MIN_HEIGHT,
   canContain,
   anchorId,
+  vocabulary,
   everyRef,
   pruneRefs,
   danglingReads,
@@ -7670,50 +7671,112 @@ report.group('an expression is described in one place');
    * place a panel names a *property* rather than a condition.
    */
   const styleDecl = read('src/lib/document/types.ts');
-  const declared = new Set(
-    [
-      ...styleDecl
-        .slice(
-          styleDecl.indexOf('export interface StyleDecl'),
-          styleDecl.indexOf('export type StyleProp')
-        )
-        .matchAll(/^\s{2}(\w+)\?:/gm),
-    ].map((one) => one[1])
-  );
-  const offered = [...data.matchAll(/^\s*\['(\w+)', '([^']+)'\],$/gm)].map((one) => [
-    one[1],
-    one[2],
-  ]);
+  const declared = [
+    ...styleDecl
+      .slice(styleDecl.indexOf('export interface StyleDecl'), styleDecl.indexOf('export type StyleProp'))
+      .matchAll(/^\s{2}(\w+)\?:/gm),
+  ].map((one) => one[1]);
+  const offered = vocabulary.effectProps();
 
   report.check(
     'the effect picker offers only properties the model actually has',
-    offered.length >= 5 && offered.every(([prop]) => declared.has(prop)),
+    offered.length >= 5 && offered.every(([prop]) => declared.includes(prop)),
     /*
      * The bug this is written for shipped: the list carried
      * `textDecorationLine`, which `StyleDecl` does not declare. Nothing
      * objected — the picker round-tripped it and the generator kebab-cases
      * whatever it is handed — so the effect worked while sitting outside the
-     * closed set the override badge and the row menu key on, and the
-     * Typography row could not see it. The annotation now makes the compiler
-     * the first guard; this is the second, because the compiler only checks
-     * the list while somebody keeps it typed.
+     * closed set the override badge and the row menu key on.
+     *
+     * Read from the compiled table now rather than scraped out of the panel,
+     * which is the point of having a table: the check asks the same object the
+     * picker asks.
      */
-    offered.length
-      ? offered
-          .filter(([prop]) => !declared.has(prop))
-          .map(([prop]) => prop)
-          .join(', ') || `${offered.length} offered, all declared`
-      : 'found no list to check — the reader has gone stale'
+    offered.filter(([prop]) => !declared.includes(prop)).map(([prop]) => prop).join(', ') ||
+      `${offered.length} offered, all declared`
   );
   report.check(
     'and names them in words rather than in property names',
-    offered.length >= 5 && offered.every(([, word]) => !/[A-Z]/.test(word)),
+    offered.length >= 5 && offered.every(([, phrase]) => !/[A-Z]/.test(phrase)),
     // `sets backgroundColor` is a variable on screen, in the one panel whose
     // whole argument is that a rule reads as a sentence.
-    offered
-      .filter(([, word]) => /[A-Z]/.test(word))
-      .map(([, word]) => word)
-      .join(', ') || offered.map(([, word]) => word).join(' · ')
+    offered.filter(([, phrase]) => /[A-Z]/.test(phrase)).map(([, p]) => p).join(', ') ||
+      offered.map(([, phrase]) => phrase).join(' · ')
+  );
+
+  /* ------------------------------------------------- the vocabulary itself */
+
+  /*
+   * The audit that produced the table, kept as a rule.
+   *
+   * Thirty-two of a hundred properties had no control anywhere and nothing said
+   * so, because saying so meant grepping the panel for each name in turn.
+   * `Record<StyleProp, StyleEntry>` makes the compiler answer the first half —
+   * every property has an entry — and these answer the half it cannot: that the
+   * entry is *reached*.
+   */
+  const vocab = vocabulary.STYLE_VOCABULARY;
+  const inspectorSource = readdirSync(path.join(ROOT, 'src/components/inspector'))
+    .filter((name) => name.endsWith('.tsx'))
+    .map((name) => read(`src/components/inspector/${name}`))
+    .join('\n');
+
+  report.check(
+    'every property the model declares has a word and a home',
+    declared.length > 90 && declared.every((prop) => vocab[prop]),
+    // The compiler enforces this through the `Record`, so this is here for the
+    // one thing it cannot see: the annotation being loosened to `Partial` or to
+    // `Record<string, …>`, after which the hole reopens silently.
+    declared.filter((prop) => !vocab[prop]).join(', ') ||
+      `${declared.length} declared, all in the table`
+  );
+  report.check(
+    'and no words for a property the model dropped',
+    Object.keys(vocab).every((prop) => declared.includes(prop)),
+    Object.keys(vocab).filter((prop) => !declared.includes(prop)).join(', ') || 'no strays'
+  );
+
+  const sections = [...new Set(Object.values(vocab).map((entry) => entry.section))];
+  const tabledSections = sections.filter((section) => vocabulary.tabled(section).length);
+  report.check(
+    'every section with a tabled property is rendered by a panel',
+    tabledSections.length > 5 &&
+      tabledSections.every((section) => inspectorSource.includes(`<StyleFields section="${section}" />`)),
+    // A table nobody renders is the same hole in a nicer shape.
+    tabledSections
+      .filter((section) => !inspectorSource.includes(`<StyleFields section="${section}" />`))
+      .join(', ') || `${tabledSections.length} sections rendered`
+  );
+
+  /*
+   * And the properties the table defers on. `bespoke` is a promise that a
+   * hand-written row already owns one, so a promise nothing keeps is a
+   * property with no control at all — which is the exact state the audit found.
+   *
+   * Matched as a quoted string, an object key or a member, never as a bare
+   * word: `transition` appears in a dozen Tailwind class names, and a check
+   * that counted those would call the property covered while the panel has
+   * never offered it. That false positive is why the first pass of this audit
+   * had to be run twice.
+   */
+  const bespokeWithoutRow = Object.entries(vocab)
+    .filter(([, entry]) => entry.control.kind === 'bespoke')
+    .map(([prop]) => prop)
+    .filter((prop) => !new RegExp(`['\"\`]${prop}['\"\`]|\\b${prop}:|\\.${prop}\\b`).test(inspectorSource));
+
+  report.check(
+    // What it proves is that the panel *names* the property somewhere, which is
+    // weaker than "there is a row" — a lingering hook call would satisfy it.
+    // That is still the difference between a gap and no gap: every one the
+    // audit found was a property the panel had never heard of.
+    'and every property the table defers on is named somewhere in the panel',
+    // `transition` is the known gap and the next milestone's subject: the model
+    // has it, the block library authors it in TypeScript, and the panel has
+    // never offered it — so a designer's own element cannot animate and a
+    // shipped block's timing cannot be changed. Named here rather than passed
+    // over, so closing it is what turns this line into `[]`.
+    bespokeWithoutRow.join(',') === 'transition',
+    bespokeWithoutRow.length ? `no row for: ${bespokeWithoutRow.join(', ')}` : 'none left'
   );
 
   /* Each of the above, handed something it must reject. */
@@ -7737,12 +7800,12 @@ report.group('an expression is described in one place');
     'the pattern matches what it is looking for'
   );
   report.check(
-    'the effect-picker rules are reading a real list, not an empty match',
-    offered.length >= 5 && declared.size > 50,
-    // Both rules pass vacuously against nothing found, and the reader is two
-    // regexes over source — exactly the thing that goes quiet when a file is
-    // reformatted rather than when it is wrong.
-    `${offered.length} offered against ${declared.size} declared`
+    'the vocabulary rules are reading real lists, not empty matches',
+    offered.length >= 5 && declared.length > 90 && inspectorSource.length > 10000,
+    // Every rule above passes vacuously against nothing found, and two of the
+    // three readers are regexes over source — exactly the thing that goes quiet
+    // when a file is reformatted rather than when it is wrong.
+    `${offered.length} effects, ${declared.length} declared, ${Object.keys(vocab).length} in the table`
   );
 }
 

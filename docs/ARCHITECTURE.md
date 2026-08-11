@@ -1232,6 +1232,63 @@ maintained next to the panel that edited them, which is exactly how a heading
 saying "Hovered" ends up over a control saying "hover". It is
 `partsToText(ruleSentence(rule))` now: the same parts, joined.
 
+### The style vocabulary, and why coverage had to become a type
+
+An audit of the inspector against the style model found the same thing three
+ways: **the engine is general and the editor is hand-carved.**
+`declarationsToCss` kebab-cases anything and both surfaces render it
+identically, so a property costs one line in `StyleDecl` — while every control
+was written out by hand, one row at a time. Thirty-five of a hundred properties
+had no control anywhere. Not decisions: rows nobody got to. No italic. No image
+focal point. No way to make a grid child span two columns, which is why every
+grid in all eight templates is a uniform `repeat(n, 1fr)` — the limitation is
+visible in the shipped output.
+
+Nothing said so, and that is the real finding. Answering "is this property
+reachable?" meant grepping the panel for the name, and a word-boundary grep
+cannot tell a CSS property from a local variable or a Tailwind class: the first
+pass reported `columnCount` covered because a local of that name parses a
+column template, and `cursor` covered because of `cursor-pointer`. Archaeology,
+and wrong by four.
+
+So the vocabulary is declared — `Record<StyleProp, StyleEntry>`, one entry per
+property, giving each a word, a section and a control. The `Record` is the
+point: adding a property to the model without a home is now a compile error.
+Coverage stopped being something to measure and became something the type
+system holds.
+
+`StyleField` renders an entry, and that is where the leverage is. A property
+named in the table gets a labelled row that reads the effective value, writes
+the right layer, shows the override dot, resets, and answers the right-click
+menu — five behaviours that were re-typed per row before, which is exactly why
+thirty-five properties had none of them. Two gates keep the panel from becoming
+a hundred rows: `only` restricts a row to element types, and `when` shows it
+only while a sibling declaration holds a value, so the grid properties appear
+on grids.
+
+What stays hand-written is what earns it. The box model is a diagram, sizing is
+Fill/Hug/Fixed rather than a length, a colour is a swatch with the theme behind
+it. Those are declared `bespoke` — still in the table, because the *words* are
+shared even when the control is not, and because a promise to defer to a
+hand-written row is checkable: one that defers to nothing is a property with no
+control at all.
+
+The compiler cannot see whether an entry is *reached*, so the static suite
+checks that every section with a tabled property is rendered and every
+`bespoke` property is named somewhere in the panel. That last rule currently
+reports exactly one gap, `transition`, and reporting it is the design: the
+model has the property, the block library authors it in TypeScript, and the
+panel has never offered it — so a designer's own element cannot animate and a
+shipped block's timing cannot be changed.
+
+Three things only a browser could catch, and it did. `NumberField` appends its
+default unit, so a count field wrote `2px` into `column-count` — valid CSS to
+the generator, meaningless to a browser, invisible to the compiler and the
+static suite. A second `Repeat` label collided with the Data section's, in a
+panel 280px wide. And the first version of the `only` check was vacuous: it
+asserted a heading has no focal-point row, and passed with the gate switched
+off, because a heading never renders that section at all.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

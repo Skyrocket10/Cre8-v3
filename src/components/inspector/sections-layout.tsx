@@ -29,6 +29,7 @@ import { NumberField } from '../ui/number-field';
 import { Section, Segmented, Select, Tooltip } from '../ui/primitives';
 import { BoxModel } from './box-model';
 import { FieldPair, InspectorGroup, StyleRow } from './controls';
+import { StyleFields } from './style-field';
 import { useStyleBindings, useStyleProp, useStyleReset, useStyleWriter } from './use-style';
 
 /* --------------------------------------------------------------------------
@@ -218,6 +219,7 @@ export function LayoutSection() {
             </StyleRow>
           </>
         )}
+        <StyleFields section="layout" />
       </InspectorGroup>
     </Section>
   );
@@ -539,6 +541,7 @@ export function PositionSection() {
             ]}
           />
         </StyleRow>
+        <StyleFields section="position" />
       </InspectorGroup>
     </Section>
   );
@@ -596,6 +599,7 @@ export function FlexChildSection() {
             ]}
           />
         </StyleRow>
+        <StyleFields section="parent" />
       </InspectorGroup>
     </Section>
   );

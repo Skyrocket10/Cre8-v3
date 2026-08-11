@@ -34,7 +34,13 @@ import {
   SizeSection,
   SpacingSection,
 } from './sections-layout';
-import { BorderSection, EffectsSection, FillSection, TypographySection } from './sections-style';
+import {
+  BorderSection,
+  EffectsSection,
+  FillSection,
+  MotionSection,
+  TypographySection,
+} from './sections-style';
 import { PagePanel } from './page-panel';
 
 /**
@@ -234,6 +240,7 @@ function SingleSelection() {
       <FillSection />
       <BorderSection />
       <EffectsSection />
+      <MotionSection />
       <FlexChildSection />
       <PositionSection />
       <div className="h-8" />
@@ -279,6 +286,7 @@ function MultiSelection() {
       <FillSection />
       <BorderSection />
       <EffectsSection />
+      <MotionSection />
       <FlexChildSection />
       <PositionSection />
       <div className="h-8" />

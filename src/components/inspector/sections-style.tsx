@@ -32,6 +32,7 @@ import { NumberField } from '../ui/number-field';
 import { Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives';
 import { TokenField } from '../ui/token-field';
 import { FieldPair, IconToggles, InspectorGroup, StyleRow } from './controls';
+import { StyleFields } from './style-field';
 import { useStyleBindings, useStyleProp, useStyleWriter } from './use-style';
 
 /* --------------------------------------------------------------------------
@@ -235,6 +236,7 @@ export function TypographySection() {
             ]}
           />
         </StyleRow>
+        <StyleFields section="typography" />
       </InspectorGroup>
     </Section>
   );
@@ -374,6 +376,7 @@ export function FillSection() {
             </StyleRow>
           </>
         )}
+        <StyleFields section="fill" />
       </InspectorGroup>
     </Section>
   );
@@ -594,7 +597,6 @@ export function EffectsSection() {
   const shadow = useStyleProp('boxShadow');
   const blur = useStyleProp('filter');
   const backdrop = useStyleProp('backdropFilter');
-  const transform = useStyleProp('transform');
 
   const blurValue = extractBlur(blur.value);
   const backdropValue = extractBlur(backdrop.value);
@@ -658,7 +660,43 @@ export function EffectsSection() {
           />
         </StyleRow>
 
-        <StyleRow styleProps={['transform']} menuLabel="Transform" label="Transform" hint="Any CSS transform, e.g. rotate(-2deg)">
+        <StyleFields section="effects" />
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Motion
+ * ----------------------------------------------------------------------- */
+
+/**
+ * How an element moves, and how it gets there.
+ *
+ * Its own section rather than three rows at the bottom of Effects, because
+ * motion is a decision people make about a whole element at once — what it
+ * does on hover, how long it takes, what it pivots around — and because the
+ * vocabulary needed a home to route `motion` to.
+ *
+ * Transform is still the raw CSS field it has always been. That is the next
+ * milestone's subject and naming it here is the point: a field labelled
+ * "Any CSS transform, e.g. rotate(-2deg)" is a request for the designer to
+ * know CSS, in a product whose premise is that they should not have to.
+ */
+export function MotionSection() {
+  const transform = useStyleProp('transform');
+
+  return (
+    <Section title="Motion" defaultOpen={false}>
+      <InspectorGroup>
+        <StyleRow
+          styleProps={['transform']}
+          menuLabel="Transform"
+          label="Transform"
+          hint="Any CSS transform, e.g. rotate(-2deg)"
+          overridden={transform.overridden}
+          onReset={transform.clear}
+        >
           <input
             value={transform.value ?? ''}
             onChange={(e) => transform.set(e.target.value || undefined)}
@@ -668,6 +706,7 @@ export function EffectsSection() {
             className="h-[26px] w-full min-w-0 rounded-md bg-[var(--field)] px-2 font-mono text-[10.5px] text-[var(--text)] outline-none transition-colors hover:bg-[var(--field-hover)] focus:ring-1 focus:ring-[var(--accent)] focus:ring-inset placeholder:text-[var(--text-faint)]"
           />
         </StyleRow>
+        <StyleFields section="motion" />
       </InspectorGroup>
     </Section>
   );

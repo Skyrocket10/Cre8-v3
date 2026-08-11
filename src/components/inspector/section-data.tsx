@@ -22,6 +22,7 @@ import { danglingReads } from '@/lib/document/factory';
 import { uid } from '@/lib/document/id';
 import * as ops from '@/lib/document/operations';
 import { getElement, slug } from '@/lib/document/schema';
+import { effectProps } from '@/lib/document/style-vocabulary';
 import {
   LIMITS,
   type Collection,
@@ -656,34 +657,25 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
 }
 
 /**
- * The handful of properties worth offering as a one-line effect, and the words
- * for them.
+ * The handful of properties worth offering as a one-line effect.
  *
  * Not every `StyleProp`. This row is a shortcut for the two or three things a
  * data-driven state usually does — fade it, tint it, put a line through it —
  * and a picker with a hundred entries would be a worse Conditions panel rather
  * than a quicker one. Anything else is a rule, written where rules are written.
  *
- * Typed as `StyleProp`, which it was not, and that omission was the whole bug:
- * the list carried `textDecorationLine`, a property the model does not have.
- * Nothing objected — the picker round-tripped it and the generator kebab-cases
- * whatever it is handed — so the effect *worked* while sitting outside the
- * closed set that `resolveValue`, the override badge and the row context menu
- * all key on. The Typography row and the rule were editing one visual through
- * two names, neither able to see the other. The annotation is the fix: a typo
- * now fails the build rather than shipping as a property.
+ * Which handful, and what to call each, is the vocabulary's answer rather than
+ * this file's: a property is offerable here exactly when it has a phrase for
+ * the sentence, and `sets backgroundColor` — a variable name on screen, in the
+ * panel whose whole argument is that a rule reads as a sentence — is what
+ * having no phrase used to produce.
  *
- * The words are here rather than derived, because `sets backgroundColor` is a
- * variable name on screen in a panel whose entire argument is that a rule reads
- * as a sentence.
+ * The list this replaced also carried `textDecorationLine`, which `StyleDecl`
+ * does not declare. Nothing objected: it was never annotated, the picker casts
+ * its value back out of a string, and the generator kebab-cases whatever it is
+ * handed. Sourcing it from a `Record<StyleProp, …>` makes that unspellable.
  */
-const EFFECT_PROPS: [prop: StyleProp, word: string][] = [
-  ['opacity', 'how see-through it is'],
-  ['color', 'the text colour'],
-  ['backgroundColor', 'the background'],
-  ['borderColor', 'the border colour'],
-  ['textDecoration', 'the underline'],
-];
+const EFFECT_PROPS = effectProps();
 
 /**
  * Form controls inside this node, by name.

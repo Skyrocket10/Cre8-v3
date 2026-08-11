@@ -92,6 +92,31 @@ reading a control *inside* the element that owns it, which works at runtime and
 which the picker does not offer; answer the label from the offer list alone and
 a working rule reads as broken while the warning correctly stays quiet.
 
+Whether a style property is *reachable at all* used to be answerable only by
+grepping the panel for its name, which is how the audit that produced the style
+vocabulary undercounted by four — a word-boundary match cannot tell a CSS
+property from a local variable or a Tailwind class. `Record<StyleProp,
+StyleEntry>` now makes the compiler answer half of it: every property has a
+word, a section and a control, or the build fails. The static suite answers the
+half a compiler cannot see — that the entry is *reached*: every section holding
+a tabled property is rendered by a panel, and every property the table defers
+on is named somewhere in it. That second rule reports exactly one gap today,
+`transition`, and naming it is the point rather than an oversight.
+
+What none of that can check is whether the row *works*, so the browser suite
+drives three control kinds that were unreachable before — a switch, a menu and
+the grid span — and asserts each writes the document, that turning a switch off
+removes the declaration rather than writing the opposite value, and that the
+span control writes `span 2` from a field showing `2`. It earned its place
+immediately: `NumberField` appends its default unit, so a unitless count was
+writing `2px`, which the compiler and the static suite both accepted.
+
+The `only` gate is checked on a table, not on a heading. The first version
+asserted a heading has no focal-point row and passed with the gate switched
+off — a heading never renders that section at all, so nothing was ever gated. A
+table and a cell make the *same* `<StyleFields section="table" />` call and get
+different rows, which is the only arrangement where the gate is what decides.
+
 The effect picker — the one place a panel names a *property* rather than a
 condition — is checked against the model rather than against itself: every
 property it offers must be one `StyleDecl` declares, and none may be named on

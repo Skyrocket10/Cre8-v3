@@ -53,6 +53,7 @@ import {
   Tooltip,
 } from '../ui/primitives';
 import { InspectorGroup, StyleRow } from './controls';
+import { StyleFields } from './style-field';
 import { useRangesInScope, useStatesInScope } from './section-rules';
 import { useNodeProp, useStyleProp, useStyleReset, useStyleWriter } from './use-style';
 
@@ -1342,6 +1343,7 @@ function TableContent() {
             placeholder="What this table shows"
           />
         </StyleRow>
+        <StyleFields section="table" />
       </InspectorGroup>
     </Section>
   );
@@ -1399,6 +1401,10 @@ function TableCellContent() {
             />
           </div>
         </StyleRow>
+        {/* The same one line as the Table section above. Which rows appear is
+            the vocabulary's `only` gate, not this call site's — a cell gets
+            "Vertically" and a table gets the other four. */}
+        <StyleFields section="table" />
       </InspectorGroup>
     </Section>
   );
@@ -1687,6 +1693,7 @@ function ImageContent() {
             ]}
           />
         </StyleRow>
+        <StyleFields section="content" />
       </InspectorGroup>
     </Section>
   );
