@@ -699,6 +699,45 @@ export const table = (
  * Popovers
  * ----------------------------------------------------------------------- */
 
+/** Where a panel opens, relative to the button that opens it. */
+export interface AnchorPlacement {
+  to: 'below' | 'above';
+  /** Which edge lines up with the button's. `start` is the left one in LTR. */
+  align?: 'start' | 'end';
+  gap?: string;
+}
+
+/**
+ * The styles that put a panel under its button, and undo the centring.
+ *
+ * A popover's element defaults are `inset: 0` with four auto margins, which is
+ * how a top-layer box centres itself and exactly right for a modal. A menu is
+ * not a modal, and every one in this library was inheriting that: the account
+ * menu opened in the middle of the viewport. Undoing it takes all four margins
+ * and the inset, not just the two you would think of, which is the sort of
+ * thing worth writing once.
+ *
+ * `position-try-fallbacks` is not optional polish. Without it an account menu
+ * in the top-right corner hangs off the edge of the page, because the browser
+ * places it where it was told and stops.
+ */
+export const anchorStyles = ({ to, align = 'start', gap = '8px' }: AnchorPlacement): StyleDecl => ({
+  position: 'fixed',
+  inset: 'auto',
+  marginTop: to === 'below' ? gap : '0px',
+  marginBottom: to === 'above' ? gap : '0px',
+  marginLeft: '0px',
+  marginRight: '0px',
+  // Logical, so a right-to-left site puts its menus on the side they belong
+  // on with nobody editing a template. `span-inline-end` reads oddly and means
+  // "spread away from the anchor's start edge", which lines the two up on the
+  // left; `span-inline-start` lines them up on the right.
+  positionArea: `${to === 'below' ? 'block-end' : 'block-start'} ${
+    align === 'end' ? 'span-inline-start' : 'span-inline-end'
+  }`,
+  positionTryFallbacks: 'flip-block, flip-inline',
+});
+
 /**
  * A panel the browser opens, and the button that opens it.
  *
@@ -706,16 +745,31 @@ export const table = (
  * rest of the page, closing on Escape, closing on a click outside, putting
  * focus back on the button afterwards — is what `[popover]` already is. The
  * published page ships no script for any of it.
+ *
+ * `anchor` is what makes one a *menu* rather than a modal. The alternative —
+ * an absolutely positioned panel inside a `position: relative` nav item —
+ * gives up the top layer, and with it the light dismiss, the Escape key and
+ * the immunity from being clipped by the navbar's own stacking context.
  */
 export const popover = (
   name: string,
   children: NodeSpec[],
-  options: { mode?: 'auto' | 'manual'; styles?: StyleDecl; responsive?: ResponsiveStyles } = {}
+  options: {
+    mode?: 'auto' | 'manual';
+    anchor?: AnchorPlacement;
+    styles?: StyleDecl;
+    responsive?: ResponsiveStyles;
+  } = {}
 ): NodeSpec => ({
   type: 'popover',
   name,
-  props: { popoverMode: options.mode ?? 'auto' },
-  styles: options.styles ?? {},
+  props: {
+    popoverMode: options.mode ?? 'auto',
+    // Read by the renderer, which mints the pair of names tying the panel to
+    // its button and marks the panel for the no-anchor-positioning fallback.
+    ...(options.anchor ? { anchorTo: options.anchor.to } : {}),
+  },
+  styles: { ...(options.anchor ? anchorStyles(options.anchor) : {}), ...options.styles },
   ...rsp(options.responsive ?? {}),
   children,
 });

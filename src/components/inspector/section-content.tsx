@@ -28,7 +28,7 @@ import {
   slug,
   slugList,
 } from '@/lib/document/schema';
-import type { Asset, ElementType, StyleDecl } from '@/lib/document/types';
+import type { Asset, ElementType, StyleDecl, StyleProp } from '@/lib/document/types';
 import {
   exposeProperty,
   removeComponentProperty,
@@ -54,7 +54,7 @@ import {
 } from '../ui/primitives';
 import { InspectorGroup, StyleRow } from './controls';
 import { useRangesInScope, useStatesInScope } from './section-rules';
-import { useNodeProp } from './use-style';
+import { useNodeProp, useStyleProp, useStyleReset, useStyleWriter } from './use-style';
 
 export function ContentSection() {
   const type = useEditor((s) => {
@@ -731,6 +731,7 @@ function PopoverContent() {
   return (
     <Section title="Popover" defaultOpen>
       <InspectorGroup>
+        <PlacementRows />
         <StyleRow label="Dismiss" hint="Auto closes on Escape or a click outside">
           <Segmented
             full
@@ -758,6 +759,95 @@ function PopoverContent() {
         light dismiss: Escape, or a click outside. Manual means only a button closes it.
       </p>
     </Section>
+  );
+}
+
+/** Everything the placement writes, so turning it off removes all of it. */
+const ANCHOR_PROPS: StyleProp[] = [
+  'position',
+  'inset',
+  'marginTop',
+  'marginBottom',
+  'marginLeft',
+  'marginRight',
+  'positionArea',
+  'positionTryFallbacks',
+];
+
+/**
+ * Where a panel opens.
+ *
+ * One control writing two things, which is the same shape as the assignment
+ * shortcut in the Conditions panel and for the same reason: `anchorTo` is
+ * machinery the renderer reads to mint the pair of names, and the placement is
+ * ordinary styles the designer can go on to edit. Splitting them across two
+ * controls would mean a panel that says it is anchored and is not.
+ *
+ * Centred is the default because it is right for a modal, and it is what every
+ * popover in the library was silently getting — including the account menu,
+ * which opened in the middle of the viewport.
+ */
+function PlacementRows() {
+  const anchorTo = useNodeProp('anchorTo');
+  const area = useStyleProp('positionArea');
+  const write = useStyleWriter();
+  const reset = useStyleReset();
+
+  const to = String(anchorTo.value ?? '');
+  const align = String(area.value ?? '').includes('span-inline-start') ? 'end' : 'start';
+
+  const place = (nextTo: string, nextAlign: string) => {
+    if (!nextTo) {
+      anchorTo.set(undefined);
+      // Back to the element's own centring, which is what removing the
+      // overrides restores rather than something this has to restate.
+      reset(ANCHOR_PROPS);
+      return;
+    }
+    anchorTo.set(nextTo);
+    write({
+      position: 'fixed',
+      inset: 'auto',
+      marginTop: nextTo === 'below' ? '8px' : '0px',
+      marginBottom: nextTo === 'above' ? '8px' : '0px',
+      marginLeft: '0px',
+      marginRight: '0px',
+      positionArea: `${nextTo === 'below' ? 'block-end' : 'block-start'} ${
+        nextAlign === 'end' ? 'span-inline-start' : 'span-inline-end'
+      }`,
+      // A menu near the edge turns instead of hanging off it.
+      positionTryFallbacks: 'flip-block, flip-inline',
+    });
+  };
+
+  return (
+    <>
+      <StyleRow label="Opens" hint="Centred is a modal; the others follow the button">
+        <Segmented
+          full
+          value={to || 'centred'}
+          onChange={(value) => place(value === 'centred' ? '' : value, align)}
+          options={[
+            { value: 'centred', label: 'Centred' },
+            { value: 'below', label: 'Below' },
+            { value: 'above', label: 'Above' },
+          ]}
+        />
+      </StyleRow>
+      {to && (
+        <StyleRow label="Aligned">
+          <Segmented
+            full
+            value={align}
+            onChange={(value) => place(to, value)}
+            options={[
+              { value: 'start', label: 'Left edges' },
+              { value: 'end', label: 'Right edges' },
+            ]}
+          />
+        </StyleRow>
+      )}
+    </>
   );
 }
 

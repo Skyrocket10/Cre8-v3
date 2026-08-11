@@ -130,6 +130,38 @@ export function popoverDomId(nodeId: string): string {
   return `p-${nodeId}`;
 }
 
+/**
+ * The name that ties a panel to the thing that opens it.
+ *
+ * Named after the **panel**, on both elements, and that is the load-bearing
+ * choice rather than an arbitrary one. The button knows its target, so it can
+ * mint this; the panel knows itself, so it can mint the same string — and
+ * neither has to look the other up. The canvas renderer is deliberately handed
+ * an empty document and memoised per node, so a lookup in either direction
+ * would work in the publisher and return nothing on the canvas, which is the
+ * class of bug that puts a menu in the right place in the file and the wrong
+ * place in the editor.
+ *
+ * Two buttons pointing at one panel both claim the name. CSS resolves that to
+ * the last in tree order, so the panel follows the lower button — worth
+ * knowing, not worth forbidding: a panel with two invokers has to pick one.
+ */
+export function anchorNameFor(panelNodeId: string): string {
+  return `--cre8-a-${panelNodeId}`;
+}
+
+/**
+ * Marks a panel whose position depends on `position-area` resolving.
+ *
+ * The reset uses it for the one rule that cannot be expressed on the node: in
+ * a browser without anchor positioning, `position-area` is dropped and a fixed
+ * panel with `inset: auto` lands wherever its static position happens to be.
+ * `@supports not` turns those panels into a sheet under the top edge instead —
+ * the same shape the mobile menu already uses, which is a menu rather than an
+ * accident.
+ */
+export const ANCHORED_ATTR = 'data-cre8-anchor';
+
 export function resolveHref(doc: Cre8Document, href: string | undefined, mode: RenderMode): string {
   if (!href) return mode === 'publish' ? '#' : '#';
   // A fragment on its own is a scroll on this page and needs no resolving.
@@ -585,6 +617,17 @@ function describeBase(
         attrs.popovertarget = popoverDomId(popoverTarget);
         const action = str(props.popoverAction, 'toggle');
         if (action !== 'toggle') attrs.popovertargetaction = action;
+        /*
+         * And the anchor half, unconditionally.
+         *
+         * The button cannot see whether its panel asked to be anchored — that
+         * is a prop on the other element, and the canvas renderer has no
+         * document to look it up in. `anchor-name` on an element nothing
+         * points at costs 28 bytes and changes no layout, which is a better
+         * trade than a menu that is centred on one surface and anchored on
+         * the other.
+         */
+        attrs.style = mergeStyle(attrs.style, `anchor-name:${anchorNameFor(popoverTarget)}`);
       }
       /*
        * Children win over the text prop, and that is the whole of the
@@ -622,19 +665,34 @@ function describeBase(
       const showWhileEditing = props.showWhileEditing !== false;
       const live = mode !== 'edit' || !showWhileEditing;
       const isDialog = node.type === 'dialog';
+      /*
+       * A panel that follows its button rather than sitting in the middle.
+       *
+       * Only the *link* is written here — the placement is `position-area` in
+       * the node's own styles, because "below, aligned left" is a design
+       * decision somebody changes and an inline style would outrank every rule
+       * they wrote. What the renderer owns is the name, which has to be minted
+       * identically at both ends and cannot be typed by hand.
+       */
+      const anchored = str(props.anchorTo);
+      const attrs: Record<string, AttrValue> = {
+        ...base,
+        id: popoverDomId(node.id),
+        popover: live ? str(props.popoverMode, 'auto') : undefined,
+        // A dialog with no name is announced as "dialog" and nothing else.
+        'aria-label': isDialog ? str(props.label) || undefined : undefined,
+      };
+      if (anchored) {
+        attrs[ANCHORED_ATTR] = true;
+        attrs.style = mergeStyle(attrs.style, `position-anchor:${anchorNameFor(node.id)}`);
+      }
       return {
         // A real `<dialog>`, opened through the popover attribute rather than
         // `showModal()`. That keeps the page scriptless and still buys the
         // element's implicit role, so the thing is announced as a dialog
         // instead of as an anonymous box.
         tag: isDialog ? 'dialog' : 'div',
-        attrs: {
-          ...base,
-          id: popoverDomId(node.id),
-          popover: live ? str(props.popoverMode, 'auto') : undefined,
-          // A dialog with no name is announced as "dialog" and nothing else.
-          'aria-label': isDialog ? str(props.label) || undefined : undefined,
-        },
+        attrs,
         void: false,
         acceptsChildren: true,
       };

@@ -361,6 +361,56 @@ function checkPopoverRefs(spec) {
 }
 
 /**
+ * A panel is either a modal or a menu, never half of one.
+ *
+ * The popover element centres itself — `inset: 0` with four auto margins,
+ * which is how a top-layer box sits in the middle and exactly right for a
+ * dialog. Anchoring means undoing all six of those declarations *and* saying
+ * where to go instead, and it is the "all six" that makes this worth a rule:
+ * clear the inset and forget `position-area` and the panel lands at its static
+ * position, which for a top-layer box is the top-left corner, over the logo.
+ *
+ * So the two states are named and anything between them is an error. This is
+ * not a judgement about which panels ought to be menus — that is design, and
+ * the account menu opening in the middle of the viewport was a design mistake
+ * rather than a lint failure. It is a check that a half-finished edit cannot
+ * ship looking finished.
+ */
+function checkAnchoring(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    if (node.type !== 'popover' && node.type !== 'dialog') continue;
+    // Effective styles, not the override on its own. A narrow-width layer
+    // inherits the base one, so a mobile rule that changes only the padding
+    // must not read as a panel that forgot where it goes — which is what the
+    // first version of this rule reported about the mega menu.
+    const base = node.styles ?? {};
+    for (const { where, styles: layer } of layers(node)) {
+      const styles = { ...base, ...layer };
+      const anchored = Boolean(node.props?.anchorTo);
+      const at = `${path} (${where})`;
+      if (anchored) {
+        if (!styles.positionArea) bad.push(`${at}: anchored, but nothing says where`);
+        // A menu near the right edge or the bottom of the window hangs off it
+        // without these. The browser places it where it was told and stops.
+        if (styles.positionArea && !styles.positionTryFallbacks) {
+          bad.push(`${at}: anchored with no fallback, so an edge menu overflows`);
+        }
+        if (styles.inset && styles.inset !== 'auto') {
+          bad.push(`${at}: anchored but still holds inset: ${styles.inset}`);
+        }
+        for (const side of ['marginTop', 'marginRight', 'marginBottom', 'marginLeft']) {
+          if (styles[side] === 'auto') bad.push(`${at}: anchored but ${side} is still auto`);
+        }
+      } else if (styles.positionArea || styles.inset === 'auto') {
+        bad.push(`${at}: positioned like a menu without asking to be one`);
+      }
+    }
+  }
+  return bad;
+}
+
+/**
  * A switch has to be wired to itself.
  *
  * Every part of one fails quietly when it is wrong. A case with no group
@@ -629,6 +679,7 @@ const RULES = [
   ['children are only where an element can render them', checkContainerChildren],
   ['no nesting the HTML parser would rearrange', checkNesting],
   ['every popover button names a popover in its block', checkPopoverRefs],
+  ['a panel is a modal or a menu, never half of one', checkAnchoring],
   ['every switch is wired to its own cases', checkSwitches],
   ['no block still says when it shows in props', checkRetiredProps],
   ['content varies on one state, exclusively', checkContentRules],

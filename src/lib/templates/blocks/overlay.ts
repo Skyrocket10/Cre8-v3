@@ -415,6 +415,10 @@ export function megaMenuSpec(): NodeSpec {
               ),
             ],
             {
+              // Under the Explore button, left edges lined up — a mega menu
+              // that appears in the middle of the screen is a modal wearing a
+              // navigation panel's clothes, which is what this was.
+              anchor: { to: 'below', align: 'start' },
               styles: {
                 ...PANEL,
                 ...pad('24px'),
@@ -494,6 +498,11 @@ export function userMenuSpec(): NodeSpec {
               textLink('Sign out', '#', { ...SMALL, color: 'var(--c-muted)' }),
             ],
             {
+              // Under the avatar and aligned to its right edge, which is where
+              // an account menu lives on every application anybody has used.
+              // It opened dead-centre of the viewport before this, inheriting
+              // the modal centring in the popover element's defaults.
+              anchor: { to: 'below', align: 'end' },
               styles: {
                 ...PANEL,
                 ...pad('14px'),

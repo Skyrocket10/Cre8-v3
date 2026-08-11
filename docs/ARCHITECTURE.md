@@ -511,6 +511,38 @@ Escape, or a click outside — and `manual` means only a button closes it. There
 is no script here that watches for backdrop clicks, because the platform
 already does it and doing it twice is how the two disagree.
 
+### A menu is a popover that knows where it is
+
+The popover element centres itself: `inset: 0` with four auto margins, which is
+how a top-layer box sits in the middle and exactly right for a dialog. Every
+menu in the library was inheriting it, so the account menu opened in the middle
+of the viewport — a fact none of the popover checks could see, because it was a
+real popover, correctly wired, on top, and dismissing properly the whole time.
+
+The fix is **CSS anchor positioning**, and the reason it is worth the newness is
+what the alternative costs. An absolutely positioned panel inside a
+`position: relative` nav item leaves the top layer, and with it the light
+dismiss, the Escape key and the immunity from clipping — a navbar with
+`backdrop-filter` is a containing block, so the menu gets cut off by the header
+it hangs from. Positioning with a script contradicts the property this whole
+section exists to preserve.
+
+The split is the same one the rest of the app makes. The **names** are
+machinery: `anchor-name` on the button, `position-anchor` on the panel, both
+minted from the *panel's* node id so neither element has to look the other up —
+which matters because the canvas renderer is handed an empty document and
+memoised per node, so a lookup would work in the publisher and return nothing
+in the editor. The **placement** is design: `position-area` in the node's own
+styles, editable, and written by one inspector control alongside the prop the
+renderer reads. `position-try-fallbacks: flip-block, flip-inline` is not
+polish — without it a menu in the top-right corner hangs off the page.
+
+Browsers that cannot anchor get the one rule that has to outrank a node class.
+`position-area` is dropped on parse there, leaving a fixed box with no insets
+that lands at its static position — the top-left corner, over the logo — so
+`@supports not` turns those panels into the same full-width sheet under the top
+edge that the mobile menu already uses. A menu rather than an accident.
+
 ---
 
 ## 6. Storage

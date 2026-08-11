@@ -545,6 +545,17 @@ export function generateNodeCss(
  * room above the section rather than as a mistake. At (0,0,1) a node that sets
  * its own `scroll-margin-top` beats it.
  *
+ * The `@supports not` block at the end is the other rule that has to outrank a
+ * node class, and for a sharper reason than the popover below. A panel that
+ * asked to be anchored carries `position-area` in its own styles and `inset:
+ * auto` with it; a browser that cannot parse `position-area` drops it and
+ * leaves a fixed box with no insets, which lands at whatever its static
+ * position happens to be — usually the top-left corner, over the logo. So the
+ * fallback has to *win*, not merely exist, and it turns the panel into the
+ * same full-width sheet under the top edge that the mobile menu already uses:
+ * a menu rather than an accident. Where anchoring works the block is not
+ * there at all, so it costs nothing to reason about.
+ *
  * The one line that is deliberately *not* wrapped in `:where()` is the closed
  * popover. A user-agent rule loses to any author rule regardless of
  * specificity, so the browser's own `[popover]:not(:popover-open) { display:
@@ -588,6 +599,17 @@ export const DOCUMENT_RESET = `
 
 /* Not :where() — see above. This one has to outrank the node's own display. */
 [data-cre8-root] [popover]:not(:popover-open) { display: none; }
+
+/* Anchored panels, where the browser cannot anchor them. Also not :where(). */
+@supports not (position-area: block-end) {
+  [data-cre8-root] [data-cre8-anchor] {
+    inset: 0;
+    margin: 0 0 auto 0;
+    width: 100%;
+    max-width: none;
+    border-radius: 0;
+  }
+}
 `.trim();
 
 /**

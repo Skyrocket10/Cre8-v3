@@ -14,6 +14,7 @@ width will never show you:
 - images carry alt text worth reading
 - no nesting the HTML parser would rearrange on the way out
 - every popover button names a popover that is in the same block
+- a panel is a modal or a menu, never half of one
 - every state has something depending on it, and every control changes something
 - every tab has one panel and every panel has one tab
 - buttons and links respond to hover
@@ -113,6 +114,24 @@ decorative button posting — which left every contact form the app shipped with
 a Send that did nothing, and the render suite green throughout, because it
 submitted the form itself rather than pressing the thing a visitor presses.
 
+The anchoring rule is there because half an edit is invisible. A popover
+centres itself by default — `inset: 0` and four auto margins — and anchoring it
+means undoing all six of those *and* saying where to go instead. Clear the
+inset, forget `position-area`, and the panel lands at its static position,
+which for a top-layer box is the top-left corner. So the two states are named
+and anything between them fails. It is not a judgement about which panels ought
+to be menus: the account menu opening in the middle of the viewport was a
+design mistake, not a lint failure, and no static rule would have called it.
+
+What did call it is in `native`, and it is the only kind of check that could:
+it opens the menu in a browser and measures the panel's box against the
+button's. Every markup check passed throughout — real popover, wired, on top,
+dismissing on Escape — because "the right CSS was emitted" and "the panel
+landed in the right place" are different claims. The measurement is taken in
+both directions: with room below the button it must open below, and near the
+bottom of the window it must flip above rather than leave the page. The first
+version of that check demanded "below" and failed against a correct flip.
+
 The alt-text rule was deleted from that group once and has come back, which is
 worth recording as a pattern rather than as a footnote. It was deleted because
 no template contained an image node, so it passed for ever and read to whoever
@@ -166,7 +185,7 @@ preferring an installed copy over downloading one.
 | `blocks` | The same question of every block in the registry, alone, at 390 / 768 / 1440 |
 | `panel` | The Insert panel at library scale: grouping, search, live previews |
 | `nav` | Do page links work inside a published site — and does a link into a named section scroll to it, stopping clear of the sticky navbar rather than under it, from the same page and from another one |
-| `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime |
+| `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime — and does an anchored panel open against the button that opened it, on the side it was told, flipping rather than overflowing when there is no room |
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces. And does a state decided by what somebody types follow them as they type, put itself back when they clear the field, and land on the declared fallback when nothing is running |
 | `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |

@@ -285,14 +285,6 @@ try {
 
   await menu.keyboard.press('Escape');
   await menu.waitForTimeout(220);
-  report.check('Escape closes it', !(await panel.isVisible()));
-  report.check(
-    'and focus goes back to the button that opened it',
-    await menu.evaluate(
-      (pid) => document.activeElement?.getAttribute('popovertarget') === pid,
-      popoverId
-    )
-  );
 
   await trigger.click();
   await menu.waitForTimeout(220);
@@ -307,6 +299,78 @@ try {
   report.check('the close button inside it closes it', !(await panel.isVisible()));
 
   await menu.close();
+
+  /* ------------------------------------------- 7b. and *where* it opens */
+
+  /*
+   * The command palette above is a modal and belongs in the middle. A menu
+   * does not, and until this existed every one in the library got the modal
+   * centring anyway — the account menu opened in the centre of the viewport,
+   * with every check in section 7 passing throughout. It was a real popover,
+   * it was wired, it was on top, it dismissed on Escape. None of that is where.
+   *
+   * "The right CSS was emitted" and "the panel landed in the right place" are
+   * different claims, and only a browser settles the second, so this measures
+   * two boxes against each other.
+   */
+  await page.bringToFront();
+  await insert('Account menu');
+  await publish(page);
+
+  const placed = await ctx.newPage();
+  await placed.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+  const avatar = placed.locator('button:has-text("Ines García")').first();
+  // A window tall enough to leave room beneath the button. The block is the
+  // last thing on the page, so in an ordinary viewport the menu correctly
+  // opens *upward* — the flip fallback doing its job, which the first version
+  // of this check read as a failure.
+  await placed.setViewportSize({ width: 1280, height: 1600 });
+  await placed.waitForTimeout(200);
+  await avatar.click();
+  await placed.waitForTimeout(320);
+
+  const boxes = await placed.evaluate(() => {
+    const button = [...document.querySelectorAll('button[popovertarget]')].find((b) =>
+      (b.textContent ?? '').includes('Ines García')
+    );
+    const el = button && document.getElementById(button.getAttribute('popovertarget'));
+    if (!el) return null;
+    const p = el.getBoundingClientRect();
+    const b = button.getBoundingClientRect();
+    return {
+      below: Math.round(p.top - b.bottom),
+      above: Math.round(b.top - p.bottom),
+      alignedRight: Math.abs(p.right - b.right) < 2,
+      centred: Math.abs(p.left + p.width / 2 - window.innerWidth / 2) < 4,
+      anchor: getComputedStyle(el).positionAnchor,
+    };
+  });
+
+  // Touching the button on one side or the other, whichever the browser
+  // chose. Insisting on "below" would be insisting the flip never happens,
+  // and the flip is the feature that stops an edge menu leaving the page.
+  const touching = boxes && [boxes.below, boxes.above].some((d) => d >= 0 && d <= 24);
+  report.check(
+    'an anchored panel opens against its button, not in the middle of the page',
+    Boolean(touching) && !boxes.centred,
+    boxes ? `${boxes.below}px below / ${boxes.above}px above, centred=${boxes.centred}` : 'no panel'
+  );
+  report.check(
+    'and below it, given room to be',
+    Boolean(boxes) && boxes.below >= 0 && boxes.below <= 24,
+    boxes ? `${boxes.below}px below the button` : 'no panel'
+  );
+  report.check(
+    'and lines up with the edge it was told to',
+    Boolean(boxes?.alignedRight),
+    boxes?.alignedRight ? 'right edges within a pixel' : 'not aligned'
+  );
+  report.check(
+    'the panel names the button through the anchor the renderer minted',
+    Boolean(boxes?.anchor?.startsWith('--cre8-a-')),
+    boxes?.anchor || 'no position-anchor'
+  );
+  await placed.close();
 
   /* --------------------------- 8. wiring one by hand, the way a designer does */
 

@@ -95,6 +95,29 @@ export interface StyleDecl {
   left?: string;
   inset?: string;
   zIndex?: string;
+  /**
+   * Where a panel sits relative to the thing that opens it.
+   *
+   * The placement half of anchor positioning, and it is design rather than
+   * machinery, which is why it lives in styles: "below, aligned left" is a
+   * decision somebody makes and changes. The *names* that tie the two elements
+   * together are minted from the panel's node id by the renderer, the same way
+   * a popover's DOM id is.
+   *
+   * Written logically — `block-end span-inline-end` rather than
+   * `bottom span-right` — so a right-to-left site puts its menus on the side
+   * they belong on without anybody editing a template.
+   */
+  positionArea?: string;
+  /**
+   * What to try when the panel would leave the viewport.
+   *
+   * `flip-block, flip-inline` is the whole of it for a menu: one turns a
+   * dropdown near the bottom into a drop-up, the other turns a right-hand
+   * menu leftwards. Without it an account menu in the top-right corner simply
+   * hangs off the edge of the page.
+   */
+  positionTryFallbacks?: string;
   overflow?: string;
   overflowX?: string;
   overflowY?: string;
