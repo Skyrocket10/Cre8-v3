@@ -1326,6 +1326,33 @@ report.group('a reference is a thing the document knows about');
       // declared Otherwise, and this is what lets the editor say why.
       `${danglingReads(d6.nodes).length} reported, rule kept`
     );
+    const [reported] = danglingReads(d6.nodes);
+    report.check(
+      'and the report names the rule, not only the element it is on',
+      reported?.node.id === p6.id && reported?.rule === 'r1' && reported?.missing === b6.id,
+      /*
+       * What makes it usable. The warning belongs beside the sentence that is
+       * broken — a panel-level "something here is wrong" over a list of four
+       * rules leaves the reader to do the matching, and the fix is a chip in
+       * one of those four sentences.
+       */
+      reported ? `${reported.rule} on ${reported.node.id} reads ${reported.missing}` : 'nothing'
+    );
+    report.check(
+      'and it is silent about a rule reading a field rather than an element',
+      (() => {
+        d6.nodes[p6.id].assign.push({
+          id: 'r2',
+          when: { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'notEmpty' },
+          value: 'priced',
+        });
+        return danglingReads(d6.nodes).length === 1;
+      })(),
+      // A record field is not a node and has no id to dangle. Reporting one
+      // would make the warning noise, and a warning that is usually wrong is
+      // read as decoration within a week.
+      `${danglingReads(d6.nodes).length} reported with a field rule alongside`
+    );
   }
 
   report.check(
@@ -7557,6 +7584,40 @@ report.group('an expression is described in one place');
     'copied out of the panel it is still a sentence'
   );
 
+  /*
+   * And the one place a rule can be *wrong* rather than unfinished.
+   *
+   * Two panels have to agree about a reference whose element is gone: the
+   * sentence names it and the warning underneath explains it. Said twice in
+   * two files, one of them goes stale and the panel diagnoses one rule two
+   * ways — "you have not picked a source" over "the source you picked is
+   * missing".
+   */
+  const data = strip(read('src/components/inspector/section-data.tsx'));
+
+  report.check(
+    'the words for a deleted element are written once, in the builder',
+    /DELETED_ELEMENT = /.test(builders) && !/a deleted element/.test(data),
+    'the panel does not spell the chip’s label a second time'
+  );
+  report.check(
+    'and the chip uses them rather than falling through to its placeholder',
+    /orphaned \?/.test(builders) && /label: DELETED_ELEMENT/.test(builders),
+    'an element operand nothing can name still says what it is'
+  );
+  report.check(
+    'the panel asks the document walk what is dangling rather than deciding itself',
+    /danglingReads\(nodes\)/.test(data) && !/!nodes\[/.test(data),
+    // Two definitions of "dangling" is how cleanup keeps a rule the panel calls
+    // broken, or the panel stays quiet about one cleanup would have cleared.
+    'one definition, in `factory`'
+  );
+  report.check(
+    'and reports it against the rule, so the warning lands on the broken sentence',
+    /one\.rule === rule\.id/.test(data),
+    'per rule, not per panel'
+  );
+
   /* Each of the above, handed something it must reject. */
   report.check(
     'the one-place rules would notice a panel spelling its own words',
@@ -7566,6 +7627,16 @@ report.group('an expression is described in one place');
   report.check(
     'and the condition-walk rule would notice the switch coming back',
     /case '(pointer|attr|data)':/.test("switch (c.kind) { case 'pointer': return 'Hovered'; }")
+  );
+  report.check(
+    'the deleted-element rule would notice the panel wording it again',
+    /a deleted element/.test('<p>reads a deleted element</p>'),
+    'the pattern matches what it is looking for'
+  );
+  report.check(
+    'and the one-definition rule would notice the panel checking membership itself',
+    /!nodes\[/.test('const gone = !nodes[ref.node];'),
+    'the pattern matches what it is looking for'
   );
 }
 

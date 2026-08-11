@@ -579,6 +579,28 @@ because the control it reads was deleted is a bigger decision than cleanup gets
 to make. The node falls back to its declared Otherwise, and `danglingReads` is
 what lets the editor say why.
 
+It says it **beside the rule**, not at the foot of the panel — which is why the
+report carries the rule id and not only the node. The fix is a chip in one
+sentence, and a panel-level "something here is wrong" over a list of four rules
+leaves the reader to work out which. What it says is the whole consequence, in
+order: the element is gone, so the rule can never hold, so the state stays at
+its Otherwise.
+
+The sentence above the warning had to be made honest first. A picker takes its
+text from the option matching its value, so a reference to a deleted element
+fell through to the placeholder and read `When ⟨a field⟩ is not empty` — a rule
+nobody had finished, printed directly above a warning that one was broken. Two
+diagnoses of one rule in one panel, and only the second true.
+
+Which makes *"cannot be named"* and *"is not there"* two questions rather than
+one. The source picker deliberately withholds controls inside the node owning
+the rule — those are offered by name instead — so a control picked from the page
+and then dragged in is a working reference the offer list cannot label. The
+panel adds back what the rules already read before asking the sentence to name
+it; after that, the only reference left unnameable is one whose node is
+genuinely gone, which is exactly what `danglingReads` reports. The two halves
+then agree about every rule instead of about most of them.
+
 ### A menu is a popover that knows where it is
 
 The popover element centres itself: `inset: 0` with four auto margins, which is

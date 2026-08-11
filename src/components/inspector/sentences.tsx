@@ -231,6 +231,21 @@ export function testSentence(options: {
   const field =
     left.kind === 'field' ? fields.find((f) => f.key === left.key) : AS_TEXT;
   const operators = field ? OPS_FOR[field.type] : [];
+  /*
+   * A reference whose element the caller could not name.
+   *
+   * Without this the chip falls through to its placeholder and the sentence
+   * reads `When ⟨a field⟩ is not empty` — which says the source was never
+   * chosen, when in truth one was chosen and the thing it named is gone. The
+   * two failures want opposite responses, so the sentence has to tell them
+   * apart before the warning underneath is worth reading.
+   *
+   * It is a real option rather than a bare label because a `Select` takes its
+   * text from the option matching its value; choosing it again is a no-op,
+   * which is the right amount of nothing for a chip that exists to be replaced.
+   */
+  const orphaned =
+    left.kind === 'element' && !elements.some((one) => one.id === left.ref.node);
 
   parts.push({
     kind: 'pick',
@@ -245,6 +260,7 @@ export function testSentence(options: {
         value: `${ON_PAGE}${one.id}`,
         label: `${one.name} — what it holds`,
       })),
+      ...(orphaned ? [{ value: source, label: DELETED_ELEMENT }] : []),
     ],
     onChange:
       onChange &&
@@ -346,6 +362,15 @@ const TYPED = 'typed:';
  * in strings, and the three kinds of source have to stay tellable apart.
  */
 const ON_PAGE = 'on-page:';
+/**
+ * What an element reference reads as once its element is gone.
+ *
+ * Exported because the panel that warns about it must not spell the same fact
+ * a second way: the chip names the thing and the warning explains it, and one
+ * of those going stale while the other did not is how a rule ends up described
+ * as both unset and broken in the same panel.
+ */
+export const DELETED_ELEMENT = 'a deleted element';
 
 /**
  * The sentence somebody starts with: the first field, its first operator, and

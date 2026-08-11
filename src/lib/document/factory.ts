@@ -288,11 +288,24 @@ export function pruneRefs(nodes: NodeMap): void {
   }
 }
 
-/** Rules reading an element the document no longer has. */
-export function danglingReads(nodes: NodeMap): { node: SceneNode; missing: NodeId }[] {
-  const out: { node: SceneNode; missing: NodeId }[] = [];
-  for (const { node, slot, ref } of everyRef(nodes)) {
-    if (slot === 'expression' && !nodes[ref.node]) out.push({ node, missing: ref.node });
+/**
+ * Rules reading an element the document no longer has.
+ *
+ * The rule id, not only the node, because that is what makes this reportable
+ * in the place somebody can act on it: the warning belongs beside the sentence
+ * that is broken, not at the top of a panel listing four rules of which one
+ * is.
+ */
+export function danglingReads(
+  nodes: NodeMap
+): { node: SceneNode; rule: string; missing: NodeId }[] {
+  const out: { node: SceneNode; rule: string; missing: NodeId }[] = [];
+  for (const node of Object.values(nodes)) {
+    for (const rule of node.assign ?? []) {
+      for (const ref of refsInTest(rule.when)) {
+        if (!nodes[ref.node]) out.push({ node, rule: rule.id, missing: ref.node });
+      }
+    }
   }
   return out;
 }

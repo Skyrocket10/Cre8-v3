@@ -18,6 +18,7 @@
 
 import React from 'react';
 import { Database, Gauge, Layers, Sparkles, Trash2 } from 'lucide-react';
+import { danglingReads } from '@/lib/document/factory';
 import { uid } from '@/lib/document/id';
 import * as ops from '@/lib/document/operations';
 import { getElement, slug } from '@/lib/document/schema';
@@ -31,6 +32,7 @@ import {
   type ValueVar,
 } from '@/lib/document/types';
 import {
+  elementsRead,
   fieldsRead,
   needsRuntime,
   provablyOverlap,
@@ -364,7 +366,22 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
   const rules = node.assign ?? [];
   const key = String(node.props.switchKey ?? '');
   const controls = namedControlsInside(nodes, node);
-  const elements = controlsOnPage(nodes, activeRootId(useEditor.getState()) ?? undefined, node);
+  const elements = alsoAlreadyRead(
+    controlsOnPage(nodes, activeRootId(useEditor.getState()) ?? undefined, node),
+    rules,
+    nodes
+  );
+  /*
+   * Rules whose element is not in the document at all, by rule.
+   *
+   * Read from the shared walk rather than recomputed here, because "what
+   * counts as dangling" is exactly the kind of definition that drifts when two
+   * places own it — cleanup would keep a rule the panel called broken, or the
+   * other way round.
+   */
+  const dangling = danglingReads(nodes).filter((one) => one.node.id === node.id);
+  /** What the element is left in when a rule can never hold. */
+  const fallback = slug(node.props.switchDefault) || 'in no state';
   const problem = unfinished(node);
   const live = needsRuntime(node);
   const exposed = live
@@ -551,6 +568,26 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
                 wins — it is later in the list.
               </p>
             )}
+
+            {dangling.some((one) => one.rule === rule.id) && (
+              /*
+               * Beside the sentence, not at the foot of the panel: the fix is
+               * to repoint the source chip a line above this, and a panel-level
+               * warning listing four rules of which one is broken makes the
+               * reader do the matching.
+               *
+               * Said rather than repaired. Deleting an element does not delete
+               * the rule reading it — that would throw away work over a change
+               * the designer may be about to undo — so the rule stays, answers
+               * "don't know" forever, and the element falls through to its
+               * Otherwise. All three of those are facts somebody has to be told
+               * before they can decide which one they wanted.
+               */
+              <p className="pt-1 text-[10px] leading-relaxed text-[var(--danger,#dc2626)]">
+                The element this reads is gone, so this can never hold —{' '}
+                {node.name} stays {fallback}. Pick another source above, or remove the rule.
+              </p>
+            )}
           </div>
         );
       })}
@@ -670,6 +707,37 @@ function controlsOnPage(
     for (const child of node.children) walk(child, depth + 1);
   };
   walk(rootId, 0);
+  return out;
+}
+
+/**
+ * Those, plus any element the rules already read that is not among them.
+ *
+ * Because what is worth *offering* and what has to be *named* are different
+ * questions, and `controlsOnPage` answers the first. It leaves out the node's
+ * own descendants on purpose — they are offered as "what is typed" instead — so
+ * a control that was picked from the page and has since been dragged inside
+ * this node is a live, working reference that the offer list cannot label. Ask
+ * the offer list to do the naming and that rule renders as unset and then gets
+ * reported as broken, which is two lies about a rule that works.
+ *
+ * After this, a reference the sentence cannot name is one whose node is
+ * genuinely not in the document — the same thing `danglingReads` reports, which
+ * is what lets the chip and the warning underneath agree.
+ */
+function alsoAlreadyRead(
+  offered: { id: string; name: string }[],
+  rules: StateRule[],
+  nodes: Record<string, SceneNode>
+): { id: string; name: string }[] {
+  const out = [...offered];
+  for (const rule of rules) {
+    for (const id of elementsRead(rule.when)) {
+      if (out.some((one) => one.id === id)) continue;
+      const found = nodes[id];
+      if (found) out.push({ id, name: found.name });
+    }
+  }
   return out;
 }
 

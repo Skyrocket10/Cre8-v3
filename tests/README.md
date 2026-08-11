@@ -78,6 +78,27 @@ spelled once in the sentence builder and nowhere in a panel, and the rule
 summary is the sentence rather than a second description of it. That is a claim
 about structure, so there is nothing else to assert it against.
 
+A rule reading an element that is no longer in the document is checked in two
+halves, and neither half covers the route on its own. The static suite drives
+the real deletion and asserts what survives it — the rule kept, one report,
+naming the rule and the element, and silent about a rule reading a record field,
+which has no id to dangle. The browser suite seeds that state and reads the
+panel: the warning appears beside the broken sentence and names what the element
+falls back to, the sentence itself says `a deleted element` rather than falling
+through to its `a field` placeholder, and — the two that stop the rest from
+being vacuous — a rule whose element is there draws no warning and is named
+rather than accused. That last one is not a formality. It is checked on a rule
+reading a control *inside* the element that owns it, which works at runtime and
+which the picker does not offer; answer the label from the offer list alone and
+a working rule reads as broken while the warning correctly stays quiet.
+
+Then the join, which is the story the warning exists for: delete the element in
+the editor and watch the rule that read it change its mind, with no reload. The
+panel derives this from the store, so needing one would itself be the bug. That
+check is what a design that silently dropped the rule instead would fail — and
+it fails there rather than quietly agreeing that a deleted rule draws no
+warning.
+
 An assignment that also writes a rule is checked by *comparison*: the same
 design built through the shortcut and built by hand, asserted to be the same
 document. What that leaves interesting is everything after — renaming the

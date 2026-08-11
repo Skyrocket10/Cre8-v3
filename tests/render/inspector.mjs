@@ -16,6 +16,13 @@
  *
  * All three are invisible to a check that edits one element in isolation, so
  * every check here involves two: one to edit, one to move to.
+ *
+ * Section 7 is a different claim about the same panel — not "does the write
+ * land" but "is what it says about the element true". A rule reading an element
+ * that has since been deleted keeps working the only way it can, which is not
+ * at all, and the panel has to say so rather than render the rule as if it were
+ * fine. Nothing outside a browser can check that: the warning is derived at
+ * render time from the document, so the document alone does not contain it.
  */
 
 import {
@@ -52,6 +59,72 @@ function seed(doc) {
     }),
   });
   root.children = ['headingone', 'headingtwo'];
+  return doc;
+}
+
+/**
+ * A repeater holding two state rules that differ in one way.
+ *
+ * Both read an element rather than a record field, both carry the same key and
+ * the same Otherwise; one names a node that is in the document and the other
+ * names one that never was. That is the state a deletion leaves behind —
+ * cleanup clears reference *slots* and leaves expressions alone on purpose, so
+ * the rule survives its element and answers "don't know" forever.
+ *
+ * The repeater is not decoration: a state rule reads the record in scope, and
+ * the panel that shows it does not appear at all for an element with no record
+ * above it.
+ */
+function brokenRule(doc) {
+  const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
+  const root = doc.nodes[home.rootNodeId];
+  doc.collections = [
+    { id: 'signups', name: 'Signups', fields: [{ key: 'email', label: 'Email', type: 'text' }] },
+  ];
+  const badge = (id, name, reads) =>
+    node(id, 'text', name, {
+      parentId: 'signuplist',
+      props: { text: 'Ready', switchKey: 'form', switchDefault: 'idle' },
+      assign: [
+        {
+          id: `rule-${id}`,
+          when: { kind: 'compare', left: { kind: 'element', ref: { node: reads } }, op: 'notEmpty' },
+          value: 'ready',
+        },
+      ],
+    });
+  Object.assign(doc.nodes, {
+    emailbox: node('emailbox', 'input', 'Email box', {
+      parentId: home.rootNodeId,
+      props: { name: 'email', placeholder: 'you@example.com' },
+    }),
+    signuplist: node('signuplist', 'section', 'Signup list', {
+      parentId: home.rootNodeId,
+      children: ['brokenbadge', 'workingbadge', 'nestedbadge'],
+      repeat: { collection: 'signups' },
+    }),
+    brokenbadge: badge('brokenbadge', 'Status badge', 'no-such-node'),
+    workingbadge: badge('workingbadge', 'Working badge', 'emailbox'),
+    /*
+     * The third case, and the one that decides whether "cannot be named" and
+     * "is not there" are the same question. This rule reads a control *inside*
+     * the element that owns it — reachable by picking one from the page and
+     * then dragging it in — which works at runtime and which the source picker
+     * deliberately does not offer, because a control inside the node is offered
+     * by name instead. Answer the label from the offer list alone and this rule
+     * is accused of reading something deleted while the warning stays silent.
+     */
+    nestedbadge: {
+      ...badge('nestedbadge', 'Nested badge', 'nestedinput'),
+      type: 'section',
+      children: ['nestedinput'],
+    },
+    nestedinput: node('nestedinput', 'input', 'Nested input', {
+      parentId: 'nestedbadge',
+      props: { name: 'nested' },
+    }),
+  });
+  root.children = [...root.children, 'emailbox', 'signuplist'];
   return doc;
 }
 
@@ -406,6 +479,113 @@ try {
     );
     report.check('and Escape unwinds back out to the page', !stillScoped, stillScoped ? 'still scoped' : 'back on the page');
   }
+
+  /* ------------------------- 7. the panel says a rule is broken ----------- */
+
+  /*
+   * Seeded rather than built through the panel, and that is a limit worth
+   * naming: what this proves is that the editor *reports* a rule reading an
+   * element that is not in the document, not that deleting an element in the
+   * editor produces one. The second is the static suite's — it drives the real
+   * `removeNodes` and asserts the rule survives and is reported. Between them
+   * the route is covered end to end; neither half covers it alone.
+   *
+   * The rule needs a record in scope to be shown at all, so the fixture is a
+   * repeater with one element inside it, and the element reads a node id that
+   * was never in the document. That is the same state a deletion leaves behind
+   * — `pruneRefs` clears slots and deliberately leaves expressions alone.
+   */
+  const broken = await saveDocument(page, brokenRule(await getDocument(page, id)));
+  report.check('the broken rule seeded', broken === 200, `HTTP ${broken}`);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+
+  /*
+   * The Data section alone, not the whole inspector: Content and Style hold
+   * sentences of their own, and a check reading the column would be matching
+   * words it never meant to look at.
+   */
+  const dataSection = async (layer) => {
+    await selectLayer(layer);
+    const section = page
+      .locator('aside')
+      .last()
+      .locator('section:has(> div .panel-title:text-is("Data"))');
+    return (await section.innerText().catch(() => '')).replace(/\s+/g, ' ');
+  };
+
+  const said = await dataSection('Status badge');
+  report.check(
+    'a rule whose element is gone is reported, not drawn as if it worked',
+    /element this reads is gone/i.test(said),
+    said.slice(0, 260) || 'no Data section on screen'
+  );
+  report.check(
+    'and it says what the element falls back to instead',
+    /stays idle/i.test(said),
+    // The fixture's Otherwise. A warning that stops at "this is broken" leaves
+    // the designer to work out what the page is doing now instead.
+    /stays [a-z ]+/i.exec(said)?.[0] ?? 'no fallback named'
+  );
+  report.check(
+    'and the sentence above it reads as broken rather than as unset',
+    said.includes('a deleted element') && !said.includes('When a field'),
+    // The chip falls through to its placeholder when no option matches its
+    // value, so the sentence used to say "When ⟨a field⟩ is not empty" — a rule
+    // nobody has finished, printed beside a warning that one is broken. Two
+    // diagnoses of one rule, in one panel, and only one of them true.
+    /When [^\n]{0,40}/.exec(said)?.[0] ?? 'no sentence'
+  );
+
+  /* Each of the above, handed something it must reject. */
+  const working = await dataSection('Working badge');
+  report.check(
+    'a rule whose element is there draws no warning',
+    // Same panel, same shape of rule, one difference: the element exists. Every
+    // check above would pass against a panel that warned about every rule it
+    // was ever shown, and this is what says it does not.
+    working.includes('State from the record') && !/element this reads is gone/i.test(working),
+    working.slice(0, 200) || 'no Data section on screen'
+  );
+  report.check(
+    'and names it, so the two sentences differ by more than the warning',
+    working.includes('Email box') && !working.includes('a deleted element'),
+    /When [^\n]{0,40}/.exec(working)?.[0] ?? 'no sentence'
+  );
+
+  const nested = await dataSection('Nested badge');
+  report.check(
+    'a rule reading a control the picker does not offer is named, not accused',
+    nested.includes('Nested input') && !nested.includes('a deleted element'),
+    // "Cannot be offered" and "is not there" are different questions, and the
+    // panel answers the label from the first while the warning answers from the
+    // second. Conflate them and this working rule reads as broken.
+    /When [^\n]{0,40}/.exec(nested)?.[0] ?? 'no sentence'
+  );
+  report.check(
+    'and draws no warning either',
+    !/element this reads is gone/i.test(nested),
+    'the two halves agree about the same rule'
+  );
+
+  /*
+   * And the join: delete the element here, in the editor, and watch the rule
+   * that read it change its mind. Everything above is seeded, which proves the
+   * panel reports the state and says nothing about how a person arrives at it —
+   * and "I deleted the box, why did my form stop working?" is the whole reason
+   * the warning exists. No reload: the panel derives this from the store, so if
+   * it needed one that would be the bug.
+   */
+  await selectLayer('Email box');
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(800);
+  const afterDelete = await dataSection('Working badge');
+  report.check(
+    'deleting the element in the editor turns the rule that read it broken, there and then',
+    /element this reads is gone/i.test(afterDelete) && afterDelete.includes('a deleted element'),
+    afterDelete.slice(0, 240) || 'no Data section on screen'
+  );
 } catch (error) {
   report.check('inspector suite completed', false, error.message);
 } finally {
