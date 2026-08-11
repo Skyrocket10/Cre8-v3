@@ -187,6 +187,63 @@ try {
     );
   }
 
+  /* ------------------------------------ 5b. and the rule reads as a sentence */
+
+  /*
+   * The expression UI is chips in a line of prose rather than a stack of
+   * labelled rows, which is a claim about legibility and therefore easy to
+   * assert nothing about. So this asserts the two things that would actually
+   * be broken if it went wrong: the sentence is *there* as one line of text
+   * with the words in the right order, and picking a different operator from a
+   * chip changes it.
+   *
+   * The inspector is about 280px wide, so the sentence wraps. Reading
+   * `textContent` rather than looking at layout is deliberate — where the line
+   * breaks is a design decision that will change, and a check pinned to it
+   * would fail on a wording tweak while telling nobody anything.
+   */
+  if (bindable) {
+    const addRule = inspector().locator('button:text-is("+ Rule")').first();
+    if (await addRule.count()) {
+      await addRule.click();
+      await page.waitForTimeout(500);
+
+      const sentence = async () =>
+        (await inspector().locator('[data-sentence]').first().textContent().catch(() => ''))
+          ?.replace(/\s+/g, ' ')
+          .trim() ?? '';
+
+      const opened = await sentence();
+      report.check(
+        'a new rule arrives as a readable sentence rather than empty fields',
+        /^When \S/.test(opened) && /\bthis is\b/.test(opened) && /\band it\b/.test(opened),
+        opened || 'no sentence found'
+      );
+
+      // The operator chip. Found by the word it currently shows, which is the
+      // whole point of the design — the control is the word.
+      const opChip = inspector()
+        .locator('[data-sentence] button')
+        .filter({ hasText: /^is$/ })
+        .first();
+      if (await opChip.count()) {
+        await opChip.click();
+        await page.waitForTimeout(300);
+        const option = page.locator('button').filter({ hasText: /^contains$/ }).last();
+        if (await option.count()) {
+          await option.click();
+          await page.waitForTimeout(500);
+        }
+      }
+      const changed = await sentence();
+      report.check(
+        'and a chip in it can be changed by picking the word you want',
+        changed !== opened && /contains/.test(changed),
+        `${opened} → ${changed}`
+      );
+    }
+  }
+
   /* --------------------------------------------- 6. the seam, from outside */
 
   /*

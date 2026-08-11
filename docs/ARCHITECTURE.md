@@ -991,6 +991,27 @@ refused; it cannot be spelled. The formatter itself is longhand, with no `Intl`
 and no time zone anywhere in it, because it runs on the canvas and in the Worker
 and §7's gate is that those two produce the same bytes.
 
+### Expressions are written as sentences, not forms
+
+A labelled row per property is right for `padding` and `font-size` — that is
+what those are. An expression is a *clause*, and four labelled rows make the
+reader reassemble it in their head every time they look at it. So the
+expression surfaces render one line of prose with the choices as chips in the
+flow: `When Price is over 500000, this is expensive and it hides.`
+
+Two decisions make that more than a skin. A **builder turns the AST into
+`Part[]`**, and the same builder serves the editor and anywhere that only needs
+to *say* what a rule does — with handlers the parts are chips, without them
+they are prose, so a tooltip and the panel cannot describe a Test differently.
+And a **chip is `Select` and `TextInput` wearing a different shape**, not a new
+control: both are already keyboard-reachable and already know the editor's
+focus ring, and a bespoke chip would reimplement those badly in the place a
+designer moves fastest.
+
+It also unified three grammars that were three different arrangements of rows —
+a Test, a repeater filter and a condition are all field · operator · value, and
+nothing in the old panels gave a designer any reason to notice.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

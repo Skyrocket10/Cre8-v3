@@ -25,13 +25,12 @@ import {
   LIMITS,
   type Collection,
   type DatePattern,
-  type CompareOp,
   type Field,
   type Format,
   type SceneNode,
   type StateRule,
   type StyleProp,
-  type TestLiteral,
+  type Test,
   type ValueVar,
 } from '@/lib/document/types';
 import {
@@ -42,12 +41,7 @@ import {
   type FormatKind,
 } from '@/lib/renderer/format';
 import {
-  OPS_FOR,
-  OP_LABELS,
   fieldsRead,
-  literalFor,
-  literalText,
-  needsOperand,
   needsRuntime,
   provablyOverlap,
   unfinished,
@@ -56,6 +50,8 @@ import { varReference } from '@/lib/renderer/values';
 import { isSettable } from '@/lib/renderer/variants';
 import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
+import { Sentence, type Part } from '../ui/sentence';
+import { blankTest, filterSentence, testSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
 
 /** Props worth offering a binding for, in the order they appear in Content. */
@@ -231,6 +227,51 @@ function RepeatControls({ node, collections }: { node: SceneNode; collections: C
               suffix="per page"
             />
           </StyleRow>
+
+          {/*
+            Filters, in the same sentence a Test is written in. `RecordFilter`
+            has always been field · operator · value — the same grammar — and
+            saying it three different ways in three panels was the reason a
+            designer had no way of noticing that.
+
+            This is also the honest answer to "hide the sold ones": a filter
+            keeps a record out of the file, where hiding it with CSS does not.
+          */}
+          <div className="flex items-center justify-between gap-2 pt-1.5">
+            <span className="text-[10px] text-[var(--text-faint)]">Which records</span>
+            <button
+              type="button"
+              onClick={() =>
+                write('Filter records', (current) => {
+                  const field = target.fields[0];
+                  if (field) {
+                    current.filter = [...(current.filter ?? []), { field: field.key, op: 'is', value: '' }];
+                  }
+                })
+              }
+              className="rounded px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            >
+              + Filter
+            </button>
+          </div>
+          {(repeat.filter ?? []).map((filter, index) => (
+            <Sentence
+              key={index}
+              parts={filterSentence({
+                filter,
+                fields: target.fields,
+                onChange: (next) =>
+                  write('Filter records', (current) => {
+                    if (current.filter?.[index]) current.filter[index] = next;
+                  }),
+                onRemove: () =>
+                  write('Remove a filter', (current) => {
+                    current.filter = (current.filter ?? []).filter((_, at) => at !== index);
+                    if (!current.filter.length) delete current.filter;
+                  }),
+              })}
+            />
+          ))}
 
           {repeat.paginate ? (
             <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
@@ -518,12 +559,7 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
         ...(scene.assign ?? []),
         {
           id: uid(),
-          when: {
-            kind: 'compare',
-            left: { kind: 'field', key: field.key },
-            op: (OPS_FOR[field.type][0] ?? 'eq') as CompareOp,
-            right: literalFor(field.type, ''),
-          },
+          when: blankTest(field),
           value: '',
         },
       ];
@@ -560,25 +596,11 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
       )}
 
       {rules.map((rule, index) => {
-        const test = rule.when;
-        const compare = test.kind === 'compare' ? test : null;
-        const left = compare?.left;
-        // A form control's value has no declared type, so it is treated as
-        // text. A number typed into a box is a string until something says
-        // otherwise, and inferring from the spelling is the thing the model
-        // forbids — so the comparison is the one the field it is next to would
-        // make, or text when there is no field.
-        const field =
-          left?.kind === 'field'
-            ? collection.fields.find((f) => f.key === left.key)
-            : left?.kind === 'input'
-              ? TYPED_AS_TEXT
-              : undefined;
-        const operators = field ? OPS_FOR[field.type] : [];
+        const compare = rule.when.kind === 'compare' ? rule.when : null;
+        const effect = ops.assignEffect(node, rule.id);
         // Only against rules *before* this one: the warning is about which of
         // the two wins, and the answer is always "the later one", so it
         // belongs on the later one.
-        const effect = ops.assignEffect(node, rule.id);
         const shadows =
           compare &&
           rules
@@ -589,144 +611,87 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
 
         return (
           <div key={rule.id} className="rounded border border-[var(--border-subtle)] p-1.5">
-            <StyleRow label="When">
-              <Select
-                className="flex-1"
-                value={left ? (left.kind === 'field' ? left.key : `${TYPED_PREFIX}${left.name}`) : ''}
-                options={[
-                  ...collection.fields.map((f) => ({ value: f.key, label: f.label })),
-                  ...controls.map((name) => ({
-                    value: `${TYPED_PREFIX}${name}`,
-                    label: `${name} — what is typed`,
-                  })),
-                ]}
-                onChange={(next) => {
-                  const typed = next.startsWith(TYPED_PREFIX);
-                  const picked = typed ? TYPED_AS_TEXT : collection.fields.find((f) => f.key === next);
-                  if (!picked) return;
-                  write(rule.id, (target) => {
-                    // A new source means a new type, and an operator the new
-                    // type cannot answer. Reset rather than carry it over.
-                    target.when = {
-                      kind: 'compare',
-                      left: typed
-                        ? { kind: 'input', name: next.slice(TYPED_PREFIX.length) }
-                        : { kind: 'field', key: picked.key },
-                      op: (OPS_FOR[picked.type][0] ?? 'eq') as CompareOp,
-                      right: literalFor(picked.type, ''),
-                    };
-                  });
-                }}
-              />
-            </StyleRow>
-
-            <StyleRow label="">
-              <Select
-                className="flex-1"
-                value={compare?.op ?? 'eq'}
-                options={operators.map((op) => ({ value: op, label: OP_LABELS[op] }))}
-                onChange={(op) =>
-                  write(rule.id, (target) => {
-                    if (target.when.kind !== 'compare') return;
-                    target.when.op = op as CompareOp;
-                    if (!needsOperand(op as CompareOp)) delete target.when.right;
-                    else if (!target.when.right && field) {
-                      target.when.right = literalFor(field.type, '');
-                    }
-                  })
-                }
-              />
-              {compare && needsOperand(compare.op) && field && (
-                <BooleanOrText
-                  field={field}
-                  literal={compare.right}
-                  onChange={(raw) =>
-                    write(rule.id, (target) => {
-                      if (target.when.kind === 'compare') {
-                        target.when.right = literalFor(field.type, raw);
-                      }
-                    })
-                  }
-                />
-              )}
-            </StyleRow>
-
-            <StyleRow label="Becomes" hint="The state name you will style — “expensive”, “sold”">
-              <TextInput
-                className="flex-1"
-                value={rule.value}
-                placeholder="state name"
-                onValueChange={(value) =>
-                  useEditor.getState().transact('Rename a state', (draft) => {
-                    ops.setAssignValue(draft, node.id, rule.id, value);
-                  })
-                }
-              />
-              <button
-                type="button"
-                title="Remove this rule"
-                onClick={() =>
-                  useEditor.getState().transact('Remove a state rule', (draft) => {
-                    ops.removeAssign(draft, node.id, rule.id);
-                  })
-                }
-                className="rounded px-1 text-[var(--text-faint)] hover:bg-[var(--surface-hover)] hover:text-[var(--danger)]"
-              >
-                <Trash2 size={11} />
-              </button>
-            </StyleRow>
-
-            {/*
-              And what that state does, if the designer wants it said here.
-              Writing a rule from this row is a shortcut, not a mechanism: it
-              produces exactly the rule they would have built in Conditions,
-              and Conditions still owns it afterwards.
-            */}
-            <StyleRow label="And" hint="A shortcut for the rule you would otherwise write by hand">
-              <Select
-                className="flex-1"
-                value={effect.kind === 'style' ? `p:${effect.prop}` : effect.kind}
-                options={[
-                  { value: 'state', label: 'nothing — I will style it' },
-                  { value: 'hide', label: 'hide this element' },
-                  { value: 'show', label: 'show this element' },
-                  ...EFFECT_PROPS.map((prop) => ({ value: `p:${prop}`, label: `set ${prop}` })),
-                ]}
-                onChange={(next) =>
-                  useEditor.getState().transact('Change what a state does', (draft) => {
-                    const prop = next.startsWith('p:') ? (next.slice(2) as StyleProp) : null;
-                    ops.setAssignEffect(
-                      draft,
-                      node.id,
-                      rule.id,
-                      prop
-                        ? {
-                            kind: 'style',
-                            prop,
-                            value: effect.kind === 'style' && effect.prop === prop ? effect.value : '',
-                          }
-                        : { kind: next as 'state' | 'hide' | 'show' }
-                    );
-                  })
-                }
-              />
-              {effect.kind === 'style' && (
-                <TextInput
-                  width={92}
-                  value={effect.value}
-                  placeholder="value"
-                  onValueChange={(value) =>
+            <Sentence
+              parts={[
+                ...testSentence({
+                  test: rule.when,
+                  fields: collection.fields,
+                  controls,
+                  onChange: (next: Test) => write(rule.id, (target) => (target.when = next)),
+                }),
+                { kind: 'break', key: 'b1' },
+                { kind: 'word', text: 'this is', key: 'is' },
+                {
+                  kind: 'type',
+                  key: 'state',
+                  value: rule.value,
+                  placeholder: 'a state',
+                  onChange: (value: string) =>
+                    useEditor.getState().transact('Rename a state', (draft) => {
+                      ops.setAssignValue(draft, node.id, rule.id, value);
+                    }),
+                },
+                { kind: 'word', text: 'and it', key: 'and' },
+                {
+                  kind: 'pick',
+                  key: 'effect',
+                  value: effect.kind === 'style' ? `p:${effect.prop}` : effect.kind,
+                  menuWidth: 200,
+                  options: [
+                    { value: 'state', label: 'does nothing else' },
+                    { value: 'hide', label: 'hides' },
+                    { value: 'show', label: 'shows' },
+                    ...EFFECT_PROPS.map((prop) => ({ value: `p:${prop}`, label: `sets ${prop}` })),
+                  ],
+                  onChange: (next: string) =>
                     useEditor.getState().transact('Change what a state does', (draft) => {
-                      ops.setAssignEffect(draft, node.id, rule.id, {
-                        kind: 'style',
-                        prop: effect.prop,
-                        value,
-                      });
-                    })
-                  }
-                />
-              )}
-            </StyleRow>
+                      const prop = next.startsWith('p:') ? (next.slice(2) as StyleProp) : null;
+                      ops.setAssignEffect(
+                        draft,
+                        node.id,
+                        rule.id,
+                        prop
+                          ? {
+                              kind: 'style',
+                              prop,
+                              value:
+                                effect.kind === 'style' && effect.prop === prop ? effect.value : '',
+                            }
+                          : { kind: next as 'state' | 'hide' | 'show' }
+                      );
+                    }),
+                },
+                ...(effect.kind === 'style'
+                  ? ([
+                      { kind: 'word', text: 'to', key: 'to' },
+                      {
+                        kind: 'type',
+                        key: 'to-value',
+                        value: effect.value,
+                        placeholder: 'value',
+                        onChange: (value: string) =>
+                          useEditor.getState().transact('Change what a state does', (draft) => {
+                            ops.setAssignEffect(draft, node.id, rule.id, {
+                              kind: 'style',
+                              prop: effect.prop,
+                              value,
+                            });
+                          }),
+                      },
+                    ] as Part[])
+                  : []),
+                {
+                  kind: 'action',
+                  key: 'remove',
+                  title: 'Remove this rule',
+                  label: <Trash2 size={11} />,
+                  onClick: () =>
+                    useEditor.getState().transact('Remove a state rule', (draft) => {
+                      ops.removeAssign(draft, node.id, rule.id);
+                    }),
+                },
+              ]}
+            />
 
             {effect.kind === 'hide' && (
               /*
@@ -737,14 +702,14 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
                * not be published at all, a filter on the repeater is the
                * honest tool and this is not.
                */
-              <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--text-faint)]">
+              <p className="pt-1 text-[10px] leading-relaxed text-[var(--text-faint)]">
                 Hidden with CSS, so the content is still in the published file. To keep a record off
                 the page entirely, filter the list instead.
               </p>
             )}
 
             {shadows && shadows.length > 0 && (
-              <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--warning,#d97706)]">
+              <p className="pt-1 text-[10px] leading-relaxed text-[var(--warning,#d97706)]">
                 This can be true at the same time as {shadows.join(', ')}. When both hold, this one
                 wins — it is later in the list.
               </p>
@@ -823,10 +788,6 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
  */
 const EFFECT_PROPS = ['opacity', 'color', 'backgroundColor', 'borderColor', 'textDecorationLine'] as const;
 
-/** Marks a source that is read as text: a form control, which declares no type. */
-const TYPED_PREFIX = 'typed:';
-const TYPED_AS_TEXT: Field = { key: '', label: 'Typed', type: 'text' };
-
 /**
  * Form controls inside this node, by name.
  *
@@ -849,50 +810,6 @@ function namedControlsInside(nodes: Record<string, SceneNode>, root: SceneNode):
   };
   for (const child of root.children) walk(child, 0);
   return found;
-}
-
-/** A checkbox field gets true/false; everything else gets a box to type in. */
-function BooleanOrText({
-  field,
-  literal,
-  onChange,
-}: {
-  field: Field;
-  literal: TestLiteral | undefined;
-  onChange: (raw: string) => void;
-}) {
-  if (field.type === 'boolean') {
-    return (
-      <Select
-        width={92}
-        value={literalText(literal) === 'true' ? 'true' : 'false'}
-        options={[
-          { value: 'true', label: 'ticked' },
-          { value: 'false', label: 'not ticked' },
-        ]}
-        onChange={onChange}
-      />
-    );
-  }
-  if (field.type === 'select' && field.options?.length) {
-    return (
-      <Select
-        className="flex-1"
-        value={literalText(literal)}
-        options={field.options.map((option) => ({ value: option, label: option }))}
-        onChange={onChange}
-      />
-    );
-  }
-  return (
-    <TextInput
-      className="flex-1"
-      value={literalText(literal)}
-      inputMode={field.type === 'number' ? 'numeric' : undefined}
-      placeholder={field.type === 'number' ? '0' : 'value'}
-      onValueChange={onChange}
-    />
-  );
 }
 
 /* --------------------------------------------------------------------------
