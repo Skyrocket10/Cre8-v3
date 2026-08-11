@@ -86,6 +86,10 @@ export function loadBlocks() {
     // The whole site, not just a page: D3's gate is that the Worker's output
     // matches this one's byte for byte, and a site is sitemap and robots too.
     generateSite: require(path.join(OUT, 'publishing/html.js')).generateSite,
+    // One subtree, rendered on its own — the only way to ask "are these two
+    // sections the same thing" without borrowing the answer from the code
+    // that decides it.
+    renderNodeToHtml: require(path.join(OUT, 'publishing/html.js')).renderNodeToHtml,
     plan: require(path.join(OUT, 'publishing/routes.js')).plan,
     renderPage: onePage(require),
     createEmptyDocument: require(path.join(OUT, 'document/factory.js')).createEmptyDocument,

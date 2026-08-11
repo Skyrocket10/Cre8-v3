@@ -13,6 +13,13 @@ import type { CollectionRecord, Cre8Document, ProjectSummary } from '../document
 import { hasBackend } from './client';
 import { CloudflareAdapter } from './cloudflare';
 
+/** One row a template wants written once its project exists. */
+export interface SeedRecord {
+  collectionId: string;
+  slug?: string;
+  data: Record<string, string | number | boolean | null>;
+}
+
 export interface StorageAdapter {
   readonly name: string;
   listProjects(): Promise<ProjectSummary[]>;
@@ -67,6 +74,21 @@ export interface StorageAdapter {
     collectionId: string,
     options?: { publishedOnly?: boolean }
   ): Promise<CollectionRecord[]>;
+  /**
+   * The content a template opens with.
+   *
+   * Optional for the same reason as the two above, and the consequence is
+   * worth stating plainly: with no backend a template's collection arrives
+   * shaped and empty, so the blog's index draws its template row on the canvas
+   * and publishes nothing. That is the documented split rather than a failure
+   * — fields are design and travel in the document, rows are content and live
+   * in D1 — but it does mean the no-backend build gets a thinner blog than the
+   * hosted one, and the Collections panel is where somebody fills it in.
+   *
+   * Rows are written in order and one at a time. A template seeds single
+   * figures, and the order is what the reader sees.
+   */
+  createRecords?(projectId: string, rows: SeedRecord[]): Promise<void>;
   /**
    * Ask the host to render and store the site itself.
    *

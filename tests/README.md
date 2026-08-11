@@ -90,6 +90,21 @@ section a template names has to be linked to from inside it — because a
 publisher that silently dropped fragments would otherwise leave every link
 arriving at a real file, just at the top of it.
 
+Two of that group's rules exist because the first version of them was wrong in
+a way nothing else would have caught. The sweep now reconciles its node count
+against what the documents hold, exactly — `> 500` was the first version, and
+it would have stayed green through the SaaS navbar becoming a component and
+taking a quarter of the document out of the walk. And "a section on more than
+one page is made once" is asked of the *rendered* section rather than of the
+fingerprint that decides sharing, because a rule that consults the thing it is
+checking cannot notice that the thing has become too strict to ever match —
+which is precisely how sharing first shipped doing nothing.
+
+Templates are published with the rows they ship rather than with an empty
+collection, because a dynamic page with no records produces no files: a sweep
+that published the blog empty would never look at an essay page, never follow
+a card's link to one, and never see the paging six essays generate.
+
 Forms are checked twice in that group, from both ends: the document says a
 button submits, and the published markup says `type="submit"`. Both, because
 each half failed on its own. HTML's default for a button inside a form *is*
@@ -98,11 +113,13 @@ decorative button posting — which left every contact form the app shipped with
 a Send that did nothing, and the render suite green throughout, because it
 submitted the form itself rather than pressing the thing a visitor presses.
 
-There is deliberately no alt-text rule in that group. Not one of the templates
-contains an image node — a template ships as code and an image ships as a file
-in a project's own storage, so the artwork is gradient panels, which are
-decorative and correctly invisible to a screen reader. A rule written against
-zero nodes passes for ever and reads as a covered case.
+The alt-text rule was deleted from that group once and has come back, which is
+worth recording as a pattern rather than as a footnote. It was deleted because
+no template contained an image node, so it passed for ever and read to whoever
+came next as a covered case. It is back now the templates carry photography —
+and it is back carrying `imagesSwept`, so the day it becomes vacuous again it
+fails rather than quietly agreeing. The same guard is on the sizing rule beside
+it.
 
 It also runs `migrateDocument()` over a hand-written older document. That
 function upgrades every project every time one is opened and rewrites the part
@@ -156,7 +173,7 @@ preferring an installed copy over downloading one.
 | `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added — and does a price stored as `1250000` read as `$1,250,000.00` on both surfaces, formatted by the publisher rather than by a script. And does a record put its own row into its own state — `price > 1000000 → premium` — the same answer on the canvas and in the file, one rule in the stylesheet, no script. And does a price mapped onto an opacity reach both surfaces as the same number on every row |
 | `worker-publish` | Does the Worker publish the same bytes a local render produces, and do the runtimes it serialises still run |
 | `routes` | Does a collection become one page per record plus a paginated index — walked link by link, and matched against the sitemap |
-| `collections` | Can somebody make a collection, write a record and see it on the canvas — every step a click, no fixtures |
+| `collections` | Can somebody make a collection, write a record and see it on the canvas — every step a click, no fixtures. And the other direction: does the Blog template arrive with all six of its essays already written, listed on a paginated index and each at a page of its own |
 | `republish` | Does the live site follow its records with nobody pressing Publish, does a second publish write nothing, and do the two things that must *not* republish stay put |
 | `history` | Is every publish kept and honestly labelled, can a design be put back on the canvas and the site, and does the content written since survive it |
 | `inspector` | Does an inspector edit reach the element it was showing rather than the one selected next, does inline text survive a click elsewhere, and does an open overlay actually scope what gets inserted. Every check involves two elements, because one cannot see this class of bug |

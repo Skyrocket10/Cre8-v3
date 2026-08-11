@@ -41,6 +41,7 @@ const {
   generateNodeCss,
   renderPage,
   generateSite,
+  renderNodeToHtml,
   createEmptyDocument,
   hydrateDocument,
   ops,
@@ -6329,19 +6330,17 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
 
 {
   /*
-   * There is no alt-text rule here, and that is a decision rather than an
-   * omission: not one of the eight templates contains an `image` node. They
-   * cannot — a template ships as code and an image ships as a file in a
-   * project's own storage, so the artwork is gradient panels, which are
-   * decorative by construction and correctly invisible to a screen reader. A
-   * rule written against zero nodes passes for ever and reads, to whoever
-   * comes next, as a covered case. The block sweep checks alt text where
-   * images actually exist.
+   * The alt-text rule was deleted from this group once, for the right reason:
+   * no template contained an `image` node, so it passed for ever and read to
+   * whoever came next as a covered case. It is back because the templates now
+   * carry photography — and it comes back with `imagesSwept`, so the day it
+   * becomes vacuous again it fails instead of quietly agreeing.
    *
    * Word boundaries below, because without them "Mastodon" contains "todo" —
    * which the rule duly reported as filler copy in the blog template's footer
    * on its first run.
    */
+  const LAZY = new Set(['', 'image', 'photo', 'picture', 'img', 'graphic', 'placeholder']);
   /** Where a literal colour is never the right answer. A gradient is a picture. */
   const THEME_PROPS = new Set([
     'color',
@@ -6396,6 +6395,14 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
   const formsWithoutSubmit = [];
   const notSubmittable = [];
   const unreachable = [];
+  const notShared = [];
+  const missingRows = [];
+  const lazyAlt = [];
+  const unsized = [];
+  const tooEager = [];
+  const photoHosts = new Set();
+  let imagesSwept = 0;
+  let seededRows = 0;
   let pagesSwept = 0;
   let nodesSwept = 0;
   let linksWalked = 0;
@@ -6405,13 +6412,31 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     const label = template.id;
     if (!doc.pages.length) noPages.push(label);
 
-    for (const page of doc.pages) {
-      pagesSwept++;
+    /*
+     * Pages *and* component masters.
+     *
+     * A master is not reachable from any page root — the page holds an
+     * instance — so a sweep that walked only pages would quietly stop checking
+     * a section the moment it was shared, which is exactly what happened the
+     * first time the SaaS navbar became a component: every rule below went on
+     * passing with a quarter of the document no longer looked at. The count is
+     * reconciled against the documents afterwards so it cannot happen again.
+     */
+    const trees = [
+      ...doc.pages.map((page) => ({ where: `${label}/${page.slug || '/'}`, root: page.rootNodeId, page })),
+      ...doc.components.map((c) => ({ where: `${label} «${c.name}»`, root: c.rootNodeId, page: null })),
+    ];
+
+    for (const { where, root, page } of trees) {
+      if (page) pagesSwept++;
       // Heading order per page, not per document: a level 1 on the home page
-      // says nothing about what the pricing page may open with.
+      // says nothing about what the pricing page may open with. A master has
+      // no order of its own — it is drawn wherever it is placed — so the two
+      // heading rules apply to pages only.
       let previous = null;
       let sawH1 = false;
-      const stack = [page.rootNodeId];
+      let eagerHere = 0;
+      const stack = [root];
       let seen = 0;
       while (stack.length && seen < 5000) {
         const id = stack.pop();
@@ -6422,13 +6447,29 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
         // Depth-first in document order, so "skips a level" means what it says.
         for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
 
-        if (!String(node.name ?? '').trim()) unnamed.push(`${label}/${page.slug || '/'}: a node`);
+        if (!String(node.name ?? '').trim()) unnamed.push(`${where}: a node`);
 
-        if (node.type === 'heading') {
+        if (node.type === 'image') {
+          imagesSwept++;
+          const alt = String(node.props?.alt ?? '').trim();
+          if (LAZY.has(alt.toLowerCase())) lazyAlt.push(`${where}: alt is “${alt}”`);
+          // Intrinsic pixels, so the browser knows the shape before the bytes
+          // arrive. It matters more for these than for an upload: a template's
+          // photography is served from somewhere else, so it is the slowest
+          // thing on the page and the most likely to arrive after layout.
+          if (!node.props?.width || !node.props?.height) {
+            unsized.push(`${where}: ${alt || 'an image'} has no intrinsic size`);
+          }
+          const src = String(node.props?.src ?? '');
+          if (/^https?:\/\//.test(src)) photoHosts.add(new URL(src).origin);
+          if (node.props?.priority) eagerHere++;
+        }
+
+        if (node.type === 'heading' && page) {
           const level = Number(node.props?.level ?? 2);
           if (level === 1) sawH1 = true;
           if (previous !== null && level > previous + 1) {
-            skippedHeading.push(`${label}/${page.slug || '/'}: h${previous} → h${level}`);
+            skippedHeading.push(`${where}: h${previous} → h${level}`);
           }
           previous = level;
         }
@@ -6451,7 +6492,7 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
             forStack.push(...child.children);
           }
           if (!inside.some((one) => one.props?.submit)) {
-            formsWithoutSubmit.push(`${label}/${page.slug || '/'}: ${node.name}`);
+            formsWithoutSubmit.push(`${where}: ${node.name}`);
           }
         }
 
@@ -6494,16 +6535,89 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
       // A page with no headings at all is not a page missing its first one —
       // Blank is an empty canvas, and demanding an h1 of it would be demanding
       // content the template exists to not have.
-      if (previous !== null && !sawH1) noHeading.push(`${label}/${page.slug || '/'}`);
+      if (page && previous !== null && !sawH1) noHeading.push(where);
+      // A page where everything is urgent has nothing urgent: `priority` turns
+      // off lazy loading and asks for high fetch priority, and handing that to
+      // four images is how the one a visitor is actually waiting for arrives
+      // last.
+      if (eagerHere > 1) tooEager.push(`${where}: ${eagerHere} images marked priority`);
+    }
+
+    /*
+     * Anything that appears twice should have been made once.
+     *
+     * Asked of the *rendered* section rather than of the fingerprint that
+     * decides sharing, because the two must not be the same judgement. The
+     * first fingerprint was too strict — it kept the minted rule ids and the
+     * per-subtree popover reference — so nothing matched anything and the
+     * feature shipped doing nothing while every other check stayed green.
+     * A rule that consults the thing it is checking cannot notice that.
+     *
+     * Instances are skipped: a shared navbar renders identically on all four
+     * pages *because* it was shared, which is the success case.
+     */
+    const shapes = new Map();
+    for (const page of doc.pages) {
+      for (const id of doc.nodes[page.rootNodeId]?.children ?? []) {
+        const node = doc.nodes[id];
+        if (!node || node.type === 'instance') continue;
+        const markup = renderNodeToHtml(doc, id).replace(/ class="[^"]*"/g, '');
+        shapes.set(markup, [...(shapes.get(markup) ?? []), node.name]);
+      }
+    }
+    for (const [, where] of shapes) {
+      if (where.length > 1) notShared.push(`${label}: ${where.length}× ${where[0]}`);
+    }
+
+    /*
+     * Published with the template's own content, not empty.
+     *
+     * A dynamic page with no records produces no files at all, so a sweep that
+     * published the blog with an empty collection would never look at an essay
+     * page, never follow the link from a card to it, and never see the paging
+     * a six-essay collection generates. The rows the template ships are the
+     * rows to publish it with.
+     */
+    const records = {};
+    for (const row of template.seed ?? []) {
+      const collection = (doc.collections ?? []).find((c) => c.name === row.collection);
+      if (!collection) {
+        wontPublish.push(`${label}: seeds “${row.collection}”, which it does not define`);
+        continue;
+      }
+      seededRows++;
+      const pool = (records[collection.id] ??= []);
+      pool.push({
+        id: `seed-${pool.length}`,
+        collectionId: collection.id,
+        slug: row.slug,
+        position: pool.length,
+        published: true,
+        data: row.data,
+        createdAt: 0,
+        updatedAt: 0,
+      });
     }
 
     try {
-      const site = generateSite(doc, { pretty: false });
+      const site = generateSite(doc, { pretty: false, records });
       const files = (site.files ?? []).map((file) => file.path ?? '');
       if (!files.some((name) => name.endsWith('.html'))) wontPublish.push(`${label}: no html`);
       if (files.length < doc.pages.length) {
         wontPublish.push(`${label}: ${files.length} files for ${doc.pages.length} pages`);
       }
+      /*
+       * A row is only content if it became a page somebody can open. The
+       * whole point of seeding is that the blog arrives as a blog rather than
+       * as an empty shape, and "the collection has six rows" does not say
+       * that — six files at six addresses does.
+       */
+      for (const row of template.seed ?? []) {
+        if (!files.some((name) => name.includes(`/${row.slug}/`))) {
+          missingRows.push(`${label}: nothing published for “${row.slug}”`);
+        }
+      }
+
       followEveryLink(
         label,
         site,
@@ -6620,10 +6734,23 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
   }
 
   report.check('every template has at least one page', noPages.length === 0, noPages.join(', '));
+  /*
+   * Every node, accounted for.
+   *
+   * `> 500` was the first version of this, and it would have stayed green
+   * through the SaaS navbar becoming a component and taking a quarter of the
+   * document out of the walk. An equality against what the documents actually
+   * hold cannot: anything the sweep stops reaching shows up here as a number
+   * that does not add up, whatever the reason.
+   */
+  const nodesHeld = built.reduce(
+    (total, one) => total + (one.doc ? Object.keys(one.doc.nodes).length : 0),
+    0
+  );
   report.check(
-    'and the sweep really walked them',
-    pagesSwept >= TEMPLATES.length && nodesSwept > 500,
-    `${pagesSwept} pages, ${nodesSwept} nodes`
+    'and the sweep walked every node in every one of them',
+    pagesSwept >= TEMPLATES.length && nodesSwept === nodesHeld && nodesHeld > 500,
+    `${pagesSwept} pages, ${nodesSwept} of ${nodesHeld} nodes`
   );
   report.check(
     'and followed every link in what they publish',
@@ -6639,6 +6766,16 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     'and every one that stays on the site arrives',
     brokenLinks.length === 0,
     brokenLinks.slice(0, 4).join(' | ') || 'every page and every section reached'
+  );
+  report.check(
+    'a template that ships content publishes a page for every row of it',
+    missingRows.length === 0 && seededRows > 0,
+    missingRows.slice(0, 3).join(' | ') || `${seededRows} rows, each with a page`
+  );
+  report.check(
+    'a section that appears on more than one page is made once',
+    notShared.length === 0,
+    notShared.join(' | ') || 'nothing is built twice'
   );
   report.check(
     'every section a template names is linked to from inside it',
@@ -6660,6 +6797,32 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     'a submitting button is a real submit button',
     notSubmittable.length === 0,
     notSubmittable.slice(0, 3).join(' | ') || 'type="submit" in the published markup'
+  );
+  report.check(
+    'every image says something worth reading',
+    lazyAlt.length === 0 && imagesSwept > 0,
+    lazyAlt.slice(0, 3).join(' | ') || `${imagesSwept} images, every one described`
+  );
+  report.check(
+    'and declares the size it will be, so nothing moves when it arrives',
+    unsized.length === 0 && imagesSwept > 0,
+    unsized.slice(0, 3).join(' | ') || `${imagesSwept} images, all sized`
+  );
+  report.check(
+    'at most one image a page is worth loading first',
+    tooEager.length === 0,
+    tooEager.join(' | ') || 'one hero each, or none'
+  );
+  /*
+   * Every stand-in photograph from one place, which is the property that keeps
+   * "move to our own CDN" a one-line change rather than a search-and-replace
+   * through eight templates. Written as "one origin" rather than as the host's
+   * name so the check survives that move.
+   */
+  report.check(
+    'and every photograph a template stands in with comes from one place',
+    photoHosts.size === 1,
+    [...photoHosts].join(', ') || 'no external images'
   );
   report.check(
     'every colour and font comes from the theme',

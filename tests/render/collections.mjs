@@ -353,6 +353,74 @@ try {
     !/>Post title</.test(html),
     /Post title/.test(html) ? 'design-time copy published' : 'records only'
   );
+  /* --------------------------------- 8. a template that arrives with content */
+
+  /*
+   * The other direction: not "can somebody write a record" but "does the
+   * template already have some".
+   *
+   * A template ships fields in its document and rows through the create path,
+   * and only the second half touches D1 — so this is the one check that can
+   * tell a seeded blog from a blog-shaped empty collection. Everything static
+   * can say is that the rows exist in the source.
+   */
+  await page.goto(`${APP}/`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(800);
+  // The template grid is the first-run screen. With a project already made it
+  // lives behind New project, which is where a second one gets started.
+  await page.locator('button:has-text("New project")').first().click();
+  await page.waitForTimeout(500);
+  const blogId = await openProject(page, 'Blog');
+
+  await openPanel('Collections');
+  await page.waitForTimeout(500);
+  report.check(
+    'the Blog template arrives with a collection already shaped',
+    (await panel().locator('text=Essays').count()) >= 1,
+    (await panel().locator('text=/\\d+ fields?/').first().textContent()) ?? 'no field count'
+  );
+  // Rows are behind the collection, the same as anywhere else in this panel.
+  await panel().locator('text=Essays').first().click();
+  await page.waitForTimeout(700);
+  // All six, not "at least one": a seeding path that wrote the first row and
+  // then threw would look identical to a working one from a single title.
+  const titles = [
+    'The city as an interface',
+    'Everything is a queue',
+    'In praise of the boring stack',
+    'Attention is not a resource',
+    'Notes on writing in public',
+    'The second system, revisited',
+  ];
+  const listed = [];
+  for (const title of titles) {
+    if ((await panel().locator(`text=${title}`).count()) >= 1) listed.push(title);
+  }
+  report.check(
+    'and with all six of its essays already written',
+    listed.length === titles.length,
+    `${listed.length} of ${titles.length} listed`
+  );
+
+  await publish(page);
+  const index = await (await fetch(`${APP}/s/${blogId}/`)).text();
+  report.check(
+    'the index lists them',
+    index.includes('The city as an interface') && index.includes('Everything is a queue'),
+    'two of six on page one'
+  );
+  const essay = await fetch(`${APP}/s/${blogId}/essays/the-city-as-an-interface/`);
+  const essayHtml = await essay.text();
+  report.check(
+    'and each one has a page of its own, at its own address',
+    essay.ok && /<h1[^>]*>The city as an interface</.test(essayHtml),
+    `HTTP ${essay.status}`
+  );
+  report.check(
+    'with the essay itself on it, not the design-time placeholder',
+    essayHtml.includes('Shinjuku') && !essayHtml.includes('The essay title'),
+    essayHtml.includes('Shinjuku') ? 'the record’s body' : 'placeholder copy published'
+  );
 } catch (error) {
   report.check('the suite ran to the end', false, String(error?.stack ?? error));
 } finally {

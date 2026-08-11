@@ -15,10 +15,16 @@ import {
   resolvePageRefs,
   type NodeSpec,
 } from '../document/factory';
-import { attachChild } from '../document/operations';
+import {
+  attachChild,
+  createComponentFromNode,
+  insertInstance,
+  removeNodes,
+} from '../document/operations';
 import { FONT_LIBRARY } from '../document/theme';
 import type { NodeMap } from '../document/tree';
-import type { Cre8Document, Theme } from '../document/types';
+import { uid } from '../document/id';
+import type { Cre8Document, Field, NodeId, Theme } from '../document/types';
 import {
   ctaSpec,
   faqSpec,
@@ -32,15 +38,18 @@ import {
 } from './blocks';
 import {
   anchored,
+  articleBlock,
   cardGridBlock,
   contactBlock,
   ctaBlock,
+  feedBlock,
   footerBlock,
   galleryBlock,
   gradientPanel,
   heroBlock,
   listBlock,
   navBlock,
+  photo,
   splitBlock,
   statsBlock,
 } from './compose';
@@ -52,6 +61,24 @@ export interface TemplateDefinition {
   /** Two colours used for the card preview in the project dashboard. */
   swatch: [string, string];
   build: () => Cre8Document;
+  /**
+   * Content to write once the project exists.
+   *
+   * Not part of the document, and that is the whole point: fields are design
+   * and travel in the file, records are content and live in D1. A template
+   * that wants a list with something in it therefore has to hand its rows to
+   * whoever is creating the project, which is what this is for.
+   *
+   * `collection` names the collection by *name*, because a template cannot
+   * know the id it will be given.
+   */
+  seed?: SeedRow[];
+}
+
+export interface SeedRow {
+  collection: string;
+  slug: string;
+  data: Record<string, unknown>;
 }
 
 /* --------------------------------------------------------------------------
@@ -64,7 +91,10 @@ interface PageSpec {
   isHome?: boolean;
   title?: string;
   description?: string;
-  sections: NodeSpec[];
+  /** Names a collection: this page is a template for one file per record. */
+  dynamic?: string;
+  /** Given the collection ids, since a template cannot know them in advance. */
+  sections: NodeSpec[] | ((ids: Record<string, string>) => NodeSpec[]);
 }
 
 interface TemplateInput {
@@ -73,6 +103,8 @@ interface TemplateInput {
   colors?: Record<string, string>;
   fonts?: { heading?: string; body?: string };
   radii?: Record<string, string>;
+  /** Shapes for the content this template expects. The rows are `seed`. */
+  collections?: { name: string; slugField?: string; fields: Field[] }[];
   pages: PageSpec[];
 }
 
@@ -90,6 +122,17 @@ function makeDocument(input: TemplateInput): Cre8Document {
     }
   }
 
+  // Collections first: a page can be a template for one, and a repeater names
+  // one, so both need the ids before any node is built.
+  const collectionIds: Record<string, string> = {};
+  if (input.collections?.length) {
+    doc.collections = input.collections.map((spec) => {
+      const id = uid();
+      collectionIds[spec.name] = id;
+      return { id, name: spec.name, slugField: spec.slugField, fields: spec.fields };
+    });
+  }
+
   // Replace the blank document's default page with the template's pages.
   doc.nodes = {};
   doc.pages = [];
@@ -98,10 +141,16 @@ function makeDocument(input: TemplateInput): Cre8Document {
     const nodes: NodeMap = {};
     const page = createPage(spec.name, spec.slug, nodes, index, spec.isHome ?? index === 0);
     page.meta = { title: spec.title, description: spec.description };
+    if (spec.dynamic) {
+      const collection = collectionIds[spec.dynamic];
+      if (collection) page.dynamic = { collection };
+    }
     Object.assign(doc.nodes, nodes);
     doc.pages.push(page);
 
-    for (const section of spec.sections) {
+    const sections =
+      typeof spec.sections === 'function' ? spec.sections(collectionIds) : spec.sections;
+    for (const section of sections) {
       const subtree: NodeMap = {};
       const { rootId } = buildTree(section, subtree, page.rootNodeId);
       Object.assign(doc.nodes, subtree);
@@ -109,11 +158,105 @@ function makeDocument(input: TemplateInput): Cre8Document {
     }
   });
 
+  shareRepeatedSections(doc);
+
   // Only now do the pages have ids, so this is the earliest the templates'
-  // `pageRef` links can become real ones.
+  // `pageRef` links can become real ones. After the sharing above, so the
+  // links inside a master get resolved along with everything else — the
+  // master's nodes live in `doc.nodes` like any others.
   resolvePageRefs(doc);
 
   return doc;
+}
+
+/**
+ * A section that appears on more than one page is made once.
+ *
+ * The four-page SaaS template shipped four separate copies of its navbar and
+ * four of its footer, so changing a nav link meant changing it four times and
+ * a template that looked finished came apart the first time anybody edited it.
+ * The component system has existed since phase 5 and no template used it.
+ *
+ * Only sections that are *actually the same* are shared, compared by
+ * fingerprint rather than by name. Two pages could reasonably carry navbars
+ * that differ — a different call to action, a highlighted current page — and
+ * quietly replacing the second with the first would be a template that changes
+ * a design nobody asked it to change. Where they differ they stay separate,
+ * which is also the honest thing to show in the layer tree.
+ */
+function shareRepeatedSections(doc: Cre8Document): void {
+  const byShape = new Map<string, NodeId[]>();
+  for (const page of doc.pages) {
+    for (const id of doc.nodes[page.rootNodeId]?.children ?? []) {
+      const key = fingerprint(doc.nodes, id);
+      byShape.set(key, [...(byShape.get(key) ?? []), id]);
+    }
+  }
+
+  for (const ids of byShape.values()) {
+    if (ids.length < 2) continue;
+    const first = ids[0]!;
+    const made = createComponentFromNode(doc, first, doc.nodes[first]?.name);
+    if (!made) continue;
+
+    for (const id of ids.slice(1)) {
+      const parentId = doc.nodes[id]?.parentId;
+      if (!parentId) continue;
+      const at = doc.nodes[parentId]?.children.indexOf(id) ?? -1;
+      removeNodes(doc, [id]);
+      insertInstance(doc, made.component.id, parentId, at < 0 ? undefined : at);
+    }
+  }
+}
+
+/**
+ * What a subtree *is*, with everything minted left out.
+ *
+ * Ids are minted per node, so two identical navbars share nothing a naive
+ * comparison can use — and it is not only the node ids. A rule carries one, and
+ * so does a state assignment; a popover invoker holds the *id* of the panel it
+ * opens, which `buildTree` resolves per subtree, so the second navbar's Menu
+ * button legitimately names a different node from the first's. All three had
+ * to be normalised before any two sections compared equal: the first version
+ * of this function shared nothing at all and looked like it worked.
+ *
+ * Internal references become positions in a fixed walk, so "opens the panel
+ * three nodes along" compares equal while a reference *out* of the subtree —
+ * which is a genuine difference — stays as it is. `meta` is left out because
+ * it holds bookkeeping rather than design.
+ */
+function fingerprint(nodes: NodeMap, rootId: NodeId): string {
+  const order = new Map<NodeId, number>();
+  const number = (id: NodeId): void => {
+    const node = nodes[id];
+    if (!node || order.has(id)) return;
+    order.set(id, order.size);
+    node.children.forEach(number);
+  };
+  number(rootId);
+
+  const settle = (value: unknown): unknown => {
+    if (typeof value !== 'string') return value;
+    const at = order.get(value);
+    return at === undefined ? value : `#${at}`;
+  };
+
+  const shape = (id: NodeId): unknown => {
+    const node = nodes[id];
+    if (!node) return null;
+    return [
+      node.type,
+      node.name,
+      Object.fromEntries(Object.entries(node.props).map(([key, v]) => [key, settle(v)])),
+      node.styles,
+      (node.rules ?? []).map((rule) => ({ ...rule, id: '' })),
+      node.bind ?? null,
+      node.repeat ?? null,
+      (node.assign ?? []).map((one) => ({ ...one, id: '' })),
+      node.children.map(shape),
+    ];
+  };
+  return JSON.stringify(shape(rootId));
 }
 
 function applyPalette(theme: Theme, colors?: Record<string, string>): void {
@@ -507,12 +650,12 @@ const agency: TemplateDefinition = {
                 'Selected work',
                 'A few recent engagements. Full case studies available on request.',
                 [
-                  { title: 'Meridian', subtitle: 'Brand identity · 2026', gradient: 'linear-gradient(135deg, #f97316, #fbbf24)' },
-                  { title: 'Cobalt Health', subtitle: 'Product design · 2025', gradient: 'linear-gradient(135deg, #0ea5e9, #6366f1)' },
-                  { title: 'Orenda', subtitle: 'Website · 2025', gradient: 'linear-gradient(135deg, #18181b, #52525b)' },
-                  { title: 'Two Rivers', subtitle: 'Packaging · 2025', gradient: 'linear-gradient(135deg, #16a34a, #84cc16)' },
-                  { title: 'Northbank', subtitle: 'Design system · 2024', gradient: 'linear-gradient(135deg, #db2777, #f97316)' },
-                  { title: 'Salter', subtitle: 'Brand identity · 2024', gradient: 'linear-gradient(135deg, #7c3aed, #0ea5e9)' },
+                  { title: 'Meridian', subtitle: 'Brand identity · 2026', photo: { seed: 'ff-meridian', alt: 'Meridian’s identity applied across printed matter', width: 900, height: 675 } },
+                  { title: 'Cobalt Health', subtitle: 'Product design · 2025', photo: { seed: 'ff-cobalt', alt: 'The Cobalt Health console on a desk', width: 900, height: 675 } },
+                  { title: 'Orenda', subtitle: 'Website · 2025', photo: { seed: 'ff-orenda', alt: 'The Orenda site on a laptop and a phone', width: 900, height: 675 } },
+                  { title: 'Two Rivers', subtitle: 'Packaging · 2025', photo: { seed: 'ff-tworivers', alt: 'Two Rivers packaging, three sizes side by side', width: 900, height: 675 } },
+                  { title: 'Northbank', subtitle: 'Design system · 2024', photo: { seed: 'ff-northbank', alt: 'Northbank’s component library on screen', width: 900, height: 675 } },
+                  { title: 'Salter', subtitle: 'Brand identity · 2024', photo: { seed: 'ff-salter', alt: 'Salter’s wordmark on a shopfront', width: 900, height: 675 } },
                 ]
               ),
               'work'
@@ -715,7 +858,13 @@ const restaurant: TemplateDefinition = {
                 { label: 'Book a table', href: '#book' },
                 { label: 'See this week’s menu', variant: 'secondary', href: '#menu' },
               ],
-              media: gradientPanel('linear-gradient(150deg, #b45309 0%, #1c1917 120%)', '3 / 4'),
+              media: photo({
+                seed: 'ambrose-pass',
+                alt: 'A chef plating at the pass, seen from the counter',
+                width: 900,
+                height: 1200,
+                priority: true,
+              }),
               align: 'left',
               tone: 'plain',
             }),
@@ -742,7 +891,12 @@ const restaurant: TemplateDefinition = {
                 title: 'We opened in a former bookshop in 2019',
                 body: 'Ambrose is run by Mara and Tom, who met working the pass at a much larger restaurant and wanted to cook for fewer people, better.',
                 bullets: ['Everything baked in-house each morning', 'Produce from within 90 miles', 'No service charge, ever'],
-                media: gradientPanel('linear-gradient(135deg, #d97706, #78350f)', '4 / 3'),
+                media: photo({
+                  seed: 'ambrose-room',
+                  alt: 'The dining room at Ambrose, laid for one sitting',
+                  width: 1200,
+                  height: 900,
+                }),
                 reverse: true,
               }),
               'story'
@@ -831,7 +985,13 @@ const ecommerce: TemplateDefinition = {
                 { label: 'Shop the collection', href: '#shop' },
                 { label: 'How we make them', variant: 'secondary', href: '#promises' },
               ],
-              media: gradientPanel('linear-gradient(140deg, #0f766e 0%, #facc15 150%)', '1 / 1'),
+              media: photo({
+                seed: 'verdant-hero',
+                alt: 'A stack of glazed stoneware bowls on a workshop bench',
+                width: 1100,
+                height: 1100,
+                priority: true,
+              }),
               align: 'left',
             }),
             anchored(
@@ -839,10 +999,10 @@ const ecommerce: TemplateDefinition = {
                 'Best sellers',
                 'The pieces people come back for.',
                 [
-                  { title: 'Ridge mug · £24', subtitle: 'Six colours', gradient: 'linear-gradient(135deg, #0f766e, #14b8a6)', ratio: '1 / 1' },
-                  { title: 'Coupe bowl · £32', subtitle: 'Set of two', gradient: 'linear-gradient(135deg, #facc15, #f59e0b)', ratio: '1 / 1' },
-                  { title: 'Slab plate · £28', subtitle: 'Four colours', gradient: 'linear-gradient(135deg, #64748b, #0f766e)', ratio: '1 / 1' },
-                  { title: 'Carafe · £46', subtitle: 'One litre', gradient: 'linear-gradient(135deg, #134e4a, #0ea5e9)', ratio: '1 / 1' },
+                  { title: 'Ridge mug · £24', subtitle: 'Six colours', ratio: '1 / 1', photo: { seed: 'verdant-mug', alt: 'A ridged stoneware mug in green glaze', width: 700, height: 700 } },
+                  { title: 'Coupe bowl · £32', subtitle: 'Set of two', ratio: '1 / 1', photo: { seed: 'verdant-bowl', alt: 'A shallow coupe bowl, pale glaze, seen from above', width: 700, height: 700 } },
+                  { title: 'Slab plate · £28', subtitle: 'Four colours', ratio: '1 / 1', photo: { seed: 'verdant-plate', alt: 'A hand-cut slab plate with an uneven rim', width: 700, height: 700 } },
+                  { title: 'Carafe · £46', subtitle: 'One litre', ratio: '1 / 1', photo: { seed: 'verdant-carafe', alt: 'A one-litre carafe beside two small tumblers', width: 700, height: 700 } },
                 ],
                 4
               ),
@@ -889,6 +1049,89 @@ const ecommerce: TemplateDefinition = {
     }),
 };
 
+/**
+ * The rows the blog opens with.
+ *
+ * Written out rather than generated, because a template's content is the part
+ * a person reads first and "Post one / Post two" is how a demo looks. The
+ * bodies are short on purpose: enough to lay a page out against, short enough
+ * that replacing them is obviously the next thing to do.
+ */
+const ESSAYS: SeedRow[] = [
+  {
+    collection: 'Essays',
+    slug: 'the-city-as-an-interface',
+    data: {
+      title: 'The city as an interface',
+      readingTime: '12 min',
+      excerpt:
+        'What wayfinding in Tokyo stations can teach anyone designing a navigation system.',
+      body:
+        '<p>Shinjuku moves three and a half million people a day through a building nobody could hold in their head, and it does it without anyone reading a manual. The station works because it answers one question at a time, in the place where the question gets asked.</p>' +
+        '<p>Software navigation usually does the opposite. It shows every destination at once, on every screen, and calls the result discoverability.</p>',
+    },
+  },
+  {
+    collection: 'Essays',
+    slug: 'everything-is-a-queue',
+    data: {
+      title: 'Everything is a queue',
+      readingTime: '9 min',
+      excerpt:
+        'Queues explain more about software behaviour than almost any other abstraction.',
+      body:
+        '<p>A slow system is rarely doing slow work. It is usually doing ordinary work behind a line of other ordinary work, and the line is the thing nobody drew.</p>' +
+        '<p>Once you start seeing queues, the fixes change shape: not "make it faster" but "make it shorter, or make it fair".</p>',
+    },
+  },
+  {
+    collection: 'Essays',
+    slug: 'in-praise-of-the-boring-stack',
+    data: {
+      title: 'In praise of the boring stack',
+      readingTime: '7 min',
+      excerpt:
+        'The most interesting products are usually built on the least interesting technology.',
+      body:
+        '<p>Novel infrastructure spends your attention twice: once to build on, and again every time it surprises you. The interesting part of a product is almost never the part that stores the rows.</p>',
+    },
+  },
+  {
+    collection: 'Essays',
+    slug: 'attention-is-not-a-resource',
+    data: {
+      title: 'Attention is not a resource',
+      readingTime: '14 min',
+      excerpt: 'The metaphor we use for focus is wrong, and it is making our tools worse.',
+      body:
+        '<p>Treating attention as a budget suggests it can be spent carefully and topped up overnight. It behaves far more like a fire: hard to start, easy to smother, and it does not resume where it stopped.</p>' +
+        '<p>Interfaces designed for a budget interrupt politely and often. Interfaces designed for a fire leave you alone.</p>',
+    },
+  },
+  {
+    collection: 'Essays',
+    slug: 'notes-on-writing-in-public',
+    data: {
+      title: 'Notes on writing in public',
+      readingTime: '6 min',
+      excerpt: 'Five years of publishing unfinished thinking, and what it actually cost.',
+      body:
+        '<p>The benefit is real and the cost is specific: you stop being able to change your mind quietly. Everything you thought is still there, in order, with dates on it.</p>',
+    },
+  },
+  {
+    collection: 'Essays',
+    slug: 'the-second-system-revisited',
+    data: {
+      title: 'The second system, revisited',
+      readingTime: '11 min',
+      excerpt: 'Brooks was right, but not for the reason everyone quotes.',
+      body:
+        '<p>The second system is not bloated because its architect is arrogant. It is bloated because, for the first time, they know every requirement the first system failed to meet — and none of the constraints that made those failures reasonable.</p>',
+    },
+  },
+];
+
 /* --------------------------------------------------------------------------
  * Blog
  * ----------------------------------------------------------------------- */
@@ -914,12 +1157,28 @@ const blog: TemplateDefinition = {
         inverse: '#0f172a',
       },
       fonts: { heading: 'Fraunces', body: 'Inter' },
+      // The one template backed by content rather than by copied cards. Six
+      // essays used to be six hand-written nodes, so "publish an essay" meant
+      // "duplicate a card and edit it" and the whole D1 half of the product
+      // went unused by the thing anybody would reach for it with.
+      collections: [
+        {
+          name: 'Essays',
+          slugField: 'title',
+          fields: [
+            { key: 'title', label: 'Title', type: 'text', required: true },
+            { key: 'excerpt', label: 'Excerpt', type: 'text' },
+            { key: 'readingTime', label: 'Reading time', type: 'text' },
+            { key: 'body', label: 'Body', type: 'richtext' },
+          ],
+        },
+      ],
       pages: [
         {
           name: 'Home',
           slug: '',
           isHome: true,
-          sections: [
+          sections: (ids) => [
             navBlock({
               brand: 'The Long Field',
               brandIcon: 'file-text',
@@ -938,20 +1197,17 @@ const blog: TemplateDefinition = {
               buttons: [{ label: 'Subscribe free', href: '#subscribe' }],
             }),
             anchored(
-              listBlock(
-                'Latest',
-                'Latest essays',
-                undefined,
-                [
-                  { title: 'The city as an interface', meta: '12 min', body: 'What wayfinding in Tokyo stations can teach anyone designing a navigation system.' },
-                  { title: 'Everything is a queue', meta: '9 min', body: 'Queues explain more about software behaviour than almost any other abstraction.' },
-                  { title: 'In praise of the boring stack', meta: '7 min', body: 'The most interesting products are usually built on the least interesting technology.' },
-                  { title: 'Attention is not a resource', meta: '14 min', body: 'The metaphor we use for focus is wrong, and it is making our tools worse.' },
-                  { title: 'Notes on writing in public', meta: '6 min', body: 'Five years of publishing unfinished thinking, and what it actually cost.' },
-                  { title: 'The second system, revisited', meta: '11 min', body: 'Brooks was right, but not for the reason everyone quotes.' },
-                ],
-                2
-              ),
+              feedBlock({
+                name: 'Latest',
+                title: 'Latest essays',
+                collection: ids.Essays ?? '',
+                detail: pageRef('essays'),
+                columns: 2,
+                // Four to a page, so six essays publish two files rather than
+                // one long one — and so the template exercises the paging a
+                // real publication needs on its first day.
+                paginate: 4,
+              }),
               'essays'
             ),
             // The nav named an About the page did not have. Written rather than
@@ -1000,8 +1256,45 @@ const blog: TemplateDefinition = {
             ], 'file-text'),
           ],
         },
+        {
+          name: 'Essay',
+          slug: 'essays',
+          title: 'An essay — The Long Field',
+          dynamic: 'Essays',
+          sections: () => [
+            navBlock({
+              brand: 'The Long Field',
+              brandIcon: 'file-text',
+              links: [
+                { label: 'Essays', href: `${pageRef('')}#essays` },
+                { label: 'About', href: `${pageRef('')}#about` },
+              ],
+              cta: { label: 'Subscribe', href: `${pageRef('')}#subscribe` },
+              sticky: false,
+            }),
+            articleBlock(`${pageRef('')}#essays`),
+            footerBlock('The Long Field', 'Essays on software, cities and attention.', [
+              {
+                title: 'Read',
+                links: [
+                  { label: 'Latest essays', href: `${pageRef('')}#essays` },
+                  { label: 'About', href: `${pageRef('')}#about` },
+                ],
+              },
+              {
+                title: 'Follow',
+                links: [
+                  { label: 'Subscribe', href: `${pageRef('')}#subscribe` },
+                  { label: 'Email', href: 'mailto:hello@thelongfield.press' },
+                  { label: 'Mastodon', href: 'https://mastodon.social' },
+                ],
+              },
+            ], 'file-text'),
+          ],
+        },
       ],
     }),
+  seed: ESSAYS,
 };
 
 /* --------------------------------------------------------------------------

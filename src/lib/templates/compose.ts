@@ -688,10 +688,96 @@ export function statsBlock(items: { value: string; label: string }[], surface = 
  * Gallery
  * ----------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------
+ * Photography
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Where a template's stand-in photography comes from.
+ *
+ * One constant, because it is the whole of the decision and the whole of the
+ * cost. A template ships as code and a photograph ships as a file, and the two
+ * do not meet: the project's own storage does not exist until somebody has
+ * clicked the template, so a template cannot reference an upload. The
+ * alternatives were seeding R2 on create — real bytes, real work, real storage
+ * bill for pictures every user is expected to replace — or pointing at a
+ * service. This points at a service.
+ *
+ * What that buys and what it costs, plainly: the templates look like sites
+ * instead of like wireframes, and a published site that keeps the placeholders
+ * depends on a third party staying up and hands it the visitor's IP. Both are
+ * acceptable for a stand-in and neither is acceptable for a finished site,
+ * which is the message the Assets panel exists to answer. Moving to our own
+ * CDN later is this line.
+ *
+ * `/seed/<seed>/<w>/<h>` is deterministic — the same slot shows the same
+ * photograph on every build, so a template does not reshuffle itself between
+ * the screenshot and the project.
+ */
+const PLACEHOLDER_PHOTO = 'https://picsum.photos';
+
+export interface PhotoOptions {
+  /** Stable per picture. Two slots wanting the same photo share a seed. */
+  seed: string;
+  /** Required, not optional: an image nobody can describe is decoration. */
+  alt: string;
+  width: number;
+  height: number;
+  /** Above the fold. Loads eagerly, decodes on the main thread, high priority. */
+  priority?: boolean;
+  styles?: StyleDecl;
+}
+
+/**
+ * A photograph, sized so nothing moves when it arrives.
+ *
+ * `width`/`height` are the intrinsic pixels — the browser wants the ratio, and
+ * CSS still decides the laid-out size — and the surface colour underneath
+ * means a photo that is slow, blocked or replaced by a broken URL reads as a
+ * panel in the page's own palette rather than as a hole in the layout. That
+ * matters more here than it usually would: these images are the one part of a
+ * template served from somewhere else.
+ */
+export function photo({
+  seed,
+  alt,
+  width,
+  height,
+  priority,
+  styles = {},
+}: PhotoOptions): NodeSpec {
+  return {
+    type: 'image',
+    name: alt.slice(0, 28),
+    props: {
+      src: `${PLACEHOLDER_PHOTO}/seed/${seed}/${width}/${height}`,
+      alt,
+      width,
+      height,
+      ...(priority ? { priority: true } : {}),
+    },
+    styles: {
+      width: '100%',
+      height: 'auto',
+      aspectRatio: `${width} / ${height}`,
+      objectFit: 'cover',
+      backgroundColor: 'var(--c-surface-2)',
+      ...radius('var(--r-lg)'),
+      ...styles,
+    },
+  };
+}
+
+/* --------------------------------------------------------------------------
+ * Gallery
+ * ----------------------------------------------------------------------- */
+
 export interface GalleryItem {
   title: string;
   subtitle?: string;
-  gradient: string;
+  /** A photograph, or a gradient where the picture is the point rather than a stand-in. */
+  photo?: { seed: string; alt: string; width: number; height: number };
+  gradient?: string;
   ratio?: string;
 }
 
@@ -720,11 +806,19 @@ export function galleryBlock(
             },
             states: { hover: { transform: 'translateY(-3px)', boxShadow: 'var(--sh-lg)' } },
             children: [
-              frame('Thumbnail', [], {
-                width: '100%',
-                aspectRatio: item.ratio ?? '4 / 3',
-                backgroundImage: item.gradient,
-              }),
+              item.photo
+                ? photo({
+                    ...item.photo,
+                    // Square off the bottom: the card's own radius clips it,
+                    // and a rounded photo inside a rounded card leaves a
+                    // sliver of border showing at each corner.
+                    styles: { ...radius('0px'), aspectRatio: item.ratio ?? '4 / 3' },
+                  })
+                : frame('Thumbnail', [], {
+                    width: '100%',
+                    aspectRatio: item.ratio ?? '4 / 3',
+                    backgroundImage: item.gradient ?? 'linear-gradient(135deg, var(--c-surface-2), var(--c-surface))',
+                  }),
               stack(
                 'Caption',
                 [
@@ -819,6 +913,189 @@ export function listBlock(
     ],
     surface ? { backgroundColor: 'var(--c-surface)' } : {}
   );
+}
+
+/* --------------------------------------------------------------------------
+ * Content, from a collection
+ * ----------------------------------------------------------------------- */
+
+export interface FeedOptions {
+  name: string;
+  title: string;
+  intro?: string;
+  /** The collection's id, which only exists once the document is built. */
+  collection: string;
+  /** Where a card goes — the deferred reference to the detail page. */
+  detail: string;
+  columns?: number;
+  /** Rows per published file. Splits the page, not the list. */
+  paginate?: number;
+  surface?: boolean;
+}
+
+/**
+ * `listBlock`, except the rows are records rather than an array in the source.
+ *
+ * The same design either way, deliberately: a template's list should not look
+ * different for being backed by content, and the whole claim of the repeater
+ * is that one card and a collection produce what six hand-written cards do.
+ *
+ * The grid carries the `repeat`, because a repeater renders its *children*
+ * once per record. Each card is a link rather than a card containing one, so
+ * the whole row is a target — and its href names the detail page, which the
+ * publisher resolves per record: the same href on six cards becomes six
+ * different files.
+ */
+export function feedBlock({
+  name,
+  title,
+  intro,
+  collection,
+  detail,
+  columns = 2,
+  paginate,
+  surface = false,
+}: FeedOptions): NodeSpec {
+  const card: NodeSpec = {
+    type: 'link',
+    name: 'Essay card',
+    props: { href: detail },
+    styles: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '7px',
+      ...pad('16px'),
+      marginLeft: '-16px',
+      marginRight: '-16px',
+      ...radius('var(--r-md)'),
+      transition: 'background-color 140ms ease',
+    },
+    states: { hover: { backgroundColor: 'var(--c-surface-2)' } },
+    children: [
+      stack(
+        'Row',
+        [
+          {
+            ...heading('Essay title', 3, {
+              fontSize: '16.5px',
+              fontWeight: '600',
+              letterSpacing: '-0.012em',
+              lineHeight: '1.35',
+              flexGrow: '1',
+            }),
+            bind: { text: 'title' },
+          },
+          {
+            ...text('12 min', {
+              fontSize: '15px',
+              fontWeight: '580',
+              color: 'var(--c-primary)',
+              whiteSpace: 'nowrap',
+            }),
+            bind: { text: 'readingTime' },
+          },
+        ],
+        { gap: '16px', alignItems: 'baseline', width: '100%' }
+      ),
+      { ...body('The essay’s opening line.', { fontSize: '14.5px' }), bind: { text: 'excerpt' } },
+    ],
+  };
+
+  return section(
+    name,
+    [
+      container(
+        [
+          sectionHeader(undefined, title, intro),
+          {
+            ...grid('Essays', [card], columns, { gap: '8px 40px' }, { mobile: { gridTemplateColumns: '1fr' } }),
+            repeat: { collection, ...(paginate ? { paginate } : {}) },
+          },
+          // Only where the list is split. `series:prev` and `series:next`
+          // resolve to nothing at the ends, and a link with nowhere to go
+          // hides itself rather than sitting there doing nothing.
+          ...(paginate
+            ? [
+                stack(
+                  'Pages',
+                  [
+                    {
+                      type: 'link' as const,
+                      name: 'Newer',
+                      props: { text: '← Newer', href: 'series:prev' },
+                      styles: { fontSize: '14px', color: 'var(--c-muted)' },
+                      states: { hover: { color: 'var(--c-text)' } },
+                    },
+                    {
+                      type: 'link' as const,
+                      name: 'Older',
+                      props: { text: 'Older →', href: 'series:next' },
+                      styles: { fontSize: '14px', color: 'var(--c-muted)' },
+                      states: { hover: { color: 'var(--c-text)' } },
+                    },
+                  ],
+                  { gap: '24px', justifyContent: 'space-between', width: '100%' }
+                ),
+              ]
+            : []),
+        ],
+        { gap: '52px' }
+      ),
+    ],
+    surface ? { backgroundColor: 'var(--c-surface)' } : {}
+  );
+}
+
+/**
+ * One record, laid out to be read.
+ *
+ * The other half of a collection: a list is only half a blog. Everything on it
+ * is bound, so the page is a template rather than a page — the publisher makes
+ * one file per record from it.
+ */
+export function articleBlock(back: string): NodeSpec {
+  return section('Essay', [
+    {
+      ...container(
+        [
+          {
+            type: 'link',
+            name: 'Back',
+            props: { text: '← All essays', href: back },
+            styles: { fontSize: '14px', color: 'var(--c-muted)' },
+            states: { hover: { color: 'var(--c-text)' } },
+          },
+          {
+            ...heading(
+              'The essay title',
+              1,
+              { fontSize: '44px', fontWeight: '600', lineHeight: '1.14', letterSpacing: '-0.028em' },
+              { mobile: { fontSize: '31px' } }
+            ),
+            bind: { text: 'title' },
+          },
+          {
+            ...text('12 min', {
+              fontSize: '14px',
+              fontWeight: '580',
+              color: 'var(--c-primary)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }),
+            bind: { text: 'readingTime' },
+          },
+          {
+            type: 'richtext',
+            name: 'Essay body',
+            props: { html: '<p>The essay.</p>' },
+            bind: { html: 'body' },
+            styles: { fontSize: '18px', lineHeight: '1.7', color: 'var(--c-text)' },
+          },
+        ],
+        { gap: '20px', maxWidth: 'var(--w-narrow)', alignItems: 'flex-start' }
+      ),
+    },
+  ]);
 }
 
 /* --------------------------------------------------------------------------

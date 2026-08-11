@@ -16,6 +16,7 @@ import type {
   PublishedInfo,
   PublishedSite,
   PublishedSummary,
+  SeedRecord,
   StorageAdapter,
 } from './storage';
 
@@ -159,5 +160,27 @@ export class CloudflareAdapter implements StorageAdapter {
       if (records.length < page) break;
     }
     return out;
+  }
+
+  /**
+   * A template's opening content, written one row at a time.
+   *
+   * Sequential on purpose. The rows are single figures, `position` decides the
+   * order a reader sees them in, and a burst of parallel writes against D1 to
+   * save a few hundred milliseconds on a once-per-project operation is a bad
+   * trade. A row that fails does not take the project with it: the document is
+   * already saved, and a collection short one essay is recoverable in the
+   * Collections panel.
+   */
+  async createRecords(projectId: string, rows: SeedRecord[]): Promise<void> {
+    for (const [index, row] of rows.entries()) {
+      await api.createRecord(projectId, {
+        collectionId: row.collectionId,
+        slug: row.slug,
+        position: index,
+        published: true,
+        data: row.data,
+      });
+    }
   }
 }

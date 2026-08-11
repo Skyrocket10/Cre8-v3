@@ -324,6 +324,24 @@ optimisation. Eager images also get `decoding="sync"` and `fetchpriority="high"`
 because painting the page around the one element it is judged on is the
 opposite of what is wanted. Both would have been regex passes over values for no return.
 
+**A template's photography is the one exception, and it is a URL.** Everything
+above describes an image somebody uploaded into a project. A template has no
+project yet — it is code that runs before the storage exists — so it cannot
+reference an upload, which is why every template shipped gradient panels and no
+`<img>` at all. The options were seeding R2 at create time, with real bytes and
+a real storage bill for pictures every user is expected to replace, or pointing
+at a placeholder service. It points at a service, from a single constant in the
+authoring kit, and a static check holds every stand-in to one origin so moving
+to a CDN we own stays a one-line change.
+
+What that costs is worth naming: a published site that keeps the placeholders
+depends on a third party staying up and hands it the visitor's IP address.
+Acceptable for a stand-in, not for a finished site — which is the message the
+Assets panel exists to answer. The images carry intrinsic sizes and sit on a
+surface-coloured background for the same reason, so one that is slow, blocked
+or replaced by a broken URL reads as a panel in the page's palette rather than
+as a hole in the layout.
+
 ---
 
 ## 5. Components
@@ -338,6 +356,22 @@ instance; editing the master updates every instance on every page.
 
 The alternative — copying the subtree per instance — is easier and worthless,
 because it gives you duplication rather than reuse.
+
+Templates use it now, and did not for a long time: the four-page SaaS template
+shipped four copies of its navbar and four of its footer, so a template that
+looked finished came apart the first time anybody changed a nav link. The
+builder makes a component out of any section that appears on more than one
+page and leaves instances behind, which took that template from 490 nodes to
+371 and produced byte-identical markup.
+
+"Appears on more than one page" is decided by fingerprint, not by name — two
+pages may reasonably carry navbars that differ, and silently replacing the
+second with the first would be a template changing a design nobody asked it to
+change. The fingerprint has to normalise everything minted, which is more than
+node ids: a rule carries one, a state assignment carries one, and a popover
+invoker holds the id of the panel it opens, resolved per subtree. Miss any of
+the three and nothing ever matches anything, which is how this first shipped —
+doing nothing, with every check still green.
 
 ### Properties
 
@@ -532,6 +566,19 @@ and the two limits countable in a single query. That last check is the whole of
 record privacy: without it an account holder could read the table by guessing
 ids, and the access check would pass every time, because the project in the URL
 really would be theirs.
+
+That split is also why a template has two halves. Its collection *shapes* are
+in the document `build()` returns; its opening *rows* are a separate `seed`
+list, written by the dashboard through the adapter once the project exists —
+the one moment the two halves are put together. Records cannot be in the
+document without collapsing the seam that the rest of this section is about.
+
+The consequence is worth stating rather than discovering: `createRecords` is
+optional on the adapter, like `listRecords` and `uploadAsset`, so with no
+backend the Blog template arrives shaped and empty. Its index draws the
+repeater's template row on the canvas and publishes nothing, and the
+Collections panel is where somebody fills it in. A hosted project gets six
+essays, a paginated index and a page each.
 
 ### The repeater
 

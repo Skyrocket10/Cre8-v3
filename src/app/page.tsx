@@ -12,10 +12,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Ellipsis, Plus, Rocket, Trash2 } from 'lucide-react';
 import { getStorage, storageMode } from '@/lib/api/storage';
+import type { SeedRecord, StorageAdapter } from '@/lib/api/storage';
 import { useSession } from '@/lib/auth/session';
-import type { ProjectSummary } from '@/lib/document/types';
+import type { Cre8Document, ProjectSummary } from '@/lib/document/types';
 import { routes } from '@/lib/routes';
 import { TEMPLATES } from '@/lib/templates';
+import type { SeedRow } from '@/lib/templates';
 import { cn, relativeTime } from '@/lib/utils/cn';
 import { Button, Popover, Skeleton } from '@/components/ui/primitives';
 import { Modal } from '@/components/chrome/publish-dialog';
@@ -63,7 +65,9 @@ function Dashboard() {
         const template = TEMPLATES.find((t) => t.id === templateId);
         if (!template) return;
         const doc = template.build();
-        await getStorage().saveProject(doc);
+        const storage = getStorage();
+        await storage.saveProject(doc);
+        await seedRecords(storage, doc, template.seed);
         router.push(routes.editor(doc.id));
       } catch (error) {
         console.error('[cre8] could not create project', error);
@@ -173,6 +177,40 @@ function Dashboard() {
       </Modal>
     </main>
   );
+}
+
+/**
+ * The content a template opens with, written once the project exists.
+ *
+ * Records are not in the document — fields are design, rows are content — so
+ * this is the one moment the two halves of a template are put together. It
+ * runs after the save rather than before it: a row written against a project
+ * that failed to save is a row nothing can reach.
+ *
+ * A failure here is reported and stepped over. The project is already real and
+ * openable; refusing to navigate to it because an essay did not write would
+ * turn a thin blog into no blog at all, and the Collections panel can fill in
+ * what is missing.
+ */
+async function seedRecords(
+  storage: StorageAdapter,
+  doc: Cre8Document,
+  seed: SeedRow[] | undefined
+): Promise<void> {
+  if (!seed?.length || !storage.createRecords) return;
+  const byName = new Map((doc.collections ?? []).map((c) => [c.name, c.id]));
+  const rows = seed.flatMap((row) => {
+    const collectionId = byName.get(row.collection);
+    return collectionId
+      ? [{ collectionId, slug: row.slug, data: row.data as SeedRecord['data'] }]
+      : [];
+  });
+  if (!rows.length) return;
+  try {
+    await storage.createRecords(doc.id, rows);
+  } catch (error) {
+    console.error('[cre8] could not write the template’s content', error);
+  }
 }
 
 /**
