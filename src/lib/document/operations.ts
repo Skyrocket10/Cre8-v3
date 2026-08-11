@@ -1253,8 +1253,8 @@ export function removeField(doc: Cre8Document, collectionId: string, key: string
   // the person who caused it is standing.
   for (const node of Object.values(doc.nodes)) {
     if (!node.bind) continue;
-    for (const [prop, field] of Object.entries(node.bind)) {
-      if (field === key) delete node.bind[prop];
+    for (const [prop, binding] of Object.entries(node.bind)) {
+      if (binding.value.key === key) delete node.bind[prop];
     }
     if (!Object.keys(node.bind).length) delete node.bind;
   }

@@ -100,9 +100,9 @@ try {
   /* ------------------------------------------------------- 1. some content */
 
   const seeded = [
-    await addRecord('orbit', { title: 'Orbital mechanics', blurb: 'Round and round' }, 0),
-    await addRecord('reentry', { title: 'Coming back down', blurb: 'The hard part' }, 1),
-    await addRecord('unfinished', { title: 'Not ready yet', blurb: 'A draft' }, 2, false),
+    await addRecord('orbit', { title: 'Orbital mechanics', blurb: 'Round and round', price: 1250000 }, 0),
+    await addRecord('reentry', { title: 'Coming back down', blurb: 'The hard part', price: 950000 }, 1),
+    await addRecord('unfinished', { title: 'Not ready yet', blurb: 'A draft', price: 1 }, 2, false),
   ];
   report.check(
     'three records go into the store',
@@ -130,6 +130,7 @@ try {
         fields: [
           { key: 'title', label: 'Title', type: 'text' },
           { key: 'blurb', label: 'Blurb', type: 'text' },
+          { key: 'price', label: 'Price', type: 'number' },
         ],
       },
       { id: 'empty', name: 'Nothing yet', fields: [{ key: 'title', label: 'Title', type: 'text' }] },
@@ -146,7 +147,7 @@ try {
       }),
       crd0feedbb: node('crd0feedbb', 'frame', 'Card', {
         parentId: 'rpt0feedaa',
-        children: ['ttl0feedcc', 'blb0feeddd'],
+        children: ['ttl0feedcc', 'blb0feeddd', 'prc0feedee'],
         styles: {
           desktop: {
             display: 'flex',
@@ -169,6 +170,24 @@ try {
         props: { text: 'What the post is about' },
         bind: { text: 'blurb' },
         styles: { desktop: { fontSize: '15px', color: '#94a3b8' } },
+      }),
+      /*
+       * The one binding written in the new shape, with a format on it. The
+       * other three are still bare field names on purpose: that is how every
+       * binding made before formats existed is stored, and running them
+       * through a real save, a real load and a real publish is the only place
+       * the migration is exercised end to end rather than in a fixture.
+       */
+      prc0feedee: node('prc0feedee', 'paragraph', 'Price', {
+        parentId: 'crd0feedbb',
+        props: { text: 'Some amount' },
+        bind: {
+          text: {
+            value: { kind: 'field', key: 'price' },
+            format: { kind: 'currency', symbol: '$', decimals: 2 },
+          },
+        },
+        styles: { desktop: { fontSize: '15px', color: '#e2e8f0' } },
       }),
       rpt0nonexx: node('rpt0nonexx', 'stack', 'Empty feed', {
         parentId: root.id,
@@ -236,6 +255,24 @@ try {
     `${attachments} elements answer to the title node`
   );
 
+  /*
+   * A format is a presentation transform, so it has to happen on all three
+   * surfaces or none. The canvas is the first of the three.
+   */
+  const canvasText = await page.evaluate(
+    () => document.querySelector('.cre8-frame.cre8-editing')?.textContent ?? ''
+  );
+  report.check(
+    'a bound price is formatted on the canvas',
+    canvasText.includes('$1,250,000.00') && canvasText.includes('$950,000.00'),
+    canvasText.includes('$1,250,000.00') ? 'both prices formatted' : 'no formatted price drawn'
+  );
+  report.check(
+    'and the number it came from is not also on the page',
+    !canvasText.includes('1250000'),
+    canvasText.includes('1250000') ? 'the raw value was drawn too' : 'formatted only'
+  );
+
   const templateRow = await page.evaluate(
     () => document.body.textContent?.includes('Nothing here yet') ?? false
   );
@@ -277,6 +314,30 @@ try {
     'and the empty collection publishes nothing rather than its template row',
     !html.includes('Nothing here yet'),
     html.includes('Nothing here yet') ? 'an invented row was published' : 'left out'
+  );
+
+  /*
+   * The same price, formatted by the Worker this time. The two surfaces run
+   * the same function, and the reason it is written longhand rather than with
+   * `Intl` is exactly this pair of checks: a formatter that consulted ICU
+   * would put a different space between symbol and digits depending on which
+   * engine ran it, and every published diff would light up for a character
+   * nobody can see.
+   */
+  report.check(
+    'the published file carries the formatted price, not the number',
+    html.includes('$1,250,000.00') && html.includes('$950,000.00') && !html.includes('>1250000<'),
+    html.includes('$1,250,000.00') ? 'formatted in the file' : 'the raw number was published'
+  );
+  report.check(
+    'and no script was shipped to format it',
+    !/<script/i.test(html),
+    'formatting is publish-time, like the rows themselves'
+  );
+  report.check(
+    'the placeholder the designer typed is gone from the price too',
+    !html.includes('Some amount'),
+    html.includes('Some amount') ? 'the binding did not resolve' : 'records only'
   );
 
   const site = await ctx.newPage();

@@ -90,6 +90,11 @@ export function loadBlocks() {
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,
     ops: require(path.join(OUT, 'document/operations.js')),
     components: require(path.join(OUT, 'document/components.js')),
+    // Formatting, on its own rather than only through a rendered page: it is
+    // the one part of the renderer whose whole claim is that two different
+    // JavaScript engines agree, and that is a claim about a function.
+    format: require(path.join(OUT, 'renderer/format.js')),
+    boundProps: require(path.join(OUT, 'renderer/repeat.js')).boundProps,
   };
 }
 

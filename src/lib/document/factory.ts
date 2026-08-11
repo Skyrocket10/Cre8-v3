@@ -8,12 +8,13 @@
  */
 
 import { uid } from './id';
-import { migrateDocument, rulesFromLegacy } from './migrate';
+import { bindingFrom, migrateDocument, rulesFromLegacy } from './migrate';
 import { getElement } from './schema';
 import { createDefaultTheme } from './theme';
 import {
   DOCUMENT_VERSION,
   type Asset,
+  type Binding,
   type Cre8Document,
   type ElementType,
   type NodeId,
@@ -75,8 +76,13 @@ export interface NodeSpec {
   meta?: SceneNode['meta'];
   /** Render `children` once per record. */
   repeat?: RepeatSpec;
-  /** Read fields of the record in scope into props. */
-  bind?: Record<string, string>;
+  /**
+   * Read fields of the record in scope into props.
+   *
+   * A bare field name is the shorthand — `{ text: 'title' }` — and is folded
+   * into a `Binding` on the way in by the same function the migration uses.
+   */
+  bind?: Record<string, string | Binding>;
   children?: NodeSpec[];
 }
 
@@ -108,7 +114,11 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
   }
   if (spec.meta) node.meta = { ...node.meta, ...spec.meta };
   if (spec.repeat) node.repeat = structuredCloneCompat(spec.repeat);
-  if (spec.bind) node.bind = { ...spec.bind };
+  if (spec.bind) {
+    node.bind = Object.fromEntries(
+      Object.entries(spec.bind).map(([prop, entry]) => [prop, bindingFrom(entry)])
+    );
+  }
 
   into[node.id] = node;
   for (const childSpec of spec.children ?? []) {

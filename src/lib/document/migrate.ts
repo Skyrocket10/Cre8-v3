@@ -12,6 +12,7 @@ import { uid } from './id';
 import { readLegacyVisibility, slug } from './schema';
 import {
   DOCUMENT_VERSION,
+  type Binding,
   type Condition,
   type Cre8Document,
   type NodeProps,
@@ -93,10 +94,37 @@ export function rulesFromLegacy(
   return out;
 }
 
+/**
+ * A binding, from either spelling of one.
+ *
+ * `bind` was a prop to a field name. It is now a prop to a `Binding`, so a
+ * format has somewhere to live that is not inside the value. The bare string
+ * survives as authoring shorthand — `bind: { text: 'title' }` in a `NodeSpec`
+ * still means what it did — which is why this is exported rather than private
+ * to the migration: the factory reads specs people write, and only one function
+ * should know what the short spelling means.
+ *
+ * Recognises the shape, so it is safe on a document that has already been
+ * through it.
+ */
+export function bindingFrom(entry: string | Binding): Binding {
+  return typeof entry === 'string' ? { value: { kind: 'field', key: entry } } : entry;
+}
+
+function migrateBindings(node: SceneNode): void {
+  const bind = node.bind as Record<string, string | Binding> | undefined;
+  if (!bind) return;
+  for (const [prop, entry] of Object.entries(bind)) {
+    if (typeof entry === 'string') bind[prop] = bindingFrom(entry);
+  }
+}
+
 /** The props the visibility condition used to live in. */
 const RETIRED_PROPS = ['switchCase', 'whenIs', 'whenState', 'whenNot', 'hideMode'] as const;
 
 function migrateNode(node: SceneNode): void {
+  migrateBindings(node);
+
   const legacy = (node as SceneNode & { states?: StateStyles }).states;
   const hasRetired = RETIRED_PROPS.some((key) => node.props[key] !== undefined);
   if (!legacy && !hasRetired) return;

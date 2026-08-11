@@ -934,7 +934,9 @@ Button
 so an Interactions tab can be built against the existing registry.
 
 The Logic and Data axes now have an agreed shape, written down before the code:
-[docs/EXPRESSIONS.md](EXPRESSIONS.md). Two things worth knowing from here.
+[docs/EXPRESSIONS.md](EXPRESSIONS.md). Its first phase is built — a binding is a
+`Value` and, optionally, a `Format`, so a price stored as `1250000` prints as
+`$1,250,000.00` on all three surfaces. Three things worth knowing from here.
 
 First, it is **two systems, not one**. Data binding resolves a record into a
 value when the page is rendered; an interaction evaluates values in the browser
@@ -949,6 +951,14 @@ Second, the rule shape is already here. `StyleRule` is `when` / `apply` / `set`
 that shape with a richer `when`, which means the runtime's whole job is to
 evaluate tests and set state attributes. It never learns what a CSS property is,
 so it does not grow when the inspector does.
+
+Third, **formatting is presentation, and the type system is what says so**.
+Comparisons must see raw values — `$9.99` sorts before `$100.00` and `1234.5`
+does not — and rather than write that rule down and lint for it, `Format` hangs
+off `Binding` where a `Value` cannot reach it. A formatted operand is not
+refused; it cannot be spelled. The formatter itself is longhand, with no `Intl`
+and no time zone anywhere in it, because it runs on the canvas and in the Worker
+and §7's gate is that those two produce the same bytes.
 
 ### Why an AI can drive this later
 

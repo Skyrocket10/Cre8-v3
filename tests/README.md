@@ -32,6 +32,14 @@ does, at the same weight, and drives the same expansion into elements. That is
 the whole of the stage-3 gate, and it is a claim about output, so it is checked
 against output rather than against the code that produces it.
 
+Value formatting is checked here rather than in a browser, because its whole
+claim is that two different JavaScript engines agree — which is a claim about a
+function, not about a page. So the worked examples sit next to a scan of the
+source for the things that would break it quietly: `Intl`, `toLocale…`, a
+local-time getter, a clock. Alongside them are the two structural checks that
+keep formatting out of comparisons — `formatValue` has exactly one caller, and
+the record is unchanged after a binding resolves.
+
 It also runs `migrateDocument()` over a hand-written older document. That
 function upgrades every project every time one is opened and rewrites the part
 of a node that decides whether the node is visible, so the checks cover the
@@ -81,7 +89,7 @@ preferring an installed copy over downloading one.
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces |
 | `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |
-| `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added |
+| `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added — and does a price stored as `1250000` read as `$1,250,000.00` on both surfaces, formatted by the publisher rather than by a script |
 | `worker-publish` | Does the Worker publish the same bytes a local render produces, and do the runtimes it serialises still run |
 | `routes` | Does a collection become one page per record plus a paginated index — walked link by link, and matched against the sitemap |
 | `collections` | Can somebody make a collection, write a record and see it on the canvas — every step a click, no fixtures |

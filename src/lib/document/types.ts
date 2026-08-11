@@ -374,6 +374,61 @@ export interface NodeDataBinding {
   source: string;
 }
 
+/* --------------------------------------------------------------------------
+ * Values, and what a value looks like once it is on the page
+ * ----------------------------------------------------------------------- */
+
+/**
+ * Something an expression can read.
+ *
+ * One kind today, written as a discriminated union because the next ones —
+ * an input's value, a declared constant, a page parameter — arrive without a
+ * migration if the tag is already there. See docs/EXPRESSIONS.md.
+ */
+export type Value =
+  /** A field of whatever record is in scope. `key`, never `label`: renaming a field must not break a page. */
+  { kind: 'field'; key: string };
+
+/**
+ * A presentation transform. Never part of a `Value`, and that is the point.
+ *
+ * Formatting is strictly presentation: `1234.5` and `$1,234.50` are the same
+ * number, and only one of them can be compared, sorted or added. The rule
+ * throughout the expression system is that comparisons see raw values — so
+ * rather than write that down and check for it, the format lives one level up,
+ * on the binding, where a `Value` cannot reach it. A formatted operand is not
+ * refused; it cannot be spelled.
+ *
+ * Every one of these is a pure function of its input with no locale database
+ * behind it, for the reason `repeat.ts` gives for avoiding `localeCompare`: the
+ * browser and the Worker must produce the same bytes, and ICU is the classic
+ * way for them not to.
+ */
+export type Format =
+  | { kind: 'number'; decimals?: number; group?: boolean }
+  | { kind: 'currency'; symbol?: string; decimals?: number; after?: boolean; group?: boolean }
+  /** Appends `%`. Does not multiply — scaling is arithmetic, and arithmetic is phase D. */
+  | { kind: 'percent'; decimals?: number; group?: boolean }
+  | { kind: 'date'; pattern: DatePattern }
+  | { kind: 'case'; to: 'upper' | 'lower' | 'capitalize' }
+  | { kind: 'truncate'; chars: number };
+
+/** How a date reads. Named rather than a token language, which would be a parser. */
+export type DatePattern = 'iso' | 'long' | 'us' | 'short' | 'monthYear';
+
+/**
+ * One prop, fed by one value, shown one way.
+ *
+ * A record is `{ text: { value: { kind: 'field', key: 'title' } } }` — verbose
+ * next to the bare field name it replaces, and worth it: the format has
+ * somewhere to live that is not inside the value.
+ */
+export interface Binding {
+  value: Value;
+  /** Absent means the raw value, stringified by the DOM as it always was. */
+  format?: Format;
+}
+
 export interface NodeMeta {
   locked?: boolean;
   hidden?: boolean;
@@ -405,12 +460,19 @@ export interface SceneNode {
   repeat?: RepeatSpec;
 
   /**
-   * Read fields of the record in scope into props: `{ text: 'title' }`.
+   * Read fields of the record in scope into props.
    *
    * Applied *under* `set`, so a condition can still override what a record
    * says — "when out of stock, say Sold out" has to beat the bound price.
+   *
+   * Was `Record<string, string>` — a prop to a field name. Now a prop to a
+   * `Binding`, so a price can arrive as a number and print as `$1,234.50`
+   * without the number ever becoming a string anybody could compare.
+   * `migrateDocument` converts the old shape, and the authoring kit still
+   * accepts it: `bind: { text: 'title' }` in a `NodeSpec` means what it always
+   * did.
    */
-  bind?: Record<string, string>;
+  bind?: Record<string, Binding>;
 
   /**
    * Conditional overrides, in the order they apply.

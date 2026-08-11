@@ -25,6 +25,7 @@
  * see.
  */
 
+import { bindingFrom } from '../document/migrate';
 import { LIMITS } from '../document/types';
 import type {
   CollectionRecord,
@@ -34,6 +35,7 @@ import type {
   RepeatSpec,
   SceneNode,
 } from '../document/types';
+import { formatValue } from './format';
 import { isSettable } from './variants';
 
 /** Every record a page might need, keyed by collection id. */
@@ -178,8 +180,19 @@ export function boundProps(
   if (!record || !bind) return base;
 
   let out: NodeProps | null = null;
-  for (const [prop, field] of Object.entries(bind)) {
+  for (const [prop, entry] of Object.entries(bind)) {
     if (!isSettable(prop)) continue;
+    /*
+     * Through `bindingFrom` rather than straight off `entry.value`, because a
+     * document that has not been migrated still has field names here. Every
+     * production path loads through `hydrateDocument`, which migrates — but
+     * this function is also reached by anything holding a document it did not
+     * load, and reading `.value.key` off a string is a thrown TypeError that
+     * takes the whole page down. Not defensive coding: one function knows both
+     * spellings, and this is a caller of it.
+     */
+    const binding = bindingFrom(entry);
+    const field = binding.value.key;
     // A field the record does not carry leaves the design-time prop alone.
     // That is what makes a half-filled record show placeholder copy instead of
     // a row of blanks — and what stops a renamed field from emptying the page
@@ -188,7 +201,10 @@ export function boundProps(
     if (!(field in record.data)) continue;
 
     out ??= { ...base };
-    out[prop] = record.data[field];
+    // The only place a formatted value exists. `record.data` is untouched, so
+    // everything that reads it — the filter and the sort above, and every Test
+    // that comes later — is reading the number, never the price tag.
+    out[prop] = formatValue(record.data[field], binding.format);
 
     /*
      * An uploaded image ships a `srcset` alongside its `src`, and intrinsic

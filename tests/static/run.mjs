@@ -44,6 +44,8 @@ const {
   hydrateDocument,
   ops,
   components: componentLib,
+  format: formatLib,
+  boundProps,
 } = loadBlocks();
 
 /** The selector of the first generated rule mentioning `needle`. */
@@ -1004,6 +1006,11 @@ report.group('a document saved before rules still opens');
       { props: { switchSet: 'annual' }, states: { pressed: { color: 'red' } } },
       { states: { pressed: { color: 'red' } } },
       { states: { backdrop: { backgroundColor: 'black' } } },
+      // A binding written when `bind` was a prop to a field name. Nothing else
+      // about this node is old, which is the case that matters: the migration
+      // must notice it on a node it would otherwise have skipped.
+      { bind: { text: 'title', src: 'cover' } },
+      { bind: { text: { value: { kind: 'field', key: 'title' } } } },
     ])
   );
   const at = (i) => doc.nodes[`n${i}`];
@@ -1060,6 +1067,26 @@ report.group('a document saved before rules still opens');
   report.check(
     'and so is the states record',
     Object.values(doc.nodes).every((node) => node.states === undefined)
+  );
+
+  // `bind` was a prop to a field name until a format needed somewhere to live
+  // that was not inside the value. The old spelling is every binding anybody
+  // has made so far, so getting this wrong empties their pages back to the
+  // placeholder text — silently, because a missing field is a legitimate state.
+  report.check(
+    'a binding written as a field name becomes a value',
+    at(8).bind?.text?.value?.kind === 'field' && at(8).bind?.text?.value?.key === 'title',
+    JSON.stringify(at(8).bind?.text)
+  );
+  report.check(
+    'every one of them, not just the first',
+    at(8).bind?.src?.value?.key === 'cover',
+    JSON.stringify(at(8).bind?.src)
+  );
+  report.check(
+    'and one already converted is left exactly as it is',
+    JSON.stringify(at(9).bind) === '{"text":{"value":{"kind":"field","key":"title"}}}',
+    JSON.stringify(at(9).bind)
   );
 
   // Running it twice is not a hypothetical: the version is stamped by the
@@ -1416,9 +1443,13 @@ report.group('the published stylesheet earns its size');
     bound.nodes.a.repeat?.collection === 'posts' && bound.nodes.a.repeat?.limit === 3,
     JSON.stringify(bound.nodes.a.repeat ?? null)
   );
+  // Stored as a bare field name, which is how every binding made before
+  // formats existed is written. Loading has to both keep it and convert it:
+  // keeping it in the old shape would leave the renderer reading a value off a
+  // string.
   report.check(
-    'and so does a binding',
-    bound.nodes.b.bind?.text === 'title',
+    'and so does a binding, in the shape the renderer now expects',
+    bound.nodes.b.bind?.text?.value?.key === 'title',
     JSON.stringify(bound.nodes.b.bind ?? null)
   );
 }
@@ -1723,6 +1754,333 @@ report.group('a bound list publishes as elements');
     'the repeating element is drawn once however many rows it holds',
     boxes(feed([])) === 2 && boxes(one) === 3 && boxes(plain) === 5,
     `${boxes(feed([]))} / ${boxes(one)} / ${boxes(plain)} boxes for 0 / 1 / 3 rows`
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * How a bound value reads
+ *
+ * Phase A of the expression model: a binding is a value and, optionally, a
+ * format. Two claims are worth checking and neither is visible in a rendered
+ * page.
+ *
+ * The first is that formatting is deterministic. It runs on the canvas and it
+ * runs in the Worker, and D3's gate is that the two produce the same bytes —
+ * so a formatter that reached for `Intl` or for the local time zone would put
+ * an invisible difference into every published page and fail a diff nobody
+ * could read. The check is against the source as well as against the values,
+ * because a wrong answer that happens to match today is still wrong.
+ *
+ * The second is the hard rule the whole expression system rests on:
+ * comparisons see raw values. That is enforced structurally — `Format` hangs
+ * off `Binding`, where a `Value` cannot reach it — so what is checked here is
+ * that the structure holds: one caller, and the record untouched.
+ * ----------------------------------------------------------------------- */
+
+report.group('a bound value can be formatted, and only where it is shown');
+
+{
+  const { formatValue, formatsFor, FORMATS_FOR, defaultFormat, FORMAT_LABELS } = formatLib;
+  const reads = (raw, format) => formatValue(raw, format);
+
+  /* Worked examples, one per format, written as the designer would read them. */
+  report.check(
+    'a price reads as a price',
+    reads(750000, { kind: 'currency', symbol: '$', decimals: 2 }) === '$750,000.00',
+    reads(750000, { kind: 'currency', symbol: '$', decimals: 2 })
+  );
+  report.check(
+    'and the symbol is the one that was typed, on the side it was put',
+    reads(1234.5, { kind: 'currency', symbol: '€', decimals: 2, after: true }) === '1,234.50€',
+    reads(1234.5, { kind: 'currency', symbol: '€', decimals: 2, after: true })
+  );
+  report.check(
+    'a number groups from the right, however long it is',
+    reads(1234567.891, { kind: 'number', decimals: 1 }) === '1,234,567.9',
+    reads(1234567.891, { kind: 'number', decimals: 1 })
+  );
+  report.check(
+    'and does not, when told not to',
+    reads(1234567, { kind: 'number', group: false }) === '1234567',
+    reads(1234567, { kind: 'number', group: false })
+  );
+  report.check(
+    'a percent is appended, not multiplied — scaling is arithmetic',
+    reads(12.5, { kind: 'percent', decimals: 1 }) === '12.5%',
+    reads(12.5, { kind: 'percent', decimals: 1 })
+  );
+  report.check(
+    'a date reads in words',
+    reads('2026-08-11', { kind: 'date', pattern: 'long' }) === '11 August 2026',
+    reads('2026-08-11', { kind: 'date', pattern: 'long' })
+  );
+  report.check(
+    'every pattern says the same day a different way',
+    ['iso', 'us', 'short', 'monthYear']
+      .map((pattern) => reads('2026-08-11', { kind: 'date', pattern }))
+      .join(' | ') === '2026-08-11 | August 11, 2026 | 11 Aug 2026 | August 2026',
+    ['iso', 'us', 'short', 'monthYear']
+      .map((pattern) => reads('2026-08-11', { kind: 'date', pattern }))
+      .join(' | ')
+  );
+  report.check(
+    'letters change case without consulting a locale',
+    reads('sold out', { kind: 'case', to: 'upper' }) === 'SOLD OUT' &&
+      reads('sold out', { kind: 'case', to: 'capitalize' }) === 'Sold Out',
+    reads('sold out', { kind: 'case', to: 'capitalize' })
+  );
+  report.check(
+    'and capitalising leaves the rest of a word alone',
+    reads('the MacDonald estate', { kind: 'case', to: 'capitalize' }) === 'The MacDonald Estate',
+    reads('the MacDonald estate', { kind: 'case', to: 'capitalize' })
+  );
+  report.check(
+    'a long value is cut at a word, not mid-syllable',
+    reads('A four bedroom house with a garden', { kind: 'truncate', chars: 20 }) ===
+      'A four bedroom…',
+    reads('A four bedroom house with a garden', { kind: 'truncate', chars: 20 })
+  );
+  report.check(
+    'and a short one is left alone entirely',
+    reads('Sold', { kind: 'truncate', chars: 20 }) === 'Sold',
+    reads('Sold', { kind: 'truncate', chars: 20 })
+  );
+
+  /*
+   * The cases that are bugs rather than preferences. Each of these is
+   * something a formatter written the obvious way gets wrong, and each would
+   * reach a published page.
+   */
+  report.check(
+    'zero is a value a record has said, not an absence',
+    reads(0, { kind: 'currency' }) === '$0.00',
+    String(reads(0, { kind: 'currency' }))
+  );
+  report.check(
+    'rounding to nothing does not produce a negative zero',
+    reads(-0.4, { kind: 'number', decimals: 0 }) === '0',
+    String(reads(-0.4, { kind: 'number', decimals: 0 }))
+  );
+  report.check(
+    'but a real negative keeps its sign, outside the symbol',
+    reads(-1234.5, { kind: 'currency' }) === '-$1,234.50',
+    String(reads(-1234.5, { kind: 'currency' }))
+  );
+  report.check(
+    'a value that is not a number passes through rather than printing NaN',
+    reads('on request', { kind: 'currency' }) === 'on request',
+    String(reads('on request', { kind: 'currency' }))
+  );
+  report.check(
+    'a number stored as text is still a number',
+    reads('750000', { kind: 'currency', decimals: 0 }) === '$750,000',
+    String(reads('750000', { kind: 'currency', decimals: 0 }))
+  );
+  report.check(
+    'a date that is not one passes through rather than printing Invalid Date',
+    reads('sometime in August', { kind: 'date', pattern: 'long' }) === 'sometime in August',
+    String(reads('sometime in August', { kind: 'date', pattern: 'long' }))
+  );
+  report.check(
+    'and neither does a date-shaped string that is not a date',
+    reads('2026-13-40', { kind: 'date', pattern: 'long' }) === '2026-13-40',
+    String(reads('2026-13-40', { kind: 'date', pattern: 'long' }))
+  );
+  report.check(
+    'an empty field stays empty rather than becoming a formatted nothing',
+    reads('', { kind: 'currency' }) === '' && reads(null, { kind: 'date', pattern: 'iso' }) === null,
+    `${JSON.stringify(reads('', { kind: 'currency' }))} / ${JSON.stringify(reads(null, { kind: 'date', pattern: 'iso' }))}`
+  );
+
+  /*
+   * The time-zone one, which is the reason dates are taken apart with a
+   * regular expression instead of handed to `Date`. An implementation that
+   * parsed this string would answer "12 August" in UTC and "11 August" in
+   * Chicago — so the canvas and the Worker would disagree for five hours a
+   * day, and only for records written late in the evening.
+   */
+  report.check(
+    'a timestamp reads as the day it was written, wherever it is rendered',
+    reads('2026-08-11T23:30:00-05:00', { kind: 'date', pattern: 'long' }) === '11 August 2026',
+    String(reads('2026-08-11T23:30:00-05:00', { kind: 'date', pattern: 'long' }))
+  );
+
+  /* What may be formatted at all. */
+  report.check(
+    'every field type says what it can be formatted as',
+    ['text', 'richtext', 'number', 'boolean', 'date', 'image', 'select', 'reference'].every(
+      (type) => Array.isArray(FORMATS_FOR[type])
+    ),
+    Object.keys(FORMATS_FOR).join(', ')
+  );
+  report.check(
+    'a number offers currency and a date does not',
+    FORMATS_FOR.number.includes('currency') && !FORMATS_FOR.date.includes('currency'),
+    `number: ${FORMATS_FOR.number.join('/')} — date: ${FORMATS_FOR.date.join('/')}`
+  );
+  report.check(
+    'markup offers nothing, because every transform here would cut a tag in half',
+    FORMATS_FOR.richtext.length === 0
+  );
+  report.check(
+    'an address is never formatted, whatever the field holds',
+    formatsFor('src', { key: 'cover', label: 'Cover', type: 'text' }).length === 0 &&
+      formatsFor('href', { key: 'url', label: 'URL', type: 'text' }).length === 0,
+    `src: ${formatsFor('src', { key: 'c', label: 'C', type: 'text' }).length}`
+  );
+  report.check(
+    'but prose on the same field is',
+    formatsFor('alt', { key: 'cover', label: 'Cover', type: 'text' }).length > 0
+  );
+
+  const offered = [...new Set(Object.values(FORMATS_FOR).flat())];
+  report.check(
+    'every format that can be chosen has a name and something to start from',
+    offered.every((kind) => FORMAT_LABELS[kind] && defaultFormat(kind).kind === kind),
+    offered.join(', ')
+  );
+
+  /*
+   * The structural claim. `formatValue` has exactly one caller — the function
+   * that writes a record into props — which is what makes "comparisons see raw
+   * values" a fact about the code rather than a promise in a document. The day
+   * a Test formats an operand, this is what notices.
+   */
+  const callers = [];
+  const sweep = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        sweep(full);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry.name)) continue;
+      const text = readFileSync(full, 'utf8');
+      if (/\bformatValue\s*\(/.test(text)) callers.push(path.relative(ROOT, full));
+    }
+  };
+  sweep(path.join(ROOT, 'src'));
+  sweep(path.join(ROOT, 'workers'));
+  report.check(
+    'formatting happens in one place — where a record becomes a prop',
+    callers.length === 2 &&
+      callers.includes('src/lib/renderer/format.ts') &&
+      callers.includes('src/lib/renderer/repeat.ts'),
+    callers.join(', ')
+  );
+
+  /*
+   * And the record itself is not touched. `boundProps` formats on the way into
+   * props; the filter and the sort above it read `record.data`, and so will
+   * every Test. If formatting ever mutated the record, a list would sort by
+   * the price tag — "$9.99" before "$100.00" — which is the exact failure the
+   * raw-values rule exists to prevent.
+   */
+  const record = {
+    id: 'r1',
+    collectionId: 'homes',
+    position: 0,
+    published: true,
+    data: { price: 750000, title: 'a house on the hill' },
+    createdAt: 0,
+    updatedAt: 0,
+  };
+  const node = {
+    id: 'n1',
+    type: 'text',
+    name: 'Price',
+    parentId: null,
+    children: [],
+    props: { text: 'Placeholder' },
+    styles: {},
+    meta: {},
+    bind: {
+      text: { value: { kind: 'field', key: 'price' }, format: { kind: 'currency', decimals: 0 } },
+    },
+  };
+  const props = boundProps(node, record);
+  report.check(
+    'a bound price is shown formatted',
+    props.text === '$750,000',
+    String(props.text)
+  );
+  report.check(
+    'and the record still holds the number',
+    record.data.price === 750000 && typeof record.data.price === 'number',
+    `${typeof record.data.price} ${record.data.price}`
+  );
+  report.check(
+    'a binding with no format is the value as the record holds it',
+    boundProps({ ...node, bind: { text: { value: { kind: 'field', key: 'price' } } } }, record)
+      .text === 750000
+  );
+
+  /*
+   * And the old spelling still draws. Every production path loads through
+   * `hydrateDocument`, which migrates — but this function is reached by
+   * anything holding a document it did not load, and reading a value off a
+   * string is a thrown TypeError rather than a wrong pixel: it takes down the
+   * page, the canvas, or a publish. Found by a check that crashed, which is
+   * the only reason it is written down here.
+   */
+  let old;
+  try {
+    old = boundProps({ ...node, bind: { text: 'price' } }, record).text;
+  } catch (error) {
+    old = `threw: ${error.message}`;
+  }
+  report.check(
+    'a binding still written as a field name draws rather than throwing',
+    old === 750000,
+    String(old)
+  );
+
+  /*
+   * The source scan. Every one of these is a way to write a formatter that
+   * passes every check above and still emits different bytes in the Worker
+   * than on the canvas — which is the failure the value checks cannot see,
+   * because they run in one engine.
+   */
+  const LOCALE_REACH = [
+    ['Intl.', /\bIntl\s*\./],
+    ['toLocale…', /\btoLocale[A-Z]/],
+    ['local-time getters', /\bget(FullYear|Month|Date|Hours|Day)\s*\(/],
+    ['the clock', /\bDate\s*\.\s*now\s*\(|\bMath\s*\.\s*random\s*\(/],
+  ];
+  const formatSource = readFileSync(path.join(ROOT, 'src/lib/renderer/format.ts'), 'utf8')
+    // Comments discuss every one of these by name — the file is largely an
+    // argument about why they are absent — so the scan reads the code only.
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  for (const [name, pattern] of LOCALE_REACH) {
+    report.check(`the formatter does not reach for ${name}`, !pattern.test(formatSource));
+  }
+
+  /* --------------------------------------------------------------------
+   * Each of the above, handed something it must reject.
+   * ----------------------------------------------------------------- */
+
+  report.check(
+    'the locale scan would catch each thing it is written for',
+    LOCALE_REACH.every(([, pattern]) =>
+      pattern.test(
+        'Intl.NumberFormat(l).format(n); n.toLocaleString(); d.getFullYear(); Date.now();'
+      )
+    )
+  );
+  report.check(
+    'and it does not confuse a UTC getter for a local one',
+    !LOCALE_REACH[2][1].test('at.getUTCFullYear(); at.getUTCMonth(); at.getUTCDate();')
+  );
+  report.check(
+    'the one-caller rule would notice a second caller',
+    /\bformatValue\s*\(/.test('const compared = formatValue(raw, format) > 5;')
+  );
+  report.check(
+    'the address rule is not simply refusing everything',
+    formatsFor('text', { key: 'p', label: 'P', type: 'number' }).length > 0
   );
 }
 

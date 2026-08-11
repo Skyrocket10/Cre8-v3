@@ -1,9 +1,10 @@
 # Expressions — design
 
-**Status: design, not built.** Nothing in this file describes how Cre8 behaves
-today. It is the agreed shape for data binding and interactions, written down
-before the code so the constraints exist first. Everything else in `docs/` is
-descriptive; this one is not.
+**Status: phase A is built. B, C and D are design.** This file was written
+before any of the code, so the constraints existed first, and it is being
+converted section by section as each phase lands. Everything marked *design* is
+an agreement rather than a description — assume nothing in those sections is
+true of the running product yet.
 
 ---
 
@@ -33,10 +34,10 @@ picker does not offer one.
 
 ## Phases
 
-### A — Binding
+### A — Binding *(built)*
 
 ```
-Record → Value
+Record → Value → Format → prop
 ```
 
 ```
@@ -45,8 +46,48 @@ Record → Value
 {{ product.price | format: currency }}
 ```
 
-Publish-time. No runtime. Extends `bind`, which today is
-`Record<string, string>` — a prop to a field name, with no transform step.
+Publish-time. No runtime. `bind` was `Record<string, string>` — a prop to a
+field name — and is now a prop to a `Binding`: a `Value`, and optionally a
+`Format`.
+
+**The format is not part of the value, and that is the whole design.** The rule
+the interaction model states — *comparisons always use raw values, `format` is
+forbidden inside a comparison operand* — is not written down anywhere and
+checked for. It is arranged so it cannot be said. `Format` hangs off `Binding`,
+one level above `Value`, and every expression that compares anything takes a
+`Value`. A formatted operand is not refused; it cannot be spelled.
+
+Six formats, and every one of them is longhand:
+
+| | |
+|---|---|
+| `number` | decimals, thousands grouping |
+| `currency` | symbol, side, decimals, grouping |
+| `percent` | appends `%`; does not multiply, because scaling is arithmetic and arithmetic is D |
+| `date` | five patterns, English month names |
+| `case` | upper, lower, capitalise |
+| `truncate` | cut at a word, then an ellipsis |
+
+No `Intl`, no `toLocaleString`, no local time zone, no locale data of any kind.
+This is not stylistic. Formatting runs on the canvas *and* inside the Worker,
+and D3's gate is that the two produce identical bytes — `Intl` renders the same
+currency with U+00A0 on one ICU version and U+202F on the next, so a page
+published by the Worker and the same page drawn on the canvas would differ by a
+character nobody can see and every diff would show. Dates are taken apart with
+a regular expression rather than handed to `Date` for the same reason: the
+canvas runs in the designer's time zone and the Worker runs in UTC, so anything
+zone-sensitive disagrees for several hours a day, and only for records written
+late in the evening.
+
+The cost is real and worth naming: dates read in English, and a currency is a
+symbol somebody types rather than a code looked up in a table. Locales are a
+model, and a model is worth having properly rather than faking with whichever
+ICU build happened to be linked in.
+
+What is offered where is a table rather than a judgement — a number can be
+currency, a date cannot, `richtext` gets nothing because every transform would
+cut a tag in half, and `src` and `href` get nothing because there is no reading
+of "the image URL in title case" that is not a broken image.
 
 ### B — Tests
 
@@ -311,8 +352,13 @@ nothing: a warning that fires on every pair of Tests is a warning nobody reads.
 
 Each of these is falsifiable, which is the bar the rest of the suite is held to.
 
-- **`format` never appears inside a comparison operand.** A static walk of every
-  Test in a document. Plant one and it must fail.
+- ~~**`format` never appears inside a comparison operand.**~~ Not written: it
+  would be vacuous, and a vacuous check is worse than none. `Format` is not
+  reachable from a `Value`, so there is no document that could fail it. What is
+  checked instead is the structure that makes it true — that `formatValue` has
+  exactly one caller, the function that writes a record into a prop, and that
+  the record itself is unchanged afterwards. The day a Test formats an operand,
+  those are what notice.
 - **Comparison operands share a declared type.** `price > "sold"` is refused in
   the editor and refused by the document check.
 - **Generated CSS does not scale with row count.** Publish a collection at 10
@@ -337,9 +383,20 @@ Each of these is falsifiable, which is the bar the rest of the suite is held to.
 
 ## Migration
 
-`bind: Record<string, string>` → `Record<string, Value>`; a bare string becomes
-`{ kind: 'field', key }`. `when: Condition[]` → `Test`; a list becomes an
-`every` of the existing kinds.
+`bind: Record<string, string>` → `Record<string, Binding>`; a bare string
+becomes `{ value: { kind: 'field', key } }`. *(Done.)* One level deeper than
+this file originally said, because the format needed somewhere to live that a
+`Value` could not reach.
+
+`when: Condition[]` → `Test`; a list becomes an `every` of the existing kinds.
+*(Not done.)*
 
 Both are mechanical, and `migrateDocument` already recognises documents by shape
 rather than by a version field, and is checked for being safe to run twice.
+
+The bare string also survives as authoring shorthand — `bind: { text: 'title' }`
+in a `NodeSpec` still means what it did — so the factory and the migration go
+through one function that knows both spellings. `boundProps` calls it too, which
+is not defensiveness: reading `.value.key` off a string is a thrown TypeError
+rather than a wrong pixel, and it takes down the canvas, the page or a publish.
+That was found by a check that crashed rather than failed.
