@@ -1,10 +1,11 @@
 # Expressions — design
 
-**Status: phase A is built. B, C and D are design.** This file was written
-before any of the code, so the constraints existed first, and it is being
-converted section by section as each phase lands. Everything marked *design* is
-an agreement rather than a description — assume nothing in those sections is
-true of the running product yet.
+**Status: A is built. B is built for record-driven Tests; the runtime half is
+not. C and D are design.** This file was written before any of the code, so the
+constraints existed first, and it is being converted section by section as each
+phase lands. Everything marked *design* is an agreement rather than a
+description — assume nothing in those sections is true of the running product
+yet.
 
 ---
 
@@ -89,7 +90,7 @@ currency, a date cannot, `richtext` gets nothing because every transform would
 cut a tag in half, and `src` and `href` get nothing because there is no reading
 of "the image URL in title case" that is not a broken image.
 
-### B — Tests
+### B — Tests *(built for records; runtime pending)*
 
 ```
 Value → Test → State
@@ -119,6 +120,39 @@ WHEN price > 500000
 
 The designer then styles the `expensive` state with the ordinary inspector, on
 machinery that already exists.
+
+**What that turned out to mean, concretely.** A state is `data-cre8-switch` /
+`data-cre8-value` on an element, which is what a pricing toggle and a tab set
+have always been. So an assignment writes the value the switch machinery
+already reads, the designer's rule is an ordinary `state` condition, and
+*nothing new compiles*. The generator was not touched. `Condition` is now
+literally a member of `Test` rather than a parallel idea, so the claim that it
+is "the CSS-compilable subset" is true by construction instead of by two
+languages agreeing to stay in step.
+
+The fallback the execution model requires was also already there: `switchDefault`
+is what ships in the file, what a visitor sees before anything resolves, and
+what they keep for ever with no scripting. The inspector calls it *Otherwise*.
+
+**Three answers, not two.** `evaluate` returns `true`, `false`, or `null` for
+*cannot be decided here* — a comparison against a field the record does not
+carry, a type mismatch, a `Condition` only the browser can answer. An
+undecidable rule is passed over rather than blocking the ones after it. That
+third value is the execution model in one return: today everything the editor
+can author folds, and when the runtime half lands, `null` is the signal to
+publish the Test instead of its answer.
+
+Answering `false` instead would be the tempting shortcut and it is a lie that
+reaches a published page: a state that never comes on because the field is
+missing is indistinguishable from one that never comes on because the price is
+genuinely under half a million.
+
+**What is not built yet:** any operand that is not a record field. `input.value
+= "yes"` needs a serialised Test in the page, a subscription, and the
+scripting-off fallback made mandatory rather than merely available. That is the
+runtime half, and it is where the interesting parts of the execution model —
+publishing what a Test reads, disclosure, mixed dependencies — actually get
+exercised. None of it is written.
 
 ### C — Dynamic assignment
 
@@ -359,13 +393,24 @@ Each of these is falsifiable, which is the bar the rest of the suite is held to.
   exactly one caller, the function that writes a record into a prop, and that
   the record itself is unchanged afterwards. The day a Test formats an operand,
   those are what notice.
-- **Comparison operands share a declared type.** `price > "sold"` is refused in
-  the editor and refused by the document check.
-- **Generated CSS does not scale with row count.** Publish a collection at 10
-  and at 1000 records with one interaction on the card, and assert the
-  stylesheet is byte-identical.
-- **A folded rule ships no runtime and no data attribute.** Publish a page whose
-  only interaction folds, and assert the behaviour script is absent.
+- **Comparison operands share a declared type.** *(Built, differently.)* The
+  editor only offers operators the field's type can answer, and a mismatch
+  reaching the evaluator another way is `null` rather than `false` — undecided,
+  not untrue. `price > "sold"` has no answer, and inventing one would make a
+  typo look like a design decision.
+- **Generated CSS does not scale with row count.** *(Built.)* One document is
+  rendered against two rows and thirty and the stylesheet compared byte for
+  byte. Written the other way round first — one document per render — and it
+  passed a comparison it could not make: node ids are minted per document and
+  published class names are built from them, so the two stylesheets came out
+  the same length and different bytes.
+- **A folded rule ships no runtime and no data attribute.** *(Built, and it
+  found a bug.)* Every card in a folded listing carries a state group, and the
+  publisher shipped the behaviour runtime to any page containing one. It now
+  asks whether anything can *change* a state — a setter, a slider — rather than
+  whether one exists, which is the honest question: everything the runtime does
+  begins with a control. Two kilobytes off every page of this kind, and off
+  some that predate Tests entirely.
 - **Canvas, preview and published agree per state.** The same fixture rendered
   with the state true and false, compared element by element — the sweep the
   `fidelity` and `blocks` suites already do for everything else.
@@ -389,7 +434,11 @@ this file originally said, because the format needed somewhere to live that a
 `Value` could not reach.
 
 `when: Condition[]` → `Test`; a list becomes an `every` of the existing kinds.
-*(Not done.)*
+*(Not done, and no longer urgent.)* `Condition` is a member of `Test` already,
+so the two are one language whichever field they sit in. Widening `StyleRule`
+means touching the generator, and there is nothing yet that needs it — a
+record-driven Test resolves to a state, and a state is something `Condition`
+can already express.
 
 Both are mechanical, and `migrateDocument` already recognises documents by shape
 rather than by a version field, and is checked for being safe to run twice.

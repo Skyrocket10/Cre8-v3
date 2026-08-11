@@ -934,9 +934,12 @@ Button
 so an Interactions tab can be built against the existing registry.
 
 The Logic and Data axes now have an agreed shape, written down before the code:
-[docs/EXPRESSIONS.md](EXPRESSIONS.md). Its first phase is built — a binding is a
-`Value` and, optionally, a `Format`, so a price stored as `1250000` prints as
-`$1,250,000.00` on all three surfaces. Three things worth knowing from here.
+[docs/EXPRESSIONS.md](EXPRESSIONS.md). Two phases of it are built. A binding is
+a `Value` and, optionally, a `Format`, so a price stored as `1250000` prints as
+`$1,250,000.00` on all three surfaces. And a Test over that record decides what
+*state* an element is in — `WHEN price > 500000 → expensive` — which the
+designer then styles with the ordinary inspector. Three things worth knowing
+from here.
 
 First, it is **two systems, not one**. Data binding resolves a record into a
 value when the page is rendered; an interaction evaluates values in the browser
@@ -951,6 +954,13 @@ Second, the rule shape is already here. `StyleRule` is `when` / `apply` / `set`
 that shape with a richer `when`, which means the runtime's whole job is to
 evaluate tests and set state attributes. It never learns what a CSS property is,
 so it does not grow when the inspector does.
+
+That is why phase B needed no generator change at all. A state is
+`data-cre8-switch` / `data-cre8-value`, which is what a pricing toggle has
+always been, so a Test resolving to a state writes an attribute the stylesheet
+already knows how to read. A hundred cards in a hundred different states share
+one rule. `Condition` is now a member of `Test` rather than a parallel idea, so
+"the CSS-compilable subset" is true by construction.
 
 Third, **formatting is presentation, and the type system is what says so**.
 Comparisons must see raw values — `$9.99` sorts before `$100.00` and `1234.5`

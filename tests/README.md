@@ -32,6 +32,13 @@ does, at the same weight, and drives the same expansion into elements. That is
 the whole of the stage-3 gate, and it is a claim about output, so it is checked
 against output rather than against the code that produces it.
 
+Tests get the same treatment, for the same reason: "the evaluator has three
+answers" and "later rules win" are claims about a function. Undecidability is
+checked in every place it could be quietly turned into `false`, ordering is
+checked in both directions — a check that only ever sees one ordering cannot
+tell order from luck — and the overlap warning is checked for staying quiet as
+well as for firing, since a warning on every pair is a warning nobody reads.
+
 Value formatting is checked here rather than in a browser, because its whole
 claim is that two different JavaScript engines agree — which is a claim about a
 function, not about a page. So the worked examples sit next to a scan of the
@@ -89,7 +96,7 @@ preferring an installed copy over downloading one.
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces |
 | `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |
-| `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added — and does a price stored as `1250000` read as `$1,250,000.00` on both surfaces, formatted by the publisher rather than by a script |
+| `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added — and does a price stored as `1250000` read as `$1,250,000.00` on both surfaces, formatted by the publisher rather than by a script. And does a record put its own row into its own state — `price > 1000000 → premium` — the same answer on the canvas and in the file, one rule in the stylesheet, no script |
 | `worker-publish` | Does the Worker publish the same bytes a local render produces, and do the runtimes it serialises still run |
 | `routes` | Does a collection become one page per record plus a paginated index — walked link by link, and matched against the sitemap |
 | `collections` | Can somebody make a collection, write a record and see it on the canvas — every step a click, no fixtures |

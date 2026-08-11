@@ -46,6 +46,7 @@ const {
   components: componentLib,
   format: formatLib,
   boundProps,
+  tests,
 } = loadBlocks();
 
 /** The selector of the first generated rule mentioning `needle`. */
@@ -2081,6 +2082,404 @@ report.group('a bound value can be formatted, and only where it is shown');
   report.check(
     'the address rule is not simply refusing everything',
     formatsFor('text', { key: 'p', label: 'P', type: 'number' }).length > 0
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * A record decides what state an element is in
+ *
+ * Phase B. `WHEN price > 500000 → expensive`, resolved where the record is
+ * known and written into the state attribute the switch machinery already
+ * reads. Three properties are load-bearing and none is visible in a rendered
+ * page:
+ *
+ * The evaluator has *three* answers, not two. `null` means "cannot be decided
+ * here", and it is the whole execution model in one return value — a Test that
+ * quietly answered `false` for "this field is not loaded yet" would be
+ * indistinguishable, in the output, from one that answered `false` because the
+ * price really is under half a million.
+ *
+ * Two Tests on one key are resolved by order, later wins. That is the
+ * arbitration the design settles on, so it is checked in both directions: a
+ * check that only ever sees one ordering cannot tell order from luck.
+ *
+ * And the overlap warning has a burden of proof. A warning that fires on every
+ * pair is a warning nobody reads, so it is checked for staying quiet as well as
+ * for firing.
+ * ----------------------------------------------------------------------- */
+
+report.group('a record decides what state an element is in');
+
+{
+  const { evaluate, stateFrom, fieldsRead, foldable, provablyOverlap, OPS_FOR } = tests;
+
+  const record = (data) => ({
+    id: 'r1',
+    collectionId: 'homes',
+    position: 0,
+    published: true,
+    data,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+  const over = (key, value) => ({
+    kind: 'compare',
+    left: { kind: 'field', key },
+    op: 'gt',
+    right: { type: 'number', value },
+  });
+  const is = (key, value) => ({
+    kind: 'compare',
+    left: { kind: 'field', key },
+    op: 'eq',
+    right: { type: 'text', value },
+  });
+
+  const house = record({ price: 750000, status: 'available', featured: true, note: '' });
+
+  /* The comparisons themselves. */
+  report.check('a number over the mark holds', evaluate(over('price', 500000), house) === true);
+  report.check('and under it does not', evaluate(over('price', 900000), house) === false);
+  report.check('text matches exactly', evaluate(is('status', 'available'), house) === true);
+  report.check(
+    'a number stored as text still compares as a number',
+    evaluate(over('price', 500000), record({ price: '750000' })) === true
+  );
+
+  /*
+   * The third answer. Each of these is a case where `false` would be a lie —
+   * and a lie that reaches a published page as a missing state rather than as
+   * an error anybody sees.
+   */
+  report.check(
+    'a field the record does not carry is undecided, not false',
+    evaluate(over('deposit', 100), house) === null,
+    String(evaluate(over('deposit', 100), house))
+  );
+  report.check(
+    'and neither is it decided when there is no record at all',
+    evaluate(over('price', 500000), null) === null,
+    String(evaluate(over('price', 500000), null))
+  );
+  report.check(
+    'comparing a number against text is undecided rather than false',
+    evaluate(
+      { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { type: 'text', value: 'sold' } },
+      house
+    ) === null
+  );
+  report.check(
+    'a condition the browser answers is not answered here',
+    evaluate({ kind: 'pointer', pseudo: 'hover' }, house) === null &&
+      evaluate({ kind: 'state', key: 'plan', op: 'is', values: ['pro'] }, house) === null
+  );
+  report.check(
+    'but "is empty" answers on a field that is absent as well as one that is blank',
+    evaluate({ kind: 'compare', left: { kind: 'field', key: 'deposit' }, op: 'empty' }, house) === true &&
+      evaluate({ kind: 'compare', left: { kind: 'field', key: 'note' }, op: 'empty' }, house) === true
+  );
+
+  /* Undecidedness propagates the way the operators mean, not the way that is convenient. */
+  report.check(
+    'one undecided branch makes an “all of these” undecided',
+    evaluate({ kind: 'every', tests: [over('price', 500000), over('deposit', 1)] }, house) === null
+  );
+  report.check(
+    'unless something else in it is already false',
+    evaluate({ kind: 'every', tests: [over('price', 900000), over('deposit', 1)] }, house) === false
+  );
+  report.check(
+    'and one undecided branch makes an “any of these” undecided',
+    evaluate({ kind: 'some', tests: [over('price', 900000), over('deposit', 1)] }, house) === null
+  );
+  report.check(
+    'unless something else in it is already true',
+    evaluate({ kind: 'some', tests: [over('price', 500000), over('deposit', 1)] }, house) === true
+  );
+
+  /* Arbitration: later wins, checked both ways round. */
+  const nodeWith = (assign, props = {}) => ({
+    id: 'n1',
+    type: 'frame',
+    name: 'Card',
+    parentId: null,
+    children: [],
+    props: { switchKey: 'band', ...props },
+    styles: {},
+    meta: {},
+    assign,
+  });
+  const cheap = { id: 'a', when: over('price', 100000), value: 'mid' };
+  const dear = { id: 'b', when: over('price', 500000), value: 'expensive' };
+
+  report.check(
+    'two rules that both hold are settled by order — the later one wins',
+    stateFrom(nodeWith([cheap, dear]), house) === 'expensive',
+    String(stateFrom(nodeWith([cheap, dear]), house))
+  );
+  report.check(
+    'and swapping them swaps the answer',
+    stateFrom(nodeWith([dear, cheap]), house) === 'mid',
+    String(stateFrom(nodeWith([dear, cheap]), house))
+  );
+  report.check(
+    'an undecided rule is passed over rather than blocking a later one',
+    stateFrom(nodeWith([{ id: 'c', when: over('deposit', 1), value: 'unknown' }, dear]), house) ===
+      'expensive'
+  );
+  report.check(
+    'and a rule that does not hold decides nothing',
+    stateFrom(nodeWith([{ id: 'd', when: over('price', 900000), value: 'huge' }]), house) === null
+  );
+
+  /* What a Test reads, and whether it can be answered at publish time. */
+  report.check(
+    'a Test says which fields it depends on',
+    fieldsRead({ kind: 'every', tests: [over('price', 1), is('status', 'sold')] })
+      .sort()
+      .join(',') === 'price,status'
+  );
+  report.check(
+    'a comparison over a record folds; a browser condition does not',
+    foldable(over('price', 1)) === true && foldable({ kind: 'pointer', pseudo: 'hover' }) === false
+  );
+
+  /* The overlap warning — fires, and stays quiet. */
+  report.check(
+    'two ranges that genuinely intersect are flagged',
+    provablyOverlap(over('price', 100000), over('price', 500000))
+  );
+  report.check(
+    'two that cannot both hold are not',
+    !provablyOverlap(over('price', 500000), {
+      kind: 'compare',
+      left: { kind: 'field', key: 'price' },
+      op: 'lt',
+      right: { type: 'number', value: 500000 },
+    })
+  );
+  report.check(
+    'nor are two Tests on different fields, however obviously they can both hold',
+    !provablyOverlap(over('price', 500000), is('status', 'sold')),
+    'silence, because ordering already decides it'
+  );
+  report.check(
+    'nor two values of one text field that are simply different',
+    !provablyOverlap(is('status', 'sold'), is('status', 'available'))
+  );
+  report.check(
+    'but the same value twice is',
+    provablyOverlap(is('status', 'sold'), is('status', 'sold'))
+  );
+  report.check(
+    'and empty against not-empty on one field is provably exclusive',
+    !provablyOverlap(
+      { kind: 'compare', left: { kind: 'field', key: 'note' }, op: 'empty' },
+      { kind: 'compare', left: { kind: 'field', key: 'note' }, op: 'notEmpty' }
+    )
+  );
+
+  /* What the editor may offer. */
+  report.check(
+    'ordered comparisons are offered on numbers and nowhere else',
+    OPS_FOR.number.includes('gt') && !OPS_FOR.text.includes('gt') && !OPS_FOR.date.includes('gt'),
+    `text: ${OPS_FOR.text.join('/')}`
+  );
+  report.check(
+    'every field type says what can be asked of it',
+    ['text', 'richtext', 'number', 'boolean', 'date', 'image', 'select', 'reference'].every(
+      (type) => OPS_FOR[type].length > 0
+    )
+  );
+
+  /* ----------------------------------------------------------------------
+   * Through a real publish
+   * ------------------------------------------------------------------- */
+
+  const homes = [
+    { id: 'h1', collectionId: 'homes', position: 0, published: true, createdAt: 0, updatedAt: 0,
+      data: { title: 'The Hill', price: 750000 } },
+    { id: 'h2', collectionId: 'homes', position: 1, published: true, createdAt: 0, updatedAt: 0,
+      data: { title: 'The Mews', price: 250000 } },
+  ];
+
+  /*
+   * One document, rendered against different row sets — not one document per
+   * render. Node ids are minted fresh by `createEmptyDocument`, and published
+   * class names are built from them, so two separately-built documents produce
+   * stylesheets of identical length and different bytes. Written the other way
+   * round first, and the size check passed a byte-comparison it had no way to
+   * make.
+   */
+  const listingDoc = () => {
+    const doc = createEmptyDocument('Homes');
+    doc.collections = [
+      {
+        id: 'homes',
+        name: 'Homes',
+        fields: [
+          { key: 'title', label: 'Title', type: 'text' },
+          { key: 'price', label: 'Price', type: 'number' },
+        ],
+      },
+    ];
+    const page = doc.pages[0];
+    const built = buildTree(
+      {
+        type: 'grid',
+        name: 'Listings',
+        repeat: { collection: 'homes' },
+        children: [
+          {
+            type: 'frame',
+            name: 'Card',
+            props: { switchKey: 'band', switchDefault: 'ordinary' },
+            children: [
+              {
+                type: 'paragraph',
+                name: 'Price',
+                props: { text: 'Some amount' },
+                bind: {
+                  text: {
+                    value: { kind: 'field', key: 'price' },
+                    format: { kind: 'currency', symbol: '$', decimals: 0 },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+      doc.nodes
+    );
+    doc.nodes[built.rootId].parentId = page.rootNodeId;
+    doc.nodes[page.rootNodeId].children.push(built.rootId);
+
+    // The card carries the rule. Written onto the built node rather than
+    // through the spec because `assign` is not authoring shorthand — it is
+    // made in the inspector, and this is the shape the inspector writes.
+    const card = Object.values(doc.nodes).find((n) => n.name === 'Card');
+    card.assign = [{ id: 'x1', when: over('price', 500000), value: 'expensive' }];
+
+    return { doc, page };
+  };
+
+  const HOMES = listingDoc();
+  const listing = (rows) => renderPage(HOMES.doc, HOMES.page, { records: { homes: rows } });
+
+  const published = listing(homes);
+  const bodyOf = (html) => html.slice(html.indexOf('<body>'), html.indexOf('</body>'));
+  const values = [...bodyOf(published).matchAll(/data-cre8-value="([^"]*)"/g)].map((m) => m[1]);
+
+  report.check(
+    'each row is published in the state its own record puts it in',
+    values.join(' › ') === 'expensive › ordinary',
+    values.join(' › ') || 'no state written'
+  );
+  report.check(
+    'the row no rule matched falls back to what the designer declared',
+    values.includes('ordinary'),
+    'the fallback is what ships, and what a visitor with no scripting keeps'
+  );
+  report.check(
+    'and no script was shipped to work any of it out',
+    !/<script/i.test(published),
+    'resolved at publish, like the rows themselves'
+  );
+
+  /*
+   * The hard rule, end to end. The same field is bound with a currency format
+   * *and* tested. If the Test could see the formatted string, `"$750,000" >
+   * 500000` is not a comparison anybody can predict — and the row would come
+   * out in the wrong state while looking perfectly correct on the page.
+   */
+  report.check(
+    'the price is formatted where it is shown and raw where it is compared',
+    published.includes('$750,000') && values[0] === 'expensive',
+    `${published.includes('$750,000') ? 'formatted' : 'not formatted'} / ${values[0]}`
+  );
+
+  /*
+   * And the size claim, which is the one that decides whether this design is
+   * affordable at all: a state per row, one stylesheet.
+   */
+  const many = [];
+  for (let i = 0; i < 30; i++) {
+    many.push({
+      id: `m${i}`, collectionId: 'homes', position: i, published: true, createdAt: 0, updatedAt: 0,
+      data: { title: `Home ${i}`, price: i * 50000 },
+    });
+  }
+  const styleOfPage = (html) => /<style>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? '';
+  const wide = listing(many);
+  report.check(
+    'thirty rows generate the same stylesheet as two',
+    styleOfPage(wide) === styleOfPage(published),
+    `${styleOfPage(wide).length} vs ${styleOfPage(published).length} bytes`
+  );
+  report.check(
+    'while genuinely drawing thirty of them in different states',
+    [...bodyOf(wide).matchAll(/data-cre8-value="([^"]*)"/g)].length === 30 &&
+      new Set([...bodyOf(wide).matchAll(/data-cre8-value="([^"]*)"/g)].map((m) => m[1])).size === 2,
+    `${[...bodyOf(wide).matchAll(/data-cre8-value="([^"]*)"/g)].length} rows`
+  );
+
+  /* ----------------------------------------------------------------------
+   * Deleting the field a Test reads
+   * ------------------------------------------------------------------- */
+
+  {
+    const doc = createEmptyDocument('Homes');
+    doc.collections = [
+      {
+        id: 'homes',
+        name: 'Homes',
+        fields: [
+          { key: 'title', label: 'Title', type: 'text' },
+          { key: 'price', label: 'Price', type: 'number' },
+        ],
+      },
+    ];
+    const page = doc.pages[0];
+    const target = doc.nodes[page.rootNodeId];
+    target.assign = [
+      { id: 'k1', when: over('price', 500000), value: 'expensive' },
+      { id: 'k2', when: is('title', 'The Hill'), value: 'named' },
+    ];
+    ops.removeField(doc, 'homes', 'price');
+
+    report.check(
+      'deleting a field clears the rules that read it',
+      (target.assign ?? []).length === 1 && target.assign[0].id === 'k2',
+      `${(target.assign ?? []).length} rules left`
+    );
+    report.check(
+      'and leaves the ones that do not alone',
+      target.assign?.[0]?.value === 'named'
+    );
+  }
+
+  /* --------------------------------------------------------------------
+   * Each of the above, handed something it must reject.
+   * ----------------------------------------------------------------- */
+
+  report.check(
+    'the ordering rule would notice order stopping to matter',
+    stateFrom(nodeWith([cheap, dear]), house) !== stateFrom(nodeWith([dear, cheap]), house),
+    'the two orderings genuinely disagree, so the pair can tell them apart'
+  );
+  report.check(
+    'the undecided checks are not simply asserting null everywhere',
+    evaluate(over('price', 500000), house) !== null
+  );
+  report.check(
+    'the overlap warning is not simply always quiet',
+    provablyOverlap(over('price', 100000), over('price', 500000)) === true
+  );
+  report.check(
+    'and the stylesheet check would notice one that did grow',
+    styleOfPage(wide).length > 0,
+    'there is a stylesheet to compare in the first place'
   );
 }
 

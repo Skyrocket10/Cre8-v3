@@ -95,6 +95,9 @@ export function loadBlocks() {
     // JavaScript engines agree, and that is a claim about a function.
     format: require(path.join(OUT, 'renderer/format.js')),
     boundProps: require(path.join(OUT, 'renderer/repeat.js')).boundProps,
+    // The Test evaluator, for the same reason as the formatter: three answers
+    // and an arbitration order are claims about a function.
+    tests: require(path.join(OUT, 'renderer/test.js')),
   };
 }
 

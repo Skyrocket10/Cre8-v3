@@ -148,6 +148,37 @@ try {
       crd0feedbb: node('crd0feedbb', 'frame', 'Card', {
         parentId: 'rpt0feedaa',
         children: ['ttl0feedcc', 'blb0feeddd', 'prc0feedee'],
+        /*
+         * Phase B: the record decides what state the card is in. One of the
+         * two prices is over the mark and one is not, so the same node draws
+         * two different states from two different rows — which is the claim,
+         * and it needs both rows to be checkable.
+         *
+         * Styled with an ordinary rule on an ordinary state condition. That is
+         * the point of resolving a Test to a state rather than to a
+         * declaration: nothing new compiles, and this rule is the same shape
+         * as one keyed on a tab being selected.
+         */
+        props: { switchKey: 'band', switchDefault: 'ordinary' },
+        assign: [
+          {
+            id: 'asg0feed01',
+            when: {
+              kind: 'compare',
+              left: { kind: 'field', key: 'price' },
+              op: 'gt',
+              right: { type: 'number', value: 1000000 },
+            },
+            value: 'premium',
+          },
+        ],
+        rules: [
+          {
+            id: 'rul0feed01',
+            when: [{ kind: 'state', key: 'band', op: 'is', values: ['premium'] }],
+            apply: { borderTopWidth: '3px', borderTopStyle: 'solid', borderTopColor: '#a855f7' },
+          },
+        ],
         styles: {
           desktop: {
             display: 'flex',
@@ -273,6 +304,21 @@ try {
     canvasText.includes('1250000') ? 'the raw value was drawn too' : 'formatted only'
   );
 
+  /*
+   * The state each row is in, read off the canvas. Two rows, two answers, one
+   * node — a Test folded per instance while the stylesheet stayed one rule.
+   */
+  const canvasBands = await page.evaluate(() =>
+    [...document.querySelectorAll('.cre8-frame.cre8-editing [data-cre8-switch="band"]')].map(
+      (el) => el.getAttribute('data-cre8-value')
+    )
+  );
+  report.check(
+    'a record puts its own row into its own state, on the canvas',
+    canvasBands.join(' › ') === 'ordinary › premium',
+    canvasBands.join(' › ') || 'no state on any card'
+  );
+
   const templateRow = await page.evaluate(
     () => document.body.textContent?.includes('Nothing here yet') ?? false
   );
@@ -333,6 +379,27 @@ try {
     'and no script was shipped to format it',
     !/<script/i.test(html),
     'formatting is publish-time, like the rows themselves'
+  );
+
+  /*
+   * The same states, in the file. This is the check `docs/EXPRESSIONS.md`
+   * names as the one that holds folding up: *a folded rule ships no runtime*.
+   * Every card here carries a state group, and before the publisher learned to
+   * ask whether anything could *change* a state it shipped two kilobytes of
+   * behaviour runtime to a page where nothing ever would.
+   */
+  const bands = [...html.matchAll(/data-cre8-switch="band"[^>]*data-cre8-value="([^"]*)"/g)].map(
+    (m) => m[1]
+  );
+  report.check(
+    'and the published rows carry the states their records put them in',
+    bands.join(' › ') === canvasBands.join(' › '),
+    `${bands.join(' › ') || '(none)'} vs ${canvasBands.join(' › ') || '(none)'} on the canvas`
+  );
+  report.check(
+    'styled by one ordinary rule, not one per row',
+    (styleOf(html).match(/data-cre8-value~="premium"/g) ?? []).length === 1,
+    `${(styleOf(html).match(/data-cre8-value~="premium"/g) ?? []).length} rules mention the state`
   );
   report.check(
     'the placeholder the designer typed is gone from the price too',

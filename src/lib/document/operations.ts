@@ -21,6 +21,7 @@ import {
 } from './components';
 import { cloneSubtree, createNode, structuredCloneCompat, type NodeSpec, buildTree } from './factory';
 import { uid, slugify } from './id';
+import { fieldsRead } from '../renderer/test';
 import { SWITCH_SHOW_ALL, canContain, getElement, readCase, slug } from './schema';
 import {
   canReparent,
@@ -1257,6 +1258,16 @@ export function removeField(doc: Cre8Document, collectionId: string, key: string
       if (binding.value.key === key) delete node.bind[prop];
     }
     if (!Object.keys(node.bind).length) delete node.bind;
+  }
+
+  // And an assignment reading it, for the same reason. This one is worse to
+  // lose quietly than a binding: a binding that stops resolving shows the
+  // placeholder, which somebody notices, while a Test that stops resolving
+  // just means the state never comes on.
+  for (const node of Object.values(doc.nodes)) {
+    if (!node.assign) continue;
+    node.assign = node.assign.filter((rule) => !fieldsRead(rule.when).includes(key));
+    if (!node.assign.length) delete node.assign;
   }
 }
 

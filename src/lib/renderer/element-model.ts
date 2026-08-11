@@ -16,6 +16,7 @@ import {
   type NodeProps,
   type SceneNode,
 } from '../document/types';
+import { stateFrom } from './test';
 import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
 import {
@@ -190,8 +191,9 @@ function applySwitch(
   model: ElementModel,
   node: SceneNode,
   variant: Variant,
-  mode: RenderMode
+  options: RenderOptions
 ): ElementModel {
+  const mode = options.mode;
   const props = node.props;
   const key = slug(props.switchKey);
   const set = slug(props.switchSet);
@@ -217,7 +219,20 @@ function applySwitch(
       // reaches a published file, so choosing one to style cannot change what
       // visitors see first.
       const design = mode === 'edit' ? slug(props.switchDesign) : '';
-      model.attrs[VALUE_ATTR] = design || slug(props.switchDefault);
+      /*
+       * Then whatever the node's Tests decide, and only then the declared
+       * default. Folding happens here rather than in the publisher because
+       * there are three surfaces and only one of them has a publish step: the
+       * canvas draws against the record being designed against, and it has to
+       * reach the same answer by the same function or "editor ≈ preview ≈
+       * published" stops being true the moment a Test exists.
+       *
+       * The default is the fallback the execution model requires, and it was
+       * already here doing that job — it is what ships in the file and what a
+       * visitor sees for ever with no scripting.
+       */
+      const assigned = stateFrom(node, options.record ?? null);
+      model.attrs[VALUE_ATTR] = design || assigned || slug(props.switchDefault);
       if (props.switchRole === 'tabs') model.attrs[TABS_ATTR] = 'true';
     }
   }
@@ -262,7 +277,7 @@ export function describeElement(
   variant: Variant = variantsOf(node)[0]!
 ): ElementModel {
   return applyRange(
-    applySwitch(describeBase(node, variant, doc, options), node, variant, options.mode),
+    applySwitch(describeBase(node, variant, doc, options), node, variant, options),
     node
   );
 }

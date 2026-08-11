@@ -504,14 +504,30 @@ export function renderPage(
     .filter(Boolean)
     .join(options.pretty ? '\n    ' : '');
 
-  // The one script this project ships, and only onto pages that need it. A
-  // page with no switch on it stays exactly what it was before Phase C: HTML
-  // and CSS, nothing to execute. That is the invariant the suites assert now —
-  // not "never any script", which stopped being true, but "no script unless
-  // the page actually contains behaviour".
-  const script = nodeIds.some((id) => doc.nodes[id]?.props.switchKey)
-    ? `<script>${behaviourRuntimeSource()}</script>`
-    : '';
+  /*
+   * The one script this project ships, and only onto pages that need it. A
+   * page with no behaviour on it stays exactly what it was before Phase C:
+   * HTML and CSS, nothing to execute. That is the invariant the suites assert
+   * now — not "never any script", which stopped being true, but "no script
+   * unless the page actually contains behaviour".
+   *
+   * The test is whether anything can *change* a state, not whether one exists.
+   * Everything the runtime does — writing a new value, keeping `aria-pressed`
+   * honest, pairing tabs with panels, pushing a slider's number onto its group
+   * — begins with a control. A group nobody can operate is a group the script
+   * would load for and then do nothing about.
+   *
+   * That distinction only started to matter with phase B: a state decided by a
+   * Test over a record is resolved when the page is published, so a listing
+   * whose cards are `expensive` or `ordinary` carries a `switchKey` on every
+   * card and needs no runtime at all. Keying off the group would have shipped
+   * two kilobytes of script to every such page for nothing.
+   */
+  const interactive = nodeIds.some((id) => {
+    const props = doc.nodes[id]?.props;
+    return Boolean(props && (props.switchSet || props.drives));
+  });
+  const script = interactive ? `<script>${behaviourRuntimeSource()}</script>` : '';
 
   const lang = escapeAttr(doc.settings.language || 'en');
   // The values the file ships with. A visitor sees them for the instant before

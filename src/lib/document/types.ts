@@ -244,6 +244,74 @@ export type Condition =
    */
   | { kind: 'data'; source: string; op: 'is' | 'isNot'; values: string[] };
 
+/* --------------------------------------------------------------------------
+ * Tests
+ * ----------------------------------------------------------------------- */
+
+/** What a `Value` may be compared against. Typed, never inferred from spelling. */
+export type TestLiteral =
+  | { type: 'text'; value: string }
+  | { type: 'number'; value: number }
+  | { type: 'boolean'; value: boolean };
+
+/**
+ * The comparisons a Test may make.
+ *
+ * `contains` is substring, for text. `empty` and `notEmpty` take no operand,
+ * which is why `right` is optional rather than there being two Test kinds.
+ */
+export type CompareOp =
+  | 'eq'
+  | 'neq'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'contains'
+  | 'empty'
+  | 'notEmpty';
+
+/**
+ * Something that is true or false about the values in scope.
+ *
+ * `Condition` is a member rather than a parallel idea: the five kinds that
+ * compile to CSS selectors *are* the CSS-compilable subset of a Test, which is
+ * what `docs/EXPRESSIONS.md` says, made true by construction rather than by
+ * two languages agreeing to stay in step. `StyleRule.when` still takes
+ * `Condition[]`; widening it to a `Test` costs nothing at the model and is not
+ * worth churning the generator for until something needs it.
+ *
+ * A comparison reads raw values. There is no `format` here and no way to reach
+ * one: `Format` hangs off `Binding`, and a Test only ever sees a `Value`.
+ */
+export type Test =
+  | Condition
+  | { kind: 'compare'; left: Value; op: CompareOp; right?: TestLiteral }
+  | { kind: 'every'; tests: Test[] }
+  | { kind: 'some'; tests: Test[] };
+
+/**
+ * WHEN a Test holds, this node's state takes a value.
+ *
+ * The assignment half of `WHEN [Test] DO [Assignment]`, in the form that needs
+ * nothing new underneath it: the value lands in the state attribute the switch
+ * machinery already reads, so the designer styles the result with the ordinary
+ * inspector and descendants react to it the way they react to a tab being
+ * selected. No CSS is generated for the Test itself, and none of it scales
+ * with the number of rows in a repeater.
+ *
+ * The key is the node's own `switchKey` — an element carries one state, which
+ * is the constraint the attribute already imposes — so two assignments on one
+ * node are two writes to one key, resolved in list order with the later one
+ * winning. Same arbitration as `rules`, for the same reason.
+ */
+export interface StateRule {
+  id: string;
+  when: Test;
+  /** What the state becomes. Slugged, because it ends up in a selector. */
+  value: string;
+}
+
 /**
  * Which box the declarations land on. Absent means the element itself.
  *
@@ -473,6 +541,20 @@ export interface SceneNode {
    * did.
    */
   bind?: Record<string, Binding>;
+
+  /**
+   * State assignments, in the order they apply.
+   *
+   * `WHEN price > 500000 → expensive`. Evaluated where the record is known —
+   * at publish, and on the canvas against the record being designed against —
+   * and the winner is written into the node's state attribute. Later rules win.
+   *
+   * Deliberately separate from `rules`: a rule says what a node *looks like*
+   * when something holds, and this says what a node *is*. Merging them would
+   * mean a list where some entries compile to CSS and some cannot, which is
+   * the one distinction the renderer must never have to make at draw time.
+   */
+  assign?: StateRule[];
 
   /**
    * Conditional overrides, in the order they apply.

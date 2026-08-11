@@ -17,15 +17,19 @@
  */
 
 import React from 'react';
-import { Database, Layers } from 'lucide-react';
-import { getElement } from '@/lib/document/schema';
+import { Database, Layers, Sparkles, Trash2 } from 'lucide-react';
+import { uid, slugify } from '@/lib/document/id';
+import { getElement, slug } from '@/lib/document/schema';
 import {
   LIMITS,
   type Collection,
   type DatePattern,
+  type CompareOp,
   type Field,
   type Format,
   type SceneNode,
+  type StateRule,
+  type TestLiteral,
 } from '@/lib/document/types';
 import {
   DATE_PATTERNS,
@@ -34,6 +38,14 @@ import {
   formatsFor,
   type FormatKind,
 } from '@/lib/renderer/format';
+import {
+  OPS_FOR,
+  OP_LABELS,
+  literalFor,
+  literalText,
+  needsOperand,
+  provablyOverlap,
+} from '@/lib/renderer/test';
 import { isSettable } from '@/lib/renderer/variants';
 import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
@@ -73,6 +85,7 @@ export function DataSection() {
           </p>
         )}
         {scope && !node.repeat && <BindControls node={node} collection={scope} />}
+        {scope && !node.repeat && <AssignControls node={node} collection={scope} />}
       </InspectorGroup>
     </Section>
   );
@@ -442,6 +455,273 @@ const SAMPLE: Record<FormatKind, string> = {
   case: 'sold out reads as SOLD OUT',
   truncate: 'A long paragraph reads as its first few words…',
 };
+
+/* --------------------------------------------------------------------------
+ * When something is true, the element is in a state
+ * ----------------------------------------------------------------------- */
+
+/**
+ * `WHEN price is over 500000 → expensive`.
+ *
+ * Phase B of the expression model, and the reason it is worth having before
+ * anything that puts a value into a CSS declaration: the answer is a *state*,
+ * and states are already the thing the whole styling system is built on. The
+ * designer writes the test here and then styles `expensive` with the ordinary
+ * inspector, on machinery that has existed since stage 2.
+ *
+ * Nothing is evaluated in the browser. The record is known when the page is
+ * published, so the state is written straight into the markup — no script, no
+ * flash, correct with scripting off, and one stylesheet however many rows the
+ * repeater draws.
+ */
+function AssignControls({ node, collection }: { node: SceneNode; collection: Collection }) {
+  const rules = node.assign ?? [];
+  const key = String(node.props.switchKey ?? '');
+
+  const edit = (label: string, patch: (scene: SceneNode) => void) =>
+    useEditor.getState().transact(label, (draft) => {
+      const scene = draft.nodes[node.id];
+      if (scene) patch(scene);
+    });
+
+  const add = () => {
+    const field = collection.fields[0];
+    if (!field) return;
+    edit('Add a state rule', (scene) => {
+      /*
+       * An element carries one state, and it carries it under a key — that is
+       * what `data-cre8-switch` is. A rule with no key would resolve correctly
+       * and write nowhere, which is the worst kind of broken: the inspector
+       * would look right and the page would never change. So the first rule
+       * names the key after the element, and the designer can rename it.
+       */
+      if (!slug(scene.props.switchKey)) scene.props.switchKey = slugify(scene.name) || 'state';
+      scene.assign = [
+        ...(scene.assign ?? []),
+        {
+          id: uid(),
+          when: {
+            kind: 'compare',
+            left: { kind: 'field', key: field.key },
+            op: (OPS_FOR[field.type][0] ?? 'eq') as CompareOp,
+            right: literalFor(field.type, ''),
+          },
+          value: '',
+        },
+      ];
+    });
+  };
+
+  const write = (id: string, patch: (rule: StateRule) => void) =>
+    edit('Change a state rule', (scene) => {
+      const rule = scene.assign?.find((r) => r.id === id);
+      if (rule) patch(rule);
+    });
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2 pt-1.5">
+        <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-faint)]">
+          <Sparkles size={10} className="shrink-0" />
+          <span>State from the record</span>
+        </div>
+        <button
+          type="button"
+          onClick={add}
+          className="rounded px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+        >
+          + Rule
+        </button>
+      </div>
+
+      {!rules.length && (
+        <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+          Put this element in a state when the record says so — then style that state like any
+          other.
+        </p>
+      )}
+
+      {rules.map((rule, index) => {
+        const test = rule.when;
+        const compare = test.kind === 'compare' ? test : null;
+        const field = collection.fields.find((f) => f.key === compare?.left.key);
+        const ops = field ? OPS_FOR[field.type] : [];
+        // Only against rules *before* this one: the warning is about which of
+        // the two wins, and the answer is always "the later one", so it
+        // belongs on the later one.
+        const shadows =
+          compare &&
+          rules
+            .slice(0, index)
+            .filter((earlier) => provablyOverlap(earlier.when, compare))
+            .map((earlier) => earlier.value)
+            .filter(Boolean);
+
+        return (
+          <div key={rule.id} className="rounded border border-[var(--border-subtle)] p-1.5">
+            <StyleRow label="When">
+              <Select
+                className="flex-1"
+                value={compare?.left.key ?? ''}
+                options={collection.fields.map((f) => ({ value: f.key, label: f.label }))}
+                onChange={(next) => {
+                  const picked = collection.fields.find((f) => f.key === next);
+                  if (!picked) return;
+                  write(rule.id, (target) => {
+                    // A new field means a new type, and an operator the new
+                    // type cannot answer. Reset rather than carry it over.
+                    target.when = {
+                      kind: 'compare',
+                      left: { kind: 'field', key: picked.key },
+                      op: (OPS_FOR[picked.type][0] ?? 'eq') as CompareOp,
+                      right: literalFor(picked.type, ''),
+                    };
+                  });
+                }}
+              />
+            </StyleRow>
+
+            <StyleRow label="">
+              <Select
+                className="flex-1"
+                value={compare?.op ?? 'eq'}
+                options={ops.map((op) => ({ value: op, label: OP_LABELS[op] }))}
+                onChange={(op) =>
+                  write(rule.id, (target) => {
+                    if (target.when.kind !== 'compare') return;
+                    target.when.op = op as CompareOp;
+                    if (!needsOperand(op as CompareOp)) delete target.when.right;
+                    else if (!target.when.right && field) {
+                      target.when.right = literalFor(field.type, '');
+                    }
+                  })
+                }
+              />
+              {compare && needsOperand(compare.op) && field && (
+                <BooleanOrText
+                  field={field}
+                  literal={compare.right}
+                  onChange={(raw) =>
+                    write(rule.id, (target) => {
+                      if (target.when.kind === 'compare') {
+                        target.when.right = literalFor(field.type, raw);
+                      }
+                    })
+                  }
+                />
+              )}
+            </StyleRow>
+
+            <StyleRow label="Becomes" hint="The state name you will style — “expensive”, “sold”">
+              <TextInput
+                className="flex-1"
+                value={rule.value}
+                placeholder="state name"
+                onValueChange={(value) => write(rule.id, (target) => (target.value = slugify(value)))}
+              />
+              <button
+                type="button"
+                title="Remove this rule"
+                onClick={() =>
+                  edit('Remove a state rule', (scene) => {
+                    scene.assign = (scene.assign ?? []).filter((r) => r.id !== rule.id);
+                    if (!scene.assign.length) delete scene.assign;
+                  })
+                }
+                className="rounded px-1 text-[var(--text-faint)] hover:bg-[var(--surface-hover)] hover:text-[var(--danger)]"
+              >
+                <Trash2 size={11} />
+              </button>
+            </StyleRow>
+
+            {shadows && shadows.length > 0 && (
+              <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--warning,#d97706)]">
+                This can be true at the same time as {shadows.join(', ')}. When both hold, this one
+                wins — it is later in the list.
+              </p>
+            )}
+          </div>
+        );
+      })}
+
+      {rules.length > 0 && (
+        <>
+          <StyleRow label="Otherwise" hint="What it is when no rule matches — and what ships in the file">
+            <TextInput
+              className="flex-1"
+              value={String(node.props.switchDefault ?? '')}
+              placeholder="no state"
+              onValueChange={(value) =>
+                edit('Change the fallback state', (scene) => {
+                  scene.props.switchDefault = slugify(value);
+                })
+              }
+            />
+          </StyleRow>
+          <StyleRow label="Named" hint="What this state is called, for rules that reach it from elsewhere">
+            <TextInput
+              className="flex-1"
+              value={key}
+              onValueChange={(value) =>
+                edit('Rename the state', (scene) => {
+                  scene.props.switchKey = slugify(value) || 'state';
+                })
+              }
+            />
+          </StyleRow>
+          <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+            Resolved when the site is published, so there is no script and nothing to wait for.
+            Everything inside this element can be styled by the state too.
+          </p>
+        </>
+      )}
+    </>
+  );
+}
+
+/** A checkbox field gets true/false; everything else gets a box to type in. */
+function BooleanOrText({
+  field,
+  literal,
+  onChange,
+}: {
+  field: Field;
+  literal: TestLiteral | undefined;
+  onChange: (raw: string) => void;
+}) {
+  if (field.type === 'boolean') {
+    return (
+      <Select
+        width={92}
+        value={literalText(literal) === 'true' ? 'true' : 'false'}
+        options={[
+          { value: 'true', label: 'ticked' },
+          { value: 'false', label: 'not ticked' },
+        ]}
+        onChange={onChange}
+      />
+    );
+  }
+  if (field.type === 'select' && field.options?.length) {
+    return (
+      <Select
+        className="flex-1"
+        value={literalText(literal)}
+        options={field.options.map((option) => ({ value: option, label: option }))}
+        onChange={onChange}
+      />
+    );
+  }
+  return (
+    <TextInput
+      className="flex-1"
+      value={literalText(literal)}
+      inputMode={field.type === 'number' ? 'numeric' : undefined}
+      placeholder={field.type === 'number' ? '0' : 'value'}
+      onValueChange={onChange}
+    />
+  );
+}
 
 /* --------------------------------------------------------------------------
  * A page as a template

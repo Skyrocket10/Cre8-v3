@@ -332,15 +332,29 @@ function ElementView({
   // into the first card would open a caret in every card at once.
   const isEditing = engine.mode === 'edit' && editingId === identity && live && !repeated;
 
+  /*
+   * The record reaches the element model, and the memo, because a node's state
+   * can now be decided by a Test over it — `WHEN price > 500000 → expensive`.
+   * Both halves matter and both were wrong before this line existed: without
+   * the record the canvas would draw every card in its default state while the
+   * published file drew the right one, and without the dependency every row of
+   * a repeater would wear the first row's answer.
+   *
+   * Cheap in a way the *document* is not. Rows are separate component
+   * instances with their own memo, and a record changes when somebody edits
+   * content rather than on every keystroke in the inspector.
+   */
+  const record = useContext(RecordContext);
+
   const model = useMemo(
     () =>
       describeElement(
         node,
         EMPTY_DOC,
-        { mode: engine.mode, hrefResolver: engine.resolveHref },
+        { mode: engine.mode, hrefResolver: engine.resolveHref, record },
         variant
       ),
-    [node, variant, engine.mode, engine.resolveHref]
+    [node, variant, engine.mode, engine.resolveHref, record]
   );
 
   /**
