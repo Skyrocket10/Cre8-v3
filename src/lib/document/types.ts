@@ -510,6 +510,33 @@ export interface Binding {
   format?: Format;
 }
 
+/**
+ * A record's number, mapped onto a range and written as a custom property.
+ *
+ * Phase D, and the one thing in the expression model that cannot be a shared
+ * rule: a value that differs per row has to live on the row. So it goes in the
+ * element's `style` attribute as `--cre8-<key>`, the designer writes
+ * `opacity: var(--cre8-<key>)` once, and the stylesheet does not grow by a
+ * single byte as the collection does. Exactly the mechanism the comparison
+ * slider already uses — see `RANGE_ATTR` in `runtime/behaviour.ts` — with a
+ * record on the input side instead of a control.
+ *
+ * Always clamped. An un-clamped mapping produces an opacity of 1.4, which CSS
+ * quietly fixes, and a width of -20px, which it does not; there is no reading
+ * of "outside the range I declared" that a designer wants.
+ */
+export interface ValueVar {
+  value: Value;
+  /** The span of the data. Two equal numbers mean "always the low end of `to`". */
+  from: [number, number];
+  /** The span to map onto. May run backwards — `[1, 0]` is a perfectly good fade. */
+  to: [number, number];
+  /** Where a row with no usable number lands. Defaults to the start of `to`. */
+  fallback?: number;
+  /** Digits kept. Three by default: enough for opacity, small in the markup. */
+  decimals?: number;
+}
+
 export interface NodeMeta {
   locked?: boolean;
   hidden?: boolean;
@@ -568,6 +595,14 @@ export interface SceneNode {
    * the one distinction the renderer must never have to make at draw time.
    */
   assign?: StateRule[];
+
+  /**
+   * Numbers from the record, as custom properties on this element.
+   *
+   * Keyed by the name after `--cre8-`. Per instance, because that is the whole
+   * point: a hundred rows carry a hundred numbers and share one rule.
+   */
+  vars?: Record<string, ValueVar>;
 
   /**
    * Conditional overrides, in the order they apply.

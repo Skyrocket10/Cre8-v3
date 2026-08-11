@@ -1,10 +1,17 @@
-# Expressions — design
+# Expressions
 
-**Status: A, B and C are built. D is design.** This file was written before any
-of the code, so the constraints existed first, and it is being converted
-section by section as each phase lands. Everything marked *design* is an
-agreement rather than a description — assume nothing in those sections is true
-of the running product yet.
+**Status: all four phases are built.** This file was written before any of the
+code, so the constraints existed first, and it has been converted section by
+section as each phase landed — which is why it still reads as an argument
+rather than as a reference. That is worth keeping: what is interesting here is
+not what the model does but which alternatives were rejected, and a description
+of the finished thing would lose all of it.
+
+Where a phase turned out differently from the plan, the plan is still in the
+text with the reason next to it. Two of those are load-bearing: the format
+moved off `Value` so a formatted operand cannot be *spelled* rather than merely
+refused, and `Condition` became a member of `Test` so "the CSS-compilable
+subset" is true by construction.
 
 ---
 
@@ -239,7 +246,7 @@ likely to assume otherwise.
 cannot be a shared rule, so it is a custom property written per instance — which
 is phase D, and deliberately separate.
 
-### D — Continuous values
+### D — Continuous values *(built)*
 
 ```
 price
@@ -252,6 +259,37 @@ opacity: var(--cre8-opacity)
 ```
 
 Actual arithmetic and mapping. Deliberately separate from B and C.
+
+**And the only value in the model that cannot be shared.** Everything before
+this resolves to a *state*, and states are shared — a hundred cards in three
+states need three rules. A hundred prices are a hundred numbers, so they go
+where per-row things go: the element's own `style` attribute, as
+`--cre8-<name>`. The designer writes `opacity: var(--cre8-heat)` once and the
+stylesheet does not grow by a byte as the collection does. Same mechanism the
+comparison slider has used since phase C, with a record on the input side
+instead of a control.
+
+The arithmetic is a range map and nothing else: clamp, normalise, interpolate,
+round. `from [0, 1000000] to [0.3, 1]`. That is the whole of what turns a price
+into an opacity or a rating into a bar width, and there is no expression
+language here.
+
+Four decisions that are each a way to get it wrong:
+
+- **Always clamped.** An un-clamped map gives an opacity of 1.4, which CSS
+  quietly fixes, and a width of -20px, which it does not.
+- **A span of nothing answers with the low end** rather than dividing by zero.
+- **A row with no number lands on a fallback**, not on zero — zero would fade
+  it to invisible while looking like a deliberate design.
+- **The property is always written**, using that fallback. One that came and
+  went would make `var(--cre8-heat)` invalid at computed value time on exactly
+  the rows with missing data, and a card that loses its opacity rule is a
+  stranger bug than one that sits at the declared floor.
+
+The number is rounded before it reaches the markup. `0.1 + 0.2` is
+`0.30000000000000004`, which nobody wants on every row — and rounding also
+keeps the output stable against a change of a millionth, which matters because
+publishing is diffed.
 
 ---
 
@@ -458,7 +496,9 @@ Each of these is falsifiable, which is the bar the rest of the suite is held to.
   reaching the evaluator another way is `null` rather than `false` — undecided,
   not untrue. `price > "sold"` has no answer, and inventing one would make a
   typo look like a design decision.
-- **Generated CSS does not scale with row count.** *(Built.)* One document is
+- **Generated CSS does not scale with row count.** *(Built, and checked twice
+  — once for a state per row, once for a number per row, which is the case that
+  would have broken it.)* One document is
   rendered against two rows and thirty and the stylesheet compared byte for
   byte. Written the other way round first — one document per render — and it
   passed a comparison it could not make: node ids are minted per document and

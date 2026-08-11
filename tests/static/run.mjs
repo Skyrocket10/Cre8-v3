@@ -47,6 +47,7 @@ const {
   format: formatLib,
   boundProps,
   tests,
+  values,
   behaviour,
 } = loadBlocks();
 
@@ -3174,6 +3175,210 @@ report.group('an assignment can write the rule you would have written');
       return !node.rules?.length;
     })(),
     'a rule conditioned on an empty value would match everything'
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * A number from the record, on a scale
+ *
+ * Phase D, and the only value in the model that differs per row. Everything
+ * before it resolves to a state, and states are shared — a hundred cards in
+ * three states need three rules. A hundred prices are a hundred numbers, so
+ * they go where per-row things go: the element's own style attribute, with
+ * `var()` in one shared rule doing the drawing.
+ *
+ * Which makes the size claim the one to check hardest. If this made the
+ * stylesheet grow with the collection, the whole approach would be wrong, and
+ * it would only show up on somebody's thousand-record site.
+ * ----------------------------------------------------------------------- */
+
+report.group('a number from the record, on a scale');
+
+{
+  const { mapNumber, varText, varsFor, varReference } = values;
+  const spec = (over = {}) => ({
+    value: { kind: 'field', key: 'price' },
+    from: [0, 1000000],
+    to: [0.3, 1],
+    ...over,
+  });
+
+  report.check('the low end of the data is the low end of the scale', mapNumber(0, spec()) === 0.3);
+  report.check('the high end is the high end', mapNumber(1000000, spec()) === 1);
+  report.check(
+    'and the middle is the middle',
+    Math.abs(mapNumber(500000, spec()) - 0.65) < 1e-9,
+    String(mapNumber(500000, spec()))
+  );
+  report.check(
+    'a scale that runs backwards fades as the number grows',
+    mapNumber(0, spec({ to: [1, 0] })) === 1 && mapNumber(1000000, spec({ to: [1, 0] })) === 0
+  );
+
+  /* The cases that are bugs rather than preferences. */
+  report.check(
+    'anything past the end is pinned to the end rather than escaping the scale',
+    mapNumber(9000000, spec()) === 1 && mapNumber(-500, spec()) === 0.3,
+    `${mapNumber(9000000, spec())} / ${mapNumber(-500, spec())}`
+  );
+  report.check(
+    'a span of nothing does not divide by zero',
+    mapNumber(5, spec({ from: [10, 10] })) === 0.3,
+    String(mapNumber(5, spec({ from: [10, 10] })))
+  );
+  report.check(
+    'a row with no number lands on the fallback, not on zero',
+    mapNumber(undefined, spec()) === 0.3 && mapNumber(null, spec()) === 0.3 && mapNumber('', spec()) === 0.3,
+    'the low end of the scale unless one was declared'
+  );
+  report.check(
+    'and on the declared one when there is one',
+    mapNumber(undefined, spec({ fallback: 0.05 })) === 0.05
+  );
+  report.check(
+    'a value that is not a number at all is the fallback rather than NaN',
+    mapNumber('on request', spec()) === 0.3,
+    String(mapNumber('on request', spec()))
+  );
+  report.check(
+    'a number stored as text still maps',
+    mapNumber('500000', spec()) === mapNumber(500000, spec())
+  );
+
+  /* What reaches the markup. */
+  report.check(
+    'the number is rounded and carries no tail of zeros',
+    varText(0.1 + 0.2) === '0.3' && varText(1) === '1' && varText(0.6500000001) === '0.65',
+    `${varText(0.1 + 0.2)} / ${varText(1)} / ${varText(0.65000000001)}`
+  );
+  report.check(
+    'and zero survives the trimming',
+    varText(0) === '0',
+    varText(0)
+  );
+  report.check(
+    'the name is the one the designer is told to paste',
+    varReference('heat') === 'var(--cre8-heat)',
+    varReference('heat')
+  );
+
+  const node = {
+    id: 'n1', type: 'frame', name: 'Card', parentId: null, children: [],
+    props: {}, styles: {}, meta: {},
+    vars: { heat: spec() },
+  };
+  const row = (price) => ({
+    id: 'r', collectionId: 'homes', position: 0, published: true, createdAt: 0, updatedAt: 0,
+    data: price === undefined ? {} : { price },
+  });
+  report.check(
+    'a node writes one custom property per value it declares',
+    JSON.stringify(varsFor(node, row(1000000))) === '{"--cre8-heat":"1"}',
+    JSON.stringify(varsFor(node, row(1000000)))
+  );
+  report.check(
+    'and writes it even when the record cannot answer',
+    JSON.stringify(varsFor(node, row(undefined))) === '{"--cre8-heat":"0.3"}',
+    'a property that came and went would break the rule on exactly the rows with no data'
+  );
+
+  /* ----------------------------------------------------------------------
+   * Through a real publish, at two sizes
+   * ------------------------------------------------------------------- */
+
+  const heatDoc = () => {
+    const doc = createEmptyDocument('Homes');
+    doc.collections = [
+      {
+        id: 'homes',
+        name: 'Homes',
+        fields: [
+          { key: 'title', label: 'Title', type: 'text' },
+          { key: 'price', label: 'Price', type: 'number' },
+        ],
+      },
+    ];
+    const page = doc.pages[0];
+    const built = buildTree(
+      {
+        type: 'grid',
+        name: 'Listings',
+        repeat: { collection: 'homes' },
+        children: [
+          {
+            type: 'frame',
+            name: 'Card',
+            // The rule the designer writes once, in the ordinary inspector.
+            styles: { opacity: 'var(--cre8-heat)' },
+            children: [{ type: 'paragraph', name: 'Title', props: { text: 'A home' } }],
+          },
+        ],
+      },
+      doc.nodes
+    );
+    doc.nodes[built.rootId].parentId = page.rootNodeId;
+    doc.nodes[page.rootNodeId].children.push(built.rootId);
+    const card = Object.values(doc.nodes).find((n) => n.name === 'Card');
+    card.vars = { heat: spec() };
+    return { doc, page };
+  };
+
+  const HEAT = heatDoc();
+  const rows = (count) =>
+    Array.from({ length: count }, (_, i) => ({
+      id: `h${i}`, collectionId: 'homes', position: i, published: true, createdAt: 0, updatedAt: 0,
+      data: { title: `Home ${i}`, price: i * (1000000 / Math.max(count - 1, 1)) },
+    }));
+  const publishHeat = (count) => renderPage(HEAT.doc, HEAT.page, { records: { homes: rows(count) } });
+
+  const small = publishHeat(2);
+  const large = publishHeat(30);
+  const bodyOf = (html) => html.slice(html.indexOf('<body>'), html.indexOf('</body>'));
+  const styleOf = (html) => /<style>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? '';
+  const heats = (html) => [...bodyOf(html).matchAll(/--cre8-heat:([^";]*)/g)].map((m) => m[1]);
+
+  report.check(
+    'every row carries its own number',
+    heats(small).join(' › ') === '0.3 › 1',
+    heats(small).join(' › ') || 'nothing written'
+  );
+  report.check(
+    'thirty rows carry thirty of them, and they differ',
+    heats(large).length === 30 && new Set(heats(large)).size === 30,
+    `${heats(large).length} values, ${new Set(heats(large)).size} distinct`
+  );
+  report.check(
+    'and the stylesheet is byte-identical at both sizes',
+    styleOf(small) === styleOf(large),
+    `${styleOf(small).length} vs ${styleOf(large).length} bytes`
+  );
+  report.check(
+    'the rule that reads it is written once',
+    (styleOf(small).match(/var\(--cre8-heat\)/g) ?? []).length === 1,
+    `${(styleOf(small).match(/var\(--cre8-heat\)/g) ?? []).length} mentions`
+  );
+  report.check(
+    'and no script was shipped to work any of it out',
+    !/<script/i.test(large),
+    'arithmetic at publish time, like the rows themselves'
+  );
+
+  /* --------------------------------------------------------------------
+   * Each of the above, handed something it must reject.
+   * ----------------------------------------------------------------- */
+
+  report.check(
+    'the size check would notice a stylesheet that grew',
+    styleOf(small).length > 0 && heats(large).length > heats(small).length,
+    'the two publishes genuinely differ in row count'
+  );
+  report.check(
+    'the clamp checks are not asserting a constant',
+    mapNumber(0, spec()) !== mapNumber(1000000, spec())
+  );
+  report.check(
+    'and the trimming is not simply returning the input',
+    varText(0.1 + 0.2) !== String(0.1 + 0.2)
   );
 }
 

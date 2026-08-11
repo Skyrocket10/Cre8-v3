@@ -17,7 +17,7 @@
  */
 
 import React from 'react';
-import { Database, Layers, Sparkles, Trash2 } from 'lucide-react';
+import { Database, Gauge, Layers, Sparkles, Trash2 } from 'lucide-react';
 import { uid } from '@/lib/document/id';
 import * as ops from '@/lib/document/operations';
 import { getElement, slug } from '@/lib/document/schema';
@@ -32,6 +32,7 @@ import {
   type StateRule,
   type StyleProp,
   type TestLiteral,
+  type ValueVar,
 } from '@/lib/document/types';
 import {
   DATE_PATTERNS,
@@ -51,6 +52,7 @@ import {
   provablyOverlap,
   unfinished,
 } from '@/lib/renderer/test';
+import { varReference } from '@/lib/renderer/values';
 import { isSettable } from '@/lib/renderer/variants';
 import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
@@ -91,6 +93,7 @@ export function DataSection() {
         )}
         {scope && !node.repeat && <BindControls node={node} collection={scope} />}
         {scope && !node.repeat && <AssignControls node={node} collection={scope} />}
+        {scope && !node.repeat && <VarControls node={node} collection={scope} />}
       </InspectorGroup>
     </Section>
   );
@@ -890,6 +893,167 @@ function BooleanOrText({
       onValueChange={onChange}
     />
   );
+}
+
+/* --------------------------------------------------------------------------
+ * A number from the record, on a scale
+ * ----------------------------------------------------------------------- */
+
+/**
+ * `price 0 → 1,000,000 becomes opacity 0.3 → 1`.
+ *
+ * Phase D, and the only value in the whole model that differs per row — which
+ * is why it goes in the element's own style rather than into a rule. The
+ * designer gets a name to paste into any style field, and from there it is
+ * ordinary CSS: `opacity: var(--cre8-heat)`, written once, drawn a hundred
+ * times with a hundred different numbers.
+ */
+function VarControls({ node, collection }: { node: SceneNode; collection: Collection }) {
+  const vars = Object.entries(node.vars ?? {});
+  const numbers = collection.fields.filter((f) => f.type === 'number');
+  if (!numbers.length && !vars.length) return null;
+
+  const write = (label: string, patch: (scene: SceneNode) => void) =>
+    useEditor.getState().transact(label, (draft) => {
+      const scene = draft.nodes[node.id];
+      if (scene) patch(scene);
+    });
+
+  const add = () => {
+    const field = numbers[0];
+    if (!field) return;
+    write('Add a live value', (scene) => {
+      const key = uniqueVarKey(scene, field.key);
+      scene.vars = {
+        ...(scene.vars ?? {}),
+        [key]: { value: { kind: 'field', key: field.key }, from: [0, 100], to: [0, 1] },
+      };
+    });
+  };
+
+  const edit = (key: string, patch: (spec: ValueVar) => void) =>
+    write('Change a live value', (scene) => {
+      const spec = scene.vars?.[key];
+      if (spec) patch(spec);
+    });
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2 pt-1.5">
+        <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-faint)]">
+          <Gauge size={10} className="shrink-0" />
+          <span>Numbers on a scale</span>
+        </div>
+        <button
+          type="button"
+          onClick={add}
+          disabled={!numbers.length}
+          className="rounded px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-40"
+        >
+          + Value
+        </button>
+      </div>
+
+      {!vars.length && (
+        <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+          {numbers.length
+            ? 'Turn a number into something you can style with — an opacity, a width, a rotation.'
+            : 'Add a number field to this collection to map one onto a scale.'}
+        </p>
+      )}
+
+      {vars.map(([key, spec]) => (
+        <div key={key} className="rounded border border-[var(--border-subtle)] p-1.5">
+          <StyleRow label="Value">
+            <Select
+              className="flex-1"
+              value={spec.value.kind === 'field' ? spec.value.key : ''}
+              options={numbers.map((f) => ({ value: f.key, label: f.label }))}
+              onChange={(next) => edit(key, (target) => (target.value = { kind: 'field', key: next }))}
+            />
+          </StyleRow>
+          <StyleRow label="From" hint="The span of the data. Anything outside it is pinned to the nearest end.">
+            <NumberPair
+              value={spec.from}
+              onChange={(pair) => edit(key, (target) => (target.from = pair))}
+            />
+          </StyleRow>
+          <StyleRow label="Becomes">
+            <NumberPair
+              value={spec.to}
+              onChange={(pair) => edit(key, (target) => (target.to = pair))}
+            />
+            <button
+              type="button"
+              title="Remove this value"
+              onClick={() =>
+                write('Remove a live value', (scene) => {
+                  if (!scene.vars) return;
+                  delete scene.vars[key];
+                  if (!Object.keys(scene.vars).length) delete scene.vars;
+                })
+              }
+              className="rounded px-1 text-[var(--text-faint)] hover:bg-[var(--surface-hover)] hover:text-[var(--danger)]"
+            >
+              <Trash2 size={11} />
+            </button>
+          </StyleRow>
+          {/*
+            The name, and the thing to do with it. Shown as the literal text to
+            paste rather than explained, because "a CSS custom property" is not
+            a sentence a designer should have to parse to fade a card.
+          */}
+          <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--text-faint)]">
+            Use it in any style field as{' '}
+            <code className="select-all font-mono text-[var(--text)]">{varReference(key)}</code> —
+            one rule, a different number on every row.
+          </p>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** Two numbers that mean a span. */
+function NumberPair({
+  value,
+  onChange,
+}: {
+  value: [number, number];
+  onChange: (pair: [number, number]) => void;
+}) {
+  const set = (at: 0 | 1, raw: string) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    const next: [number, number] = [value[0], value[1]];
+    next[at] = n;
+    onChange(next);
+  };
+  return (
+    <>
+      <TextInput
+        width={72}
+        inputMode="numeric"
+        value={String(value[0])}
+        onValueChange={(raw) => set(0, raw)}
+      />
+      <TextInput
+        width={72}
+        inputMode="numeric"
+        value={String(value[1])}
+        onValueChange={(raw) => set(1, raw)}
+      />
+    </>
+  );
+}
+
+/** A name nothing on this node is already using. */
+function uniqueVarKey(node: SceneNode, base: string): string {
+  const taken = new Set(Object.keys(node.vars ?? {}));
+  const root = slug(base) || 'value';
+  if (!taken.has(root)) return root;
+  for (let n = 2; n < 100; n++) if (!taken.has(`${root}-${n}`)) return `${root}-${n}`;
+  return `${root}-${taken.size + 1}`;
 }
 
 /* --------------------------------------------------------------------------

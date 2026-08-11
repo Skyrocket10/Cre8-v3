@@ -160,6 +160,19 @@ try {
          * as one keyed on a tab being selected.
          */
         props: { switchKey: 'band', switchDefault: 'ordinary' },
+        /*
+         * Phase D: the same price, as a number on a scale. The card fades with
+         * it — one rule in the stylesheet, a different number in every row's
+         * style attribute. This is the only value in the model that cannot be
+         * shared, so it is the one worth watching on both surfaces.
+         */
+        vars: {
+          heat: {
+            value: { kind: 'field', key: 'price' },
+            from: [900000, 1300000],
+            to: [0.4, 1],
+          },
+        },
         assign: [
           {
             id: 'asg0feed01',
@@ -319,6 +332,17 @@ try {
     canvasBands.join(' › ') || 'no state on any card'
   );
 
+  const canvasHeat = await page.evaluate(() =>
+    [...document.querySelectorAll('.cre8-frame.cre8-editing [data-cre8-switch="band"]')].map((el) =>
+      (el.getAttribute('style') ?? '').match(/--cre8-heat:\s*([^;"]+)/)?.[1]?.trim()
+    )
+  );
+  report.check(
+    'and carries its own number on the scale',
+    canvasHeat.length === 2 && new Set(canvasHeat).size === 2 && canvasHeat.every(Boolean),
+    canvasHeat.join(' / ') || 'no custom property on the canvas'
+  );
+
   const templateRow = await page.evaluate(
     () => document.body.textContent?.includes('Nothing here yet') ?? false
   );
@@ -396,6 +420,18 @@ try {
     bands.join(' › ') === canvasBands.join(' › '),
     `${bands.join(' › ') || '(none)'} vs ${canvasBands.join(' › ') || '(none)'} on the canvas`
   );
+  const fileHeat = [...html.matchAll(/--cre8-heat:\s*([^;"]+)/g)].map((m) => m[1].trim());
+  report.check(
+    'the published rows carry the same numbers the canvas drew',
+    fileHeat.join(' / ') === canvasHeat.join(' / '),
+    `${fileHeat.join(' / ') || '(none)'} vs ${canvasHeat.join(' / ')} on the canvas`
+  );
+  report.check(
+    'and the rule that reads them is in the stylesheet once',
+    (styleOf(html).match(/var\(--cre8-heat\)/g) ?? []).length <= 1,
+    `${(styleOf(html).match(/var\(--cre8-heat\)/g) ?? []).length} mentions`
+  );
+
   report.check(
     'styled by one ordinary rule, not one per row',
     (styleOf(html).match(/data-cre8-value~="premium"/g) ?? []).length === 1,

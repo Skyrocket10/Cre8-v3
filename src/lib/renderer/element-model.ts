@@ -17,6 +17,7 @@ import {
   type SceneNode,
 } from '../document/types';
 import { needsRuntime, publishedValues, stateFrom } from './test';
+import { varsFor } from './values';
 import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
 import {
@@ -297,9 +298,13 @@ export function describeElement(
   options: RenderOptions,
   variant: Variant = variantsOf(node)[0]!
 ): ElementModel {
-  return applyRange(
-    applySwitch(describeBase(node, variant, doc, options), node, variant, options),
-    node
+  return applyVars(
+    applyRange(
+      applySwitch(describeBase(node, variant, doc, options), node, variant, options),
+      node
+    ),
+    node,
+    options.record ?? null
   );
 }
 
@@ -341,6 +346,26 @@ function applyRange(model: ElementModel, node: SceneNode): ElementModel {
 
   const drives = slug(node.props.drives);
   if (drives && node.type === 'range') model.attrs[DRIVE_ATTR] = drives;
+  return model;
+}
+
+/**
+ * Numbers from the record, as custom properties on this element.
+ *
+ * The same shape `applyRange` writes above, from a record instead of a
+ * control — which is the point: the drawing is already done by rules the
+ * designer wrote against `var(--cre8-…)`, and neither the generator nor the
+ * runtime learns anything. One rule, a number per row.
+ */
+function applyVars(
+  model: ElementModel,
+  node: SceneNode,
+  record: CollectionRecord | null
+): ElementModel {
+  if (!node.vars) return model;
+  for (const [property, value] of Object.entries(varsFor(node, record))) {
+    model.attrs.style = mergeStyle(model.attrs.style, `${property}:${value}`);
+  }
   return model;
 }
 

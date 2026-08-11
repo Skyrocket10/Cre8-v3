@@ -934,12 +934,14 @@ Button
 so an Interactions tab can be built against the existing registry.
 
 The Logic and Data axes now have an agreed shape, written down before the code:
-[docs/EXPRESSIONS.md](EXPRESSIONS.md). Two phases of it are built. A binding is
-a `Value` and, optionally, a `Format`, so a price stored as `1250000` prints as
-`$1,250,000.00` on all three surfaces. And a Test over that record decides what
-*state* an element is in — `WHEN price > 500000 → expensive` — which the
-designer then styles with the ordinary inspector. Three things worth knowing
-from here.
+[docs/EXPRESSIONS.md](EXPRESSIONS.md), and all four phases of it are built. A
+binding is a `Value` and, optionally, a `Format`, so a price stored as
+`1250000` prints as `$1,250,000.00` on all three surfaces. A Test over that
+record decides what *state* an element is in — `WHEN price > 500000 →
+expensive` — which the designer then styles with the ordinary inspector, or
+with a one-line shortcut that writes the same rule. And a number mapped onto a
+scale becomes a custom property on the row. Three things worth knowing from
+here.
 
 First, it is **two systems, not one**. Data binding resolves a record into a
 value when the page is rendered; an interaction evaluates values in the browser
@@ -961,6 +963,11 @@ always been, so a Test resolving to a state writes an attribute the stylesheet
 already knows how to read. A hundred cards in a hundred different states share
 one rule. `Condition` is now a member of `Test` rather than a parallel idea, so
 "the CSS-compilable subset" is true by construction.
+
+And a number that differs per row — a price mapped onto an opacity — is the
+one value that cannot be a rule at all, so it is written into the element's own
+`style` as a custom property and read back by one shared `var()`. One rule, a
+hundred numbers, a stylesheet that does not grow.
 
 Writing `→ hide this element` in the assignment row is a shortcut for the rule
 a designer would otherwise write in Conditions, and the generated document is
