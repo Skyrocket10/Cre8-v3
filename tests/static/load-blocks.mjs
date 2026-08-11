@@ -42,6 +42,9 @@ export function loadBlocks() {
       // can silently discard somebody's work.
       'src/lib/document/migrate.ts',
       'src/lib/renderer/css.ts',
+      // The two composite declarations, whose parsers are the whole of the
+      // motion controls and the only part of them a function can check.
+      'src/lib/renderer/motion.ts',
       // Every editor mutation, so component properties can be checked by
       // driving the real operations rather than by hand-writing the document
       // they are supposed to produce.
@@ -84,6 +87,7 @@ export function loadBlocks() {
     readCase: require(path.join(OUT, 'document/schema.js')).readCase,
     anchorId: require(path.join(OUT, 'document/schema.js')).anchorId,
     vocabulary: require(path.join(OUT, 'document/style-vocabulary.js')),
+    motion: require(path.join(OUT, 'renderer/motion.js')),
     // References, on their own: "one walk services all of them" is a claim
     // about a function, and the cleanup that was missing for years is the
     // reason to check it rather than infer it from a rendered page.

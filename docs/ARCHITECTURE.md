@@ -1289,6 +1289,53 @@ panel 280px wide. And the first version of the `only` check was vacuous: it
 asserted a heading has no focal-point row, and passed with the gate switched
 off, because a heading never renders that section at all.
 
+### The two composite declarations
+
+`transition` and `transform` were the last properties with no real control, and
+for the same reason: both are *composites* — a list of properties with a
+duration and a curve, a stack of functions — and a composite cannot be a
+labelled row without something to take it apart and put it back together. So
+`transform` shipped as a field reading "Any CSS transform, e.g. rotate(-2deg)",
+and `transition` shipped as nothing at all. The block library authored it in
+TypeScript, which meant a card Cre8 ships eased its hover and a card somebody
+built themselves snapped, with no row anywhere to explain the difference or
+change either.
+
+The parsers live in `renderer/motion.ts` rather than in the panel, because they
+are the risky half and a function is checkable in a way a component is not.
+Every one is written to **round-trip**: every `transition` string the library
+authors comes back out byte-identical, which matters more than it sounds —
+a control that rewrote `cubic-bezier(0.34, 1.56, 0.64, 1)` as `ease` the first
+time somebody opened the panel would silently retime every card in every
+template. Splitting on commas is not a one-liner for the same reason: that
+curve holds three commas that are not entry separators, so the parser walks
+bracket depth.
+
+**Anything the fields cannot hold is refused, not approximated.**
+`parseTransform` returns `null` for a value containing a function it has no
+field for, and the panel keeps the raw text box for exactly those. Reading the
+recognised calls out of `perspective(400px) rotateX(20deg)` and reporting an
+identity transform would turn "I do not understand this" into "it does
+nothing" — and the panel would then write that nothing back over a 3D transform
+somebody wrote, purely because they opened the section.
+
+Output order is fixed — translate, scale, rotate — because transform functions
+do not commute: rotate-then-translate moves along the rotated axes, so a
+control whose output depended on which field you touched last would make the
+element jump for no visible reason. Identity parts are omitted, since
+`scale(1) rotate(0deg)` on every element is bytes on every page and a stacking
+context nobody asked for.
+
+A related harness fix came out of this. `blocks.mjs` compares canvas against
+published for every block in the registry, and one block — "Opening hours" — is
+keyed on the visitor's clock, where the canvas deliberately shows the value the
+site *ships*. The sweep already preferred the on-screen copy for content
+variants; it could not do that for an element a rule *hides*, because there is
+no second copy. So it passed in the morning and failed after nine at night. The
+clock is pinned now rather than the element skipped: skipping would weaken the
+comparison for every other block, and a check whose verdict depends on when it
+ran is worse than no check.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

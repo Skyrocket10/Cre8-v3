@@ -26,6 +26,27 @@ import { loadBlocks } from '../static/load-blocks.mjs';
 const report = createReport();
 const browser = await launch();
 const ctx = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
+
+/*
+ * The clock, pinned, before anything navigates.
+ *
+ * One block in the registry — "Opening hours" — is keyed on what time it is
+ * where the visitor is, and the canvas deliberately shows the value the site
+ * *ships* while the published page resolves the visitor's. `COLLECT` already
+ * handles that for content variants by preferring the copy that is on screen,
+ * and cannot handle it for an element a rule *hides*: at night the published
+ * page computes `display: none` where the canvas computes `flex`, there is no
+ * second copy to prefer, and the sweep reports a fidelity failure that is
+ * really a correct difference.
+ *
+ * So it failed after nine in the evening and passed in the morning, which is
+ * the worst kind of check — one whose verdict depends on when it ran. Skipping
+ * the element would weaken the comparison for every other block; pinning the
+ * clock to the value the site ships makes the two surfaces genuinely agree, and
+ * the comparison stays exact.
+ */
+const PINNED_HOUR = 14;
+await ctx.clock.setFixedTime(new Date(2026, 0, 15, PINNED_HOUR, 0, 0));
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('  [pageerror]', e.message));
 
@@ -104,6 +125,16 @@ try {
   const { BLOCKS } = loadBlocks();
   const names = BLOCKS.map((b) => b.name);
   report.check('the registry has blocks to sweep', names.length > 0, `${names.length} blocks`);
+
+  const seenHour = await page.evaluate(() => new Date().getHours());
+  report.check(
+    'and the clock is pinned, so a time-of-day block compares the same at every hour',
+    seenHour === 14,
+    // Without this the pin is invisible: a Playwright version that stopped
+    // honouring it would put the sweep back to passing in the morning and
+    // failing at night, with nothing saying why.
+    `the page reads ${seenHour}:00`
+  );
 
   /* ------------------------------------------------- 2. one project per block */
 

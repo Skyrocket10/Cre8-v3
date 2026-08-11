@@ -92,6 +92,31 @@ reading a control *inside* the element that owns it, which works at runtime and
 which the picker does not offer; answer the label from the offer list alone and
 a working rule reads as broken while the warning correctly stays quiet.
 
+The two composite declarations are checked as functions before they are checked
+as controls, because round-tripping is where a composite control fails: every
+`transition` string the block library authors goes through the parser and the
+formatter and must come back byte-identical, and the curve with three commas in
+it must survive as one entry rather than four. A delay is not read as the
+duration. A transform holding a function the fields cannot hold is refused
+rather than approximated — `perspective()` and `matrix3d()` and a two-axis
+`scale` all return nothing, so the panel keeps its raw field instead of writing
+an identity over somebody's work — while an unset transform *is* the identity,
+so an ordinary element gets the fields. Output order is asserted because
+transform functions do not commute.
+
+The browser then drives what a function cannot answer: that four fields and a
+menu compose one declaration, that a part doing nothing is left out of it, and
+that the duration row is absent until something is easing.
+
+One harness fix came out of running that. `blocks.mjs` compares canvas against
+published for every block, and "Opening hours" is keyed on the visitor's clock —
+the canvas shows the value the site ships. The sweep already preferred the
+on-screen copy for content variants and could not do so for an element a rule
+*hides*, so it passed in the morning and failed after nine at night. The clock
+is pinned to the shipped value now, with a check that the pin is in force:
+skipping the element would weaken the comparison for every other block, and a
+check whose verdict depends on when it ran is worse than none.
+
 Whether a style property is *reachable at all* used to be answerable only by
 grepping the panel for its name, which is how the audit that produced the style
 vocabulary undercounted by four — a word-boundary match cannot tell a CSS

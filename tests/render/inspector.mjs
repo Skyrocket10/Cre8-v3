@@ -742,6 +742,80 @@ try {
     // hand-written ones again.
     `table: ${JSON.stringify(onTable)} · cell: ${JSON.stringify(onCell)}`
   );
+  /* --------------------- 9. motion, without typing CSS -------------------- */
+
+  /*
+   * The two composite declarations, at the only place their controls can be
+   * judged. `transform` shipped as a field reading "Any CSS transform, e.g.
+   * rotate(-2deg)" and `transition` shipped as nothing at all — so the library's
+   * cards eased their hover and a card somebody built themselves snapped, with
+   * no row anywhere to explain the difference.
+   *
+   * The parsers are checked as functions in the static suite; what only a
+   * browser can say is whether four fields and a menu actually compose one.
+   */
+  await selectLayer('Second');
+  await page.locator('aside').last().locator('button:has-text("Motion")').first().click();
+  await page.waitForTimeout(400);
+
+  const yField = rowFor('Move').locator('input').nth(1);
+  report.check(
+    'transform is four fields rather than a line of CSS',
+    (await rowFor('Move').locator('input').count()) === 2 &&
+      (await rowFor('Scale').locator('input').count()) === 2,
+    `${await rowFor('Move').locator('input').count()} move field(s), ${await rowFor('Scale').locator('input').count()} scale/rotate`
+  );
+
+  if (await yField.count()) {
+    await yField.fill('-4');
+    await yField.press('Enter');
+    await page.waitForTimeout(700);
+    report.check(
+      'and typing a number writes the function',
+      (await styleOf('headingtwo')).transform === 'translateY(-4px)',
+      // Not `translate(0, -4px)`: a part that does nothing is left out, because
+      // an identity on every element is bytes on every page and a stacking
+      // context nobody asked for.
+      JSON.stringify((await styleOf('headingtwo')).transform ?? null)
+    );
+  }
+
+  const eases = rowFor('Eases').locator('button').last();
+  await eases.click();
+  await page.waitForTimeout(300);
+  await page.locator('.anim-pop').last().getByText('Colour and movement', { exact: true }).first().click();
+  await page.waitForTimeout(700);
+
+  const eased = (await styleOf('headingtwo')).transition ?? '';
+  report.check(
+    'picking what eases writes a real transition',
+    eased.includes('transform 180ms ease-out') && eased.includes('background-color'),
+    // The property the whole milestone is named after, and the first time it
+    // has been reachable from the editor at all.
+    eased || 'nothing written'
+  );
+
+  /* Each of the above, handed something it must reject. */
+  report.check(
+    'the duration row only appears once something eases',
+    (await rowFor('Over').count()) === 1,
+    // It is hidden while nothing is easing, so a panel that always showed it
+    // would be offering a duration for an animation that does not exist.
+    `${await rowFor('Over').count()} duration row(s) with a transition set`
+  );
+  await eases.click();
+  await page.waitForTimeout(300);
+  await page.locator('.anim-pop').last().getByText('Nothing', { exact: true }).first().click();
+  await page.waitForTimeout(700);
+  report.check(
+    'and choosing nothing removes the declaration and the row with it',
+    (await styleOf('headingtwo')).transition === undefined &&
+      (await rowFor('Over').count()) === 0,
+    JSON.stringify({
+      transition: (await styleOf('headingtwo')).transition ?? null,
+      rows: await rowFor('Over').count(),
+    })
+  );
 } catch (error) {
   report.check('inspector suite completed', false, error.message);
 } finally {

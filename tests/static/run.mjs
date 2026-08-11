@@ -37,6 +37,7 @@ const {
   canContain,
   anchorId,
   vocabulary,
+  motion,
   everyRef,
   pruneRefs,
   danglingReads,
@@ -7769,14 +7770,14 @@ report.group('an expression is described in one place');
     // weaker than "there is a row" — a lingering hook call would satisfy it.
     // That is still the difference between a gap and no gap: every one the
     // audit found was a property the panel had never heard of.
+    //
+    // It carried one named exception for a while — `transition`, which the
+    // model had, the block library authored in TypeScript, and the panel had
+    // never offered. Closing that gap is what turned this line into `[]`, which
+    // is what naming it was for.
     'and every property the table defers on is named somewhere in the panel',
-    // `transition` is the known gap and the next milestone's subject: the model
-    // has it, the block library authors it in TypeScript, and the panel has
-    // never offered it — so a designer's own element cannot animate and a
-    // shipped block's timing cannot be changed. Named here rather than passed
-    // over, so closing it is what turns this line into `[]`.
-    bespokeWithoutRow.join(',') === 'transition',
-    bespokeWithoutRow.length ? `no row for: ${bespokeWithoutRow.join(', ')}` : 'none left'
+    bespokeWithoutRow.length === 0,
+    bespokeWithoutRow.length ? `no row for: ${bespokeWithoutRow.join(', ')}` : 'every one reachable'
   );
 
   /* Each of the above, handed something it must reject. */
@@ -7806,6 +7807,167 @@ report.group('an expression is described in one place');
     // three readers are regexes over source — exactly the thing that goes quiet
     // when a file is reformatted rather than when it is wrong.
     `${offered.length} effects, ${declared.length} declared, ${Object.keys(vocab).length} in the table`
+  );
+}
+
+report.group('what moves, and how it gets there');
+
+{
+  const {
+    EASINGS,
+    TRANSITION_GROUPS,
+    formatTransform,
+    formatTransition,
+    parseTransform,
+    parseTransition,
+    transitionGroup,
+  } = motion;
+
+  /*
+   * Both of these are composites, and a composite control lives or dies on
+   * round-tripping. `transform` shipped for a year as a field reading "Any CSS
+   * transform" and `transition` shipped as nothing at all, so every value in
+   * the product was written by a person or by the block library — which makes
+   * "whatever is already there survives being looked at" the first property,
+   * not a nicety.
+   */
+
+  /* ------------------------------------------------------------ transition */
+
+  const authored = [
+    'border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease',
+    'transform 220ms ease, box-shadow 220ms ease',
+    'background-color 140ms ease',
+    'background-color 160ms ease, transform 160ms ease, box-shadow 160ms ease',
+  ];
+  const roundTripped = authored.map((value) => formatTransition(parseTransition(value)));
+  report.check(
+    'every transition the block library authors survives a round trip',
+    roundTripped.every((out, at) => out === authored[at]),
+    // These are the real strings from `kit.ts`, `compose.ts` and the element
+    // defaults. A control that rewrote one of them the first time somebody
+    // opened the panel would silently retime every card in every template.
+    roundTripped.find((out, at) => out !== authored[at]) ?? `${authored.length} unchanged`
+  );
+
+  const springy = parseTransition('transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)');
+  report.check(
+    'a curve with commas in it is one entry, not four',
+    springy?.props.join() === 'transform' &&
+      springy?.easing === 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+    // `split(',')` turns this into four fragments and loses the curve, which is
+    // why the parser walks bracket depth instead.
+    JSON.stringify(springy)
+  );
+  report.check(
+    'and the curve comes back out whole',
+    formatTransition(springy) === 'transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+    formatTransition(springy) ?? 'nothing'
+  );
+
+  const delayed = parseTransition('opacity 200ms ease 500ms');
+  report.check(
+    'a delay is not mistaken for the duration',
+    delayed?.duration === '200ms',
+    // Two times in one entry: the first is the duration, the second a delay the
+    // panel does not offer. Reading the second would make a card that waits
+    // half a second look like one that takes half a second.
+    delayed?.duration ?? 'nothing'
+  );
+
+  report.check(
+    'the named groups round-trip through their own ids',
+    TRANSITION_GROUPS.every((group) => transitionGroup(group.props) === group.id),
+    TRANSITION_GROUPS.map((group) => group.id).join(' · ')
+  );
+  report.check(
+    'and a set matching none of them is custom rather than the nearest one',
+    transitionGroup(['border-color', 'box-shadow', 'transform']) === 'custom',
+    // What the block library actually writes. Reporting it as "Colour" would
+    // mean opening the panel and pressing nothing silently drops `transform`.
+    transitionGroup(['border-color', 'box-shadow', 'transform'])
+  );
+  report.check(
+    'nothing at all parses as nothing, not as an empty transition',
+    parseTransition(undefined) === null && parseTransition('none') === null,
+    'unset stays unset'
+  );
+
+  /* ------------------------------------------------------------- transform */
+
+  const shapes = [
+    ['translate(0, -4px)', { x: '0', y: '-4px', scale: '', rotate: '' }],
+    ['translateY(-4px)', { x: '', y: '-4px', scale: '', rotate: '' }],
+    ['scale(1.02)', { x: '', y: '', scale: '1.02', rotate: '' }],
+    ['rotate(-2deg)', { x: '', y: '', scale: '', rotate: '-2deg' }],
+    ['translate(2px, -4px) scale(1.05) rotate(3deg)', { x: '2px', y: '-4px', scale: '1.05', rotate: '3deg' }],
+  ];
+  const misread = shapes.filter(
+    ([value, want]) => JSON.stringify(parseTransform(value)) !== JSON.stringify(want)
+  );
+  report.check(
+    'every transform shape the fields cover is read into them',
+    misread.length === 0,
+    misread.map(([value]) => value).join(', ') || `${shapes.length} shapes`
+  );
+  report.check(
+    'and comes back out in a fixed order',
+    formatTransform({ rotate: '3deg', scale: '1.05', y: '-4px', x: '2px' }) ===
+      'translate(2px, -4px) scale(1.05) rotate(3deg)',
+    /*
+     * Fixed because transform functions do not commute — rotate then translate
+     * moves along the rotated axes — so output that depended on which field was
+     * touched last would make the element jump for no visible reason.
+     */
+    formatTransform({ rotate: '3deg', scale: '1.05', y: '-4px', x: '2px' }) ?? 'nothing'
+  );
+  report.check(
+    'the parts that do nothing are left out rather than written as identity',
+    formatTransform({ x: '', y: '', scale: '1', rotate: '0deg' }) === undefined &&
+      formatTransform({ x: '', y: '-4px', scale: '1', rotate: '' }) === 'translateY(-4px)',
+    // `scale(1) rotate(0deg)` on every element is bytes on every page and a
+    // stacking context nobody asked for.
+    String(formatTransform({ x: '', y: '-4px', scale: '1', rotate: '' }))
+  );
+
+  const beyond = ['perspective(400px) rotateX(20deg)', 'matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)', 'scale(1.2, 0.8)'];
+  report.check(
+    'a transform the fields cannot hold is refused, not approximated',
+    beyond.every((value) => parseTransform(value) === null),
+    /*
+     * The reason this returns `null` rather than a best guess. Reading the
+     * calls it likes out of `perspective(400px) rotateX(20deg)` and reporting
+     * an identity transform turns "I do not understand this" into "it does
+     * nothing" — and the panel would then write that nothing back over a 3D
+     * transform somebody wrote, purely because they opened the section.
+     */
+    beyond.filter((value) => parseTransform(value) !== null).join(', ') || 'all three refused'
+  );
+  report.check(
+    'and an unset transform is the identity rather than a refusal',
+    JSON.stringify(parseTransform(undefined)) === JSON.stringify({ x: '', y: '', scale: '', rotate: '' }),
+    // Otherwise every element with no transform gets the raw text box.
+    JSON.stringify(parseTransform(undefined))
+  );
+
+  /* Each of the above, handed something it must reject. */
+  report.check(
+    'the round-trip check is comparing real strings',
+    authored.length === 4 && authored.every((value) => value.includes('ms')),
+    `${authored.length} authored values, taken from the library`
+  );
+  report.check(
+    'and the refusal check would notice a parser that guessed',
+    parseTransform('translate(1px) perspective(4px)') === null &&
+      parseTransform('translate(1px)') !== null,
+    'one recognised call is not enough on its own'
+  );
+  report.check(
+    'the curve offered by default is one the parser reads back',
+    EASINGS.every(
+      (one) => parseTransition(`opacity 100ms ${one.value}`)?.easing === one.value
+    ),
+    EASINGS.map((one) => one.label).join(' · ')
   );
 }
 

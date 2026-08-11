@@ -33,6 +33,18 @@ import { Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives
 import { TokenField } from '../ui/token-field';
 import { FieldPair, IconToggles, InspectorGroup, StyleRow } from './controls';
 import { StyleFields } from './style-field';
+import {
+  EASINGS,
+  TRANSITION_DEFAULT,
+  TRANSITION_GROUPS,
+  formatTransform,
+  formatTransition,
+  parseTransform,
+  parseTransition,
+  transitionGroup,
+  type Transform,
+  type Transition,
+} from '@/lib/renderer/motion';
 import { useStyleBindings, useStyleProp, useStyleWriter } from './use-style';
 
 /* --------------------------------------------------------------------------
@@ -685,28 +697,167 @@ export function EffectsSection() {
  */
 export function MotionSection() {
   const transform = useStyleProp('transform');
+  const transition = useStyleProp('transition');
+
+  const parsed = parseTransform(transform.value);
+  const current = parseTransition(transition.value);
+  const group = current ? transitionGroup(current.props) : '';
+
+  const writeTransform = (patch: Partial<Transform>) => {
+    if (!parsed) return;
+    transform.set(formatTransform({ ...parsed, ...patch }));
+  };
+  const writeTransition = (patch: Partial<Transition>) => {
+    const base = current ?? {
+      props: TRANSITION_GROUPS[0]!.props,
+      duration: TRANSITION_DEFAULT.duration,
+      easing: TRANSITION_DEFAULT.easing,
+    };
+    transition.set(formatTransition({ ...base, ...patch }));
+  };
 
   return (
     <Section title="Motion" defaultOpen={false}>
       <InspectorGroup>
+        {/*
+          Four fields rather than the CSS text box this used to be. The box was
+          the clearest example of the gap the audit found: a control that only
+          works if you already know the language the product exists to hide.
+        */}
+        {parsed ? (
+          <>
+            <StyleRow
+              styleProps={['transform']}
+              menuLabel="Transform"
+              label="Move"
+              hint="Shifts the element without moving anything around it"
+              overridden={transform.overridden}
+              onReset={transform.clear}
+            >
+              <FieldPair>
+                <NumberField
+                  label="X"
+                  value={parsed.x || '0'}
+                  onChange={(value) => writeTransform({ x: value ?? '' })}
+                />
+                <NumberField
+                  label="Y"
+                  value={parsed.y || '0'}
+                  onChange={(value) => writeTransform({ y: value ?? '' })}
+                />
+              </FieldPair>
+            </StyleRow>
+            <StyleRow styleProps={['transform']} menuLabel="Transform" label="Scale">
+              <FieldPair>
+                <NumberField
+                  label="×"
+                  units={[]}
+                  unit=""
+                  step={0.01}
+                  min={0}
+                  value={parsed.scale || '1'}
+                  onChange={(value) => writeTransform({ scale: value ?? '' })}
+                />
+                <NumberField
+                  label="°"
+                  units={[]}
+                  unit="deg"
+                  step={1}
+                  value={parsed.rotate || '0'}
+                  onChange={(value) => writeTransform({ rotate: value ?? '' })}
+                />
+              </FieldPair>
+            </StyleRow>
+          </>
+        ) : (
+          /*
+           * The escape hatch, and the reason the parser returns `null` rather
+           * than a best guess: a `perspective()` or a `matrix3d()` flattened
+           * into a translate by the act of opening the panel is data loss
+           * wearing a control's clothes. Anything the four fields cannot hold
+           * keeps its text, and the row says which it is.
+           */
+          <StyleRow
+            styleProps={['transform']}
+            menuLabel="Transform"
+            label="Transform"
+            hint="This transform does more than move, scale and rotate, so it stays as written"
+            overridden={transform.overridden}
+            onReset={transform.clear}
+          >
+            <input
+              value={transform.value ?? ''}
+              onChange={(e) => transform.set(e.target.value || undefined)}
+              onKeyDown={(e) => e.stopPropagation()}
+              spellCheck={false}
+              placeholder="none"
+              className="h-[26px] w-full min-w-0 rounded-md bg-[var(--field)] px-2 font-mono text-[10.5px] text-[var(--text)] outline-none transition-colors hover:bg-[var(--field-hover)] focus:ring-1 focus:ring-[var(--accent)] focus:ring-inset placeholder:text-[var(--text-faint)]"
+            />
+          </StyleRow>
+        )}
+
+        <StyleFields section="motion" />
+
+        {/*
+          And the property the whole milestone is named after. It was in the
+          model, authored by the block library in TypeScript, and offered
+          nowhere — so a shipped card eased its hover and a card somebody built
+          themselves snapped, with no way to tell why or to change either.
+        */}
         <StyleRow
-          styleProps={['transform']}
-          menuLabel="Transform"
-          label="Transform"
-          hint="Any CSS transform, e.g. rotate(-2deg)"
-          overridden={transform.overridden}
-          onReset={transform.clear}
+          styleProps={['transition']}
+          menuLabel="Transition"
+          label="Eases"
+          hint="What moves smoothly when it changes, instead of jumping"
+          overridden={transition.overridden}
+          onReset={transition.clear}
         >
-          <input
-            value={transform.value ?? ''}
-            onChange={(e) => transform.set(e.target.value || undefined)}
-            onKeyDown={(e) => e.stopPropagation()}
-            spellCheck={false}
-            placeholder="none"
-            className="h-[26px] w-full min-w-0 rounded-md bg-[var(--field)] px-2 font-mono text-[10.5px] text-[var(--text)] outline-none transition-colors hover:bg-[var(--field-hover)] focus:ring-1 focus:ring-[var(--accent)] focus:ring-inset placeholder:text-[var(--text-faint)]"
+          <Select
+            className="flex-1"
+            value={group}
+            placeholder="Nothing"
+            onChange={(next) => {
+              if (!next) return transition.set(undefined);
+              const picked = TRANSITION_GROUPS.find((one) => one.id === next);
+              if (picked) writeTransition({ props: picked.props });
+            }}
+            options={[
+              { value: '', label: 'Nothing' },
+              ...TRANSITION_GROUPS.map((one) => ({ value: one.id, label: one.label })),
+              // Only ever shown, never chosen: a set of properties that matches
+              // no group still has to read as something, and "Nothing" would be
+              // a lie about a card that is easing three of them.
+              ...(group === 'custom'
+                ? [{ value: 'custom', label: `Custom — ${current?.props.length} properties` }]
+                : []),
+            ]}
           />
         </StyleRow>
-        <StyleFields section="motion" />
+
+        {current && (
+          <StyleRow styleProps={['transition']} menuLabel="Transition" label="Over">
+            <FieldPair>
+              <NumberField
+                units={['ms', 's']}
+                unit="ms"
+                step={10}
+                min={0}
+                value={current.duration}
+                onChange={(value) => writeTransition({ duration: value ?? '0ms' })}
+              />
+              <Select
+                value={current.easing}
+                placeholder="Curve"
+                options={
+                  EASINGS.some((one) => one.value === current.easing)
+                    ? EASINGS
+                    : [...EASINGS, { value: current.easing, label: 'As written' }]
+                }
+                onChange={(easing) => writeTransition({ easing })}
+              />
+            </FieldPair>
+          </StyleRow>
+        )}
       </InspectorGroup>
     </Section>
   );
