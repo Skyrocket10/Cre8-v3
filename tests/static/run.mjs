@@ -6227,6 +6227,88 @@ report.group('one catalogue, and every surface dispatches through it');
   );
 }
 
+/* --------------------------------------------------------------------------
+ * One description of an expression
+ *
+ * The panels render expressions as sentences, and the claim that makes it
+ * worth the code is that the *same builder* produces the editable form and
+ * every read-only one. A heading that says "Hovered" over controls that say
+ * "hover" is the small version of the failure; a rule summary that disagrees
+ * with the rule is the large one, and it is what the old code had — a switch
+ * over condition kinds written next to the controls and free to drift.
+ *
+ * That is a claim about where the words live, so it is checked against the
+ * source. The same shape as the `formatValue` one-caller rule, and for the
+ * same reason: it is the structure that makes the property true, not a value
+ * anybody can assert on.
+ * ----------------------------------------------------------------------- */
+
+report.group('an expression is described in one place');
+
+{
+  const read = (file) => readFileSync(path.join(ROOT, file), 'utf8');
+  const strip = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  const builders = strip(read('src/components/inspector/sentences.tsx'));
+  const panels = [
+    'src/components/inspector/section-data.tsx',
+    'src/components/inspector/section-rules.tsx',
+  ];
+
+  report.check(
+    'the operator words are written once, in the builder',
+    /OP_LABELS/.test(builders) &&
+      panels.every((file) => !/OP_LABELS/.test(strip(read(file)))),
+    'no panel spells an operator itself'
+  );
+  report.check(
+    'and so are the format words',
+    /FORMAT_LABELS/.test(builders) &&
+      panels.every((file) => !/FORMAT_LABELS/.test(strip(read(file)))),
+    'no panel spells a format itself'
+  );
+
+  const rules = strip(read('src/components/inspector/section-rules.tsx'));
+  report.check(
+    'the rule summary is the sentence, not a second description of it',
+    /partsToText\(\s*ruleSentence/.test(rules),
+    'describeRule projects the same parts the row edits'
+  );
+  report.check(
+    'and the panel no longer walks condition kinds on its own',
+    !/case '(pointer|attr|data)':/.test(rules),
+    'the switch that used to live here is in the builder'
+  );
+
+  /*
+   * And the projection really is one function used two ways, rather than two
+   * that happen to agree today.
+   */
+  const sentence = strip(read('src/components/ui/sentence.tsx'));
+  report.check(
+    'a part with no handler renders as prose rather than a dead control',
+    /if \(!part\.onChange\) return <Prose>/.test(sentence),
+    'the read-only projection is the same parts without handlers'
+  );
+  report.check(
+    'and the sentence carries real spaces, not only a flex gap',
+    /index > 0 && part\.kind !== 'break' \? ' ' : null/.test(sentence),
+    'copied out of the panel it is still a sentence'
+  );
+
+  /* Each of the above, handed something it must reject. */
+  report.check(
+    'the one-place rules would notice a panel spelling its own words',
+    /OP_LABELS/.test('const label = OP_LABELS[op];'),
+    'the pattern matches what it is looking for'
+  );
+  report.check(
+    'and the condition-walk rule would notice the switch coming back',
+    /case '(pointer|attr|data)':/.test("switch (c.kind) { case 'pointer': return 'Hovered'; }")
+  );
+}
+
 report.group('nothing in the tree reads as binary');
 
 {

@@ -58,6 +58,21 @@ const choose = async (root, label, option) => {
   await page.waitForTimeout(400);
 };
 
+/**
+ * Pick an option from a chip inside one of the inspector's sentences.
+ *
+ * Expressions are not rows any more, so there is no `<label>` to walk up from
+ * — the sentence *is* the label. Addressed by the words it opens with, which
+ * is how a person finds it too.
+ */
+const chooseInSentence = async (opening, current, option) => {
+  const sentence = inspector().locator('[data-sentence]').filter({ hasText: opening }).first();
+  await sentence.locator('button').filter({ hasText: current }).first().click();
+  await page.waitForTimeout(250);
+  await page.locator('.anim-pop').last().getByText(option, { exact: true }).first().click();
+  await page.waitForTimeout(400);
+};
+
 try {
   await signUp(page, 'Cara Mills', 'coll');
   const id = await openProject(page, 'Blank');
@@ -178,8 +193,24 @@ try {
   const bindable = (await inspector().locator('text=Inside Posts').count()) > 0;
   report.check('a child of the repeater is told which record it is inside', bindable);
   if (bindable) {
-    await choose(inspector(), 'Text', 'Title');
+    await chooseInSentence(/^Text reads/, /what is typed here/, 'Title');
     await page.waitForTimeout(700);
+    report.check(
+      'the binding reads as a sentence too',
+      /^Text reads Title/.test(
+        (
+          (await inspector()
+            .locator('[data-sentence]')
+            .filter({ hasText: /^Text reads/ })
+            .first()
+            .textContent()
+            .catch(() => '')) ?? ''
+        )
+          .replace(/\s+/g, ' ')
+          .trim()
+      ),
+      (await inspector().locator('[data-sentence]').filter({ hasText: /^Text reads/ }).first().textContent()) ?? ''
+    );
     report.check(
       'and the canvas immediately shows the record, not the placeholder',
       (await page.locator('.cre8-frame.cre8-editing').getByText('Hello world').count()) > 0,
@@ -208,10 +239,12 @@ try {
       await addRule.click();
       await page.waitForTimeout(500);
 
+      // The rule's sentence, not the binding's. There are several on the panel
+      // now — which is the design working, and a reason for a check to say
+      // which one it means.
+      const rule = () => inspector().locator('[data-sentence]').filter({ hasText: /^When/ }).first();
       const sentence = async () =>
-        (await inspector().locator('[data-sentence]').first().textContent().catch(() => ''))
-          ?.replace(/\s+/g, ' ')
-          .trim() ?? '';
+        (await rule().textContent().catch(() => ''))?.replace(/\s+/g, ' ').trim() ?? '';
 
       const opened = await sentence();
       report.check(
@@ -222,10 +255,7 @@ try {
 
       // The operator chip. Found by the word it currently shows, which is the
       // whole point of the design — the control is the word.
-      const opChip = inspector()
-        .locator('[data-sentence] button')
-        .filter({ hasText: /^is$/ })
-        .first();
+      const opChip = rule().locator('button').filter({ hasText: /^is$/ }).first();
       if (await opChip.count()) {
         await opChip.click();
         await page.waitForTimeout(300);

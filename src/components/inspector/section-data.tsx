@@ -24,22 +24,12 @@ import { getElement, slug } from '@/lib/document/schema';
 import {
   LIMITS,
   type Collection,
-  type DatePattern,
-  type Field,
-  type Format,
   type SceneNode,
   type StateRule,
   type StyleProp,
   type Test,
   type ValueVar,
 } from '@/lib/document/types';
-import {
-  DATE_PATTERNS,
-  FORMAT_LABELS,
-  defaultFormat,
-  formatsFor,
-  type FormatKind,
-} from '@/lib/renderer/format';
 import {
   fieldsRead,
   needsRuntime,
@@ -51,7 +41,7 @@ import { isSettable } from '@/lib/renderer/variants';
 import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
 import { Sentence, type Part } from '../ui/sentence';
-import { blankTest, filterSentence, testSentence } from './sentences';
+import { bindingSentence, blankTest, filterSentence, testSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
 
 /** Props worth offering a binding for, in the order they appear in Content. */
@@ -322,27 +312,24 @@ function BindControls({ node, collection }: { node: SceneNode; collection: Colle
         <span className="truncate">Inside {collection.name}</span>
       </div>
 
-      {offered.map((prop) => {
-        const binding = node.bind?.[prop];
-        const source = binding?.value.kind === 'field' ? binding.value.key : undefined;
-        const field = collection.fields.find((f) => f.key === source);
-        return (
-          <React.Fragment key={prop}>
-            <StyleRow label={prop === 'text' ? 'Text' : prop}>
-              <Select
-                className="flex-1"
-                value={source ?? ''}
-                options={[
-                  { value: '', label: 'Typed here' },
-                  ...collection.fields.map((f) => ({ value: f.key, label: f.label })),
-                ]}
-                onChange={(key) => setBinding(prop, key)}
-              />
-            </StyleRow>
-            {binding && <FormatControls node={node} prop={prop} field={field} format={binding.format} />}
-          </React.Fragment>
-        );
-      })}
+      {offered.map((prop) => (
+        <Sentence
+          key={prop}
+          parts={bindingSentence({
+            prop,
+            binding: node.bind?.[prop],
+            fields: collection.fields,
+            onBind: (key) => setBinding(prop, key),
+            onFormat: (format) =>
+              useEditor.getState().transact('Change how this reads', (draft) => {
+                const target = draft.nodes[node.id]?.bind?.[prop];
+                if (!target) return;
+                if (format) target.format = format;
+                else delete target.format;
+              }),
+          })}
+        />
+      ))}
 
       {node.bind && Object.keys(node.bind).length > 0 && (
         <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
@@ -353,158 +340,6 @@ function BindControls({ node, collection }: { node: SceneNode; collection: Colle
     </>
   );
 }
-
-/* --------------------------------------------------------------------------
- * How a bound value reads
- * ----------------------------------------------------------------------- */
-
-/**
- * The format, and whatever that format needs to know.
- *
- * Indented under its binding rather than given a row of its own, because it is
- * a property of that binding and a flat list of six controls would not say so.
- * Nothing appears at all unless the field has a format worth offering — a
- * boolean has none, and neither does anything bound to `src`.
- */
-function FormatControls({
-  node,
-  prop,
-  field,
-  format,
-}: {
-  node: SceneNode;
-  prop: string;
-  field: Field | undefined;
-  format: Format | undefined;
-}) {
-  const kinds = formatsFor(prop, field);
-  if (!kinds.length) return null;
-
-  const write = (next: Format | undefined) =>
-    useEditor.getState().transact('Change how this reads', (draft) => {
-      const binding = draft.nodes[node.id]?.bind?.[prop];
-      if (!binding) return;
-      if (next) binding.format = next;
-      else delete binding.format;
-    });
-
-  // Every option is spelled out against the same example value, so choosing is
-  // reading rather than guessing what "Currency" will do to this field.
-  const sample = SAMPLE[format?.kind ?? kinds[0]!];
-
-  return (
-    <div className="ml-2 border-l border-[var(--border-subtle)] pl-2">
-      <StyleRow label="Reads as">
-        <Select
-          className="flex-1"
-          value={format?.kind ?? ''}
-          options={[
-            { value: '', label: 'As written' },
-            ...kinds.map((kind) => ({ value: kind, label: FORMAT_LABELS[kind] })),
-          ]}
-          onChange={(kind) => write(kind ? defaultFormat(kind as FormatKind) : undefined)}
-        />
-      </StyleRow>
-
-      {format?.kind === 'currency' && (
-        <StyleRow label="Symbol">
-          <TextInput
-            width={64}
-            value={format.symbol ?? '$'}
-            onValueChange={(symbol) => write({ ...format, symbol: symbol.slice(0, 4) })}
-          />
-          <Select
-            className="flex-1"
-            value={format.after ? 'after' : 'before'}
-            options={[
-              { value: 'before', label: `${format.symbol ?? '$'}1,234` },
-              { value: 'after', label: `1,234${format.symbol ?? '$'}` },
-            ]}
-            onChange={(where) => write({ ...format, after: where === 'after' })}
-          />
-        </StyleRow>
-      )}
-
-      {(format?.kind === 'number' || format?.kind === 'currency' || format?.kind === 'percent') && (
-        <StyleRow label="Decimals">
-          <Select
-            width={64}
-            value={String(format.decimals ?? 0)}
-            options={[0, 1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))}
-            onChange={(n) => write({ ...format, decimals: Number(n) })}
-          />
-          <Select
-            className="flex-1"
-            value={format.group === false ? 'plain' : 'grouped'}
-            options={[
-              { value: 'grouped', label: '1,234' },
-              { value: 'plain', label: '1234' },
-            ]}
-            onChange={(how) => write({ ...format, group: how === 'grouped' })}
-          />
-        </StyleRow>
-      )}
-
-      {format?.kind === 'date' && (
-        <StyleRow label="Pattern">
-          <Select
-            className="flex-1"
-            value={format.pattern}
-            options={DATE_PATTERNS.map((p) => ({ value: p.value, label: p.label }))}
-            onChange={(pattern) => write({ ...format, pattern: pattern as DatePattern })}
-          />
-        </StyleRow>
-      )}
-
-      {format?.kind === 'case' && (
-        <StyleRow label="Letters">
-          <Select
-            className="flex-1"
-            value={format.to}
-            options={[
-              { value: 'upper', label: 'UPPERCASE' },
-              { value: 'lower', label: 'lowercase' },
-              { value: 'capitalize', label: 'Capitalise Each Word' },
-            ]}
-            onChange={(to) => write({ ...format, to: to as 'upper' | 'lower' | 'capitalize' })}
-          />
-        </StyleRow>
-      )}
-
-      {format?.kind === 'truncate' && (
-        <StyleRow label="Length" hint="Cut at the nearest word, then add an ellipsis">
-          <TextInput
-            className="flex-1"
-            value={String(format.chars)}
-            inputMode="numeric"
-            suffix="characters"
-            onValueChange={(value) => {
-              const n = Number(value);
-              if (Number.isFinite(n) && n > 0) write({ ...format, chars: Math.floor(n) });
-            }}
-          />
-        </StyleRow>
-      )}
-
-      {format && (
-        <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--text-faint)]">
-          {sample} — how it looks, not what it is. Sorting and filtering still use the value the
-          record holds.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** One worked example per format, so the note under the picker is concrete. */
-const SAMPLE: Record<FormatKind, string> = {
-  number: '1234.5 reads as 1,235',
-  currency: '1234.5 reads as $1,234.50',
-  percent: '12.5 reads as 13%',
-  date: '2026-08-11 reads as 11 August 2026',
-  case: 'sold out reads as SOLD OUT',
-  truncate: 'A long paragraph reads as its first few words…',
-};
 
 /* --------------------------------------------------------------------------
  * When something is true, the element is in a state

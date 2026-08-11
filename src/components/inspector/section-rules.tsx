@@ -27,28 +27,21 @@ import { DATA_SOURCES, QUERY_PREFIX, describeSource } from '@/lib/runtime/data';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives';
+import { Sentence, partsToText } from '../ui/sentence';
+import { conditionSentence, ruleSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
 
-/** A rule as a sentence, for the row and for the "editing" banner. */
+/**
+ * A rule as a sentence, for the row and for the "editing" banner.
+ *
+ * The string form of the same parts the row renders and the controls below it
+ * edit. It used to be a switch of its own, written next to the controls and
+ * free to drift from them — a heading that said "Hovered" over a panel that
+ * said "hover" is the small version of that, and "state is annual" over a
+ * control set to something else is the large one.
+ */
 export function describeRule(rule: StyleRule): string {
-  const parts = rule.when.map((condition) => {
-    switch (condition.kind) {
-      case 'pointer':
-      case 'control':
-        return condition.pseudo === 'focus-visible' ? 'Focused' : title(condition.pseudo);
-      case 'attr':
-        return `${condition.name} ${condition.op === 'is' ? 'is' : 'isn’t'} ${condition.values.join(' or ')}`;
-      case 'state':
-        return `${condition.key || 'state'} ${condition.op === 'is' ? 'is' : 'isn’t'} ${condition.values.join(' or ')}`;
-      case 'data': {
-        const source = describeSource(condition.source);
-        return `${source?.label ?? condition.source} ${condition.op === 'is' ? 'is' : 'isn’t'} ${condition.values.join(' or ')}`;
-      }
-    }
-  });
-  const where = rule.part ? ` · ${rule.part}` : '';
-  if (parts.length === 0) return `Always${where}`;
-  return `${parts.join(' and ')}${where}`;
+  return partsToText(ruleSentence(rule));
 }
 
 /** What a rule changes, in the shortest form that is still true. */
@@ -66,7 +59,6 @@ function summarise(rule: StyleRule): string {
   return [...content, ...keys.slice(0, 3).map(readable)].join(', ') + (keys.length > 3 ? '…' : '');
 }
 
-const title = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 const readable = (prop: string) => prop.replace(/[A-Z]/g, (m) => ` ${m.toLowerCase()}`);
 
 const FIELD = '\u0000';
@@ -284,14 +276,6 @@ function RuleRow({
   const store = useEditor.getState;
   const condition = rule.when.find((c) => c.kind === 'state');
   const data = rule.when.find((c) => c.kind === 'data');
-  const chosen = states.find((s) => s.key === (condition?.kind === 'state' ? condition.key : ''));
-
-  const setCondition = (patch: Partial<Extract<Condition, { kind: 'state' }>>) => {
-    if (condition?.kind !== 'state') return;
-    store().updateRule(rule.id, {
-      when: rule.when.map((c) => (c === condition ? { ...condition, ...patch } : c)),
-    });
-  };
 
   return (
     <div
@@ -353,40 +337,25 @@ function RuleRow({
 
       {active && condition?.kind === 'state' && (
         <div className="flex flex-col gap-1.5 border-t border-[var(--border-soft)] px-2 py-2">
-          <StyleRow label="State" labelWidth={48}>
-            <Select
-              className="flex-1"
-              value={condition.key || states[0]?.key || ''}
-              onChange={(key) => setCondition({ key })}
-              options={states.map((state) => ({
-                value: state.key,
-                label: state.key,
-                hint: state.values.join(' ') || undefined,
-              }))}
-            />
-          </StyleRow>
-          <StyleRow label="Is" labelWidth={48}>
-            <Segmented
-              full
-              value={condition.op}
-              onChange={(op) => setCondition({ op: op as 'is' | 'isNot' })}
-              options={[
-                { value: 'is', label: 'is' },
-                { value: 'isNot', label: 'isn’t' },
-              ]}
-            />
-          </StyleRow>
-          <StyleRow label="Value" labelWidth={48}>
-            <TextInput
-              className="flex-1"
-              value={condition.values.join(' ')}
-              onValueChange={(raw) => {
-                const values = slugList(raw).split(' ').filter(Boolean);
-                if (values.length) setCondition({ values });
-              }}
-              placeholder={chosen?.values.join(' ') || 'annual'}
-            />
-          </StyleRow>
+          {/*
+            The same sentence the heading above shows, with handlers. Three
+            labelled rows said the same thing in a shape a reader had to
+            reassemble — and the heading was a second description of it,
+            written separately and free to disagree.
+          */}
+          <Sentence
+            parts={[
+              { kind: 'word', text: 'When', key: 'when' },
+              ...conditionSentence({
+                condition,
+                states,
+                onChange: (next: Condition) =>
+                  store().updateRule(rule.id, {
+                    when: rule.when.map((c) => (c === condition ? next : c)),
+                  }),
+              }),
+            ]}
+          />
           <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
             More than one value, separated by spaces, means any of them.
           </p>

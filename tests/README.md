@@ -50,6 +50,12 @@ land on the fallback rather than on zero, and the rounding that keeps
 kill the design — the same document published at two rows and thirty, with the
 stylesheet compared byte for byte.
 
+Where the expression panels get their words is checked against the source, the
+same way `formatValue`'s single caller is: the operator and format words are
+spelled once in the sentence builder and nowhere in a panel, and the rule
+summary is the sentence rather than a second description of it. That is a claim
+about structure, so there is nothing else to assert it against.
+
 An assignment that also writes a rule is checked by *comparison*: the same
 design built through the shortcut and built by hand, asserted to be the same
 document. What that leaves interesting is everything after — renaming the

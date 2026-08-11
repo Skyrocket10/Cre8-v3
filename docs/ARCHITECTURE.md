@@ -1008,9 +1008,14 @@ control: both are already keyboard-reachable and already know the editor's
 focus ring, and a bespoke chip would reimplement those badly in the place a
 designer moves fastest.
 
-It also unified three grammars that were three different arrangements of rows —
-a Test, a repeater filter and a condition are all field · operator · value, and
-nothing in the old panels gave a designer any reason to notice.
+It unified four grammars that were four different arrangements of rows. A
+Test, a repeater filter and a condition are all field · operator · value; a
+binding is prop · source · format. Nothing in the old panels gave a designer
+any reason to notice, and the read-only summaries were written separately from
+the controls they sat above — `describeRule` was a switch over condition kinds
+maintained next to the panel that edited them, which is exactly how a heading
+saying "Hovered" ends up over a control saying "hover". It is
+`partsToText(ruleSentence(rule))` now: the same parts, joined.
 
 ### Why an AI can drive this later
 

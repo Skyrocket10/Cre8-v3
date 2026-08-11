@@ -23,8 +23,27 @@
 
 import React from 'react';
 import { Trash2 } from 'lucide-react';
-import type { CompareOp, Field, RecordFilter, Test } from '@/lib/document/types';
+import type {
+  Binding,
+  CompareOp,
+  Condition,
+  DatePattern,
+  Field,
+  Format,
+  RecordFilter,
+  StyleRule,
+  Test,
+} from '@/lib/document/types';
+import { slugList } from '@/lib/document/schema';
+import {
+  DATE_PATTERNS,
+  FORMAT_LABELS,
+  defaultFormat,
+  formatsFor,
+  type FormatKind,
+} from '@/lib/renderer/format';
 import { OPS_FOR, OP_LABELS, literalFor, literalText, needsOperand } from '@/lib/renderer/test';
+import { describeSource } from '@/lib/runtime/data';
 import type { Part } from '../ui/sentence';
 
 /** The one field type a form control's value is read as: text, undeclared. */
@@ -216,6 +235,287 @@ export function filterSentence(options: {
       onClick: onRemove,
     });
   }
+  return parts;
+}
+
+/* --------------------------------------------------------------------------
+ * A binding
+ * ----------------------------------------------------------------------- */
+
+/**
+ * `Text reads ⟨Price⟩ as ⟨currency⟩, ⟨$⟩ ⟨before it⟩, ⟨2⟩ decimals`.
+ *
+ * The prop is a word rather than a chip: it is what the row *is about*, and a
+ * binding cannot be moved from `text` to `alt` any more than a paragraph can
+ * be moved to another element by editing a dropdown. Everything the author
+ * actually chooses is a chip.
+ *
+ * The format's settings are in the same sentence rather than folded away
+ * behind it. A currency with the wrong number of decimals is wrong in a way
+ * that is invisible until somebody looks at the published page, and a
+ * disclosure triangle is a good place for a mistake to live.
+ */
+export function bindingSentence(options: {
+  prop: string;
+  binding: Binding | undefined;
+  fields: Field[];
+  onBind?: (fieldKey: string) => void;
+  onFormat?: (format: Format | undefined) => void;
+}): Part[] {
+  const { prop, binding, fields, onBind, onFormat } = options;
+  const source = binding?.value.kind === 'field' ? binding.value.key : '';
+  const field = fields.find((f) => f.key === source);
+
+  const parts: Part[] = [
+    { kind: 'word', text: prop === 'text' ? 'Text' : prop, key: 'prop' },
+    { kind: 'word', text: 'reads', key: 'reads' },
+    {
+      kind: 'pick',
+      key: 'field',
+      value: source,
+      placeholder: 'what is typed here',
+      menuWidth: 200,
+      options: [
+        { value: '', label: 'what is typed here' },
+        ...fields.map((f) => ({ value: f.key, label: f.label })),
+      ],
+      onChange: onBind,
+    },
+  ];
+  if (!binding || !field) return parts;
+
+  const kinds = formatsFor(prop, field);
+  if (!kinds.length) return parts;
+
+  const format = binding.format;
+  parts.push({ kind: 'word', text: 'as', key: 'as' });
+  parts.push({
+    kind: 'pick',
+    key: 'format',
+    value: format?.kind ?? '',
+    menuWidth: 190,
+    options: [
+      { value: '', label: 'it is written' },
+      ...kinds.map((kind) => ({ value: kind, label: FORMAT_LABELS[kind].toLowerCase() })),
+    ],
+    onChange:
+      onFormat && ((kind) => onFormat(kind ? defaultFormat(kind as FormatKind) : undefined)),
+  });
+  if (!format) return parts;
+
+  switch (format.kind) {
+    case 'currency':
+      parts.push({ kind: 'word', text: 'in', key: 'in' });
+      parts.push({
+        kind: 'type',
+        key: 'symbol',
+        value: format.symbol ?? '$',
+        placeholder: '$',
+        onChange: onFormat && ((symbol) => onFormat({ ...format, symbol: symbol.slice(0, 4) })),
+      });
+      parts.push({
+        kind: 'pick',
+        key: 'side',
+        value: format.after ? 'after' : 'before',
+        menuWidth: 150,
+        options: [
+          { value: 'before', label: 'before it' },
+          { value: 'after', label: 'after it' },
+        ],
+        onChange: onFormat && ((where) => onFormat({ ...format, after: where === 'after' })),
+      });
+    // falls through — a currency is a number with a symbol, and takes the
+    // same decimals and grouping chips after it.
+    case 'number':
+    case 'percent':
+      parts.push({ kind: 'word', text: ', with', key: 'with' });
+      parts.push({
+        kind: 'pick',
+        key: 'decimals',
+        value: String(format.decimals ?? 0),
+        menuWidth: 110,
+        options: [0, 1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) })),
+        onChange: onFormat && ((n) => onFormat({ ...format, decimals: Number(n) })),
+      });
+      parts.push({ kind: 'word', text: 'decimals, as', key: 'dp' });
+      parts.push({
+        kind: 'pick',
+        key: 'group',
+        value: format.group === false ? 'plain' : 'grouped',
+        menuWidth: 130,
+        options: [
+          { value: 'grouped', label: '1,234' },
+          { value: 'plain', label: '1234' },
+        ],
+        onChange: onFormat && ((how) => onFormat({ ...format, group: how === 'grouped' })),
+      });
+      break;
+    case 'date':
+      parts.push({
+        kind: 'pick',
+        key: 'pattern',
+        value: format.pattern,
+        menuWidth: 180,
+        options: DATE_PATTERNS.map((p) => ({ value: p.value, label: p.label })),
+        onChange: onFormat && ((pattern) => onFormat({ ...format, pattern: pattern as DatePattern })),
+      });
+      break;
+    case 'case':
+      parts.push({
+        kind: 'pick',
+        key: 'to',
+        value: format.to,
+        menuWidth: 190,
+        options: [
+          { value: 'upper', label: 'UPPERCASE' },
+          { value: 'lower', label: 'lowercase' },
+          { value: 'capitalize', label: 'Capitalised' },
+        ],
+        onChange:
+          onFormat && ((to) => onFormat({ ...format, to: to as 'upper' | 'lower' | 'capitalize' })),
+      });
+      break;
+    case 'truncate':
+      parts.push({ kind: 'word', text: 'its first', key: 'first' });
+      parts.push({
+        kind: 'type',
+        key: 'chars',
+        value: String(format.chars),
+        numeric: true,
+        onChange:
+          onFormat &&
+          ((raw) => {
+            const n = Number(raw);
+            if (Number.isFinite(n) && n > 0) onFormat({ ...format, chars: Math.floor(n) });
+          }),
+      });
+      parts.push({ kind: 'word', text: 'characters', key: 'chars-w' });
+      break;
+  }
+  return parts;
+}
+
+/* --------------------------------------------------------------------------
+ * A condition, and the rule it belongs to
+ * ----------------------------------------------------------------------- */
+
+/**
+ * `⟨plan⟩ ⟨is⟩ ⟨annual⟩`, or the prose form for the kinds with no editor.
+ *
+ * Handlers are optional per usual, and are only ever supplied for `state` and
+ * `data` — the two the panel can edit. A pointer condition has nothing to
+ * choose: it is hover, and the way to change it is to make a different rule.
+ */
+export function conditionSentence(options: {
+  condition: Condition;
+  states?: { key: string; values: string[] }[];
+  onChange?: (next: Condition) => void;
+  keyPrefix?: string;
+}): Part[] {
+  const { condition, states = [], onChange, keyPrefix = '' } = options;
+  const k = (name: string) => `${keyPrefix}${name}`;
+
+  if (condition.kind === 'state' && onChange) {
+    const chosen = states.find((state) => state.key === condition.key);
+    return [
+      {
+        kind: 'pick',
+        key: k('state'),
+        value: condition.key,
+        placeholder: 'the nearest state',
+        menuWidth: 200,
+        options: states.map((state) => ({
+          value: state.key,
+          label: state.key,
+          hint: state.values.join(' ') || undefined,
+        })),
+        onChange: (key) => onChange({ ...condition, key }),
+      },
+      {
+        kind: 'pick',
+        key: k('op'),
+        value: condition.op,
+        menuWidth: 130,
+        options: [
+          { value: 'is', label: 'is' },
+          { value: 'isNot', label: 'is not' },
+        ],
+        onChange: (op) => onChange({ ...condition, op: op as 'is' | 'isNot' }),
+      },
+      {
+        kind: 'type',
+        key: k('values'),
+        value: condition.values.join(' '),
+        placeholder: chosen?.values[0] ?? 'a value',
+        onChange: (raw) => {
+          const values = slugList(raw).split(' ').filter(Boolean);
+          if (values.length) onChange({ ...condition, values });
+        },
+      },
+    ];
+  }
+
+  if (condition.kind === 'data' && onChange) {
+    const source = describeSource(condition.source);
+    return [
+      { kind: 'word', text: source?.label ?? condition.source, key: k('source') },
+      {
+        kind: 'pick',
+        key: k('op'),
+        value: condition.op,
+        menuWidth: 130,
+        options: [
+          { value: 'is', label: 'is' },
+          { value: 'isNot', label: 'is not' },
+        ],
+        onChange: (op) => onChange({ ...condition, op: op as 'is' | 'isNot' }),
+      },
+      source?.values.length
+        ? {
+            kind: 'pick',
+            key: k('values'),
+            value: condition.values[0] ?? '',
+            placeholder: 'a value',
+            menuWidth: 170,
+            options: source.values.map((value) => ({ value, label: value })),
+            onChange: (value) => onChange({ ...condition, values: [value] }),
+          }
+        : {
+            kind: 'type',
+            key: k('values'),
+            value: condition.values.join(' '),
+            placeholder: 'a value',
+            onChange: (raw) => {
+              const values = slugList(raw).split(' ').filter(Boolean);
+              if (values.length) onChange({ ...condition, values });
+            },
+          },
+    ];
+  }
+
+  return [{ kind: 'word', text: describeOther(condition), key: k('prose') }];
+}
+
+/**
+ * A whole rule as a sentence: every condition, joined by "and".
+ *
+ * Read-only — this is the row heading, and the row expands to edit. The same
+ * builder produces both, which is the point: the heading cannot describe a
+ * rule differently from the controls underneath it.
+ */
+export function ruleSentence(rule: StyleRule): Part[] {
+  if (!rule.when.length) {
+    return [
+      { kind: 'word', text: 'Always', key: 'always' },
+      ...(rule.part ? [{ kind: 'word' as const, text: `· ${rule.part}`, key: 'part' }] : []),
+    ];
+  }
+  const parts: Part[] = [];
+  rule.when.forEach((condition, index) => {
+    if (index > 0) parts.push({ kind: 'word', text: 'and', key: `and${index}` });
+    parts.push(...conditionSentence({ condition, keyPrefix: `c${index}-` }));
+  });
+  if (rule.part) parts.push({ kind: 'word', text: `· ${rule.part}`, key: 'part' });
   return parts;
 }
 

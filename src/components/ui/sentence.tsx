@@ -169,6 +169,31 @@ function Piece({ part }: { part: Part }) {
 }
 
 /**
+ * The same sentence as a plain string.
+ *
+ * For the places that need one — a row summary, a tooltip, a banner. It is the
+ * *same parts*, joined, rather than a second description written by hand next
+ * to the first, which is how "Hovered" and "While hovered" end up meaning the
+ * same thing in two places and then stop.
+ */
+export function partsToText(parts: Part[]): string {
+  return parts
+    .filter((part) => part.kind !== 'action' && part.kind !== 'break')
+    .map((part) => {
+      if (part.kind === 'word') return part.text;
+      if (part.kind === 'type') return part.value || part.placeholder || '…';
+      return (
+        part.options.find((option) => option.value === part.value)?.label ??
+        part.placeholder ??
+        '…'
+      );
+    })
+    .join(' ')
+    .replace(/\s+([,.])/g, '$1')
+    .trim();
+}
+
+/**
  * A chip with nothing behind it, for the read-only projection.
  *
  * Still visually distinct from the connective words: the reader should be able
