@@ -211,10 +211,10 @@ At publish time we inspect its dependencies:
   Any runtime dependency              → publish the runtime Test + required fallback
   Record changes                      → republish / re-fold affected Tests
   User or input changes               → runtime subscription evaluates the Test
-  Two Tests on one state key          → deterministic arbitration
+  Two Tests on one state key          → deterministic rule order
 ```
 
-Scheduling is derived from dependencies. It is not a mode the author picks.
+Scheduling is derived from dependencies. It is not an author-selected mode.
 
 ### Folding
 
@@ -243,10 +243,10 @@ against the design record. A records-only Test must therefore be folded live in
 the editor, by the same function the publisher calls. One evaluator, three
 surfaces — the same rule as the renderer.
 
-**Folding is per instance, CSS is once.** In a repeater the fold runs per row
-and yields a state attribute per row. The generated CSS is one rule for all of
-them. That is the repeater constraint restated, and it is where this design
-fails if it is going to.
+**Folding is per instance; the resulting CSS is shared.** In a repeater the fold
+runs per row and yields a state attribute per row. The generated rule is one
+rule for all of them. That is the repeater constraint restated, and it is where
+this design fails if it is going to.
 
 ### Mixed dependencies
 
@@ -285,27 +285,27 @@ has not been finished, and the editor should refuse to consider it complete.
 ### The write key
 
 A Test assigns a value to a named state key. The key is the identity of the
-target state, not of the Test — two Tests may legitimately target one key, and
-they go through one arbitration.
+target state, not of the Test — two Tests may legitimately target one key.
 
-One thing still to settle here, because "deterministic arbitration" and "mutual
-exclusion" are different policies and the choice is load-bearing:
+**Conflicting writes are resolved by deterministic rule order. The editor warns
+about provable overlap rather than prohibiting it.** Later Tests win. This is
+how `node.rules` already works — "a list rather than a record because two rules
+can both match and both set `background`, and the only precedence a designer can
+predict is the order" — and an interaction writing a state key is the same
+situation, so it gets the same answer.
 
-- **Mutual exclusion** refuses, at edit time, two Tests on one key that can both
-  be true. This is what the static suite already does for `set` — but it does it
-  over named values, where overlap is trivially decidable. Ordered comparisons
-  are not: `price > 500000` and `status = "sold"` are on different fields and can
-  obviously both hold, so a strict exclusion rule would refuse a reasonable pair.
-- **Ordering** allows overlap and lets document order decide. This is how
-  `node.rules` already works — "a list rather than a record because two rules can
-  both match and both set `background`, and the only precedence a designer can
-  predict is the order".
+Mutual exclusion was the alternative, and it is what the static suite already
+does for `set`. It works there because it operates over *named values*, where
+overlap is trivially decidable. Ordered comparisons are not: `price > 500000`
+and `status = "sold"` read different fields and can obviously both hold, so a
+strict exclusion rule would refuse a reasonable pair. Refusing what cannot be
+proven unsafe would block more valid designs than it saved.
 
-**Recommendation: ordering is the mechanism, exclusion is a warning.** Later
-Tests win, matching the rule list. The editor flags a pair it can *prove*
-overlaps — same field, comparable operands — and says which one wins, rather
-than refusing. Refusing what cannot be proven safe would block more valid
-designs than it saved.
+So overlap is a warning, and it is a warning with a burden of proof on the
+editor. It fires only where overlap can be *shown* — the same field, comparable
+operands, ranges that intersect — and it says which Test wins rather than asking
+the author to resolve it. Where overlap cannot be decided, the editor says
+nothing: a warning that fires on every pair of Tests is a warning nobody reads.
 
 ## Checks that would hold this up
 
@@ -325,6 +325,13 @@ Each of these is falsifiable, which is the bar the rest of the suite is held to.
   `fidelity` and `blocks` suites already do for everything else.
 - **Scripting off lands on the fallback state.** The `behaviour` suite already
   runs every case with the script disabled; interactions join it.
+- **Two Tests on one key resolve in order.** Author an overlapping pair, assert
+  the later one wins, then swap them and assert the state flips. A check that
+  only ever sees one ordering cannot tell order from luck.
+- **The overlap warning fires, and stays quiet.** Both directions, because a
+  warning that always fires and a warning that never fires both look like a
+  passing test: a provable pair must produce it, and a pair on different fields
+  must not.
 
 ---
 
