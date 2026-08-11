@@ -43,6 +43,12 @@ checked in both directions — a check that only ever sees one ordering cannot
 tell order from luck — and the overlap warning is checked for staying quiet as
 well as for firing, since a warning on every pair is a warning nobody reads.
 
+An assignment that also writes a rule is checked by *comparison*: the same
+design built through the shortcut and built by hand, asserted to be the same
+document. What that leaves interesting is everything after — renaming the
+state, renaming the key, removing the assignment, and a rule the designer has
+since edited, which the shortcut has to stop claiming.
+
 Value formatting is checked here rather than in a browser, because its whole
 claim is that two different JavaScript engines agree — which is a claim about a
 function, not about a page. So the worked examples sit next to a scan of the

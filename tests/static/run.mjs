@@ -2987,6 +2987,197 @@ report.group('a Test the browser has to answer agrees with the one the publisher
 }
 
 /* --------------------------------------------------------------------------
+ * Saying what the state does, in the row that made it
+ *
+ * Phase C. `WHEN price > 500000 → hide` in one row instead of a state named
+ * here and a rule written in another panel.
+ *
+ * The whole claim is that it is a *shortcut*, not a mechanism: what it writes
+ * is the rule a designer would have written by hand, and nothing downstream
+ * can tell which way it got there. So the checks compare the two documents
+ * rather than inspecting the shortcut, and the interesting ones are about what
+ * happens when the thing it wrote is later edited, renamed or removed.
+ * ----------------------------------------------------------------------- */
+
+report.group('an assignment can write the rule you would have written');
+
+{
+  const withAssign = (value = 'expensive') => {
+    const doc = createEmptyDocument('Homes');
+    const page = doc.pages[0];
+    const node = doc.nodes[page.rootNodeId];
+    node.props.switchKey = 'band';
+    node.props.switchDefault = 'ordinary';
+    node.assign = [
+      {
+        id: 'a1',
+        when: {
+          kind: 'compare',
+          left: { kind: 'field', key: 'price' },
+          op: 'gt',
+          right: { type: 'number', value: 500000 },
+        },
+        value,
+      },
+    ];
+    return { doc, node };
+  };
+
+  /* The comparison the whole phase rests on. */
+  {
+    const shortcut = withAssign();
+    ops.setAssignEffect(shortcut.doc, shortcut.node.id, 'a1', { kind: 'hide' });
+
+    const byHand = withAssign();
+    ops.addRule(byHand.doc, byHand.node.id, {
+      id: 'whatever',
+      when: [{ kind: 'state', key: 'band', op: 'is', values: ['expensive'] }],
+      apply: { display: 'none' },
+    });
+
+    // Ids apart, which are minted and meaningless.
+    const shape = (node) =>
+      JSON.stringify((node.rules ?? []).map(({ id, ...rest }) => rest));
+    report.check(
+      'the shortcut writes the same rule a designer would',
+      shape(shortcut.node) === shape(byHand.node),
+      shape(shortcut.node)
+    );
+    report.check(
+      'and it is an ordinary rule, on the ordinary list',
+      shortcut.node.rules?.length === 1 && shortcut.node.rules[0].when[0].kind === 'state',
+      `${shortcut.node.rules?.length} rules`
+    );
+  }
+
+  /* Changing the effect rewrites; it does not accumulate. */
+  {
+    const { doc, node } = withAssign();
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'style', prop: 'opacity', value: '0.4' });
+    report.check(
+      'changing what a state does rewrites one rule rather than adding a second',
+      node.rules?.length === 1 && node.rules[0].apply.opacity === '0.4',
+      `${node.rules?.length} rules, ${JSON.stringify(node.rules?.[0]?.apply)}`
+    );
+    report.check(
+      'and the old declaration is gone rather than left underneath',
+      node.rules?.[0]?.apply.display === undefined
+    );
+
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'state' });
+    report.check(
+      'setting it back to “nothing” takes the rule away',
+      !node.rules?.length,
+      `${node.rules?.length ?? 0} rules`
+    );
+  }
+
+  /* Reading it back. */
+  {
+    const { doc, node } = withAssign();
+    report.check('an assignment with no rule reads as doing nothing', ops.assignEffect(node, 'a1').kind === 'state');
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
+    report.check('and one that hides reads as hiding', ops.assignEffect(node, 'a1').kind === 'hide');
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'style', prop: 'color', value: 'red' });
+    const read = ops.assignEffect(node, 'a1');
+    report.check(
+      'and a property assignment reads back as itself',
+      read.kind === 'style' && read.prop === 'color' && read.value === 'red',
+      JSON.stringify(read)
+    );
+  }
+
+  /* Renaming, which is where a link by convention usually breaks. */
+  {
+    const { doc, node } = withAssign();
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
+    ops.setAssignValue(doc, node.id, 'a1', 'Sold');
+    report.check(
+      'renaming the state takes its rule with it',
+      node.assign[0].value === 'Sold' && node.rules?.[0]?.when[0]?.values[0] === 'Sold',
+      `${node.assign[0].value} / ${node.rules?.[0]?.when[0]?.values[0]}`
+    );
+    report.check(
+      'and there is still only one rule',
+      node.rules?.length === 1,
+      `${node.rules?.length} rules`
+    );
+
+    ops.setStateKey(doc, node.id, 'Price band');
+    report.check(
+      'renaming the key rewrites the rules on this node that name it',
+      node.props.switchKey === 'Price-band' && node.rules?.[0]?.when[0]?.key === 'Price-band',
+      `${node.props.switchKey} / ${node.rules?.[0]?.when[0]?.key}`
+    );
+  }
+
+  /* A rule the designer has taken over is theirs. */
+  {
+    const { doc, node } = withAssign();
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
+    // A second condition — the designer now means "hidden, but only on hover".
+    node.rules[0].when.push({ kind: 'pointer', pseudo: 'hover' });
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'style', prop: 'opacity', value: '0.5' });
+    report.check(
+      'a rule the designer has edited is no longer the assignment’s to rewrite',
+      node.rules.length === 2 && node.rules[0].apply.display === 'none',
+      `${node.rules.length} rules; the edited one kept ${JSON.stringify(node.rules[0].apply)}`
+    );
+  }
+
+  /* Removing. */
+  {
+    const { doc, node } = withAssign();
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
+    ops.removeAssign(doc, node.id, 'a1');
+    report.check(
+      'removing the assignment removes the rule it wrote',
+      node.assign === undefined && !node.rules?.length,
+      `${node.assign?.length ?? 0} assignments, ${node.rules?.length ?? 0} rules`
+    );
+  }
+  {
+    const { doc, node } = withAssign();
+    ops.addRule(doc, node.id, {
+      id: 'mine',
+      when: [{ kind: 'pointer', pseudo: 'hover' }],
+      apply: { color: 'blue' },
+    });
+    ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
+    ops.removeAssign(doc, node.id, 'a1');
+    report.check(
+      'and leaves rules that were nothing to do with it',
+      node.rules?.length === 1 && node.rules[0].id === 'mine',
+      `${node.rules?.length} rules left`
+    );
+  }
+
+  /* --------------------------------------------------------------------
+   * Each of the above, handed something it must reject.
+   * ----------------------------------------------------------------- */
+
+  report.check(
+    'the sameness check is comparing something, not two empties',
+    (() => {
+      const { doc, node } = withAssign();
+      ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
+      return JSON.stringify(node.rules).includes('display');
+    })(),
+    'the hand-built and generated documents both contain a rule'
+  );
+  report.check(
+    'an assignment with no state name writes nothing at all',
+    (() => {
+      const { doc, node } = withAssign('');
+      ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
+      return !node.rules?.length;
+    })(),
+    'a rule conditioned on an empty value would match everything'
+  );
+}
+
+/* --------------------------------------------------------------------------
  * The Worker's platform
  *
  * D3 puts the renderer inside the Worker, which means `src/lib` is now

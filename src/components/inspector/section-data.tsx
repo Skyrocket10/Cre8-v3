@@ -18,7 +18,8 @@
 
 import React from 'react';
 import { Database, Layers, Sparkles, Trash2 } from 'lucide-react';
-import { uid, slugify } from '@/lib/document/id';
+import { uid } from '@/lib/document/id';
+import * as ops from '@/lib/document/operations';
 import { getElement, slug } from '@/lib/document/schema';
 import {
   LIMITS,
@@ -29,6 +30,7 @@ import {
   type Format,
   type SceneNode,
   type StateRule,
+  type StyleProp,
   type TestLiteral,
 } from '@/lib/document/types';
 import {
@@ -508,7 +510,7 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
        * would look right and the page would never change. So the first rule
        * names the key after the element, and the designer can rename it.
        */
-      if (!slug(scene.props.switchKey)) scene.props.switchKey = slugify(scene.name) || 'state';
+      if (!slug(scene.props.switchKey)) scene.props.switchKey = slug(scene.name) || 'state';
       scene.assign = [
         ...(scene.assign ?? []),
         {
@@ -569,10 +571,11 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
             : left?.kind === 'input'
               ? TYPED_AS_TEXT
               : undefined;
-        const ops = field ? OPS_FOR[field.type] : [];
+        const operators = field ? OPS_FOR[field.type] : [];
         // Only against rules *before* this one: the warning is about which of
         // the two wins, and the answer is always "the later one", so it
         // belongs on the later one.
+        const effect = ops.assignEffect(node, rule.id);
         const shadows =
           compare &&
           rules
@@ -618,7 +621,7 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
               <Select
                 className="flex-1"
                 value={compare?.op ?? 'eq'}
-                options={ops.map((op) => ({ value: op, label: OP_LABELS[op] }))}
+                options={operators.map((op) => ({ value: op, label: OP_LABELS[op] }))}
                 onChange={(op) =>
                   write(rule.id, (target) => {
                     if (target.when.kind !== 'compare') return;
@@ -650,15 +653,18 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
                 className="flex-1"
                 value={rule.value}
                 placeholder="state name"
-                onValueChange={(value) => write(rule.id, (target) => (target.value = slugify(value)))}
+                onValueChange={(value) =>
+                  useEditor.getState().transact('Rename a state', (draft) => {
+                    ops.setAssignValue(draft, node.id, rule.id, value);
+                  })
+                }
               />
               <button
                 type="button"
                 title="Remove this rule"
                 onClick={() =>
-                  edit('Remove a state rule', (scene) => {
-                    scene.assign = (scene.assign ?? []).filter((r) => r.id !== rule.id);
-                    if (!scene.assign.length) delete scene.assign;
+                  useEditor.getState().transact('Remove a state rule', (draft) => {
+                    ops.removeAssign(draft, node.id, rule.id);
                   })
                 }
                 className="rounded px-1 text-[var(--text-faint)] hover:bg-[var(--surface-hover)] hover:text-[var(--danger)]"
@@ -666,6 +672,73 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
                 <Trash2 size={11} />
               </button>
             </StyleRow>
+
+            {/*
+              And what that state does, if the designer wants it said here.
+              Writing a rule from this row is a shortcut, not a mechanism: it
+              produces exactly the rule they would have built in Conditions,
+              and Conditions still owns it afterwards.
+            */}
+            <StyleRow label="And" hint="A shortcut for the rule you would otherwise write by hand">
+              <Select
+                className="flex-1"
+                value={effect.kind === 'style' ? `p:${effect.prop}` : effect.kind}
+                options={[
+                  { value: 'state', label: 'nothing — I will style it' },
+                  { value: 'hide', label: 'hide this element' },
+                  { value: 'show', label: 'show this element' },
+                  ...EFFECT_PROPS.map((prop) => ({ value: `p:${prop}`, label: `set ${prop}` })),
+                ]}
+                onChange={(next) =>
+                  useEditor.getState().transact('Change what a state does', (draft) => {
+                    const prop = next.startsWith('p:') ? (next.slice(2) as StyleProp) : null;
+                    ops.setAssignEffect(
+                      draft,
+                      node.id,
+                      rule.id,
+                      prop
+                        ? {
+                            kind: 'style',
+                            prop,
+                            value: effect.kind === 'style' && effect.prop === prop ? effect.value : '',
+                          }
+                        : { kind: next as 'state' | 'hide' | 'show' }
+                    );
+                  })
+                }
+              />
+              {effect.kind === 'style' && (
+                <TextInput
+                  width={92}
+                  value={effect.value}
+                  placeholder="value"
+                  onValueChange={(value) =>
+                    useEditor.getState().transact('Change what a state does', (draft) => {
+                      ops.setAssignEffect(draft, node.id, rule.id, {
+                        kind: 'style',
+                        prop: effect.prop,
+                        value,
+                      });
+                    })
+                  }
+                />
+              )}
+            </StyleRow>
+
+            {effect.kind === 'hide' && (
+              /*
+               * The disclosure that matters most, said where the decision is
+               * made. Hiding is CSS, which is what makes it work with no
+               * script and before first paint — and it means the row is in the
+               * file. For a sold house that is fine; for something that should
+               * not be published at all, a filter on the repeater is the
+               * honest tool and this is not.
+               */
+              <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--text-faint)]">
+                Hidden with CSS, so the content is still in the published file. To keep a record off
+                the page entirely, filter the list instead.
+              </p>
+            )}
 
             {shadows && shadows.length > 0 && (
               <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--warning,#d97706)]">
@@ -686,7 +759,7 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
               placeholder="no state"
               onValueChange={(value) =>
                 edit('Change the fallback state', (scene) => {
-                  scene.props.switchDefault = slugify(value);
+                  scene.props.switchDefault = slug(value);
                 })
               }
             />
@@ -696,8 +769,8 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
               className="flex-1"
               value={key}
               onValueChange={(value) =>
-                edit('Rename the state', (scene) => {
-                  scene.props.switchKey = slugify(value) || 'state';
+                useEditor.getState().transact('Rename the state', (draft) => {
+                  ops.setStateKey(draft, node.id, value);
                 })
               }
             />
@@ -736,6 +809,16 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
     </>
   );
 }
+
+/**
+ * The handful of properties worth offering as a one-line effect.
+ *
+ * Not every `StyleProp`. This row is a shortcut for the two or three things a
+ * data-driven state usually does — fade it, tint it, put a line through it —
+ * and a picker with a hundred entries would be a worse Conditions panel rather
+ * than a quicker one. Anything else is a rule, written where rules are written.
+ */
+const EFFECT_PROPS = ['opacity', 'color', 'backgroundColor', 'borderColor', 'textDecorationLine'] as const;
 
 /** Marks a source that is read as text: a form control, which declares no type. */
 const TYPED_PREFIX = 'typed:';

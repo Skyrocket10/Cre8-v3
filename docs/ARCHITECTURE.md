@@ -962,6 +962,12 @@ already knows how to read. A hundred cards in a hundred different states share
 one rule. `Condition` is now a member of `Test` rather than a parallel idea, so
 "the CSS-compilable subset" is true by construction.
 
+Writing `→ hide this element` in the assignment row is a shortcut for the rule
+a designer would otherwise write in Conditions, and the generated document is
+compared against the hand-built one to keep it honest. The link between an
+assignment and its rule is by shape — the rule whose only condition is that
+state — so a rule the designer edits afterwards stops being the assignment's.
+
 A Test whose operands are all record fields is answered when the page is
 published and ships as an attribute. One that reads a form control cannot be,
 so its rules travel — as the same AST the editor stores, keyed by node so a

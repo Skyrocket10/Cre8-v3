@@ -369,6 +369,195 @@ export function setRuleProps(
   }
 }
 
+/* --------------------------------------------------------------------------
+ * Assignments that also style
+ * ----------------------------------------------------------------------- */
+
+/**
+ * What an assignment does beyond naming a state.
+ *
+ * Phase C of the expression model, and the thing to notice is how little of it
+ * is new. `WHEN price > 500000 → hide` is a Test resolving to a state and an
+ * ordinary rule conditioned on that state — which is what a designer would
+ * have built by hand in two panels. This writes both in one step and in one
+ * transaction, so it is a *preset over the same assignment*, not a second
+ * mechanism. Nothing downstream can tell the difference, and a check asserts
+ * exactly that.
+ */
+export type AssignEffect =
+  /** Only the state. The designer styles it themselves. */
+  | { kind: 'state' }
+  | { kind: 'hide' }
+  | { kind: 'show' }
+  | { kind: 'style'; prop: StyleProp; value: string };
+
+/**
+ * The rule an effect becomes, or null when the effect is "just a state".
+ *
+ * `show` is `display: revert` rather than a guessed value. A node hidden by
+ * something else — a `meta.hidden`, an earlier rule — has some display the
+ * cascade would have given it, and inventing `block` for a flex container is
+ * how a row of cards comes back stacked.
+ */
+function styleForEffect(effect: AssignEffect): StyleDecl | null {
+  switch (effect.kind) {
+    case 'hide':
+      return { display: 'none' };
+    case 'show':
+      return { display: 'revert' };
+    case 'style':
+      return { [effect.prop]: effect.value } as StyleDecl;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Which rule belongs to an assignment: the one whose only condition is it.
+ *
+ * Found by shape rather than by a stored id, so a rule the designer edits into
+ * something else stops being owned by the assignment — which is the right
+ * answer. The moment they add a second condition or point it at another state,
+ * it is their rule, and this stops rewriting it under them.
+ */
+function ruleForAssignment(node: SceneNode, key: string, value: string): StyleRule | undefined {
+  return node.rules?.find(
+    (rule) =>
+      rule.when.length === 1 &&
+      rule.when[0]?.kind === 'state' &&
+      rule.when[0].key === key &&
+      rule.when[0].op === 'is' &&
+      rule.when[0].values.length === 1 &&
+      rule.when[0].values[0] === value &&
+      !rule.part &&
+      !rule.breakpoint
+  );
+}
+
+/**
+ * Give one assignment an effect, replacing whatever it had.
+ *
+ * Rewrites in place when there is already a rule for this state, so changing
+ * Hide to Fade is one rule that changed rather than two that fight. Removing
+ * the effect removes the rule, because a rule with no declarations left would
+ * still be a row in the panel saying nothing.
+ */
+export function setAssignEffect(
+  doc: Cre8Document,
+  id: NodeId,
+  assignId: string,
+  effect: AssignEffect
+): void {
+  const node = doc.nodes[id];
+  const assignment = node?.assign?.find((rule) => rule.id === assignId);
+  if (!node || !assignment) return;
+
+  const key = slug(node.props.switchKey);
+  const value = slug(assignment.value);
+  if (!key || !value) return;
+
+  const existing = ruleForAssignment(node, key, value);
+  const apply = styleForEffect(effect);
+
+  if (!apply) {
+    if (existing) removeRule(doc, id, existing.id);
+    return;
+  }
+  if (existing) {
+    existing.apply = apply;
+    return;
+  }
+  addRule(doc, id, {
+    id: uid(),
+    when: [{ kind: 'state', key, op: 'is', values: [value] }],
+    apply,
+  });
+}
+
+/**
+ * Rename the state an assignment produces, taking its rule with it.
+ *
+ * Renaming without this leaves a rule answering to a value nothing sets any
+ * more — the styling silently stops, and the panel still shows a rule that
+ * looks right.
+ */
+export function setAssignValue(
+  doc: Cre8Document,
+  id: NodeId,
+  assignId: string,
+  value: string
+): void {
+  const node = doc.nodes[id];
+  const assignment = node?.assign?.find((rule) => rule.id === assignId);
+  if (!node || !assignment) return;
+
+  const key = slug(node.props.switchKey);
+  const owned = ruleForAssignment(node, key, slug(assignment.value));
+  assignment.value = slug(value);
+  const next = slug(assignment.value);
+  if (!owned) return;
+  if (!next) removeRule(doc, id, owned.id);
+  else owned.when = [{ kind: 'state', key, op: 'is', values: [next] }];
+}
+
+/**
+ * Rename the state key this node carries, and every rule of its own that names it.
+ *
+ * Only this node's rules. A descendant styling the state almost always
+ * conditions on the *nearest* one — an empty key — which a rename cannot
+ * break. One that names the key explicitly is reaching past its own group on
+ * purpose, and rewriting somebody else's rule from here would be a worse
+ * surprise than the one this avoids.
+ */
+export function setStateKey(doc: Cre8Document, id: NodeId, key: string): void {
+  const node = doc.nodes[id];
+  if (!node) return;
+  const before = slug(node.props.switchKey);
+  const after = slug(key) || 'state';
+  if (before === after) return;
+  node.props.switchKey = after;
+  for (const rule of node.rules ?? []) {
+    for (const condition of rule.when) {
+      if (condition.kind === 'state' && condition.key === before) condition.key = after;
+    }
+  }
+}
+
+/** What an assignment currently does, read back off the rule it wrote. */
+export function assignEffect(node: SceneNode, assignId: string): AssignEffect {
+  const assignment = node.assign?.find((rule) => rule.id === assignId);
+  const key = slug(node.props.switchKey);
+  const value = slug(assignment?.value);
+  if (!assignment || !key || !value) return { kind: 'state' };
+
+  const rule = ruleForAssignment(node, key, value);
+  const entries = Object.entries(rule?.apply ?? {});
+  if (entries.length !== 1) return { kind: 'state' };
+  const [prop, applied] = entries[0] as [StyleProp, string];
+  if (prop === 'display' && applied === 'none') return { kind: 'hide' };
+  if (prop === 'display' && applied === 'revert') return { kind: 'show' };
+  return { kind: 'style', prop, value: applied };
+}
+
+/**
+ * Remove an assignment, and the rule it wrote with it.
+ *
+ * The rule goes because the state it answers to is about to stop existing —
+ * leaving it behind would be a rule that can never match, which is worse than
+ * useless in a panel that lists them.
+ */
+export function removeAssign(doc: Cre8Document, id: NodeId, assignId: string): void {
+  const node = doc.nodes[id];
+  if (!node?.assign) return;
+  const going = node.assign.find((rule) => rule.id === assignId);
+  if (going) {
+    const owned = ruleForAssignment(node, slug(node.props.switchKey), slug(going.value));
+    if (owned) removeRule(doc, id, owned.id);
+  }
+  node.assign = node.assign.filter((rule) => rule.id !== assignId);
+  if (!node.assign.length) delete node.assign;
+}
+
 export function addRule(doc: Cre8Document, id: NodeId, rule: StyleRule): string | null {
   const node = doc.nodes[id];
   if (!node) return null;

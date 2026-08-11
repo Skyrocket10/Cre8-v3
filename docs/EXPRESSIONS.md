@@ -1,7 +1,7 @@
 # Expressions — design
 
-**Status: A and B are built. C and D are design.** This file was written before
-any of the code, so the constraints existed first, and it is being converted
+**Status: A, B and C are built. D is design.** This file was written before any
+of the code, so the constraints existed first, and it is being converted
 section by section as each phase lands. Everything marked *design* is an
 agreement rather than a description — assume nothing in those sections is true
 of the running product yet.
@@ -178,7 +178,7 @@ comparisons.
 parameter, a visitor source. `Value` is a tagged union so they arrive without a
 migration, and nothing about the scheduling changes when they do.
 
-### C — Dynamic assignment
+### C — Dynamic assignment *(built, for literal values)*
 
 ```
 WHEN price > 500000
@@ -204,6 +204,40 @@ CSS declaration
 
 where the right-hand side resolves to a permitted `Value`. The CSS compilation
 model stays intact.
+
+**And the chain is the implementation, not a diagram.** Writing
+`→ hide this element` in the assignment row produces two things: the state, and
+an ordinary `StyleRule` on the same node conditioned on it. That is exactly what
+a designer would have built by hand in two panels, so it is a *shortcut, not a
+mechanism* — the check compares the generated document with the hand-built one
+and asserts they are the same rule.
+
+Which means nothing downstream learned anything. No generator change, no new
+render path, and the rule stays editable in Conditions afterwards. The link
+between the two is by shape rather than by a stored id: the assignment owns the
+rule whose *only* condition is its state. Add a second condition and the rule
+stops being the assignment's — the designer meant something else by it, and
+rewriting it under them would be the surprise.
+
+Renaming carries the rule along, and so does renaming the state key, because a
+rule answering to a value nothing sets any more is styling that silently stops
+while the panel still looks right. Removing the assignment removes the rule and
+leaves every other rule alone.
+
+The properties on offer are five, not every `StyleProp`. This row is a shortcut
+for the two or three things a data-driven state usually does; a picker with a
+hundred entries would be a worse Conditions panel rather than a quicker one.
+
+**Hiding is disclosed where it is chosen.** `display: none` is CSS, which is
+what makes it work with no script and before first paint — and it means the
+content is in the published file. The row says so, and points at the repeater's
+filter as the tool for keeping a record off the page altogether. That is the
+execution model's disclosure rule applied to the case where somebody is most
+likely to assume otherwise.
+
+**Not built:** the `someValue` form. A right-hand side that varies per row
+cannot be a shared rule, so it is a custom property written per instance — which
+is phase D, and deliberately separate.
 
 ### D — Continuous values
 
@@ -295,7 +329,9 @@ them before first paint with no flash.
 
 Hide and Show are not special actions. `display` and `visibility` are already
 `StyleProp`s, so hiding is `apply: { display: 'none' }` under a generated rule:
-a preset over the same assignment, with nothing new underneath it.
+a preset over the same assignment, with nothing new underneath it. *(Built —
+and Show is `display: revert` rather than a guessed value, because inventing
+`block` for a flex container brings a row of cards back stacked.)*
 
 ---
 
@@ -447,6 +483,10 @@ Each of these is falsifiable, which is the bar the rest of the suite is held to.
   runtime over a matrix of held values, operators and operands against the
   publisher's evaluator. Fractions are in the matrix deliberately: without them
   a runtime that rounded its operand agreed on every one of nine hundred cases.
+- **The shortcut and the hand-built rule are the same document.** *(Built.)*
+  Generated one way and written the other, compared ignoring ids. The
+  interesting half is what happens afterwards: renaming, removing, and a rule
+  the designer has since edited, which the assignment must stop claiming.
 - **The Test evaluator ships only where it is used.** *(Built, and it found a
   regression.)* The runtime is two functions rather than one, because the first
   version put the evaluator inside the switch runtime and made every page with
