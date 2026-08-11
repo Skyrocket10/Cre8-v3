@@ -200,83 +200,112 @@ a preset over the same assignment, with nothing new underneath it.
 
 ---
 
-## Open points
+## Execution model
 
-Five things the model above does not yet answer. Each is written as the
-question, then the recommendation.
+```
+Test is always the same semantic rule.
 
-### 1. May a Test that depends only on records be folded at publish?
+At publish time we inspect its dependencies:
 
-`price > 500000` on a generated page has a known answer when the file is
-written. Folding it means emitting the resulting state attribute directly and
-shipping no interpreter, no `data-price`, and no bytes.
+  All dependencies known at publish   → fold the Test
+  Any runtime dependency              → publish the runtime Test + required fallback
+  Record changes                      → republish / re-fold affected Tests
+  User or input changes               → runtime subscription evaluates the Test
+  Two Tests on one state key          → deterministic arbitration
+```
 
-This is *not* the stage inference that was rejected earlier. That changed what
-kind of thing a rule was; this changes only whether the interpreter has to run.
-The rule is still an interaction, the state is still a state, the CSS is
-identical, and the observable result is the same. It is the same class of move
-as compiling a condition to a selector instead of evaluating it.
+Scheduling is derived from dependencies. It is not a mode the author picks.
 
-It holds because a record write already republishes the site, so a folded
-answer cannot go stale.
+### Folding
 
-**Recommendation: yes, and say so in the inspector** — a rule that folds should
-be marked as costing nothing, because that is information the author wants.
-A rule that cannot fold should say what makes it dynamic.
+A Test whose inputs are all known at publish time is evaluated once and its
+resulting state emitted directly. No interpreter ships, no values are published,
+and the output is identical to what runtime evaluation would have produced.
 
-There is a second reason to want it: an unfolded Test publishes the values it
-references into the HTML. A folded one publishes nothing.
+This is an optimisation of *execution*, not a second kind of rule. It does not
+change what a Test is, which is the distinction that matters: the earlier
+proposal — inferring from an expression's inputs whether it was content or
+behaviour — was rejected because it changed the *kind* of the thing. This does
+not. Same rule, same state, same CSS, same result.
 
-### 2. What does an unfolded Test put in the page?
+It is safe against staleness because a record write already republishes.
 
-Raw values, never formatted ones, on the element that owns the rule — per
-repeated instance. Only fields that a Test actually references.
+Three consequences worth stating, because each is a way to get it wrong:
 
-**This must be visible in the editor.** Referencing a field in an interaction
-makes that field's value readable in the published source. An author choosing
-between "hide sold houses" and "grey out sold houses" is also choosing whether
-the sold status is public, and should be told so plainly.
+**Folding must be pure and stable.** Same inputs, same bytes, every time.
+Publishing is diffed — a second publish with no change writes nothing — and a
+fold that varied would make every republish rewrite every page. The `republish`
+suite already asserts the no-op case, so this is checked by something that
+exists.
 
-### 3. When do input-driven Tests run?
+**Folding runs on the canvas too.** The canvas has no publish step; it draws
+against the design record. A records-only Test must therefore be folded live in
+the editor, by the same function the publisher calls. One evaluator, three
+surfaces — the same rule as the renderer.
 
-`input.value != ""` is not answerable at load; it is answerable on every input
-event. The behaviour runtime already listens for `input` for continuous values,
-so the hook exists — but it means B has two scheduling modes: evaluate once at
-load, and evaluate on change.
+**Folding is per instance, CSS is once.** In a repeater the fold runs per row
+and yields a state attribute per row. The generated CSS is one rule for all of
+them. That is the repeater constraint restated, and it is where this design
+fails if it is going to.
 
-**Recommendation: derive it from the sources, and only the sources.** Record
-fields fold. Visitor sources evaluate once, before paint, as they already do.
-Input values subscribe. No user-facing choice; it is a property of what the
-Test reads.
+### Mixed dependencies
 
-### 4. What happens with no scripting?
+A Test that reads both a record field and an input value has a runtime
+dependency, so it is published rather than folded. The record operand is
+published as a raw data attribute on the instance and the Test is serialised
+once, shared by every row.
 
-The defining constraint, and the model above does not state its answer.
+The alternative — substituting the record operand into the Test as a literal —
+was considered and rejected: it duplicates the Test per row, which is the size
+failure the repeater rule exists to prevent. It discloses the same value either
+way, so there is nothing to choose between them but bytes.
 
-- Folded Tests: work perfectly. Nothing to run.
-- Visitor-source Tests: already resolved in the head before paint.
-- Input-driven Tests: cannot run. They need a **declared fallback state** —
-  the same `Ships as` concept the data conditions already use for "what a
-  visitor sees before the page resolves it, and for ever with no scripting".
+### What an unfolded Test publishes
 
-**Recommendation: a fallback state is required, not optional**, for any rule
-that cannot fold. An interaction with no answer for a scripting-off visitor is
-an interaction that has not been finished.
+Raw values, never formatted, on the element that owns the rule, per repeated
+instance, and only the fields a Test actually reads.
 
-### 5. Which state key does a Test write?
+That dependency is part of the published contract. If the source carries
+`data-price="750000"`, the price is public. Choosing between hiding a sold house
+and greying it out is a choice about what the published application exposes, and
+the editor must show it rather than treat it as an implementation detail.
 
-`state = expensive` assigns a value to a *named key*. Two Tests writing the same
-key must be mutually exclusive or ordered, or the last one silently wins.
+### Scripting off
 
-The static suite already checks mutual exclusion for `set`. **Recommendation:
-Tests reuse that check**, and the editor refuses two rules on one key whose
-conditions can both be true, in the same way.
+Required, not optional. A Test with any runtime dependency cannot execute with
+scripting disabled, so the author must declare the state the output falls back
+to — the same `Ships as` concept the data conditions already use for "what a
+visitor sees before the page resolves it, and for ever with no scripting".
 
-Also undefined: what a Test does when it cannot be evaluated at all — a missing
-field, a value that is not the declared type. **Recommendation: fall back to
-the declared fallback state.** Never throw, never leave the attribute unset.
+Folded Tests need nothing: their answer is already in the file.
 
----
+An interaction with no answer for a scripting-off visitor is an interaction that
+has not been finished, and the editor should refuse to consider it complete.
+
+### The write key
+
+A Test assigns a value to a named state key. The key is the identity of the
+target state, not of the Test — two Tests may legitimately target one key, and
+they go through one arbitration.
+
+One thing still to settle here, because "deterministic arbitration" and "mutual
+exclusion" are different policies and the choice is load-bearing:
+
+- **Mutual exclusion** refuses, at edit time, two Tests on one key that can both
+  be true. This is what the static suite already does for `set` — but it does it
+  over named values, where overlap is trivially decidable. Ordered comparisons
+  are not: `price > 500000` and `status = "sold"` are on different fields and can
+  obviously both hold, so a strict exclusion rule would refuse a reasonable pair.
+- **Ordering** allows overlap and lets document order decide. This is how
+  `node.rules` already works — "a list rather than a record because two rules can
+  both match and both set `background`, and the only precedence a designer can
+  predict is the order".
+
+**Recommendation: ordering is the mechanism, exclusion is a warning.** Later
+Tests win, matching the rule list. The editor flags a pair it can *prove*
+overlaps — same field, comparable operands — and says which one wins, rather
+than refusing. Refusing what cannot be proven safe would block more valid
+designs than it saved.
 
 ## Checks that would hold this up
 
