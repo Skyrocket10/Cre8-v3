@@ -484,7 +484,22 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
       ],
     },
   },
-  transition: { label: 'Transition', section: 'motion', control: { kind: 'bespoke' } },
+  transition: { label: 'Eases', section: 'motion', control: { kind: 'bespoke' } },
+  appear: {
+    label: 'Appears',
+    hint: 'How it arrives as it scrolls into view',
+    section: 'motion',
+    control: {
+      kind: 'choice',
+      options: [
+        { value: 'fade', label: 'Fades in' },
+        { value: 'rise', label: 'Fades and rises' },
+        { value: 'zoom', label: 'Fades and grows' },
+        { value: 'left', label: 'Slides in from the left' },
+        { value: 'right', label: 'Slides in from the right' },
+      ],
+    },
+  },
 
   /* -------------------------------------------------------------- media -- */
   objectFit: { label: 'Fit', section: 'content', control: { kind: 'bespoke' }, only: ['image', 'video'] },

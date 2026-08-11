@@ -92,6 +92,32 @@ reading a control *inside* the element that owns it, which works at runtime and
 which the picker does not offer; answer the label from the offer list alone and
 a working rule reads as broken while the warning correctly stays quiet.
 
+A reveal is checked at both ends of what the platform does not guarantee. The
+generated stylesheet must tie the animation to the scrollport, fill backwards,
+carry keyframes for every effect the menu offers — and carry them *outside* the
+reduced-motion block, since a first pass at that rule was satisfied by an effect
+that existed only in the redefined copy and therefore animated nothing for
+anybody. An effect name the menu could never produce emits no animation at all,
+because a document is JSON and arrives from disk. A page with no reveal on it
+carries no keyframes.
+
+The browser then covers the three cases that would be a blank page rather than
+a missing flourish: the element is invisible before its turn and visible after
+being scrolled to, somebody who asked for less motion gets the content, and a
+page too short to scroll shows what it reveals. That last one needed its own
+short page — the first attempt gave the existing page a tall viewport, and that
+page carries a form and two switches by now and scrolls at any height, so it
+passed a scrollable page off as an unscrollable one.
+
+Time-of-day conditions are pinned at both ends rather than run at whatever hour
+the suite starts. That is not tidiness. The negative half of a data condition
+matched every ancestor without the attribute, so the night copy of a variant was
+hidden at every hour and the strip showed nothing between nine and midnight —
+and the check that would have caught it was green every afternoon for months.
+The static rule that existed asserted the broken selector spelling, which is how
+a defect becomes a requirement. Both are fixed, and the block sweep got the same
+clock pin for the same reason.
+
 The two composite declarations are checked as functions before they are checked
 as controls, because round-tripping is where a composite control fails: every
 `transition` string the block library authors goes through the parser and the

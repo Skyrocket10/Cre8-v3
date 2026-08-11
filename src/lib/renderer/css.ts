@@ -40,7 +40,34 @@ function cssProp(prop: string): string {
  * the document format drifts from real CSS, the more the published output can
  * diverge from the canvas.
  */
+/**
+ * The named reveals, and the one place their identifiers are written.
+ *
+ * A closed set because the value ends up inside a CSS identifier. The control
+ * that writes it is a menu, so nothing in the editor can produce anything else
+ * — but a document is JSON and arrives from disk, so an unknown name emits no
+ * animation at all rather than a rule built around whatever the file said.
+ */
+export const APPEAR_EFFECTS = ['fade', 'rise', 'zoom', 'left', 'right'] as const;
+
 function expand(prop: string, value: string): [string, string][] {
+  if (prop === 'appear') {
+    if (!(APPEAR_EFFECTS as readonly string[]).includes(value)) return [];
+    return [
+      /*
+       * `both` matters more than it looks. Backwards fill is what holds the
+       * element at its `from` state before the animation's range begins —
+       * without it a card below the fold is drawn at full opacity, then snaps
+       * to transparent the moment it enters the range, which reads as a flash
+       * rather than a reveal.
+       */
+      ['animation', `cre8-ap-${value} 600ms ease-out both`],
+      ['animation-timeline', 'view()'],
+      // Finished a third of the way up, not at the top of the screen: an
+      // element that only completes as it leaves is one nobody sees arrive.
+      ['animation-range', 'entry 0% cover 30%'],
+    ];
+  }
   if (prop === 'textGradient') {
     return [
       ['background-image', value],
@@ -294,14 +321,32 @@ function conditionParts(
     }
 
     case 'data': {
-      // The whole of stage 3 in the generator. A data source resolves to a
-      // value on the document element, so the test is the one a state already
-      // uses — `:is()` either way so `is` and `isn't` weigh the same — hung
-      // off an ancestor that is always there rather than one found by walking.
+      /*
+       * The whole of stage 3 in the generator. A data source resolves to a
+       * value on the document element, so the test is the one a state already
+       * uses — `:is()` either way so `is` and `isn't` weigh the same — hung off
+       * an ancestor that is always there rather than one found by walking.
+       *
+       * `[data-cre8-data]` on the negative side is load-bearing, and its
+       * absence was a bug that shipped. A prefix selector matches if *any*
+       * ancestor satisfies it, and `:not(:is([data-cre8-data~="time:night"]))`
+       * is satisfied by `<body>`, by every wrapper `<div>`, by anything at all
+       * that is not the one element carrying the attribute. So the negative
+       * rule matched always, and an element that should have appeared at night
+       * was hidden at night *and* at every other hour — the block showed
+       * nothing between nine and midnight and nobody saw it, because the check
+       * that would have caught it only ran in the afternoon.
+       *
+       * Requiring the attribute narrows the ancestor to the one element that
+       * can carry a value, which is what the positive side gets for free by
+       * naming it. Specificity is unchanged: `:where()` weighs nothing either
+       * way.
+       */
       const match = condition.values
         .map((value) => `[data-cre8-data~="${condition.source}:${value}"]`)
         .join(',');
-      const test = condition.op === 'is' ? `:is(${match})` : `:not(:is(${match}))`;
+      const test =
+        condition.op === 'is' ? `:is(${match})` : `[data-cre8-data]:not(:is(${match}))`;
       return { prefix: `:where(${test}) `, compound: '' };
     }
 
@@ -678,6 +723,45 @@ export interface DocumentStylesheetOptions extends GenerateCssOptions {
   standalone?: boolean;
 }
 
+/**
+ * The reveal keyframes, and their answer to somebody who asked for less motion.
+ *
+ * Redefined inside the media query rather than switched off with `!important`.
+ * Same names, animating nothing — so the rules that reference them stay exactly
+ * as they are, no override has to out-specify anything, and an element that
+ * would have risen simply arrives. A blanket `animation: none` would have had
+ * to reach every element on the page to catch these five.
+ *
+ * Shipped only on pages that use one, which is why this is a function of the
+ * document rather than part of the reset.
+ */
+const APPEAR_KEYFRAMES = `
+@keyframes cre8-ap-fade { from { opacity: 0; } }
+@keyframes cre8-ap-rise { from { opacity: 0; translate: 0 14px; } }
+@keyframes cre8-ap-zoom { from { opacity: 0; scale: 0.94; } }
+@keyframes cre8-ap-left { from { opacity: 0; translate: -18px 0; } }
+@keyframes cre8-ap-right { from { opacity: 0; translate: 18px 0; } }
+@media (prefers-reduced-motion: reduce) {
+  @keyframes cre8-ap-fade { from { opacity: 1; } }
+  @keyframes cre8-ap-rise { from { opacity: 1; translate: 0 0; } }
+  @keyframes cre8-ap-zoom { from { opacity: 1; scale: 1; } }
+  @keyframes cre8-ap-left { from { opacity: 1; translate: 0 0; } }
+  @keyframes cre8-ap-right { from { opacity: 1; translate: 0 0; } }
+}`;
+
+/** Whether any layer of any node asks to appear. */
+function anythingAppears(doc: Cre8Document): boolean {
+  for (const node of Object.values(doc.nodes)) {
+    for (const layer of Object.values(node.styles ?? {})) {
+      if (layer?.appear) return true;
+    }
+    for (const rule of node.rules ?? []) {
+      if (rule.apply?.appear) return true;
+    }
+  }
+  return false;
+}
+
 export function generateStylesheet(
   doc: Cre8Document,
   options: DocumentStylesheetOptions
@@ -685,6 +769,7 @@ export function generateStylesheet(
   const parts = options.standalone
     ? [PUBLISHED_DOCUMENT_RESET, DOCUMENT_RESET, PLACEHOLDER_CSS]
     : [DOCUMENT_RESET, PLACEHOLDER_CSS];
+  if (anythingAppears(doc)) parts.push(APPEAR_KEYFRAMES);
   if (options.themeVars) {
     parts.unshift(`${options.rootSelector ?? ':root'} {\n${options.themeVars}\n}`);
   }

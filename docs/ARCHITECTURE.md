@@ -1336,6 +1336,59 @@ clock is pinned now rather than the element skipped: skipping would weaken the
 comparison for every other block, and a check whose verdict depends on when it
 ran is worse than no check.
 
+### Arriving as you scroll to it
+
+The one visual effect that needs more than a declaration, and the last piece of
+what a Framer user expects. It is a named effect on the style layer — `appear:
+'rise'` — which the generator expands into an animation, a timeline and a range,
+because the question a designer has is "does this fade up?" and the answer in
+CSS is four declarations and a `@keyframes` block.
+
+Scroll-driven, so there is nothing to execute: `animation-timeline: view()` ties
+progress to the element's position in the scrollport. That keeps the rule this
+codebase has held since Phase C — CSS does the work — and it means a page with a
+reveal on it ships exactly as many scripts as one without.
+
+Three cases had to be answered, and each is checked rather than described.
+Where scroll-driven animation is unsupported the timeline declaration is
+dropped and the same animation runs once on load, which is a weaker effect
+rather than a broken page. Under `prefers-reduced-motion` the keyframes are
+**redefined inside the media query** — same names, animating nothing — so the
+rules referencing them are untouched and no override has to out-specify
+anything; a blanket `animation: none` would have had to reach every element on
+the page to catch five. And on a page too short to scroll, the timeline is
+inactive and the effect is not applied, so the element simply appears — the one
+arrangement where backwards fill could have hidden content for good, and the
+one that would look identical to a working page on the machine it was designed
+on.
+
+The keyframes ship only on pages that use one, which is why they are a function
+of the document rather than part of the reset.
+
+### A negation that matched everything
+
+Found while verifying the above, and it had shipped: the negative half of a data
+condition compiled to `:where(:not(:is([data-cre8-data~="time:night"])))` as an
+**ancestor prefix**. A prefix matches if *any* ancestor satisfies it, and
+`<body>` satisfies that one, as does every wrapper `div` — so the rule matched
+always. The night copy of a data variant was hidden at night *and* at every
+other hour, and the "Opening hours" strip showed nothing at all between nine in
+the evening and midnight.
+
+The fix is to require the attribute — `[data-cre8-data]:not(:is(…))` — which
+narrows the ancestor to the one element that can carry a value, and is what the
+positive side gets for free by naming it. Specificity is unchanged: `:where()`
+weighs nothing either way.
+
+Two things about how it survived are worth keeping. The static check that
+existed asserted the *broken spelling* — a defect written down as a
+requirement, which is the failure mode of a check derived from the code it is
+checking rather than from what the code is for. And the browser check that
+would have caught it ran at whatever hour the suite happened to run at; it was
+green every afternoon for months. Both ends of the condition are now pinned
+with a fixed clock, and the same pinning went into the block sweep, which had
+the same shape of hole.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

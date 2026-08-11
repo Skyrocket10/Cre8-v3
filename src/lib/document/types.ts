@@ -207,6 +207,22 @@ export interface StyleDecl {
    */
   clipPath?: string;
 
+  /**
+   * How the element arrives as it scrolls into view.
+   *
+   * A named effect rather than a stack of animation longhands, because the
+   * question a designer has is "does this fade up?" and the answer in CSS is
+   * four declarations and a `@keyframes` block. The generator expands it; the
+   * keyframes ship only on pages that use one.
+   *
+   * Scroll-driven, so there is nothing to execute: `animation-timeline: view()`
+   * ties progress to the element's position in the scrollport. Where that is
+   * unsupported the declaration is dropped and the same animation runs once on
+   * load, which is a weaker effect rather than a broken page — and under
+   * `prefers-reduced-motion` the keyframes are redefined to animate nothing.
+   */
+  appear?: string;
+
   /* Media */
   objectFit?: string;
   objectPosition?: string;

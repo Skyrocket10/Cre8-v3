@@ -1093,6 +1093,172 @@ try {
       await noScript.close();
     }
   }
+  /* ------------------------------ 9. arriving as you scroll to it --------- */
+
+  /*
+   * The one visual effect that needs machinery past a declaration, and the two
+   * cases the platform does not cover for it: a browser with no scroll-driven
+   * animations, and a visitor who asked for less motion. Both have to end with
+   * the element *visible* — a reveal that leaves content at `opacity: 0` on a
+   * browser that could not run it is not a flourish, it is a blank page.
+   *
+   * Seeded rather than built through the panel: the claim here is about what
+   * the published file does, and the row that writes it is checked in the
+   * inspector suite.
+   */
+  const beforeReveal = ((await (await fetch(`${APP}/s/${id}/`)).text()).match(/<script/gi) ?? [])
+    .length;
+  const revealDoc = await getDocument(page, id);
+  {
+    const home = revealDoc.pages.find((p) => p.isHome) ?? revealDoc.pages[0];
+    const root = revealDoc.nodes[home.rootNodeId];
+    revealDoc.nodes.revealband = node('revealband', 'section', 'Reveal band', {
+      parentId: home.rootNodeId,
+      props: {},
+      styles: { desktop: { appear: 'rise', minHeight: '200px', backgroundColor: '#0b1220' } },
+    });
+    root.children = [...root.children, 'revealband'];
+  }
+  const revealSaved = await saveDocument(page, revealDoc);
+  report.check('the reveal seeded', revealSaved === 200, `HTTP ${revealSaved}`);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 60000 });
+  await page.waitForTimeout(1200);
+  await publish(page);
+
+  const revealed = await (await fetch(`${APP}/s/${id}/`)).text();
+  report.check(
+    'a page with a reveal on it ships nothing extra to execute',
+    (revealed.match(/<script/gi) ?? []).length === beforeReveal,
+    /*
+     * Against the count taken a moment ago, not against section 1's empty page:
+     * by here the project has a switch and a form on it and legitimately
+     * carries the behaviour runtime. Comparing to the original baseline
+     * reported the reveal as having added a script it did not add.
+     */
+    `${(revealed.match(/<script/gi) ?? []).length} script(s), ${beforeReveal} before the reveal`
+  );
+
+  /*
+   * Measured in a short viewport and again after scrolling to it, because those
+   * are two different questions and only one of them is about the animation.
+   *
+   * A reveal that leaves content at `opacity: 0` is not a missing flourish, it
+   * is a blank page — and on the machine it was designed on, where everything
+   * is above the fold, it looks identical to one that works.
+   */
+  const shown = await ctx.newPage();
+  await shown.setViewportSize({ width: 1200, height: 500 });
+  await shown.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+  await shown.waitForTimeout(800);
+
+  const read = () =>
+    shown.evaluate(() => {
+      const band = document.querySelector('[data-reveal-band]')
+        ?? [...document.querySelectorAll('section')].pop();
+      if (!band) return null;
+      const cs = getComputedStyle(band);
+      return {
+        opacity: Number(cs.opacity),
+        name: cs.animationName,
+        fill: cs.animationFillMode,
+        scrollable: document.documentElement.scrollHeight > window.innerHeight,
+      };
+    });
+
+  const beforeScroll = await read();
+  await shown.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await shown.waitForTimeout(900);
+  const afterScroll = await read();
+
+  report.check(
+    'the element it reveals is on screen once it has been scrolled to',
+    afterScroll !== null && afterScroll.opacity > 0.9,
+    JSON.stringify(afterScroll)
+  );
+  report.check(
+    'and it is the reveal doing it, not a coincidence',
+    afterScroll?.name?.includes('cre8-ap-rise') === true && afterScroll?.fill === 'both',
+    JSON.stringify({ name: afterScroll?.name, fill: afterScroll?.fill })
+  );
+  report.check(
+    'and it was waiting its turn before that, rather than already finished',
+    beforeScroll !== null && beforeScroll.scrollable && beforeScroll.opacity < 0.9,
+    // Otherwise the check above proves nothing: an element that was visible the
+    // whole time would pass it whether or not the animation ran at all.
+    JSON.stringify(beforeScroll)
+  );
+  await shown.close();
+
+  /* Each of the above, handed something it must reject. */
+  const calm = await browser.newContext({
+    reducedMotion: 'reduce',
+    viewport: { width: 1200, height: 800 },
+  });
+  const quietPage = await calm.newPage();
+  await quietPage.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+  await quietPage.waitForTimeout(600);
+  const quietSeen = await quietPage.evaluate(() => {
+    const band = [...document.querySelectorAll('section')].pop();
+    return band ? Number(getComputedStyle(band).opacity) : null;
+  });
+  report.check(
+    'somebody who asked for less motion gets the content, not a fade',
+    quietSeen !== null && quietSeen > 0.9,
+    // The keyframes are redefined under the media query rather than switched
+    // off, so this is the same animation arriving at the same place having
+    // moved nothing. A blanket override would have had to out-specify every
+    // rule on the page.
+    `opacity ${quietSeen}`
+  );
+  await calm.close();
+
+  /*
+   * And the case that would be a blank page rather than a missing flourish: a
+   * page too short to scroll at all.
+   *
+   * Backwards fill is what holds an element at `opacity: 0` before its turn, so
+   * "there is no turn" is the one arrangement where a reveal could plausibly
+   * hide content for good — and on the machine it was designed on, where
+   * everything is above the fold, it would look identical to one that works.
+   *
+   * The page is stripped to the band rather than given a tall viewport, because
+   * the first attempt did the latter: this page carries a form and two switches
+   * by now and scrolls at any height, so the check passed a scrollable page off
+   * as an unscrollable one and proved nothing at all.
+   */
+  const onlyBand = await getDocument(page, id);
+  {
+    const home = onlyBand.pages.find((p) => p.isHome) ?? onlyBand.pages[0];
+    onlyBand.nodes[home.rootNodeId].children = ['revealband'];
+    onlyBand.nodes.revealband.styles.desktop.minHeight = '80px';
+  }
+  await saveDocument(page, onlyBand);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 60000 });
+  await page.waitForTimeout(1200);
+  await publish(page);
+
+  const tall = await browser.newContext({ viewport: { width: 1200, height: 3000 } });
+  const shortPage = await tall.newPage();
+  await shortPage.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+  await shortPage.waitForTimeout(800);
+  const unscrollable = await shortPage.evaluate(() => {
+    const band = [...document.querySelectorAll('section')].pop();
+    return {
+      opacity: band ? Number(getComputedStyle(band).opacity) : null,
+      scrollable: document.documentElement.scrollHeight > window.innerHeight,
+    };
+  });
+  report.check(
+    'a page too short to scroll shows what it reveals rather than hiding it',
+    unscrollable.opacity !== null && unscrollable.opacity > 0.9 && !unscrollable.scrollable,
+    // The platform's answer is that an inactive timeline means the effect is
+    // not applied. Pinned rather than assumed, because it is exactly the sort
+    // of thing an engine changes and the failure is a page of nothing.
+    JSON.stringify(unscrollable)
+  );
+  await tall.close();
 } catch (error) {
   report.check('behaviour suite completed', false, error.message);
 } finally {

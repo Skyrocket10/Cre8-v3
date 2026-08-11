@@ -44,6 +44,8 @@ const {
   migrateDocument,
   buildTree,
   generateNodeCss,
+  generateStylesheet,
+  APPEAR_EFFECTS,
   renderPage,
   generateSite,
   renderNodeToHtml,
@@ -1689,7 +1691,29 @@ report.group('a condition on the visit compiles like one on a state');
   const negated = compile([data('time', 'isNot', ['night'], { apply: { color: 'red' } })]);
   report.check(
     '“isn’t” is one :not(:is()), the same as a state’s',
-    negated.includes(':where(:not(:is([data-cre8-data~="time:night"])))')
+    negated.includes(':not(:is([data-cre8-data~="time:night"]))'),
+    // `:is()` either way, so `is` and `isn't` weigh the same and order stays
+    // precedence.
+    /:where\([^{]*data-cre8-data[^{]*/.exec(negated)?.[0]?.trim() ?? 'no rule'
+  );
+  report.check(
+    'and it asks the element that carries a value, not any ancestor without one',
+    negated.includes(':where([data-cre8-data]:not(:is([data-cre8-data~="time:night"])))'),
+    /*
+     * The bug this replaces, and the version of this check that shipped
+     * alongside it asserted the broken spelling — which is how a defect
+     * becomes a requirement.
+     *
+     * A prefix matches if *any* ancestor satisfies it, and
+     * `:not(:is([data-cre8-data~="time:night"]))` is satisfied by `<body>`, by
+     * every wrapper div, by anything that is not the one element carrying the
+     * attribute. So the negative rule matched always: the night copy of a
+     * data variant was hidden at night and at every other hour, and the strip
+     * showed nothing at all between nine and midnight. Nobody saw it, because
+     * the browser check that would have caught it only ever ran in the
+     * afternoon.
+     */
+    /:where\([^{]*data-cre8-data[^{]*/.exec(negated)?.[0]?.trim() ?? 'no rule'
   );
 
   const many = compile([data('time', 'is', ['evening', 'night'], { apply: { color: 'red' } })]);
@@ -1711,7 +1735,9 @@ report.group('a condition on the visit compiles like one on a state');
   report.check(
     'and it expands content into elements, exactly as a switch value does',
     expanded.includes(':where(:is([data-cre8-data~="time:night"])) .c-') &&
-      expanded.includes(':where(:not(:is([data-cre8-data~="time:night"]))) .c-'),
+      expanded.includes(
+        ':where([data-cre8-data]:not(:is([data-cre8-data~="time:night"]))) .c-'
+      ),
     'both halves of the pair'
   );
 
@@ -7968,6 +7994,126 @@ report.group('what moves, and how it gets there');
       (one) => parseTransition(`opacity 100ms ${one.value}`)?.easing === one.value
     ),
     EASINGS.map((one) => one.label).join(' · ')
+  );
+}
+
+report.group('arriving as you scroll to it');
+
+{
+  /*
+   * A reveal is the one visual effect in the model that needs machinery beyond
+   * a declaration — a `@keyframes` block, a timeline, and an answer for the two
+   * cases the platform does not cover: a browser without scroll-driven
+   * animations, and a visitor who has asked for less motion. All three are
+   * checked against the generated stylesheet rather than described, because
+   * "there is a fallback" is a claim about output.
+   */
+  const doc = createEmptyDocument('Reveal');
+  const page = doc.pages[0];
+  const nodes = {};
+  const { rootId } = buildTree(
+    // A spec's `styles` is the base layer itself, not a map keyed by
+    // breakpoint. Written the other way this fixture builds a node with no
+    // declarations at all and every check below passes vacuously.
+    { type: 'section', name: 'Band', styles: { appear: 'rise' } },
+    nodes,
+    page.rootNodeId
+  );
+  Object.assign(doc.nodes, nodes);
+  doc.nodes[page.rootNodeId].children.push(rootId);
+
+  const css = generateStylesheet(doc, { standalone: true, mode: 'media' });
+
+  report.check(
+    'a reveal becomes an animation tied to the scrollport, not a script',
+    /animation:\s*cre8-ap-rise/.test(css) && /animation-timeline:\s*view\(\)/.test(css),
+    // The whole reason this is expressible at all: no runtime, nothing to
+    // execute, and it works with scripting switched off.
+    /animation[^;]*;/.exec(css)?.[0] ?? 'no animation'
+  );
+  report.check(
+    'and it fills backwards, so nothing is drawn before its turn',
+    /cre8-ap-rise[^;]*both/.test(css),
+    // Without backwards fill a card below the fold paints at full opacity and
+    // snaps to transparent as it enters the range, which reads as a flash.
+    /animation: cre8-ap-rise[^;]*/.exec(css)?.[0] ?? 'none'
+  );
+  report.check(
+    'the keyframes ship with it',
+    css.includes('@keyframes cre8-ap-rise'),
+    'the animation names something that exists'
+  );
+  /*
+   * Everything before the reduced-motion block, which is where an effect has to
+   * be defined to actually do anything. Written against the whole stylesheet
+   * this rule passes for an effect that exists *only* in the reduced copy — one
+   * that animates nothing, for everybody — and deleting a keyframe block was
+   * how that came out.
+   */
+  const moving = css.slice(0, css.indexOf('@media (prefers-reduced-motion: reduce) {\n  @keyframes'));
+  report.check(
+    'and every effect the menu offers has a keyframe block that moves',
+    APPEAR_EFFECTS.every((effect) => moving.includes(`@keyframes cre8-ap-${effect}`)),
+    // A menu entry with no keyframes behind it is an option that does nothing,
+    // which is worse than not offering it.
+    APPEAR_EFFECTS.filter((effect) => !moving.includes(`@keyframes cre8-ap-${effect}`)).join(', ') ||
+      `${APPEAR_EFFECTS.length} effects`
+  );
+
+  /*
+   * The reduced-motion block that holds *keyframes*, not the first one in the
+   * file — the published reset opens with its own `prefers-reduced-motion`
+   * query for scroll behaviour, so slicing from the first match hands the check
+   * a string containing both the normal keyframes and the redefined ones, and
+   * the failure message then prints the wrong half.
+   */
+  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce) {\n  @keyframes'));
+  report.check(
+    'somebody who asked for less motion gets the element, not the animation',
+    /@media \(prefers-reduced-motion: reduce\)/.test(css) &&
+      /@keyframes cre8-ap-rise \{ from \{ opacity: 1/.test(reduced),
+    /*
+     * Redefined rather than switched off. Same names, animating nothing — so
+     * the rules referencing them are untouched, no override has to out-specify
+     * anything, and an element that would have risen simply arrives. A blanket
+     * `animation: none` would have had to reach every element on the page.
+     */
+    /@keyframes cre8-ap-rise[^}]*}[^}]*}/.exec(reduced)?.[0] ?? 'not redefined'
+  );
+
+  /* Each of the above, handed something it must reject. */
+  const plain = createEmptyDocument('Plain');
+  report.check(
+    'a page with no reveal on it carries no keyframes',
+    !generateStylesheet(plain, { standalone: true, mode: 'media' }).includes('@keyframes cre8-ap-'),
+    // Five keyframe blocks and a media query on every page that never asked is
+    // the kind of unconditional cost this codebase shortened node ids to avoid.
+    'nothing shipped'
+  );
+  report.check(
+    'and an effect name the menu could never produce emits no animation at all',
+    (() => {
+      const odd = createEmptyDocument('Odd');
+      const oddNodes = {};
+      const built = buildTree(
+        { type: 'section', name: 'X', styles: { appear: 'rise; } body { display:none' } },
+        oddNodes,
+        odd.pages[0].rootNodeId
+      );
+      Object.assign(odd.nodes, oddNodes);
+      odd.nodes[odd.pages[0].rootNodeId].children.push(built.rootId);
+      const out = generateStylesheet(odd, { standalone: true, mode: 'media' });
+      return !out.includes('animation:') && !out.includes('body { display:none');
+    })(),
+    // A document is JSON and arrives from disk. The control is a menu, so the
+    // editor cannot write this — which is exactly why the generator has to
+    // refuse it rather than trust that nothing will.
+    'an unknown name is dropped, not interpolated'
+  );
+  report.check(
+    'the reveal checks are reading a real stylesheet',
+    css.length > 500 && css.includes('cre8-ap-'),
+    `${css.length} characters`
   );
 }
 

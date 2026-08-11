@@ -159,6 +159,34 @@ try {
   );
   await site.close();
 
+  /*
+   * And again with the clock held at each end of the condition, because the
+   * check above only ever tests whatever hour it happens to run at.
+   *
+   * That is not a hypothetical gap. The negative half of a data condition
+   * compiled to an ancestor prefix that `<body>` satisfied, so it matched
+   * always: the night copy was hidden at night as well as by day, and the
+   * strip showed *nothing* between nine in the evening and midnight. The suite
+   * ran in the afternoon and was green for months.
+   */
+  for (const [hour, expect, absent] of [
+    [22, 'Closed', 'Open now'],
+    [14, 'Open now', 'Closed'],
+  ]) {
+    const pinned = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await pinned.clock.setFixedTime(new Date(2026, 0, 15, hour, 0, 0));
+    const at = await pinned.newPage();
+    await at.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+    await at.waitForTimeout(400);
+    const text = await at.evaluate(VISIBLE_TEXT);
+    report.check(
+      `at ${hour}:00 the page shows one version and it is the right one`,
+      text.includes(expect) && !text.includes(absent),
+      text || 'nothing on screen'
+    );
+    await pinned.close();
+  }
+
   /* ---------------------------------------------- 4. a link that carries one */
 
   const tagged = await ctx.newPage();
