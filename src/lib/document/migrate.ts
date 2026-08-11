@@ -143,9 +143,44 @@ function migrateRefs(node: SceneNode): void {
   delete node.props.popoverTarget;
 }
 
+/**
+ * Declarations written under a name `StyleDecl` does not have.
+ *
+ * One entry, and it is a repair rather than a format change: the effect picker
+ * offered `textDecorationLine` for a while, which the generator happily
+ * kebab-cased into working CSS — so the pages are right and the *documents*
+ * carry a key outside the closed set that `resolveValue`, the override badge
+ * and the row menu all key on. Left alone, those rules would open in the panel
+ * with no matching option and read as unset.
+ *
+ * By shape, like everything here, and idempotent: the old key is deleted, so a
+ * second pass finds nothing. A value already under the right name wins — it is
+ * the one somebody chose most recently.
+ */
+const RENAMED_DECLARATIONS: [from: string, to: keyof StyleDecl][] = [
+  ['textDecorationLine', 'textDecoration'],
+];
+
+function migrateDeclarations(node: SceneNode): void {
+  const layers: (StyleDecl | undefined)[] = [
+    ...Object.values(node.styles ?? {}),
+    ...(node.rules ?? []).map((rule) => rule.apply),
+  ];
+  for (const layer of layers) {
+    if (!layer) continue;
+    const loose = layer as Record<string, string | undefined>;
+    for (const [from, to] of RENAMED_DECLARATIONS) {
+      if (loose[from] === undefined) continue;
+      if (loose[to] === undefined) loose[to] = loose[from];
+      delete loose[from];
+    }
+  }
+}
+
 function migrateNode(node: SceneNode): void {
   migrateBindings(node);
   migrateRefs(node);
+  migrateDeclarations(node);
 
   const legacy = (node as SceneNode & { states?: StateStyles }).states;
   const hasRetired = RETIRED_PROPS.some((key) => node.props[key] !== undefined);

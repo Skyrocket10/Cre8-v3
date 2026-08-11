@@ -1286,6 +1286,53 @@ report.group('a reference is a thing the document knows about');
       JSON.stringify(old.nodes[rootId]) === again,
       'idempotent'
     );
+
+    /* ------------------- a declaration written under the wrong name -------- */
+
+    const legacy = old.nodes[rootId];
+    // Without the delete this fixture asserts nothing: a button ships
+    // `textDecoration: none` in its defaults, so the rename would find the
+    // right name already taken and correctly leave it alone — which reads as
+    // the migration doing nothing.
+    legacy.styles.desktop = { ...legacy.styles.desktop, textDecorationLine: 'line-through' };
+    delete legacy.styles.desktop.textDecoration;
+    legacy.rules = [
+      { id: 'r-old', when: [{ kind: 'pointer', pseudo: 'hover' }], apply: { textDecorationLine: 'underline' } },
+    ];
+    migrateDocument(old);
+    report.check(
+      'a declaration saved under a name the model does not have is repaired, not dropped',
+      legacy.styles.desktop.textDecoration === 'line-through' &&
+        legacy.styles.desktop.textDecorationLine === undefined &&
+        legacy.rules[0].apply.textDecoration === 'underline',
+      /*
+       * The effect picker offered `textDecorationLine` for a while and the
+       * generator kebab-cased it into working CSS, so the pages were right and
+       * the documents were not: a key outside the closed set the override
+       * badge and the row menu key on. Untouched, those rules open in the
+       * panel with no matching option and read as unset.
+       *
+       * Both layers, because a rule's `apply` is a `StyleDecl` too and is
+       * where the picker actually wrote.
+       */
+      JSON.stringify({
+        base: legacy.styles.desktop.textDecoration ?? null,
+        rule: legacy.rules[0].apply.textDecoration ?? null,
+        leftOver: legacy.styles.desktop.textDecorationLine ?? null,
+      })
+    );
+    report.check(
+      'and a value already under the right name is the one kept',
+      (() => {
+        const both = old.nodes[rootId];
+        both.styles.desktop = { textDecoration: 'underline', textDecorationLine: 'line-through' };
+        migrateDocument(old);
+        return both.styles.desktop.textDecoration === 'underline';
+      })(),
+      // A document open in two tabs can be part-way through. The newer
+      // spelling is the one somebody chose most recently.
+      old.nodes[rootId].styles.desktop.textDecoration ?? 'nothing'
+    );
   }
 
   /* Each of the above, handed something it must reject. */
@@ -7618,6 +7665,57 @@ report.group('an expression is described in one place');
     'per rule, not per panel'
   );
 
+  /*
+   * And the picker that offers a state a one-line effect, which is the one
+   * place a panel names a *property* rather than a condition.
+   */
+  const styleDecl = read('src/lib/document/types.ts');
+  const declared = new Set(
+    [
+      ...styleDecl
+        .slice(
+          styleDecl.indexOf('export interface StyleDecl'),
+          styleDecl.indexOf('export type StyleProp')
+        )
+        .matchAll(/^\s{2}(\w+)\?:/gm),
+    ].map((one) => one[1])
+  );
+  const offered = [...data.matchAll(/^\s*\['(\w+)', '([^']+)'\],$/gm)].map((one) => [
+    one[1],
+    one[2],
+  ]);
+
+  report.check(
+    'the effect picker offers only properties the model actually has',
+    offered.length >= 5 && offered.every(([prop]) => declared.has(prop)),
+    /*
+     * The bug this is written for shipped: the list carried
+     * `textDecorationLine`, which `StyleDecl` does not declare. Nothing
+     * objected — the picker round-tripped it and the generator kebab-cases
+     * whatever it is handed — so the effect worked while sitting outside the
+     * closed set the override badge and the row menu key on, and the
+     * Typography row could not see it. The annotation now makes the compiler
+     * the first guard; this is the second, because the compiler only checks
+     * the list while somebody keeps it typed.
+     */
+    offered.length
+      ? offered
+          .filter(([prop]) => !declared.has(prop))
+          .map(([prop]) => prop)
+          .join(', ') || `${offered.length} offered, all declared`
+      : 'found no list to check — the reader has gone stale'
+  );
+  report.check(
+    'and names them in words rather than in property names',
+    offered.length >= 5 && offered.every(([, word]) => !/[A-Z]/.test(word)),
+    // `sets backgroundColor` is a variable on screen, in the one panel whose
+    // whole argument is that a rule reads as a sentence.
+    offered
+      .filter(([, word]) => /[A-Z]/.test(word))
+      .map(([, word]) => word)
+      .join(', ') || offered.map(([, word]) => word).join(' · ')
+  );
+
   /* Each of the above, handed something it must reject. */
   report.check(
     'the one-place rules would notice a panel spelling its own words',
@@ -7637,6 +7735,14 @@ report.group('an expression is described in one place');
     'and the one-definition rule would notice the panel checking membership itself',
     /!nodes\[/.test('const gone = !nodes[ref.node];'),
     'the pattern matches what it is looking for'
+  );
+  report.check(
+    'the effect-picker rules are reading a real list, not an empty match',
+    offered.length >= 5 && declared.size > 50,
+    // Both rules pass vacuously against nothing found, and the reader is two
+    // regexes over source — exactly the thing that goes quiet when a file is
+    // reformatted rather than when it is wrong.
+    `${offered.length} offered against ${declared.size} declared`
   );
 }
 

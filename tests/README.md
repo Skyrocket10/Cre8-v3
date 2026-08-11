@@ -92,6 +92,18 @@ reading a control *inside* the element that owns it, which works at runtime and
 which the picker does not offer; answer the label from the offer list alone and
 a working rule reads as broken while the warning correctly stays quiet.
 
+The effect picker — the one place a panel names a *property* rather than a
+condition — is checked against the model rather than against itself: every
+property it offers must be one `StyleDecl` declares, and none may be named on
+screen in camelCase. It offered `textDecorationLine` for a while, which the
+generator kebab-cased into working CSS, so the pages were right and the
+documents carried a key outside the closed set the override badge and the row
+menu key on. Both rules fail loudly rather than quietly when the reader that
+finds the list goes stale, because two regexes over source are exactly the thing
+that goes silent on a reformat instead of on a mistake. The repair for documents
+already carrying that key is checked in the migration group, in both places the
+picker could have written — the base layer and a rule's `apply`.
+
 Then the join, which is the story the warning exists for: delete the element in
 the editor and watch the rule that read it change its mind, with no reload. The
 panel derives this from the store, so needing one would itself be the bug. That
