@@ -16,12 +16,13 @@ import {
   type NodeProps,
   type SceneNode,
 } from '../document/types';
-import { stateFrom } from './test';
+import { needsRuntime, publishedValues, stateFrom } from './test';
 import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
 import {
   CASE_ATTR,
   DRIVE_ATTR,
+  ELSE_ATTR,
   NOT_ATTR,
   QUIET_ATTR,
   RANGE_ATTR,
@@ -29,6 +30,8 @@ import {
   SET_ATTR,
   SWITCH_ATTR,
   TABS_ATTR,
+  TEST_ATTR,
+  VALUES_ATTR,
   VALUE_ATTR,
 } from '../runtime/behaviour';
 
@@ -232,7 +235,25 @@ function applySwitch(
        * visitor sees for ever with no scripting.
        */
       const assigned = stateFrom(node, options.record ?? null);
-      model.attrs[VALUE_ATTR] = design || assigned || slug(props.switchDefault);
+      const settled = assigned || slug(props.switchDefault);
+      model.attrs[VALUE_ATTR] = design || settled;
+
+      /*
+       * And, when something on this node cannot be answered until somebody
+       * types: a pointer into the page's shared Test table, the raw values
+       * this instance's Tests read, and the answer to fall back to.
+       *
+       * `settled` is that fallback, and it is everything that *was* knowable —
+       * a record rule that folded still counts. So a visitor with no scripting
+       * gets the publish-time answer rather than the designer's default, and
+       * the runtime restores exactly that when no live Test holds.
+       */
+      if (needsRuntime(node)) {
+        model.attrs[TEST_ATTR] = node.id;
+        model.attrs[ELSE_ATTR] = settled;
+        const values = publishedValues(node, options.record ?? null);
+        if (values) model.attrs[VALUES_ATTR] = JSON.stringify(values);
+      }
       if (props.switchRole === 'tabs') model.attrs[TABS_ATTR] = 'true';
     }
   }

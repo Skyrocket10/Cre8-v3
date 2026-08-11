@@ -15,7 +15,8 @@
 import { describeElement, type AttrValue } from '../renderer/element-model';
 import { variantsOf, type Variant } from '../renderer/variants';
 import { boundProps, repeatRows, type RecordSet } from '../renderer/repeat';
-import { behaviourRuntimeSource } from '../runtime/behaviour';
+import { behaviourRuntimeSource, testRuntimeSource } from '../runtime/behaviour';
+import { testTable } from '../renderer/test';
 import {
   DATA_ATTR,
   collectDataSources,
@@ -527,7 +528,26 @@ export function renderPage(
     const props = doc.nodes[id]?.props;
     return Boolean(props && (props.switchSet || props.drives));
   });
-  const script = interactive ? `<script>${behaviourRuntimeSource()}</script>` : '';
+  /*
+   * And the Tests that could not be answered here. The table is built once for
+   * the page and handed to the runtime as an argument rather than embedded as
+   * a separate JSON element: one `<script>`, and the rules stay next to the
+   * only code that reads them.
+   *
+   * Keyed by node, so a repeater's hundred cards reference one entry and carry
+   * only their own values. Serialising per element would put the whole Test on
+   * every row, which is the size failure the repeater constraint exists to
+   * prevent — the same argument that keeps the stylesheet from growing.
+   */
+  const table = testTable(doc.nodes, nodeIds);
+  const inline = [
+    interactive ? behaviourRuntimeSource() : '',
+    // Separately, because it is the larger half and most pages have no use for
+    // it. A pricing toggle should not carry a Test evaluator, and it did for
+    // one afternoon — the size check in the `behaviour` suite is what noticed.
+    Object.keys(table).length ? testRuntimeSource(table) : '',
+  ].filter(Boolean);
+  const script = inline.length ? `<script>${inline.join(';')}</script>` : '';
 
   const lang = escapeAttr(doc.settings.language || 'en');
   // The values the file ships with. A visitor sees them for the instant before

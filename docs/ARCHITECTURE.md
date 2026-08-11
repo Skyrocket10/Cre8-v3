@@ -962,6 +962,14 @@ already knows how to read. A hundred cards in a hundred different states share
 one rule. `Condition` is now a member of `Test` rather than a parallel idea, so
 "the CSS-compilable subset" is true by construction.
 
+A Test whose operands are all record fields is answered when the page is
+published and ships as an attribute. One that reads a form control cannot be,
+so its rules travel — as the same AST the editor stores, keyed by node so a
+repeater shares one entry — and a second small runtime evaluates them. That
+runtime is separate from the switch one on purpose: most pages have no use for
+it, and folding it in made every page with a toggle carry an evaluator it never
+called.
+
 Third, **formatting is presentation, and the type system is what says so**.
 Comparisons must see raw values — `$9.99` sorts before `$100.00` and `1234.5`
 does not — and rather than write that rule down and lint for it, `Format` hangs

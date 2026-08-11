@@ -1255,7 +1255,7 @@ export function removeField(doc: Cre8Document, collectionId: string, key: string
   for (const node of Object.values(doc.nodes)) {
     if (!node.bind) continue;
     for (const [prop, binding] of Object.entries(node.bind)) {
-      if (binding.value.key === key) delete node.bind[prop];
+      if (binding.value.kind === 'field' && binding.value.key === key) delete node.bind[prop];
     }
     if (!Object.keys(node.bind).length) delete node.bind;
   }

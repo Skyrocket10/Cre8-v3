@@ -47,6 +47,7 @@ const {
   format: formatLib,
   boundProps,
   tests,
+  behaviour,
 } = loadBlocks();
 
 /** The selector of the first generated rule mentioning `needle`. */
@@ -2480,6 +2481,508 @@ report.group('a record decides what state an element is in');
     'and the stylesheet check would notice one that did grow',
     styleOfPage(wide).length > 0,
     'there is a stylesheet to compare in the first place'
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * A Test that cannot be answered until somebody types
+ *
+ * The runtime half of phase B. A Test reading a form control has no answer
+ * when the page is published, so the rules travel to the browser and are
+ * evaluated there.
+ *
+ * That means a second implementation of the comparison, and it is not
+ * optional: `behaviourRuntime` is serialised with `toString()` and can import
+ * nothing. Two implementations of one rule is exactly the drift this project
+ * refuses everywhere else, so the mitigation has to be real — the checks below
+ * drive *the actual runtime function* over a matrix of values with a fake DOM
+ * and assert it reaches the same answer as the publisher's evaluator, case for
+ * case. Reading the two side by side and agreeing they look the same is not a
+ * check.
+ * ----------------------------------------------------------------------- */
+
+report.group('a Test the browser has to answer agrees with the one the publisher does');
+
+{
+  const { evaluate, stateFrom, foldable, needsRuntime, testTable, publishedValues, unfinished } =
+    tests;
+  const { testRuntime } = behaviour;
+
+  /* ----------------------------------------------------------------------
+   * Just enough DOM to run the real runtime in Node.
+   * ------------------------------------------------------------------- */
+
+  /** `[a]`, `[a="v"]`, `[a~="v"]`, each optionally followed by `:not([b])`. */
+  const matches = (el, selector) => {
+    const parts = /^\[([\w-]+)(?:([~]?=)"([^"]*)")?\](?::not\(\[([\w-]+)\]\))?$/.exec(selector);
+    if (!parts) return false;
+    const [, name, operator, wanted, without] = parts;
+    if (without && without in el.attrs) return false;
+    if (!(name in el.attrs)) return false;
+    if (!operator) return true;
+    const held = String(el.attrs[name]);
+    return operator === '~=' ? held.split(/\s+/).includes(wanted) : held === wanted;
+  };
+
+  const descendants = (el) => el.children.flatMap((child) => [child, ...descendants(child)]);
+
+  const el = (attrs, children = []) => {
+    const node = {
+      attrs: { ...attrs },
+      children,
+      parent: null,
+      value: attrs.value,
+      getAttribute: (name) => (name in node.attrs ? String(node.attrs[name]) : null),
+      setAttribute: (name, value) => {
+        node.attrs[name] = value;
+      },
+      hasAttribute: (name) => name in node.attrs,
+      removeAttribute: (name) => {
+        delete node.attrs[name];
+      },
+      querySelector: (selector) => descendants(node).find((d) => matches(d, selector)) ?? null,
+      querySelectorAll: (selector) => descendants(node).filter((d) => matches(d, selector)),
+      closest: (selector) => {
+        let current = node;
+        while (current) {
+          if (matches(current, selector)) return current;
+          current = current.parent;
+        }
+        return null;
+      },
+      get parentElement() {
+        return node.parent;
+      },
+    };
+    for (const child of children) child.parent = node;
+    return node;
+  };
+
+  const hostFor = (root) => {
+    const bound = [];
+    return {
+      bound,
+      querySelectorAll: (selector) => descendants(root).filter((d) => matches(d, selector)),
+      addEventListener: (type) => bound.push(type),
+      removeEventListener: (type) => {
+        const at = bound.indexOf(type);
+        if (at >= 0) bound.splice(at, 1);
+      },
+    };
+  };
+
+  /* ----------------------------------------------------------------------
+   * The differential
+   * ------------------------------------------------------------------- */
+
+  const record = (data) => ({
+    id: 'r1',
+    collectionId: 'c',
+    position: 0,
+    published: true,
+    data,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+
+  /** What the runtime settles a node's state to, given a record. */
+  const runtimeAnswer = (assign, data) => {
+    const holder = el({
+      'data-cre8-switch': 'band',
+      'data-cre8-value': 'else',
+      'data-cre8-else': 'else',
+      'data-cre8-test': 'n1',
+      'data-cre8-vals': JSON.stringify(data),
+    });
+    const root = el({}, [holder]);
+    testRuntime(hostFor(root), false, { n1: assign.map((r) => ({ when: r.when, value: r.value })) });
+    return holder.getAttribute('data-cre8-value');
+  };
+
+  /** And what the publisher would have settled it to. */
+  const publishAnswer = (assign, data) => {
+    const node = {
+      id: 'n1', type: 'frame', name: 'Card', parentId: null, children: [],
+      props: { switchKey: 'band', switchDefault: 'else' }, styles: {}, meta: {}, assign,
+    };
+    return stateFrom(node, record(data)) ?? 'else';
+  };
+
+  /*
+   * Fractions are in here deliberately. Written first with whole numbers only,
+   * and a runtime that rounded its operand agreed with the publisher on every
+   * one of nine hundred comparisons — the matrix could not tell the two apart
+   * because nothing in it had a decimal point to lose.
+   */
+  const OPERANDS = [
+    ['number', 0], ['number', 500000], ['number', 750000], ['number', -1],
+    ['number', 0.5], ['number', 749999.99], ['number', -1.5],
+    ['text', ''], ['text', 'sold'], ['text', 'SOLD'], ['text', 'available'],
+    ['boolean', true], ['boolean', false],
+  ];
+  const HELD = [
+    0, 500000, 750000, '750000', 0.5, 0.49, 749999.99, -1.5, '12.34',
+    '', 'sold', 'SOLD', true, false, null,
+  ];
+  const OPS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'empty', 'notEmpty'];
+
+  let compared = 0;
+  const disagreed = [];
+  for (const [type, value] of OPERANDS) {
+    for (const op of OPS) {
+      for (const held of HELD) {
+        const when = {
+          kind: 'compare',
+          left: { kind: 'field', key: 'f' },
+          op,
+          ...(op === 'empty' || op === 'notEmpty' ? {} : { right: { type, value } }),
+        };
+        const rules = [{ id: 'x', when, value: 'yes' }];
+        const data = { f: held };
+        compared++;
+        const a = publishAnswer(rules, data);
+        const b = runtimeAnswer(rules, data);
+        if (a !== b) disagreed.push(`${JSON.stringify(held)} ${op} ${type}:${value} → ${a} vs ${b}`);
+      }
+    }
+  }
+
+  report.check(
+    'the runtime and the publisher reach the same answer, case for case',
+    disagreed.length === 0 && compared > 800,
+    disagreed.length ? disagreed.slice(0, 3).join(' | ') : `${compared} comparisons agree`
+  );
+
+  // The absent case separately, because it is the one where "no value" and
+  // "empty value" have to stay different and a missing key is the only way to
+  // say the first.
+  const absent = [];
+  for (const op of OPS) {
+    const when = {
+      kind: 'compare',
+      left: { kind: 'field', key: 'missing' },
+      op,
+      ...(op === 'empty' || op === 'notEmpty' ? {} : { right: { type: 'text', value: 'x' } }),
+    };
+    const rules = [{ id: 'x', when, value: 'yes' }];
+    const a = publishAnswer(rules, { other: 1 });
+    const b = runtimeAnswer(rules, { other: 1 });
+    if (a !== b) absent.push(`${op} → ${a} vs ${b}`);
+  }
+  report.check(
+    'including when the record does not carry the field at all',
+    absent.length === 0,
+    absent.join(' | ') || 'agreed on every operator'
+  );
+
+  // And arbitration, which each side implements in its own loop.
+  const ordered = [
+    { id: 'a', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { type: 'number', value: 100 } }, value: 'mid' },
+    { id: 'b', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { type: 'number', value: 500 } }, value: 'high' },
+  ];
+  report.check(
+    'and they arbitrate two matching rules the same way',
+    publishAnswer(ordered, { f: 900 }) === 'high' && runtimeAnswer(ordered, { f: 900 }) === 'high',
+    `${publishAnswer(ordered, { f: 900 })} / ${runtimeAnswer(ordered, { f: 900 })}`
+  );
+  report.check(
+    'and fall back to the same value when neither holds',
+    publishAnswer(ordered, { f: 1 }) === 'else' && runtimeAnswer(ordered, { f: 1 }) === 'else'
+  );
+
+  /* ----------------------------------------------------------------------
+   * The operand only the browser can read
+   * ------------------------------------------------------------------- */
+
+  const typedTest = {
+    kind: 'compare',
+    left: { kind: 'input', name: 'email' },
+    op: 'notEmpty',
+  };
+  const typedRules = [{ id: 't', when: typedTest, value: 'ready' }];
+
+  report.check(
+    'a Test reading a form control cannot be folded',
+    foldable(typedTest) === false && foldable(ordered[0].when) === true
+  );
+  report.check(
+    'and the publisher declines to answer it rather than guessing',
+    evaluate(typedTest, record({ email: 'someone@example.com' })) === null,
+    String(evaluate(typedTest, record({ email: 'x' })))
+  );
+
+  const withControl = (typed) => {
+    const control = el({ name: 'email', value: typed });
+    const holder = el(
+      {
+        'data-cre8-switch': 'form',
+        'data-cre8-value': 'waiting',
+        'data-cre8-else': 'waiting',
+        'data-cre8-test': 'n2',
+      },
+      [control]
+    );
+    const root = el({}, [holder]);
+    testRuntime(hostFor(root), false, { n2: typedRules.map((r) => ({ when: r.when, value: r.value })) });
+    return holder.getAttribute('data-cre8-value');
+  };
+
+  report.check(
+    'an empty control leaves the state where the file shipped it',
+    withControl('') === 'waiting',
+    withControl('')
+  );
+  report.check(
+    'and a filled one moves it',
+    withControl('someone@example.com') === 'ready',
+    withControl('someone@example.com')
+  );
+  /*
+   * And that it keeps answering. Everything above proves the first pass; this
+   * is the subscription, which is the difference between a state that settles
+   * once and one that follows what somebody is typing. Checked here rather
+   * than only in the browser because it is a claim about the function, and
+   * because the disposer has to take the listeners away again — a preview
+   * panel that mounts and unmounts a few times would otherwise accumulate one
+   * evaluation pass per mount, for ever.
+   */
+  {
+    const control = el({ name: 'email', value: '' });
+    const holder = el(
+      {
+        'data-cre8-switch': 'form',
+        'data-cre8-value': 'waiting',
+        'data-cre8-else': 'waiting',
+        'data-cre8-test': 'n4',
+      },
+      [control]
+    );
+    const host = hostFor(el({}, [holder]));
+    const table = { n4: typedRules.map((r) => ({ when: r.when, value: r.value })) };
+
+    const idle = hostFor(el({}, [el({ 'data-cre8-test': 'n4' })]));
+    testRuntime(idle, false, table);
+    report.check(
+      'nothing is subscribed on a surface that is not live',
+      idle.bound.length === 0,
+      idle.bound.join(', ') || 'no listeners'
+    );
+
+    const stop = testRuntime(host, true, table);
+    report.check(
+      'a live surface listens for both ways a control reports a change',
+      host.bound.includes('input') && host.bound.includes('change'),
+      host.bound.join(', ') || 'nothing bound'
+    );
+    stop();
+    report.check(
+      'and the disposer takes them away again',
+      host.bound.length === 0,
+      host.bound.join(', ') || 'clean'
+    );
+  }
+
+  report.check(
+    'a control the rule cannot see is undecided, not empty',
+    (() => {
+      const holder = el({
+        'data-cre8-switch': 'form',
+        'data-cre8-value': 'waiting',
+        'data-cre8-else': 'waiting',
+        'data-cre8-test': 'n3',
+      });
+      const root = el({}, [holder]);
+      testRuntime(hostFor(root), false, {
+        n3: [{ when: { kind: 'compare', left: { kind: 'input', name: 'email' }, op: 'empty' }, value: 'blank' }],
+      });
+      return holder.getAttribute('data-cre8-value') === 'waiting';
+    })(),
+    'a missing control does not read as an empty one'
+  );
+
+  /* ----------------------------------------------------------------------
+   * What travels, and what has to be declared before it does
+   * ------------------------------------------------------------------- */
+
+  const runtimeNode = {
+    id: 'n9', type: 'frame', name: 'Form', parentId: null, children: [],
+    props: { switchKey: 'form', switchDefault: 'waiting' }, styles: {}, meta: {},
+    assign: [
+      { id: 'p', when: { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { type: 'number', value: 5 } }, value: 'dear' },
+      { id: 't', when: typedTest, value: 'ready' },
+    ],
+  };
+  const foldedNode = { ...runtimeNode, id: 'n8', assign: [runtimeNode.assign[0]] };
+
+  report.check(
+    'a node with one runtime rule sends all of its rules',
+    Object.keys(testTable({ n9: runtimeNode }, ['n9'])).length === 1 &&
+      testTable({ n9: runtimeNode }, ['n9']).n9.length === 2,
+    'the browser cannot arbitrate with half the list'
+  );
+  report.check(
+    'and a node whose rules all fold sends none',
+    Object.keys(testTable({ n8: foldedNode }, ['n8'])).length === 0 &&
+      needsRuntime(foldedNode) === false
+  );
+  report.check(
+    'the table is keyed by node, so a hundred rows share one entry',
+    Object.keys(testTable({ n9: runtimeNode }, ['n9', 'n9', 'n9'])).join() === 'n9'
+  );
+
+  const exposed = publishedValues(runtimeNode, record({ price: 750000, secret: 'hidden' }));
+  report.check(
+    'an unfolded Test publishes the record values it reads',
+    exposed && exposed.price === 750000,
+    JSON.stringify(exposed)
+  );
+  report.check(
+    'and only those — a field nothing reads is not published',
+    exposed && !('secret' in exposed),
+    JSON.stringify(exposed)
+  );
+  report.check(
+    'a node that folds publishes nothing about the record',
+    publishedValues(foldedNode, record({ price: 750000 })) === null
+  );
+
+  report.check(
+    'a runtime rule with no fallback is refused as unfinished',
+    typeof unfinished({ ...runtimeNode, props: { switchKey: 'form' } }) === 'string',
+    String(unfinished({ ...runtimeNode, props: { switchKey: 'form' } })).slice(0, 48)
+  );
+  report.check(
+    'and one with a fallback is not',
+    unfinished(runtimeNode) === null,
+    String(unfinished(runtimeNode))
+  );
+  report.check(
+    'a folded rule needs no fallback, because its answer is in the file',
+    unfinished({ ...foldedNode, props: { switchKey: 'form' } }) === null
+  );
+  report.check(
+    'but every rule needs somewhere to write to',
+    typeof unfinished({ ...foldedNode, props: {} }) === 'string'
+  );
+
+  /* ----------------------------------------------------------------------
+   * Through a real publish
+   *
+   * The other half of what travels: the publisher has to put the table in the
+   * page and the pointers on the elements, and a page whose Tests all fold has
+   * to carry none of it. Written after a falsification pass found that nothing
+   * here published a runtime Test at all — the publisher could have stopped
+   * handing the runtime its rules and every check still passed.
+   * ------------------------------------------------------------------- */
+
+  {
+    const build = (assign) => {
+      const doc = createEmptyDocument('Signup');
+      doc.collections = [
+        { id: 'people', name: 'People', fields: [{ key: 'plan', label: 'Plan', type: 'text' }] },
+      ];
+      const page = doc.pages[0];
+      const built = buildTree(
+        {
+          type: 'grid',
+          name: 'Rows',
+          repeat: { collection: 'people' },
+          children: [
+            {
+              type: 'frame',
+              name: 'Row',
+              props: { switchKey: 'form', switchDefault: 'waiting' },
+              children: [{ type: 'input', name: 'Email', props: { name: 'email' } }],
+            },
+          ],
+        },
+        doc.nodes
+      );
+      doc.nodes[built.rootId].parentId = page.rootNodeId;
+      doc.nodes[page.rootNodeId].children.push(built.rootId);
+      const row = Object.values(doc.nodes).find((n) => n.name === 'Row');
+      row.assign = assign;
+      return renderPage(doc, page, {
+        records: {
+          people: [
+            { id: 'p1', collectionId: 'people', position: 0, published: true, createdAt: 0, updatedAt: 0,
+              data: { plan: 'pro' } },
+            { id: 'p2', collectionId: 'people', position: 1, published: true, createdAt: 0, updatedAt: 0,
+              data: { plan: 'free' } },
+          ],
+        },
+      });
+    };
+
+    const planIs = (value) => ({
+      kind: 'compare', left: { kind: 'field', key: 'plan' }, op: 'eq', right: { type: 'text', value },
+    });
+
+    const live = build([
+      { id: 'r1', when: planIs('pro'), value: 'paying' },
+      { id: 'r2', when: typedTest, value: 'ready' },
+    ]);
+    const folded = build([{ id: 'r1', when: planIs('pro'), value: 'paying' }]);
+
+    report.check(
+      'a page with a runtime Test ships the rules once, in the one script',
+      (live.match(/<script/g) ?? []).length === 1 && live.includes('"kind":"compare"'),
+      `${(live.match(/<script/g) ?? []).length} scripts`
+    );
+    report.check(
+      'and the rules are not repeated per row',
+      (live.match(/"kind":"compare"/g) ?? []).length === 2,
+      `${(live.match(/"kind":"compare"/g) ?? []).length} serialised comparisons for 2 rows and 2 rules`
+    );
+    report.check(
+      'each row points at the shared entry and carries its own values',
+      (live.match(/data-cre8-test="/g) ?? []).length === 2 &&
+        live.includes('&quot;plan&quot;:&quot;pro&quot;') &&
+        live.includes('&quot;plan&quot;:&quot;free&quot;'),
+      'two pointers, two value sets'
+    );
+    report.check(
+      'and the state it falls back to with no scripting is the folded answer',
+      /data-cre8-else="paying"/.test(live) && /data-cre8-else="waiting"/.test(live),
+      'the row that folded keeps its answer; the one that did not keeps the default'
+    );
+    report.check(
+      'the page whose rules all fold ships no script and no Test attributes',
+      !/<script/i.test(folded) &&
+        !folded.includes('data-cre8-test') &&
+        !folded.includes('data-cre8-vals'),
+      /<script/i.test(folded) ? 'a script was shipped' : 'HTML and CSS only'
+    );
+    report.check(
+      'and it still resolved its states',
+      /data-cre8-value="paying"/.test(folded) && /data-cre8-value="waiting"/.test(folded),
+      'folded, not skipped'
+    );
+    report.check(
+      'nothing the Tests do not read is published about a record',
+      !live.includes('secret'),
+      'only referenced fields travel'
+    );
+  }
+
+  /* --------------------------------------------------------------------
+   * Each of the above, handed something it must reject.
+   * ----------------------------------------------------------------- */
+
+  report.check(
+    'the differential would notice the two disagreeing',
+    publishAnswer([{ id: 'x', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { type: 'number', value: 5 } }, value: 'yes' }], { f: 9 }) ===
+      'yes',
+    'the matrix contains cases that answer yes as well as cases that answer else'
+  );
+  report.check(
+    'and the fake DOM is really running the real function',
+    /data-cre8-test/.test(testRuntime.toString()),
+    'the function under test is the one that ships'
+  );
+  report.check(
+    'the disclosure check is not simply always empty',
+    exposed && Object.keys(exposed).length === 1
   );
 }
 

@@ -18,7 +18,17 @@
  * with no behaviour on it still ships nothing to execute.
  */
 
-import { APP, launch, openProject, publish, signUp, unbalanced } from './harness.mjs';
+import {
+  APP,
+  getDocument,
+  launch,
+  node,
+  openProject,
+  publish,
+  saveDocument,
+  signUp,
+  unbalanced,
+} from './harness.mjs';
 import { createReport } from '../report.mjs';
 
 const report = createReport();
@@ -948,6 +958,141 @@ try {
     onCanvas?.held === '50' && onCanvas?.clip === still?.clip,
     `canvas ${onCanvas?.clip} / file ${still?.clip}`
   );
+
+  /* ------------------------------------ 8. a state decided by what is typed */
+
+  /*
+   * The runtime half of phase B, which is the first thing on this page that
+   * the browser has to *evaluate* rather than relay. Everything else here is a
+   * state machine over named values; this reads a form control and compares.
+   *
+   * So the three questions are the ones the design makes claims about: does it
+   * answer while somebody types, does it fall back to what the file shipped
+   * when nothing is running, and does the canvas agree with the file about the
+   * state before anybody has typed anything.
+   */
+  {
+    const doc = await getDocument(page, id);
+    const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
+    const root = doc.nodes[home.rootNodeId];
+
+    Object.assign(doc.nodes, {
+      frm0testaa: node('frm0testaa', 'frame', 'Signup', {
+        parentId: root.id,
+        children: ['inp0testbb', 'msg0testcc'],
+        // The rule lives on the container, and the control it reads is inside
+        // it. That is the scoping the interaction model gives: a rule
+        // evaluates against its own node and descendants react to the state.
+        props: { switchKey: 'signup', switchDefault: 'waiting' },
+        assign: [
+          {
+            id: 'asg0test01',
+            when: { kind: 'compare', left: { kind: 'input', name: 'email' }, op: 'notEmpty' },
+            value: 'ready',
+          },
+        ],
+        styles: { desktop: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '24px' } },
+      }),
+      inp0testbb: node('inp0testbb', 'input', 'Email', {
+        parentId: 'frm0testaa',
+        props: { name: 'email', placeholder: 'you@example.com' },
+        styles: { desktop: { padding: '8px' } },
+      }),
+      msg0testcc: node('msg0testcc', 'paragraph', 'Prompt', {
+        parentId: 'frm0testaa',
+        props: { text: 'Type your email' },
+        rules: [
+          {
+            id: 'rul0test01',
+            when: [{ kind: 'state', key: 'signup', op: 'is', values: ['ready'] }],
+            apply: { color: 'rgb(0, 128, 0)' },
+          },
+        ],
+        styles: { desktop: { color: 'rgb(100, 100, 100)' } },
+      }),
+    });
+    root.children.push('frm0testaa');
+
+    const seeded = await saveDocument(page, doc);
+    if (report.check('the document with a typed Test is accepted', seeded === 200, `HTTP ${seeded}`)) {
+      await publish(page);
+      const typedHtml = await (await fetch(`${APP}/s/${id}/`)).text();
+
+      report.check(
+        'the file ships the fallback state, not an answer it could not have',
+        /data-cre8-switch="signup"[^>]*data-cre8-value="waiting"/.test(typedHtml),
+        /data-cre8-value="waiting"/.test(typedHtml) ? 'waiting' : 'something else shipped'
+      );
+      report.check(
+        'and the rule travels with it',
+        typedHtml.includes('data-cre8-test') && typedHtml.includes('"kind":"compare"'),
+        'the Test is in the page'
+      );
+
+      const typing = await ctx.newPage();
+      await typing.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      const group = typing.locator('[data-cre8-switch="signup"]');
+      report.check(
+        'before anything is typed the state is the one that shipped',
+        (await group.getAttribute('data-cre8-value')) === 'waiting',
+        (await group.getAttribute('data-cre8-value')) ?? 'absent'
+      );
+
+      await typing.locator('input[name="email"]').fill('someone@example.com');
+      await typing.waitForFunction(
+        () =>
+          document.querySelector('[data-cre8-switch="signup"]')?.getAttribute('data-cre8-value') ===
+          'ready',
+        null,
+        { timeout: 5000 }
+      ).catch(() => {});
+      report.check(
+        'typing moves it',
+        (await group.getAttribute('data-cre8-value')) === 'ready',
+        (await group.getAttribute('data-cre8-value')) ?? 'absent'
+      );
+      // The state is only half of it. What a visitor sees is the CSS the state
+      // drives, and that rule was written in the ordinary inspector.
+      report.check(
+        'and the ordinary style rule follows the state',
+        (await typing
+          .locator('[data-cre8-switch="signup"] p')
+          .evaluate((el) => getComputedStyle(el).color)) === 'rgb(0, 128, 0)',
+        await typing.locator('[data-cre8-switch="signup"] p').evaluate((el) => getComputedStyle(el).color)
+      );
+
+      await typing.locator('input[name="email"]').fill('');
+      await typing.waitForFunction(
+        () =>
+          document.querySelector('[data-cre8-switch="signup"]')?.getAttribute('data-cre8-value') ===
+          'waiting',
+        null,
+        { timeout: 5000 }
+      ).catch(() => {});
+      report.check(
+        'and clearing it puts the state back where the file had it',
+        (await group.getAttribute('data-cre8-value')) === 'waiting',
+        (await group.getAttribute('data-cre8-value')) ?? 'absent'
+      );
+      await typing.close();
+
+      const noScript = await ctx.newPage({ javaScriptEnabled: false });
+      await noScript.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      report.check(
+        'with scripting off the fallback is what a visitor gets, and keeps',
+        (await noScript
+          .locator('[data-cre8-switch="signup"]')
+          .getAttribute('data-cre8-value')) === 'waiting',
+        'the declared Otherwise, which is why the editor requires one'
+      );
+      report.check(
+        'and the page is still usable rather than broken',
+        await noScript.locator('input[name="email"]').isVisible(),
+        'the form is there; only the flourish is missing'
+      );
+      await noScript.close();
+    }
+  }
 } catch (error) {
   report.check('behaviour suite completed', false, error.message);
 } finally {

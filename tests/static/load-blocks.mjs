@@ -98,6 +98,9 @@ export function loadBlocks() {
     // The Test evaluator, for the same reason as the formatter: three answers
     // and an arbitration order are claims about a function.
     tests: require(path.join(OUT, 'renderer/test.js')),
+    // And the runtime itself, so the second implementation of the comparison
+    // can be driven against the first rather than read alongside it.
+    behaviour: require(path.join(OUT, 'runtime/behaviour.js')),
   };
 }
 

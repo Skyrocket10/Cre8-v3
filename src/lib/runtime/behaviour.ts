@@ -149,6 +149,89 @@ export const DRIVE_ATTR = 'data-cre8-drive';
 export const RANGE_VAR_PREFIX = '--cre8-';
 
 /**
+ * Which entry of the shared Test table this element's rules are.
+ *
+ * The node id, so every row of a repeater points at one entry. Putting the
+ * rules on the element instead would copy the Test per row, which is the size
+ * failure the repeater constraint exists to prevent.
+ */
+export const TEST_ATTR = 'data-cre8-test';
+/**
+ * The record values this instance's Tests read. Raw, never formatted.
+ *
+ * Per instance, and only the fields a Test actually reads — which means they
+ * are public. That is part of the published contract rather than an
+ * implementation detail, and the inspector says so before anybody ships it.
+ */
+export const VALUES_ATTR = 'data-cre8-vals';
+/**
+ * What the state is when no Test holds.
+ *
+ * Also what is in `data-cre8-value` when the file is written, so a visitor
+ * with no scripting sees it and keeps it. The runtime needs it as well as the
+ * live attribute, because once it writes the first answer the original is gone.
+ */
+export const ELSE_ATTR = 'data-cre8-else';
+
+/* --------------------------------------------------------------------------
+ * The Test shapes, named here so this file still compiles alone
+ *
+ * Structurally the document's own `Test`, `TestLiteral` and `StateRule`. Named
+ * again rather than imported for the reason the DOM is: this function is
+ * serialised with `toString()` and must reference nothing outside itself.
+ * Types are erased, so these cost nothing at runtime — and the static suite
+ * drives the real function against the real evaluator, which is what actually
+ * holds the two in step.
+ * ----------------------------------------------------------------------- */
+
+/** A value a record field or a form control can hold. */
+type TestRaw = string | number | boolean | null | undefined;
+/** The record values one element publishes, keyed by field. */
+type TestValues = Record<string, TestRaw>;
+type TestOperand = { kind: string; key?: string; name?: string };
+interface TestNode {
+  kind: string;
+  tests?: TestNode[];
+  left?: TestOperand;
+  op?: string;
+  right?: { type: string; value: string | number | boolean };
+}
+/** One assignment: when this holds, the state becomes that. */
+export interface RuntimeRule {
+  when: TestNode;
+  value: string;
+}
+/** Every node's rules, keyed by the node they belong to. Shared across rows. */
+export type TestTable = Record<string, RuntimeRule[]>;
+
+/* --------------------------------------------------------------------------
+ * Tests, and why the comparison exists twice
+ *
+ * The one piece of this runtime that evaluates rather than relays. Phase B
+ * folds a Test whose operands are all record fields, so nothing arrives here
+ * unless something on the page can change after it was published — today, what
+ * somebody has typed into a form control.
+ *
+ * Three things keep it small. The Tests are the same AST the editor stores,
+ * serialised verbatim, so there is no compile step to get wrong on one side.
+ * The table is shared, keyed by the node the rules belong to, so a hundred
+ * repeated cards reference one entry and carry only their own values. And the
+ * answer is a state, so everything downstream is the switch machinery that was
+ * already here.
+ *
+ * There is a second implementation of the comparison in `renderer/test.ts` and
+ * there has to be: this function is serialised with `toString()` and can import
+ * nothing. That is a real drift risk, so the static suite drives this exact
+ * function over a matrix of held values, operators and operands and asserts it
+ * agrees with the other one case for case — including fractions, which were
+ * missing the first time and let a runtime that rounded its operand agree with
+ * the publisher on nine hundred comparisons.
+ *
+ * Everything inside the function is terse on purpose. `toString()` keeps
+ * comments, so prose written in there is bytes on every visitor’s page.
+ * ----------------------------------------------------------------------- */
+
+/**
  * @param root  Document on a published page, the frame element in the editor.
  * @param live  False on the canvas: state is chosen in the inspector, and a
  *              click there is someone trying to select the element, not
@@ -331,6 +414,126 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
 }
 
 /**
+ * @param root  Document on a published page, the frame element in the editor.
+ * @param live  Whether to keep answering as somebody types. False on the
+ *              canvas, where nothing is typed and the first answer is the
+ *              shipped one.
+ * @param tests Every unfolded rule on the page, keyed by node.
+ * @returns A disposer, for surfaces that unmount.
+ */
+export function testRuntime(root: Host, live: boolean, tests: TestTable): () => void {
+  function operand(left: TestOperand, holder: Tagged, values: TestValues): TestRaw {
+    const key = left.key || '';
+    if (left.kind === 'field') return key in values ? values[key] : undefined;
+    if (left.kind !== 'input') return undefined;
+    const control = holder.querySelector('[name="' + left.name + '"]');
+    if (!control) return undefined;
+    return control.value === undefined ? '' : control.value;
+  }
+
+  function holds(test: TestNode, holder: Tagged, values: TestValues): boolean | null {
+    const kind = test.kind;
+    if (kind === 'every' || kind === 'some') {
+      const list = test.tests || [];
+      let unknown = false;
+      for (let i = 0; i < list.length; i++) {
+        const verdict = holds(list[i]!, holder, values);
+        if (kind === 'every' && verdict === false) return false;
+        if (kind === 'some' && verdict === true) return true;
+        if (verdict === null) unknown = true;
+      }
+      return unknown ? null : kind === 'every';
+    }
+    if (kind !== 'compare' || !test.left || !test.op) return null;
+
+    const raw = operand(test.left, holder, values);
+    const op = test.op;
+    // A control that is not there is not an empty one.
+    if (test.left.kind === 'input' && raw === undefined) return null;
+    const absent = raw === null || raw === undefined || raw === '';
+    if (op === 'empty') return absent;
+    if (op === 'notEmpty') return !absent;
+    if (raw === undefined) return null;
+
+    const right = test.right;
+    if (!right) return null;
+    if (right.type === 'number') {
+      const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
+      if (!Number.isFinite(n)) return null;
+      const to = right.value as number;
+      if (op === 'eq') return n === to;
+      if (op === 'neq') return n !== to;
+      if (op === 'gt') return n > to;
+      if (op === 'gte') return n >= to;
+      if (op === 'lt') return n < to;
+      if (op === 'lte') return n <= to;
+      return null;
+    }
+    if (right.type === 'boolean') {
+      if (typeof raw !== 'boolean') return null;
+      if (op === 'eq') return raw === right.value;
+      if (op === 'neq') return raw !== right.value;
+      return null;
+    }
+    const text = absent ? '' : String(raw);
+    const want = String(right.value);
+    if (op === 'eq') return text === want;
+    if (op === 'neq') return text !== want;
+    if (op === 'contains') return text.toLowerCase().indexOf(want.toLowerCase()) >= 0;
+    return null;
+  }
+
+  function resolve(): void {
+    if (!tests) return;
+    const holders = root.querySelectorAll('[data-cre8-test]');
+    for (let i = 0; i < holders.length; i++) {
+      const holder = holders[i]!;
+      const rules = tests[holder.getAttribute('data-cre8-test') || ''];
+      if (!rules) continue;
+
+      let values: TestValues = {};
+      const packed = holder.getAttribute('data-cre8-vals');
+      if (packed) {
+        try {
+          values = JSON.parse(packed) as TestValues;
+        } catch (error) {
+          values = {};
+        }
+      }
+
+      let chosen: string | null = null;
+      for (let r = 0; r < rules.length; r++) {
+        if (holds(rules[r]!.when, holder, values) === true) chosen = rules[r]!.value;
+      }
+      const settled = chosen === null ? holder.getAttribute('data-cre8-else') || '' : chosen;
+      // No `sync` here. That keeps `aria-pressed` honest on the controls that
+      // *set* a state, and a state decided by a Test has none — nothing clicks
+      // it, so there is nothing to announce as pressed.
+      holder.setAttribute('data-cre8-value', settled);
+    }
+  }
+
+  resolve();
+  if (!live) return function () {};
+
+  function onChanged(): void {
+    resolve();
+  }
+
+  root.addEventListener('input', onChanged);
+  root.addEventListener('change', onChanged);
+  return function () {
+    root.removeEventListener('input', onChanged);
+    root.removeEventListener('change', onChanged);
+  };
+}
+
+/** The Test runtime as a string, with this page's rules baked into the call. */
+export function testRuntimeSource(tests: TestTable): string {
+  return `(${testRuntime.toString()})(document,true,${serialise(tests)})`;
+}
+
+/**
  * The runtime as a string, for the publisher to inline.
  *
  * Serialised rather than kept as a string literal so the thing that ships is
@@ -340,4 +543,19 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
  */
 export function behaviourRuntimeSource(): string {
   return `(${behaviourRuntime.toString()})(document,true)`;
+}
+
+/**
+ * JSON that is safe between `<script>` tags.
+ *
+ * `</script>` inside a string ends the element wherever the parser finds it,
+ * including in the middle of a quoted value — so the `<` is escaped. The other
+ * two are line separators, which are valid in JSON strings and not in
+ * JavaScript ones, and would be a syntax error on somebody's live site.
+ */
+function serialise(tests: TestTable): string {
+  return JSON.stringify(tests)
+    .replace(/</g, '\\u003c')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }

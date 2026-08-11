@@ -455,7 +455,20 @@ export interface NodeDataBinding {
  */
 export type Value =
   /** A field of whatever record is in scope. `key`, never `label`: renaming a field must not break a page. */
-  { kind: 'field'; key: string };
+  | { kind: 'field'; key: string }
+  /**
+   * What a form control inside the owning node currently holds.
+   *
+   * Named rather than pointed at a node id, because the name is what the
+   * control already has and what a form submission uses. Scoped to the node
+   * that owns the rule — `SCOPING` in the interaction model: a rule evaluates
+   * against its own node, descendants react to the resulting state, and
+   * arbitrary element targeting is deferred.
+   *
+   * This is the operand that cannot be known when the site is published, which
+   * is the whole reason the execution model has two schedules.
+   */
+  | { kind: 'input'; name: string };
 
 /**
  * A presentation transform. Never part of a `Value`, and that is the point.

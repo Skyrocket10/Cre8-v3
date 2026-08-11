@@ -1,11 +1,10 @@
 # Expressions — design
 
-**Status: A is built. B is built for record-driven Tests; the runtime half is
-not. C and D are design.** This file was written before any of the code, so the
-constraints existed first, and it is being converted section by section as each
-phase lands. Everything marked *design* is an agreement rather than a
-description — assume nothing in those sections is true of the running product
-yet.
+**Status: A and B are built. C and D are design.** This file was written before
+any of the code, so the constraints existed first, and it is being converted
+section by section as each phase lands. Everything marked *design* is an
+agreement rather than a description — assume nothing in those sections is true
+of the running product yet.
 
 ---
 
@@ -90,7 +89,7 @@ currency, a date cannot, `richtext` gets nothing because every transform would
 cut a tag in half, and `src` and `href` get nothing because there is no reading
 of "the image URL in title case" that is not a broken image.
 
-### B — Tests *(built for records; runtime pending)*
+### B — Tests *(built)*
 
 ```
 Value → Test → State
@@ -147,12 +146,37 @@ reaches a published page: a state that never comes on because the field is
 missing is indistinguishable from one that never comes on because the price is
 genuinely under half a million.
 
-**What is not built yet:** any operand that is not a record field. `input.value
-= "yes"` needs a serialised Test in the page, a subscription, and the
-scripting-off fallback made mandatory rather than merely available. That is the
-runtime half, and it is where the interesting parts of the execution model —
-publishing what a Test reads, disclosure, mixed dependencies — actually get
-exercised. None of it is written.
+**And the operand that cannot be folded.** A Test may read what somebody has
+typed into a form control inside the owning node, and that is the one thing on
+the page that changes after publishing — so those Tests are published rather
+than answered, and the browser evaluates them. Which is scheduling derived from
+dependencies, exactly as the execution model says, with nobody choosing a mode.
+
+What travels: the rules as the **same AST the editor stores**, serialised
+verbatim into the one script and keyed by node, so a repeater's hundred cards
+reference one entry. What is per row is the record values those Tests read —
+raw, only the referenced fields, and therefore public, which the inspector says
+out loud before anybody publishes. All of a node's rules travel when any of them
+does: the browser has to arbitrate the whole list, and it cannot do that with
+half of it.
+
+The fallback is required rather than available. A node with a runtime Test and
+no *Otherwise* is refused as unfinished, and the fallback it ships is not the
+designer's default but **everything that was knowable at publish time** — a
+record rule that folded keeps its answer, so a visitor with no scripting gets
+the most the file could give them.
+
+There are now two implementations of the comparison, and there is no way round
+it: the runtime is serialised with `toString()` and can import nothing. So the
+mitigation is a differential — the static suite drives the real runtime function
+over a matrix of held values, operators and operands with a fake DOM and asserts
+it agrees with the publisher's evaluator, case for case. Written first without
+fractions, and a runtime that rounded its operand agreed on nine hundred
+comparisons.
+
+**Still not built:** any other runtime operand — a switch's state, a page
+parameter, a visitor source. `Value` is a tagged union so they arrive without a
+migration, and nothing about the scheduling changes when they do.
 
 ### C — Dynamic assignment
 
@@ -414,8 +438,20 @@ Each of these is falsifiable, which is the bar the rest of the suite is held to.
 - **Canvas, preview and published agree per state.** The same fixture rendered
   with the state true and false, compared element by element — the sweep the
   `fidelity` and `blocks` suites already do for everything else.
-- **Scripting off lands on the fallback state.** The `behaviour` suite already
-  runs every case with the script disabled; interactions join it.
+- **Scripting off lands on the fallback state.** *(Built.)* The `behaviour`
+  suite publishes a form whose state is decided by what is typed, then loads it
+  in a context with JavaScript disabled and asserts the shipped state holds —
+  and that the form is still usable rather than broken.
+- **The two evaluators agree.** *(Built.)* Not in the original list, because the
+  second one did not exist yet. The static suite drives the real serialised
+  runtime over a matrix of held values, operators and operands against the
+  publisher's evaluator. Fractions are in the matrix deliberately: without them
+  a runtime that rounded its operand agreed on every one of nine hundred cases.
+- **The Test evaluator ships only where it is used.** *(Built, and it found a
+  regression.)* The runtime is two functions rather than one, because the first
+  version put the evaluator inside the switch runtime and made every page with
+  a pricing toggle 1.7 KB heavier for a feature it did not use. The `behaviour`
+  suite's size check is what noticed.
 - **Two Tests on one key resolve in order.** Author an overlapping pair, assert
   the later one wins, then swap them and assert the state flips. A check that
   only ever sees one ordering cannot tell order from luck.

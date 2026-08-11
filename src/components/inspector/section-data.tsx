@@ -41,10 +41,13 @@ import {
 import {
   OPS_FOR,
   OP_LABELS,
+  fieldsRead,
   literalFor,
   literalText,
   needsOperand,
+  needsRuntime,
   provablyOverlap,
+  unfinished,
 } from '@/lib/renderer/test';
 import { isSettable } from '@/lib/renderer/variants';
 import { useEditor } from '@/lib/editor/store';
@@ -275,13 +278,14 @@ function BindControls({ node, collection }: { node: SceneNode; collection: Colle
 
       {offered.map((prop) => {
         const binding = node.bind?.[prop];
-        const field = collection.fields.find((f) => f.key === binding?.value.key);
+        const source = binding?.value.kind === 'field' ? binding.value.key : undefined;
+        const field = collection.fields.find((f) => f.key === source);
         return (
           <React.Fragment key={prop}>
             <StyleRow label={prop === 'text' ? 'Text' : prop}>
               <Select
                 className="flex-1"
-                value={binding?.value.key ?? ''}
+                value={source ?? ''}
                 options={[
                   { value: '', label: 'Typed here' },
                   ...collection.fields.map((f) => ({ value: f.key, label: f.label })),
@@ -475,8 +479,17 @@ const SAMPLE: Record<FormatKind, string> = {
  * repeater draws.
  */
 function AssignControls({ node, collection }: { node: SceneNode; collection: Collection }) {
+  const nodes = useEditor((s) => s.doc.nodes);
   const rules = node.assign ?? [];
   const key = String(node.props.switchKey ?? '');
+  const controls = namedControlsInside(nodes, node);
+  const problem = unfinished(node);
+  const live = needsRuntime(node);
+  const exposed = live
+    ? [...new Set(rules.flatMap((rule) => fieldsRead(rule.when)))].map(
+        (fieldKey) => collection.fields.find((f) => f.key === fieldKey)?.label ?? fieldKey
+      )
+    : [];
 
   const edit = (label: string, patch: (scene: SceneNode) => void) =>
     useEditor.getState().transact(label, (draft) => {
@@ -544,7 +557,18 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
       {rules.map((rule, index) => {
         const test = rule.when;
         const compare = test.kind === 'compare' ? test : null;
-        const field = collection.fields.find((f) => f.key === compare?.left.key);
+        const left = compare?.left;
+        // A form control's value has no declared type, so it is treated as
+        // text. A number typed into a box is a string until something says
+        // otherwise, and inferring from the spelling is the thing the model
+        // forbids — so the comparison is the one the field it is next to would
+        // make, or text when there is no field.
+        const field =
+          left?.kind === 'field'
+            ? collection.fields.find((f) => f.key === left.key)
+            : left?.kind === 'input'
+              ? TYPED_AS_TEXT
+              : undefined;
         const ops = field ? OPS_FOR[field.type] : [];
         // Only against rules *before* this one: the warning is about which of
         // the two wins, and the answer is always "the later one", so it
@@ -562,17 +586,26 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
             <StyleRow label="When">
               <Select
                 className="flex-1"
-                value={compare?.left.key ?? ''}
-                options={collection.fields.map((f) => ({ value: f.key, label: f.label }))}
+                value={left ? (left.kind === 'field' ? left.key : `${TYPED_PREFIX}${left.name}`) : ''}
+                options={[
+                  ...collection.fields.map((f) => ({ value: f.key, label: f.label })),
+                  ...controls.map((name) => ({
+                    value: `${TYPED_PREFIX}${name}`,
+                    label: `${name} — what is typed`,
+                  })),
+                ]}
                 onChange={(next) => {
-                  const picked = collection.fields.find((f) => f.key === next);
+                  const typed = next.startsWith(TYPED_PREFIX);
+                  const picked = typed ? TYPED_AS_TEXT : collection.fields.find((f) => f.key === next);
                   if (!picked) return;
                   write(rule.id, (target) => {
-                    // A new field means a new type, and an operator the new
+                    // A new source means a new type, and an operator the new
                     // type cannot answer. Reset rather than carry it over.
                     target.when = {
                       kind: 'compare',
-                      left: { kind: 'field', key: picked.key },
+                      left: typed
+                        ? { kind: 'input', name: next.slice(TYPED_PREFIX.length) }
+                        : { kind: 'field', key: picked.key },
                       op: (OPS_FOR[picked.type][0] ?? 'eq') as CompareOp,
                       right: literalFor(picked.type, ''),
                     };
@@ -669,14 +702,67 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
               }
             />
           </StyleRow>
-          <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
-            Resolved when the site is published, so there is no script and nothing to wait for.
-            Everything inside this element can be styled by the state too.
-          </p>
+          {problem ? (
+            <p className="rounded bg-[var(--danger-surface,rgba(220,38,38,0.08))] px-1.5 py-1 text-[10px] leading-relaxed text-[var(--danger,#dc2626)]">
+              {problem}
+            </p>
+          ) : live ? (
+            /*
+             * The disclosure. A Test that cannot be answered until somebody
+             * types has to travel to the browser, and so do the record values
+             * it reads — which makes them public. That is a decision about
+             * what the published application exposes, not an implementation
+             * detail, so it is said here rather than discovered in a view
+             * source.
+             */
+            <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+              This reads what is typed on the page, so it is worked out in the browser.
+              {exposed.length > 0 && (
+                <>
+                  {' '}
+                  Each row will carry <strong>{exposed.join(', ')}</strong> in the published file,
+                  where anybody can read it.
+                </>
+              )}
+            </p>
+          ) : (
+            <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+              Resolved when the site is published, so there is no script and nothing to wait for.
+              Everything inside this element can be styled by the state too.
+            </p>
+          )}
         </>
       )}
     </>
   );
+}
+
+/** Marks a source that is read as text: a form control, which declares no type. */
+const TYPED_PREFIX = 'typed:';
+const TYPED_AS_TEXT: Field = { key: '', label: 'Typed', type: 'text' };
+
+/**
+ * Form controls inside this node, by name.
+ *
+ * Inside, because that is the scope the interaction model gives a rule: it
+ * evaluates against the node that owns it, and descendants react to the
+ * resulting state. So the way to light up a submit button when a field is
+ * filled is to put the rule on the form and style the button through the
+ * state — not to reach across the page from the button, which is the
+ * arbitrary targeting the model defers.
+ */
+function namedControlsInside(nodes: Record<string, SceneNode>, root: SceneNode): string[] {
+  const found: string[] = [];
+  const walk = (id: string, depth: number): void => {
+    if (depth > 40) return;
+    const child = nodes[id];
+    if (!child) return;
+    const name = slug(child.props.name);
+    if (name && !found.includes(name)) found.push(name);
+    for (const grandchild of child.children) walk(grandchild, depth + 1);
+  };
+  for (const child of root.children) walk(child, 0);
+  return found;
 }
 
 /** A checkbox field gets true/false; everything else gets a box to type in. */

@@ -43,8 +43,10 @@ import type {
   SceneNode,
   Test,
   TestLiteral,
+  Value,
 } from '../document/types';
 import { slug } from '../document/schema';
+import type { TestTable } from '../runtime/behaviour';
 
 /** True, false, or "not from here". */
 export type Verdict = boolean | null;
@@ -67,6 +69,11 @@ type Raw = string | number | boolean | null | undefined;
 export function evaluate(test: Test, record: CollectionRecord | null): Verdict {
   switch (test.kind) {
     case 'compare': {
+      // A form control's value is the operand this function exists to *not*
+      // answer. Nobody has typed anything when a page is being published, and
+      // "empty because nothing has been typed yet" is not a fact about the
+      // page — it is the absence of one.
+      if (test.left.kind !== 'field') return null;
       if (!record) return null;
       // Absent and present-but-empty are different, and only the second is a
       // value. `empty` is the operator that exists to tell them apart, so it
@@ -210,8 +217,21 @@ export function stateFrom(node: SceneNode, record: CollectionRecord | null): str
 export function fieldsRead(test: Test): string[] {
   const found = new Set<string>();
   const walk = (inner: Test): void => {
-    if (inner.kind === 'compare') found.add(inner.left.key);
-    else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
+    if (inner.kind === 'compare') {
+      if (inner.left.kind === 'field') found.add(inner.left.key);
+    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
+  };
+  walk(test);
+  return [...found];
+}
+
+/** Every form control a Test reads, by name. */
+export function inputsRead(test: Test): string[] {
+  const found = new Set<string>();
+  const walk = (inner: Test): void => {
+    if (inner.kind === 'compare') {
+      if (inner.left.kind === 'input') found.add(inner.left.name);
+    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
   };
   walk(test);
   return [...found];
@@ -220,15 +240,15 @@ export function fieldsRead(test: Test): string[] {
 /**
  * Whether every input a Test reads is known when the site is published.
  *
- * True today for every Test the editor can author, and deliberately written
- * as a question rather than assumed: the runtime half of phase B adds operands
- * that answer `false`, and this is where the difference between folding a Test
- * and publishing it gets decided.
+ * This is the whole of the execution model's scheduling decision, and it is
+ * derived rather than chosen: *fold when every dependency is publish-time
+ * data, subscribe when any dependency can change after publish.* Nobody picks
+ * a mode.
  */
 export function foldable(test: Test): boolean {
   switch (test.kind) {
     case 'compare':
-      return true;
+      return test.left.kind === 'field';
     case 'every':
     case 'some':
       return test.tests.every(foldable);
@@ -236,6 +256,88 @@ export function foldable(test: Test): boolean {
       // A Condition is resolved by the browser, by definition.
       return false;
   }
+}
+
+/** Whether any of a node's assignments has to be evaluated in the browser. */
+export function needsRuntime(node: SceneNode): boolean {
+  return (node.assign ?? []).some((rule) => !foldable(rule.when));
+}
+
+/**
+ * What is stopping this node's assignments from being finished.
+ *
+ * The execution model makes the scripting-off fallback **required**, not
+ * optional: a Test with a runtime dependency cannot run with scripting
+ * disabled, so the author has to say what the output falls back to. An
+ * interaction with no answer for that visitor is one that has not been
+ * finished, and the editor should say so rather than publishing a page that
+ * silently does nothing for them.
+ *
+ * Returned as a sentence rather than a boolean because the inspector has to
+ * print it, and two places deciding how to word one rule is how they end up
+ * disagreeing about what the rule is.
+ */
+export function unfinished(node: SceneNode): string | null {
+  if (!node.assign?.length) return null;
+  if (!slug(node.props.switchKey)) {
+    return 'This has no state name, so nothing is written when a rule matches.';
+  }
+  if (needsRuntime(node) && !slug(node.props.switchDefault)) {
+    return 'This reads something typed on the page, so it needs an “Otherwise” — that is what a visitor sees before they type anything, and all they ever see with scripting off.';
+  }
+  return null;
+}
+
+/* --------------------------------------------------------------------------
+ * What gets published when a Test cannot be folded
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The rules that have to travel to the browser, keyed by the node they are on.
+ *
+ * One entry per node, not per row: a repeater draws the same node a hundred
+ * times and they all point at this one list. What varies per row is the values,
+ * and those go on the element.
+ *
+ * All of a node's rules travel, not only the unfoldable ones. A node with a
+ * record rule *and* an input rule has to arbitrate between them in the browser
+ * — later wins — and it cannot do that with half the list. The folded answer is
+ * still published as the element's state, so a visitor with no scripting gets
+ * everything that was knowable without them.
+ */
+export function testTable(
+  nodes: Record<string, SceneNode>,
+  nodeIds: Iterable<string>
+): TestTable {
+  const table: TestTable = {};
+  for (const id of nodeIds) {
+    const node = nodes[id];
+    if (!node?.assign?.length || !needsRuntime(node)) continue;
+    table[id] = node.assign.map((rule) => ({ when: rule.when, value: slug(rule.value) }));
+  }
+  return table;
+}
+
+/**
+ * The record values one element has to publish for its Tests to be answerable.
+ *
+ * Only the fields a Test reads, raw, and `null` when there is nothing to
+ * publish. Absent fields are left out rather than sent as `null`: "the record
+ * does not carry this" is a state the evaluator answers `null` to, and the way
+ * it recognises it is the key not being there.
+ */
+export function publishedValues(
+  node: SceneNode,
+  record: CollectionRecord | null
+): Record<string, unknown> | null {
+  if (!node.assign?.length || !needsRuntime(node) || !record) return null;
+  const wanted = new Set<string>();
+  for (const rule of node.assign) for (const key of fieldsRead(rule.when)) wanted.add(key);
+  if (!wanted.size) return null;
+
+  const out: Record<string, unknown> = {};
+  for (const key of wanted) if (key in record.data) out[key] = record.data[key];
+  return Object.keys(out).length ? out : null;
 }
 
 /* --------------------------------------------------------------------------
@@ -326,7 +428,11 @@ export function literalText(literal: TestLiteral | undefined): string {
  */
 export function provablyOverlap(a: Test, b: Test): boolean {
   if (a.kind !== 'compare' || b.kind !== 'compare') return false;
-  if (a.left.key !== b.left.key) return false;
+  // Two operands are the same source only if they are the same kind reading
+  // the same name. A field called `size` and a control called `size` are two
+  // different things that happen to share a word.
+  if (a.left.kind !== b.left.kind) return false;
+  if (operandName(a.left) !== operandName(b.left)) return false;
   if (a.op === 'empty' || a.op === 'notEmpty' || b.op === 'empty' || b.op === 'notEmpty') {
     // Decidable, and worth deciding: `empty` and `notEmpty` on one field are
     // the one pair that provably cannot overlap.
@@ -348,6 +454,11 @@ export function provablyOverlap(a: Test, b: Test): boolean {
   if (a.op === 'eq' && b.op === 'neq') return a.right.value !== b.right.value;
   if (a.op === 'neq' && b.op === 'eq') return a.right.value !== b.right.value;
   return false;
+}
+
+/** How an operand is identified when two of them are compared. */
+function operandName(value: Value): string {
+  return value.kind === 'field' ? value.key : value.name;
 }
 
 /** Do the two numeric half-lines share a point? */

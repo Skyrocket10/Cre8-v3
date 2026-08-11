@@ -23,7 +23,8 @@ import { themeToStyleObject } from '@/lib/document/theme';
 import { DOCUMENT_RESET, PLACEHOLDER_CSS, generateNodeCss } from '@/lib/renderer/css';
 import { NodeView, RecordScope, RenderProvider } from '@/lib/renderer/render';
 import { designRecord as pickDesignRecord } from '@/lib/renderer/repeat';
-import { behaviourRuntime } from '@/lib/runtime/behaviour';
+import { behaviourRuntime, testRuntime } from '@/lib/runtime/behaviour';
+import { testTable } from '@/lib/renderer/test';
 import { DATA_ATTR, collectDataSources, designTokens } from '@/lib/runtime/data';
 import { hitTest } from '@/lib/editor/registry';
 import { canvasRootId, useEditor } from '@/lib/editor/store';
@@ -164,7 +165,13 @@ export function Canvas() {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const nodesForSweep = useEditor((s) => s.doc.nodes);
   useEffect(() => {
-    if (frameRef.current) behaviourRuntime(frameRef.current, false);
+    // With the Test table, so a runtime Test settles to the same state the
+    // published page starts in. `live` is still false — nothing is typed on
+    // the canvas — so what this resolves to is exactly the shipped answer.
+    if (frameRef.current) {
+      behaviourRuntime(frameRef.current, false);
+      testRuntime(frameRef.current, false, testTable(nodesForSweep, Object.keys(nodesForSweep)));
+    }
     // Keyed on the document rather than run bare. It used to have no
     // dependency array at all, so a full `querySelectorAll` pass over every
     // element on the canvas ran after *every* render — including the ones that

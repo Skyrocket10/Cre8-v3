@@ -18,7 +18,8 @@ import { collectSubtree } from '@/lib/document/tree';
 import { generateNodeCss, DOCUMENT_RESET, PLACEHOLDER_CSS } from '@/lib/renderer/css';
 import { createSnapshotEngine, NodeView, RecordScope, RenderProvider } from '@/lib/renderer/render';
 import { collectionsUsedBy, designRecord as pickDesignRecord } from '@/lib/renderer/repeat';
-import { behaviourRuntime } from '@/lib/runtime/behaviour';
+import { behaviourRuntime, testRuntime } from '@/lib/runtime/behaviour';
+import { testTable } from '@/lib/renderer/test';
 import { DATA_ATTR, collectDataSources, dataRuntime, fallbackTokens } from '@/lib/runtime/data';
 import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
@@ -214,7 +215,15 @@ function PreviewSurface({
     // resolving after the click runtime would let preview show the shipped
     // fallback for a frame when the real page never would.
     if (dataTokens) dataRuntime(frameRef.current);
-    return behaviourRuntime(frameRef.current, true);
+    // The same Test table the publisher hands its inlined copy. Preview's
+    // whole job is to be the published page, and a Test that only resolved
+    // once the site was live would make it a different one.
+    const stop = behaviourRuntime(frameRef.current, true);
+    const stopTests = testRuntime(frameRef.current, true, testTable(doc.nodes, Object.keys(doc.nodes)));
+    return () => {
+      stop();
+      stopTests();
+    };
   }, [doc, pageId, dataTokens]);
 
   if (!page) return null;

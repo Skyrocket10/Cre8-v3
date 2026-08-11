@@ -192,6 +192,14 @@ export function boundProps(
      * spellings, and this is a caller of it.
      */
     const binding = bindingFrom(entry);
+    /*
+     * Only a record field. `Value` also covers a form control's live value,
+     * which a Test can read and a binding cannot: a binding resolves when the
+     * page is rendered, and there is no browser at that point to ask. The
+     * picker does not offer one — *which one you are authoring is decided by
+     * where you author it* — and this is the other half of that sentence.
+     */
+    if (binding.value.kind !== 'field') continue;
     const field = binding.value.key;
     // A field the record does not carry leaves the design-time prop alone.
     // That is what makes a half-filled record show placeholder copy instead of
