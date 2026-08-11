@@ -258,6 +258,29 @@ export function foldable(test: Test): boolean {
   }
 }
 
+/**
+ * A Test with the groups that are not groups taken out.
+ *
+ * `every` of one thing is that thing, and a designer who deletes the second
+ * half of "all of these" means "just this one" rather than "a group with one
+ * member in it". Leaving the wrapper would be harmless to the evaluator and
+ * visible everywhere else: an extra indent in the panel, an extra level in the
+ * summary, and a document that differs from an identical design built the
+ * other way round.
+ *
+ * An empty group is `null` — there is no Test left, and the caller decides
+ * whether that means removing the rule or refusing the edit. Answering with a
+ * group of nothing would be answering `true` for every record, which is the
+ * opposite of what deleting the last condition means.
+ */
+export function simplify(test: Test): Test | null {
+  if (test.kind !== 'every' && test.kind !== 'some') return test;
+  const inner = test.tests.map(simplify).filter((one): one is Test => one !== null);
+  if (!inner.length) return null;
+  if (inner.length === 1) return inner[0]!;
+  return { ...test, tests: inner };
+}
+
 /** Whether any of a node's assignments has to be evaluated in the browser. */
 export function needsRuntime(node: SceneNode): boolean {
   return (node.assign ?? []).some((rule) => !foldable(rule.when));

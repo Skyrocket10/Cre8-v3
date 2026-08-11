@@ -63,8 +63,17 @@ export type Part =
     }
   /** A button that ends a clause: remove, add another. */
   | { kind: 'action'; key: string; label: React.ReactNode; title?: string; onClick: () => void }
-  /** A wrap point. A new clause starts on its own line, indented under the first. */
-  | { kind: 'break'; key: string };
+  /** A wrap point. What follows starts on its own line. */
+  | { kind: 'break'; key: string }
+  /**
+   * A sentence inside a sentence, on its own line and indented.
+   *
+   * What makes `all of these hold …` legible: the members are clauses under
+   * the clause that governs them, not more words in the same run. Rendered
+   * recursively, so a group inside a group indents again — the model has
+   * always allowed that and the panel could not say it.
+   */
+  | { kind: 'clause'; key: string; parts: Part[] };
 
 const CHIP =
   'h-[22px] rounded-[5px] px-1.5 text-[11px] font-medium ' +
@@ -118,6 +127,16 @@ function Piece({ part }: { part: Part }) {
       // the indent that follows is what makes a second clause read as a
       // continuation rather than as a new sentence.
       return <span className="w-full" style={{ height: 0 }} aria-hidden />;
+
+    case 'clause':
+      // Full width so it takes its own line, and a rule down the left rather
+      // than plain padding: at three chips a line the indent alone stops
+      // reading as nesting once the clause wraps.
+      return (
+        <span className="w-full border-l border-[var(--border-subtle)] pl-2">
+          <Sentence parts={part.parts} />
+        </span>
+      );
 
     case 'pick': {
       const label =
@@ -180,6 +199,7 @@ export function partsToText(parts: Part[]): string {
   return parts
     .filter((part) => part.kind !== 'action' && part.kind !== 'break')
     .map((part) => {
+      if (part.kind === 'clause') return partsToText(part.parts);
       if (part.kind === 'word') return part.text;
       if (part.kind === 'type') return part.value || part.placeholder || '…';
       return (

@@ -42,7 +42,14 @@ import {
   formatsFor,
   type FormatKind,
 } from '@/lib/renderer/format';
-import { OPS_FOR, OP_LABELS, literalFor, literalText, needsOperand } from '@/lib/renderer/test';
+import {
+  OPS_FOR,
+  OP_LABELS,
+  literalFor,
+  literalText,
+  needsOperand,
+  simplify,
+} from '@/lib/renderer/test';
 import { describeSource } from '@/lib/runtime/data';
 import type { Part } from '../ui/sentence';
 
@@ -60,16 +67,138 @@ export function testSentence(options: {
   /** Named form controls inside the node, offered alongside the record's fields. */
   controls?: string[];
   onChange?: (next: Test) => void;
-  /** Prefix. "When" in an assignment, "Only when" in a filter. */
+  /** Prefix. "When" in an assignment, "Only when" in a filter, "" inside a group. */
   opening?: string;
+  /** How deep this sentence already is, for keys and for what may be added. */
+  depth?: number;
 }): Part[] {
-  const { test, fields, controls = [], onChange, opening = 'When' } = options;
-  const parts: Part[] = [{ kind: 'word', text: opening, key: 'open' }];
+  const { test, fields, controls = [], onChange, opening = 'When', depth = 0 } = options;
+  const parts: Part[] = opening ? [{ kind: 'word', text: opening, key: 'open' }] : [];
+  const nest = (inner: Test, index: number) =>
+    testSentence({
+      test: inner,
+      fields,
+      controls,
+      opening: '',
+      depth: depth + 1,
+      onChange:
+        onChange &&
+        ((next) =>
+          onChange({
+            ...(test as Extract<Test, { kind: 'every' | 'some' }>),
+            tests: (test as Extract<Test, { kind: 'every' | 'some' }>).tests.map((one, at) =>
+              at === index ? next : one
+            ),
+          })),
+    });
+
+  if (test.kind === 'every' || test.kind === 'some') {
+    /*
+     * A group reads as its own line and its members as clauses under it, which
+     * is the only arrangement that survives a 280px panel — "all of these hold
+     * Price is over 500000 and Status is available" in one run is a sentence
+     * nobody can parse at a glance.
+     *
+     * The and/or is one chip, so turning "all" into "any" is a click rather
+     * than a rebuild. That is the thing most builders make hard.
+     */
+    parts.push({
+      kind: 'pick',
+      key: `${depth}-mode`,
+      value: test.kind,
+      menuWidth: 170,
+      options: [
+        { value: 'every', label: 'all of these' },
+        { value: 'some', label: 'any of these' },
+      ],
+      onChange: onChange && ((kind) => onChange({ ...test, kind: kind as 'every' | 'some' })),
+    });
+    parts.push({ kind: 'word', text: 'hold', key: `${depth}-hold` });
+
+    test.tests.forEach((inner, index) => {
+      parts.push({
+        kind: 'clause',
+        key: `${depth}-${index}`,
+        parts: [
+          ...(index > 0
+            ? [
+                {
+                  kind: 'word' as const,
+                  text: test.kind === 'every' ? 'and' : 'or',
+                  key: `join${index}`,
+                },
+              ]
+            : []),
+          ...nest(inner, index),
+          ...(onChange && test.tests.length > 1
+            ? [
+                {
+                  kind: 'action' as const,
+                  key: `drop${index}`,
+                  title: 'Remove this condition',
+                  label: <Trash2 size={10} />,
+                  onClick: () => {
+                    // Through `simplify`, so deleting down to one condition
+                    // leaves that condition rather than a group of one.
+                    const left = simplify({
+                      ...test,
+                      tests: test.tests.filter((_, at) => at !== index),
+                    });
+                    if (left) onChange(left);
+                  },
+                },
+              ]
+            : []),
+        ],
+      });
+    });
+
+    if (onChange && fields[0]) {
+      parts.push({
+        kind: 'clause',
+        key: `${depth}-add`,
+        parts: [
+          {
+            kind: 'action',
+            key: 'add',
+            title: 'Add a condition',
+            label: <span className="text-[10px]">+ condition</span>,
+            onClick: () => onChange({ ...test, tests: [...test.tests, blankTest(fields[0]!)] }),
+          },
+          // One level of grouping is offered, not unlimited. Two nested groups
+          // in a 280px panel is a diagram, and the model can still hold deeper
+          // — anything that arrives that way is rendered, just not authored
+          // here.
+          ...(depth < 1
+            ? [
+                {
+                  kind: 'action' as const,
+                  key: 'add-group',
+                  title: 'Add a group of conditions',
+                  label: <span className="text-[10px]">+ group</span>,
+                  onClick: () =>
+                    onChange({
+                      ...test,
+                      tests: [
+                        ...test.tests,
+                        {
+                          kind: test.kind === 'every' ? 'some' : 'every',
+                          tests: [blankTest(fields[0]!), blankTest(fields[0]!)],
+                        },
+                      ],
+                    }),
+                },
+              ]
+            : []),
+        ],
+      });
+    }
+    return parts;
+  }
 
   if (test.kind !== 'compare') {
-    // Everything the sentence builder does not have words for yet — a nested
-    // `every`, a browser condition. Said plainly rather than rendered as an
-    // empty sentence, which would read as a rule that does nothing.
+    // A browser condition inside a Test. Said plainly rather than rendered as
+    // an empty sentence, which would read as a rule that does nothing.
     parts.push({ kind: 'word', text: describeOther(test), key: 'other' });
     return parts;
   }
@@ -157,6 +286,21 @@ export function testSentence(options: {
         onChange: onChange && ((raw) => onChange({ ...test, right: literalFor(field.type, raw) })),
       });
     }
+  }
+
+  /*
+   * And the way a single condition becomes two. Offered only at the top,
+   * because inside a group the group's own "+ condition" is the way to do it
+   * and two affordances for one action is worse than either.
+   */
+  if (onChange && depth === 0 && fields[0]) {
+    parts.push({
+      kind: 'action',
+      key: 'grow',
+      title: 'Add another condition',
+      label: <span className="text-[10px]">+ and</span>,
+      onClick: () => onChange({ kind: 'every', tests: [test, blankTest(fields[0]!)] }),
+    });
   }
 
   return parts;

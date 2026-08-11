@@ -271,6 +271,52 @@ try {
         changed !== opened && /contains/.test(changed),
         `${opened} → ${changed}`
       );
+
+      /*
+       * Nesting. The model has always allowed `every` and `some`; the panel
+       * could only say "all of 2 conditions hold" about them. The half worth
+       * checking hardest is the way back — deleting down to one condition has
+       * to leave that condition rather than a group with one member in it,
+       * which is invisible in the evaluator and visible everywhere else.
+       */
+      const grow = rule().locator('button').filter({ hasText: '+ and' }).first();
+      if (await grow.count()) {
+        await grow.click();
+        await page.waitForTimeout(500);
+        const grouped = await sentence();
+        report.check(
+          'one condition can become two, under a group that says which it needs',
+          /all of these hold/.test(grouped) && /\band\b/.test(grouped),
+          grouped
+        );
+
+        const mode = rule().locator('button').filter({ hasText: 'all of these' }).first();
+        if (await mode.count()) {
+          await mode.click();
+          await page.waitForTimeout(250);
+          await page.locator('.anim-pop').last().getByText('any of these', { exact: true }).first().click();
+          await page.waitForTimeout(450);
+        }
+        const anyOf = await sentence();
+        report.check(
+          'and all becomes any with one chip, not a rebuild',
+          /any of these hold/.test(anyOf) && /\bor\b/.test(anyOf),
+          anyOf
+        );
+
+        // Delete the second condition. It must unwrap, not leave a group of one.
+        const drop = rule().locator('button[title="Remove this condition"]').last();
+        if (await drop.count()) {
+          await drop.click();
+          await page.waitForTimeout(500);
+        }
+        const back = await sentence();
+        report.check(
+          'and deleting one back down leaves the condition, not a group of one',
+          !/of these hold/.test(back) && /^When \S/.test(back),
+          back
+        );
+      }
     }
   }
 

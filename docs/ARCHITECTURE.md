@@ -1008,6 +1008,14 @@ control: both are already keyboard-reachable and already know the editor's
 focus ring, and a bespoke chip would reimplement those badly in the place a
 designer moves fastest.
 
+A group is a clause under the clause that governs it, rendered recursively —
+`all of these hold` with its members indented, and `all`/`any` as one chip so
+turning AND into OR is a click rather than a rebuild. The model always allowed
+`every` and `some`; the panel could only say "all of 2 conditions hold" about
+them. Deleting back down to one condition unwraps the group, because a group
+with one member in it is invisible to the evaluator and visible everywhere
+else.
+
 It unified four grammars that were four different arrangements of rows. A
 Test, a repeater filter and a condition are all field · operator · value; a
 binding is prop · source · format. Nothing in the old panels gave a designer

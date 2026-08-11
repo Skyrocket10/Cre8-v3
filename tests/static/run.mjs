@@ -2246,6 +2246,54 @@ report.group('a record decides what state an element is in');
     foldable(over('price', 1)) === true && foldable({ kind: 'pointer', pseudo: 'hover' }) === false
   );
 
+  /*
+   * Groups that stop being groups.
+   *
+   * A designer deleting the second half of "all of these" means "just this
+   * one". Leaving an `every` with a single member would be harmless to the
+   * evaluator and visible everywhere else — an extra indent in the panel, an
+   * extra level in the summary, and a document that differs from the identical
+   * design built the other way round.
+   */
+  const { simplify } = tests;
+  const A = over('price', 1);
+  const B = is('status', 'sold');
+
+  report.check(
+    'a group of one is the thing it contains',
+    JSON.stringify(simplify({ kind: 'every', tests: [A] })) === JSON.stringify(A),
+    JSON.stringify(simplify({ kind: 'every', tests: [A] }))
+  );
+  report.check(
+    'a group of none is nothing at all, not a group that matches everything',
+    simplify({ kind: 'every', tests: [] }) === null,
+    String(simplify({ kind: 'every', tests: [] }))
+  );
+  report.check(
+    'a group of two is left alone',
+    simplify({ kind: 'every', tests: [A, B] })?.tests?.length === 2
+  );
+  report.check(
+    'and it unwraps all the way down',
+    JSON.stringify(simplify({ kind: 'some', tests: [{ kind: 'every', tests: [A] }] })) ===
+      JSON.stringify(A),
+    JSON.stringify(simplify({ kind: 'some', tests: [{ kind: 'every', tests: [A] }] }))
+  );
+  report.check(
+    'an empty group inside a real one is dropped rather than counted',
+    simplify({ kind: 'every', tests: [A, { kind: 'some', tests: [] }] })?.kind === 'compare',
+    JSON.stringify(simplify({ kind: 'every', tests: [A, { kind: 'some', tests: [] }] }))
+  );
+  report.check(
+    'a plain comparison is returned untouched',
+    simplify(A) === A
+  );
+  report.check(
+    'and the simplifier is not simply returning its input',
+    simplify({ kind: 'every', tests: [A] }) !== null &&
+      simplify({ kind: 'every', tests: [A] }).kind === 'compare'
+  );
+
   /* The overlap warning — fires, and stays quiet. */
   report.check(
     'two ranges that genuinely intersect are flagged',
