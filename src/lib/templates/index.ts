@@ -641,14 +641,18 @@ const startup: TemplateDefinition = {
  * ----------------------------------------------------------------------- */
 
 /**
- * Six engagements, each of which is a page.
+ * Seven engagements, each of which is a page, two of them led with.
  *
- * Six and not seven, and the count is a layout decision rather than an
- * editorial one — said plainly because it is the sort of thing that looks
- * arbitrary later. Three columns take six cards in two exact rows; the seventh
- * used to exist to fill a bento, and a repeater cannot draw a bento (see
- * `workGridBlock`), so the card that was only ever there for the geometry goes
- * with the geometry.
+ * The count is a layout decision and has changed twice, which is worth the
+ * lines it takes to say. It was seven hand-written cards in a bento; V2 made
+ * them records and cut it to six, because a repeater draws one shape and a
+ * bento needs two. P2 gave a record a way to vary a *style* — `assign` reads
+ * the row, a rule reads the state — so the bento is back and the seventh case
+ * study with it: two wide and five ordinary is nine cells in three columns,
+ * three exact rows, no trailing gap.
+ *
+ * `feature` is the field that marks the two. Any mark in it is a yes; the five
+ * ordinary ones leave it empty.
  *
  * `image` carries the same URL a `photo` node would build, through the same
  * function, so the host is still named in exactly one place.
@@ -658,6 +662,7 @@ const WORK: SeedRow[] = [
     collection: 'Work',
     slug: 'meridian',
     data: {
+      feature: 'wide',
       title: 'An identity Meridian could hand to anyone',
       client: 'Meridian',
       discipline: 'Brand identity',
@@ -746,8 +751,27 @@ const WORK: SeedRow[] = [
   },
   {
     collection: 'Work',
+    slug: 'havlin',
+    data: {
+      title: 'A quarterly nobody throws away',
+      client: 'Havlin & Co',
+      discipline: 'Editorial',
+      year: '2024',
+      summary:
+        'A client magazine for an accountancy firm, which is a sentence most designers hear as a warning.',
+      image: photoUrl('ff-havlin', 900, 675),
+      alt: 'A Havlin & Co quarterly open on a table',
+      body:
+        '<p>Client magazines are read by nobody and everybody knows it, which is why they keep being commissioned: nothing that fails invisibly ever gets cancelled.</p>' +
+        '<p>Havlin wanted the opposite, and the only way to get it was to stop writing about Havlin. The quarterly runs long interviews with the people the firm audits — a cider maker, a haulier, a children\u2019s theatre — and mentions its publisher twice, on the contents page and the back.</p>' +
+        '<p>It is printed on uncoated stock heavy enough to sit on a table for three months, which is the whole distribution strategy.</p>',
+    },
+  },
+  {
+    collection: 'Work',
     slug: 'salter',
     data: {
+      feature: 'wide',
       title: 'A shopfront, and everything that follows from it',
       client: 'Salter',
       discipline: 'Brand identity',
@@ -809,6 +833,8 @@ const agency: TemplateDefinition = {
             { key: 'image', label: 'Image', type: 'image' },
             { key: 'alt', label: 'Image description', type: 'text' },
             { key: 'body', label: 'Body', type: 'richtext' },
+            // Any mark in it means "lead with this one". Two of the seven.
+            { key: 'feature', label: 'Lead with this one', type: 'text' },
           ],
         },
       ],
@@ -841,9 +867,10 @@ const agency: TemplateDefinition = {
             anchored(
               workGridBlock({
                 title: 'Selected work',
-                intro: 'Six recent engagements, written up in full.',
+                intro: 'Seven recent engagements, written up in full.',
                 collection: ids.Work ?? '',
                 detail: pageRef('work'),
+                featureField: 'feature',
               }),
               'work'
             ),

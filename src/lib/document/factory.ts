@@ -23,6 +23,7 @@ import {
   type RepeatSpec,
   type ResponsiveStyles,
   type SceneNode,
+  type StateRule,
   type StateStyles,
   type StyleDecl,
   type Ref,
@@ -80,6 +81,21 @@ export interface NodeSpec {
   meta?: SceneNode['meta'];
   /** Render `children` once per record. */
   repeat?: RepeatSpec;
+  /**
+   * What state the record puts this node in — `WHEN feature is "wide" → wide`.
+   *
+   * The document model has carried this since stage 3 and the renderer has
+   * read it for just as long: `stateFrom` evaluates it against the row and
+   * writes the answer into the state attribute, per row, at publish. Nothing
+   * could *author* it. `buildSubtree` copied props, styles, rules, meta,
+   * repeat, refs and bindings, and silently dropped this — so a block could
+   * make a record change what an element *says*, through `bind`, and had no
+   * way to make it change what an element *looks like*.
+   *
+   * That is why a repeater drew one shape. Not a missing feature in the
+   * renderer: a field missing from the shape a block is written in.
+   */
+  assign?: StateRule[];
   /**
    * Read fields of the record in scope into props.
    *
@@ -146,6 +162,7 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
   }
   if (spec.meta) node.meta = { ...node.meta, ...spec.meta };
   if (spec.repeat) node.repeat = structuredCloneCompat(spec.repeat);
+  if (spec.assign?.length) node.assign = structuredCloneCompat(spec.assign);
   if (spec.refs) {
     node.refs = Object.fromEntries(
       Object.entries(spec.refs).map(([slot, name]) => [slot, namedRef(name)])

@@ -963,19 +963,20 @@ export function galleryBlock(
           })),
           columns,
           /*
-           * `start`, so a card is as tall as its own contents.
+           * Stretched, so every card in a row ends on the same line.
            *
-           * Grid stretches by default, and in a mixed-width gallery that is
-           * wrong in a way that looks like a bug: a double-width card at the
-           * same aspect ratio is roughly twice as tall as its neighbour, and
-           * stretching makes the neighbour a tall empty box with its caption
-           * stranded at the top. Exact height matching is not available —
-           * whatever ratio pairs at three columns is wrong at two, because the
-           * wide card's share of the row changes and the narrow one's does not
-           * — so the honest arrangement is ragged bottoms and cards that are
-           * the size of what is in them.
+           * This used to be `start`, on the reasoning that a double-width card
+           * is twice as tall at the same ratio and stretching would leave its
+           * neighbour a tall empty box. `ratioOf` already answers that — the
+           * letterbox brings a wide picture to 268px against a plain one's
+           * 269px at three columns, and at two columns a wide card spans the
+           * whole row and has no neighbour to mismatch. What was left of
+           * `start` was raggedness of a different kind: a card with a subtitle
+           * finishing 24px below the card beside it, which on bordered boxes
+           * reads as a mistake rather than as rhythm. Stretching spends that
+           * 24px as white under the shorter caption instead.
            */
-          { gap: '20px', alignItems: 'start' }
+          { gap: '20px' }
         ),
       ],
       { gap: '52px' }
@@ -1247,6 +1248,14 @@ export interface WorkGridOptions {
   fields?: { image?: string; alt?: string; title?: string; meta?: string };
   /** The words on the affordance. Not a control — see below. */
   cue?: string;
+  /**
+   * A field that marks a piece as worth leading with. Its card spans two
+   * columns; a record leaving it empty gets an ordinary one.
+   *
+   * Off unless a collection has such a field, because a gallery where
+   * everything is featured is a gallery where nothing is.
+   */
+  featureField?: string;
   columns?: number;
   ratio?: string;
 }
@@ -1266,12 +1275,17 @@ export interface WorkGridOptions {
  * is why the affordance is *text* — a card that goes somewhere should say so,
  * and the moment it says so with a button the card can no longer be the link.
  *
- * Uniformly one shape per record, deliberately. `galleryBlock` can hand one
- * item a double-width span because each of its cards is its own node; a
- * repeater draws one node many times, and per-record layout would need a
- * binding that reaches a style property, which is not a thing yet. Told
- * plainly here so the next person reaching for a bento over a collection finds
- * the reason rather than the omission.
+ * One shape per record unless `featureField` says otherwise, and that option
+ * is a correction to what this comment used to claim. It said a repeater draws
+ * one node many times and per-record layout "would need a binding that reaches
+ * a style property, which is not a thing yet". The diagnosis was wrong in an
+ * instructive way: what it needed was not a new kind of binding but the state
+ * machinery that had been there since stage 3 — `assign` reads the row and
+ * writes a state, and a rule reads the state. Two things were in the way, and
+ * neither was the model. A spec could not carry an `assign` (P2), and a
+ * conditional rule could not be released at a breakpoint (P1), so the span
+ * would have been stuck on at every width and a phone would have scrolled
+ * sideways.
  */
 export function workGridBlock({
   name = 'Gallery',
@@ -1281,6 +1295,7 @@ export function workGridBlock({
   detail,
   fields = {},
   cue = 'View case study',
+  featureField,
   columns = 3,
   ratio = '4 / 3',
 }: WorkGridOptions): NodeSpec {
@@ -1299,10 +1314,44 @@ export function workGridBlock({
   const titleField = fields.title ?? 'title';
   const metaField = fields.meta ?? 'discipline';
 
+  /*
+   * The span, driven by the record rather than by the node.
+   *
+   * `assign` reads the row and writes a state; the two rules read that state.
+   * Both halves already existed and neither could be used: a spec had no way
+   * to carry an `assign`, and a conditional rule could not be released at a
+   * breakpoint — so the span would have been stuck on at every width, which on
+   * a one-column phone makes the grid invent a second column and the page
+   * scroll sideways. P1 and P2 are the two of those, and this is what they
+   * were for.
+   */
+  const FEATURED = [{ kind: 'state' as const, key: 'feature', op: 'is' as const, values: ['wide'] }];
+  const feature: Pick<NodeSpec, 'props' | 'assign' | 'rules'> = featureField
+    ? {
+        props: { href: detail, switchKey: 'feature', switchDefault: 'plain' },
+        assign: [
+          {
+            id: 'a-featured',
+            // `notEmpty` rather than a magic value: the question a designer
+            // answers is "is this one featured", and any mark they leave in
+            // the field is a yes.
+            when: { kind: 'compare', left: { kind: 'field', key: featureField }, op: 'notEmpty' },
+            value: 'wide',
+          },
+        ],
+        rules: [
+          { id: 'r-featured', when: FEATURED, apply: { gridColumn: 'span 2' } },
+          // Released on a phone, where the grid is one column and a span of
+          // two is a column the grid has to invent.
+          { id: 'r-featured-narrow', when: FEATURED, apply: { gridColumn: 'auto' }, breakpoint: 'mobile' },
+        ],
+      }
+    : { props: { href: detail } };
+
   const card: NodeSpec = {
     type: 'frame',
     name: 'Case card',
-    props: { href: detail },
+    ...feature,
     styles: {
       ...pad('0px'),
       gap: '0px',
@@ -1326,6 +1375,29 @@ export function workGridBlock({
           styles: { ...radius('0px'), aspectRatio: ratio },
         }),
         bind: { src: imageField, alt: altField },
+        /*
+         * A featured card is a bit over twice as wide, so at the same ratio it
+         * is twice as tall and the row goes badly out of balance. A letterbox
+         * crop brings the two within a hand's breadth.
+         *
+         * The rule lives on the *picture* and reads a state declared on the
+         * *card*, which is what a state condition is for: it prefixes the
+         * compound rather than joining it, so this compiles to "the photo
+         * inside a featured card". Released on a phone with the span.
+         */
+        ...(featureField
+          ? {
+              rules: [
+                { id: 'r-featured-shot', when: FEATURED, apply: { aspectRatio: '11 / 4' } },
+                {
+                  id: 'r-featured-shot-narrow',
+                  when: FEATURED,
+                  apply: { aspectRatio: ratio },
+                  breakpoint: 'mobile',
+                },
+              ],
+            }
+          : {}),
       },
       stack(
         'Caption',
@@ -1390,6 +1462,23 @@ export function workGridBlock({
       [
         ...(title ? [sectionHeader(undefined, title, intro)] : []),
         {
+          /*
+           * Stretched, even with a double-width card in the row.
+           *
+           * The usual answer to a mixed-width grid is `alignItems: start`, so
+           * that a short card is not pulled up to a tall neighbour's height
+           * with its caption stranded in the empty half. That is a fix for the
+           * symptom. The cause is the picture: at one ratio a card twice as
+           * wide is twice as tall, and the letterbox rule above removes it —
+           * measured, a featured photo comes out 268px against a plain card's
+           * 269px, so the row is level before alignment has any say.
+           *
+           * Leaving it stretched is then strictly better, because `start` also
+           * applies to the rows where every card *is* the same width: there it
+           * lets a two-line title push its own card 23px below its neighbours
+           * and takes the cue with it, which is exactly the slack the `auto`
+           * margin on the cue exists to absorb.
+           */
           ...grid('Work grid', [card], columns, { gap: '20px' }),
           repeat: { collection },
         },

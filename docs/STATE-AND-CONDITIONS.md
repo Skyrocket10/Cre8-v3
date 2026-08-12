@@ -526,9 +526,32 @@ separable when something goes wrong.
 1. **`@layer` or `:where()` padding** (§4). Recommendation is to ship the
    padding and measure layers separately, because the interaction with the
    editor's Tailwind preflight is the unknown.
-2. **Does a rule beat a breakpoint override?** This document says yes, on
-   source order. The alternative — breakpoints outrank states — is arguable
-   and would need the panel to say so.
+2. ~~**Does a rule beat a breakpoint override?**~~ **Answered by P1: yes, and
+   a rule scoped to a breakpoint beats that.** The question had two cases in
+   it and only saw one.
+
+   A rule beating a plain narrow override is right and is unchanged — "what it
+   is when something is true" is more specific information than "what it is
+   when narrow", and a designer who writes both means the condition.
+
+   The case the question missed is a rule against *its own* narrow version.
+   Both statements are conditional, so both are rules, and the narrow one has
+   to win — otherwise "span two columns, except on a phone" cannot be said at
+   all about anything conditional. It could not: every rule was emitted after
+   every breakpoint, so the unscoped rule beat its own mobile scoping and the
+   override did nothing. The only symptom was a declaration in the panel that
+   changed nothing on the canvas, which reads as a broken control rather than
+   as a cascade decision.
+
+   There are four phases now, and because source order is the whole cascade
+   here, the list *is* the precedence rule:
+
+   > what it is → what it is when narrow → what it is when something is true →
+   > what it is when something is true and it is narrow.
+
+   The panel does not have to say so, which was the other half of the
+   question's worry: each of the four is written where a designer would look
+   for it, and the order matches the order of how specific the statement is.
 3. **How loud does the "editing a rule" mode need to be?** The current tinted
    strip is adequate for two modes and probably not for eight.
 4. **Where does the per-state "Editing" control live** once states are no

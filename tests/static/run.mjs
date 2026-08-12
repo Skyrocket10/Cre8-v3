@@ -8958,6 +8958,190 @@ report.group('a hook that only sometimes runs');
   );
 }
 
+report.group('a record can change what an element looks like');
+
+{
+  /*
+   * The other half of binding, and the half that was missing.
+   *
+   * `bind` lets a record change what an element *says*. Nothing let a record
+   * change what it *looks like* — so a repeater drew one shape, and a
+   * collection-backed gallery could not lead with a piece of work the way a
+   * hand-built bento does.
+   *
+   * The renderer could do it all along: `assign` holds `WHEN field → state`,
+   * `stateFrom` evaluates it against the row, and the state attribute is
+   * written per row at publish. What could not was the *spec* — `buildSubtree`
+   * copied props, styles, rules, meta, repeat, refs and bindings and dropped
+   * this one silently, so no block or template could ever reach it.
+   */
+  const doc = createEmptyDocument('Featured');
+  const page = doc.pages[0];
+  const cid = 'c-work';
+  doc.collections = [
+    {
+      id: cid,
+      name: 'Work',
+      fields: [
+        { key: 'title', label: 'Title', type: 'text' },
+        { key: 'feature', label: 'Feature', type: 'text' },
+      ],
+    },
+  ];
+  const featured = [{ kind: 'state', key: 'feature', op: 'is', values: ['wide'] }];
+  const { rootId } = buildTree(
+    {
+      type: 'grid',
+      name: 'Cards',
+      styles: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' },
+      responsive: { mobile: { gridTemplateColumns: '1fr' } },
+      repeat: { collection: cid },
+      children: [
+        {
+          type: 'frame',
+          name: 'Card',
+          props: { switchKey: 'feature', switchDefault: 'plain' },
+          assign: [
+            {
+              id: 'a-wide',
+              when: { kind: 'compare', left: { kind: 'field', key: 'feature' }, op: 'notEmpty' },
+              value: 'wide',
+            },
+          ],
+          rules: [
+            { id: 'r-wide', when: featured, apply: { gridColumn: 'span 2' } },
+            { id: 'r-narrow', when: featured, apply: { gridColumn: 'auto' }, breakpoint: 'mobile' },
+          ],
+          children: [{ type: 'text', name: 'T', props: { text: 'x' }, bind: { text: 'title' } }],
+        },
+      ],
+    },
+    doc.nodes,
+    page.rootNodeId
+  );
+  doc.nodes[page.rootNodeId].children.push(rootId);
+
+  const card = Object.values(doc.nodes).find((n) => n.name === 'Card');
+  report.check(
+    'a spec can carry a state the record decides',
+    (card?.assign ?? []).length === 1 && card.assign[0].value === 'wide',
+    card?.assign ? `assign: ${card.assign[0].value} when ${card.assign[0].when.op}` : 'dropped on the way in'
+  );
+
+  const rows = ['Meridian:wide', 'Cobalt:', 'Orenda:'].map((one, i) => {
+    const [title, feature] = one.split(':');
+    return {
+      id: `r${i}`,
+      collectionId: cid,
+      slug: title.toLowerCase(),
+      position: i,
+      published: true,
+      data: { title, feature },
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  });
+  const html = String(
+    generateSite(doc, { pretty: false, records: { [cid]: rows } }).files.find(
+      (f) => f.path === 'index.html'
+    ).contents
+  );
+  const wide = (html.match(/data-cre8-value="wide"/g) ?? []).length;
+  const plain = (html.match(/data-cre8-value="plain"/g) ?? []).length;
+  report.check(
+    'and the row it is evaluated against decides it, one row at a time',
+    wide === 1 && plain === 2,
+    `${wide} featured, ${plain} ordinary, from ${rows.length} records`
+  );
+
+  /* And the templates use it. */
+  const agency = TEMPLATES.find((t) => t.id === 'agency');
+  const doc2 = agency.build();
+  const workId = (doc2.collections ?? []).find((c) => c.name === 'Work')?.id;
+  const seeded = (agency.seed ?? []).map((row, i) => ({
+    id: `s${i}`,
+    collectionId: workId,
+    slug: row.slug,
+    position: i,
+    published: true,
+    data: row.data,
+    createdAt: 0,
+    updatedAt: 0,
+  }));
+  const home = String(
+    generateSite(doc2, { pretty: false, records: { [workId]: seeded } }).files.find(
+      (f) => f.path === 'index.html'
+    ).contents
+  );
+  const led = (home.match(/data-cre8-value="wide"/g) ?? []).length;
+  report.check(
+    'the agency leads with two of its seven, which is nine cells in three columns',
+    led === 2 && seeded.length === 7,
+    // The arithmetic is the point: 2×2 + 5 = 9, three exact rows. Six records
+    // with two wide would be eight cells and a hole at the end.
+    `${led} wide and ${seeded.length - led} ordinary — ${led * 2 + (seeded.length - led)} cells`
+  );
+}
+
+report.group('a conditional style can still be undone by a narrow screen');
+
+{
+  /*
+   * The precedence question STATE-AND-CONDITIONS §11 left open, answered by
+   * the case that made it concrete.
+   *
+   * A featured card spans two columns. On a phone the grid is one column and
+   * the span has to be released, or the grid invents a second column and the
+   * page scrolls sideways. Both statements are conditional — they are true
+   * only of a featured card — so both are rules, and the narrow one has to
+   * win over the wide one. It did not: every conditional rule was emitted
+   * after every breakpoint, so the unscoped rule beat its own mobile version
+   * and the override did nothing at all.
+   */
+  const doc = createEmptyDocument('Cascade');
+  const page = doc.pages[0];
+  const featured = [{ kind: 'state', key: 'feature', op: 'is', values: ['wide'] }];
+  const { rootId } = buildTree(
+    {
+      type: 'grid',
+      name: 'Cards',
+      props: { switchKey: 'feature', switchDefault: 'plain' },
+      styles: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' },
+      responsive: { mobile: { gridTemplateColumns: '1fr' } },
+      rules: [
+        { id: 'r-wide', when: featured, apply: { gridColumn: 'span 2' } },
+        { id: 'r-narrow', when: featured, apply: { gridColumn: 'auto' }, breakpoint: 'mobile' },
+      ],
+    },
+    doc.nodes,
+    page.rootNodeId
+  );
+  doc.nodes[page.rootNodeId].children.push(rootId);
+  const css = generateStylesheet(doc, { standalone: true, mode: 'media' });
+
+  const spanAt = css.indexOf('span 2');
+  const releaseAt = css.indexOf('grid-column: auto');
+  report.check(
+    'a rule scoped to a breakpoint is emitted after the same rule unscoped',
+    spanAt > -1 && releaseAt > spanAt,
+    spanAt === -1
+      ? 'the span is not in the sheet at all'
+      : `span at ${spanAt}, release at ${releaseAt} — ${releaseAt > spanAt ? 'after' : 'BEFORE, so it loses'}`
+  );
+  report.check(
+    'and it is inside a media query, not loose in the sheet',
+    /@media[^{]*\{[^}]*grid-column: auto/s.test(css.slice(releaseAt - 400, releaseAt + 60)),
+    css.slice(Math.max(0, releaseAt - 90), releaseAt + 40).replace(/\s+/g, ' ').trim()
+  );
+  report.check(
+    'the plain narrow override still comes before the conditional rules',
+    // The half that must not change: a rule beating an ordinary breakpoint
+    // override is the documented answer, and only the *scoped* rule moved.
+    css.indexOf('grid-template-columns: 1fr') < spanAt,
+    `one-column override at ${css.indexOf('grid-template-columns: 1fr')}, first rule at ${spanAt}`
+  );
+}
+
 report.group('a jump that reaches another page');
 
 {

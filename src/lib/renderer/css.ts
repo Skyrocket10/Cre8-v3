@@ -523,17 +523,24 @@ export function generateNodeCss(
 
   const baseRules: Emitted[] = [];
   const ruleChunks: string[] = [];
+  /** Narrow-width overrides from a node's own styles. One per node, merged. */
   const responsiveRules: Partial<Record<Breakpoint, Emitted[]>> = {};
   /**
-   * Breakpoints that received a *conditional* rule as well as base overrides.
+   * Narrow-width overrides from a *rule* — a conditional style scoped to one
+   * breakpoint — kept apart from the ones above and emitted after everything.
    *
-   * That phase then has the same two problems the conditional phase has — more
-   * than one rule per node, and selectors that overlap — so it loses the
-   * property that makes merging safe and is printed in order instead. Rare
-   * enough in practice that the saving is unaffected, and cheap enough to
-   * track that guessing would be the wrong trade.
+   * They used to share the bucket, which put them before the unscoped rules
+   * and made them unreachable: a rule saying "span two columns when featured"
+   * beat the rule saying "and span one on a phone", because source order is
+   * the whole of the cascade here and the mobile one came first. There was no
+   * way to write a conditional style that a narrow screen could undo, and the
+   * only sign of it was a designer's override doing nothing.
+   *
+   * Printed in order rather than merged, for the reason the conditional phase
+   * is: a node can carry several, and a variant's class matches an element its
+   * node's class matches too.
    */
-  const mixed = new Set<Breakpoint>();
+  const conditionalResponsive: Partial<Record<Breakpoint, Emitted[]>> = {};
 
   for (const id of ids) {
     const node = nodes[id];
@@ -588,10 +595,7 @@ export function generateNodeCss(
 
       if (rule.breakpoint && rule.breakpoint !== 'desktop') {
         const body = declarationsToCss(rule.apply, '    ');
-        if (body) {
-          (responsiveRules[rule.breakpoint] ??= []).push({ selector, body });
-          mixed.add(rule.breakpoint);
-        }
+        if (body) (conditionalResponsive[rule.breakpoint] ??= []).push({ selector, body });
         continue;
       }
       const body = declarationsToCss(rule.apply);
@@ -602,21 +606,35 @@ export function generateNodeCss(
   const out: string[] = [];
   if (baseRules.length) out.push(printPhase(baseRules, ''));
 
-  // Narrow breakpoints emitted before the rules and after the base, so that
-  // at equal specificity the cascade reads: what it is, then what it is when
-  // narrow, then what it is when something is true.
-  for (const bp of BREAKPOINT_ORDER) {
-    const rules = responsiveRules[bp];
-    if (!rules?.length) continue;
-    const body = mixed.has(bp) ? printInOrder(rules, '  ') : printPhase(rules, '  ');
-    const rule = atRule(options.mode, bp);
-    out.push(rule ? `${rule} {\n${body}\n}` : body);
-  }
+  /*
+   * Four phases, and at equal specificity source order is the whole cascade,
+   * so this list *is* the precedence rule:
+   *
+   *   what it is → what it is when narrow → what it is when something is
+   *   true → what it is when something is true and it is narrow.
+   *
+   * The last one is the addition. Before it there were three phases and the
+   * third was final, which made "except on a phone" unsayable about anything
+   * conditional — the narrow override was emitted first and lost.
+   */
+  const emit = (bucket: Partial<Record<Breakpoint, Emitted[]>>, merge: boolean): void => {
+    for (const bp of BREAKPOINT_ORDER) {
+      const rules = bucket[bp];
+      if (!rules?.length) continue;
+      const body = merge ? printPhase(rules, '  ') : printInOrder(rules, '  ');
+      const rule = atRule(options.mode, bp);
+      out.push(rule ? `${rule} {\n${body}\n}` : body);
+    }
+  };
+
+  emit(responsiveRules, true);
 
   // Printed as it stands, not merged: a node can carry several of these and a
   // variant class matches an element its node class matches too, so moving one
   // up to join another would change which of them wins.
   if (ruleChunks.length) out.push(ruleChunks.join('\n'));
+
+  emit(conditionalResponsive, false);
   return out.join('\n\n');
 }
 
