@@ -684,10 +684,25 @@ export const iconBadge = (name: string, styles: StyleDecl = {}): NodeSpec => ({
 });
 
 /** A ticked list. Pricing features, hero reassurance, comparison columns. */
-export const bullets = (items: string[], glyph = 'check', name = 'List'): NodeSpec => ({
+/**
+ * A ticked list. `styles` is how it becomes a row instead of a column —
+ * three short reassurances under a hero read as one line, not as a stack.
+ */
+export const bullets = (
+  items: string[],
+  glyph = 'check',
+  name = 'List',
+  styles: StyleDecl = {}
+): NodeSpec => ({
   type: 'stack',
   name,
-  styles: { flexDirection: 'column', alignItems: 'flex-start', gap: '11px', width: '100%' },
+  styles: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '11px',
+    width: '100%',
+    ...styles,
+  },
   children: items.map((text) =>
     stack(
       text.slice(0, 24),
@@ -1011,6 +1026,96 @@ export const fieldset = (
   ...rsp(responsive),
   children,
 });
+
+export interface FieldOptions {
+  help?: string;
+  error?: string;
+  type?: string;
+  placeholder?: string;
+  multiline?: boolean;
+  /** Overrides the submitted name, which is otherwise slugged from the label. */
+  key?: string;
+  /** Makes it a `select`. The placeholder becomes the unselected option. */
+  options?: string[];
+}
+
+/**
+ * Label, control, and the line underneath.
+ *
+ * The label is a real `label` element so clicking it focuses the field, and
+ * the help text sits below rather than beside, where it survives being narrow.
+ *
+ * Lives in the kit rather than in `app.ts`, which is where it started. Four
+ * more blocks wanted it the day the conversion set was written, and copying it
+ * into three files is precisely how `BlockLink` ended up declared three times
+ * with `jumpTo` on only one of them.
+ */
+export const field = (name: string, options: FieldOptions = {}): NodeSpec =>
+  column(
+    name,
+    [
+      label(name, { ...CAPTION, fontSize: '13px', fontWeight: '560', color: 'var(--c-text)' }),
+      /*
+       * A select goes through here too, so it gets the same visible label as
+       * every field beside it. Left to `dropdown` alone it has only its
+       * placeholder option, which reads on screen as a row where the label
+       * went missing — and to a screen reader as a combo box whose accessible
+       * name is the first thing in its own list.
+       */
+      options.options
+        ? {
+            type: 'select',
+            name: `${name} select`,
+            props: {
+              name: options.key ?? fieldKey(name),
+              options: options.options.join('\n'),
+              ...(options.placeholder ? { placeholder: options.placeholder } : {}),
+            },
+            styles: { width: '100%' },
+          }
+        : options.multiline
+        ? {
+            type: 'textarea',
+            name: `${name} input`,
+            props: {
+              placeholder: options.placeholder ?? '',
+              name: options.key ?? fieldKey(name),
+              rows: 4,
+            },
+            styles: { width: '100%' },
+          }
+        : {
+            type: 'input',
+            name: `${name} input`,
+            props: {
+              placeholder: options.placeholder ?? '',
+              inputType: options.type ?? 'text',
+              name: options.key ?? fieldKey(name),
+            },
+            styles: { width: '100%' },
+          },
+      ...(options.error
+        ? [label(options.error, { ...CAPTION, color: 'var(--c-danger, #dc2626)' })]
+        : options.help
+          ? [label(options.help, { ...CAPTION, color: 'var(--c-muted)' })]
+          : []),
+    ],
+    { gap: '6px', width: '100%' }
+  );
+
+/**
+ * The name a field submits under.
+ *
+ * One function, because the label and the key drifting apart is a form that
+ * posts `work-email` from one block and `workemail` from another, and the
+ * Worker sees two columns where the designer sees one question. The textarea
+ * arm used to lower-case the label and leave the spaces in.
+ */
+export const fieldKey = (label: string): string =>
+  label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
 export const slider = (
   name: string,

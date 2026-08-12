@@ -728,7 +728,24 @@ export const DOCUMENT_RESET = `
 
 /* Elements that own a child the document does not: legend, caption, summary. */
 :where([data-cre8-root]) fieldset { min-width: 0; }
-:where([data-cre8-root]) legend { padding-left: 6px; padding-right: 6px; }
+/*
+ * The legend, which no node owns and which therefore has to be styled here.
+ * No backticks in this block: it is inside a template literal, and one closes
+ * the string.
+ *
+ * The horizontal padding is what keeps a bordered fieldset's rule from
+ * touching the words. The matching negative margin is what stops that padding
+ * indenting them: without it the legend's text starts six pixels right of
+ * every label beneath it, in a group whose whole job is to look like one
+ * thing. Cancelling the two leaves the gap in the border and puts the text
+ * back on the content edge.
+ *
+ * The bottom margin is for the other kind. A fieldset laid out as a flex
+ * column does not treat its legend as a flex item, so the row gap that spaces
+ * every other child does nothing above the first one, and the group's title
+ * sits directly on top of its first field.
+ */
+:where([data-cre8-root]) legend { padding-left: 6px; padding-right: 6px; margin-left: -6px; margin-right: -6px; margin-bottom: 10px; font-size: 13px; font-weight: 580; }
 :where([data-cre8-root]) caption { text-align: inherit; padding-bottom: 10px; }
 
 /* Not :where() — see above. This one has to outrank the node's own display. */

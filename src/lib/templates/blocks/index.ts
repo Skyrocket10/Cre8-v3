@@ -25,6 +25,7 @@ export {
   heroSectionSpec,
   mediaHeroSpec,
   productShotSpec,
+  emailHeroSpec,
   splitHeroSpec,
   videoHeroSpec,
 } from './hero';
@@ -37,6 +38,7 @@ export {
   ratingsSpec,
   statsSpec,
   testimonialsSpec,
+  videoTestimonialSpec,
 } from './proof';
 export {
   alternatingFeaturesSpec,
@@ -49,8 +51,11 @@ export {
   timelineSpec,
 } from './features';
 export {
+  contactSpec,
   ctaSpec,
   ctaSplitSpec,
+  demoRequestSpec,
+  newsletterSpec,
   openingHoursSpec,
   pricingSpec,
   pricingSwitchSpec,
@@ -92,6 +97,7 @@ import {
 } from './overlay';
 export {
   cartSummarySpec,
+  checkoutSpec,
   productDetailSpec,
   productGridSpec,
   shippingStripSpec,
@@ -129,8 +135,11 @@ import {
   subNavSpec,
 } from './chrome';
 import {
+  contactSpec,
   ctaSpec,
   ctaSplitSpec,
+  demoRequestSpec,
+  newsletterSpec,
   openingHoursSpec,
   pricingSpec,
   pricingSwitchSpec,
@@ -159,6 +168,7 @@ import {
 } from './app';
 import {
   cartSummarySpec,
+  checkoutSpec,
   productDetailSpec,
   productGridSpec,
   shippingStripSpec,
@@ -187,6 +197,7 @@ import {
   deviceHeroSpec,
   heroSectionSpec,
   mediaHeroSpec,
+  emailHeroSpec,
   splitHeroSpec,
   videoHeroSpec,
 } from './hero';
@@ -199,6 +210,7 @@ import {
   ratingsSpec,
   statsSpec,
   testimonialsSpec,
+  videoTestimonialSpec,
 } from './proof';
 import {
   faqAccordionSpec,
@@ -316,6 +328,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'hero',
     keywords: ['banner', 'above the fold', 'headline', 'screenshot'],
     build: heroSectionSpec,
+  },
+  {
+    id: 'hero-email',
+    name: 'Signup hero',
+    description: 'Headline above an email field, with nowhere else to go',
+    category: 'hero',
+    keywords: ['waitlist', 'beta', 'email', 'capture', 'signup', 'form', 'newsletter'],
+    build: emailHeroSpec,
   },
   {
     id: 'features',
@@ -470,6 +490,14 @@ export const BLOCKS: BlockDefinition[] = [
     build: ratingsSpec,
   },
   {
+    id: 'testimonial-video',
+    name: 'Video testimonial',
+    description: 'A clip, and the quote for everyone who will not press play',
+    category: 'proof',
+    keywords: ['customer', 'interview', 'video', 'quote', 'story', 'case'],
+    build: videoTestimonialSpec,
+  },
+  {
     id: 'pricing',
     name: 'Pricing',
     description: 'Three-tier pricing table',
@@ -492,6 +520,30 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'convert',
     keywords: ['migrate', 'signup', 'panel', 'photo', 'convert'],
     build: ctaSplitSpec,
+  },
+  {
+    id: 'newsletter',
+    name: 'Newsletter',
+    description: 'One field and a button, on the line',
+    category: 'convert',
+    keywords: ['email', 'subscribe', 'capture', 'list', 'form', 'signup'],
+    build: newsletterSpec,
+  },
+  {
+    id: 'contact',
+    name: 'Contact',
+    description: 'A form, and the answers to what it does not ask',
+    category: 'convert',
+    keywords: ['enquiry', 'message', 'email', 'address', 'phone', 'form'],
+    build: contactSpec,
+  },
+  {
+    id: 'demo-request',
+    name: 'Demo request',
+    description: 'A longer form, and the reasons to finish it',
+    category: 'convert',
+    keywords: ['booking', 'sales', 'trial', 'call', 'form', 'lead'],
+    build: demoRequestSpec,
   },
   {
     id: 'faq',
@@ -636,6 +688,14 @@ export const BLOCKS: BlockDefinition[] = [
     category: 'commerce',
     keywords: ['delivery', 'returns', 'trust', 'guarantee'],
     build: shippingStripSpec,
+  },
+  {
+    id: 'checkout',
+    name: 'Checkout',
+    description: 'Contact, delivery and payment beside the order',
+    category: 'commerce',
+    keywords: ['basket', 'order', 'pay', 'delivery', 'address', 'form'],
+    build: checkoutSpec,
   },
   {
     id: 'app-before-after',

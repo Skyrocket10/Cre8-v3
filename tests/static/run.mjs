@@ -760,6 +760,107 @@ function checkJumpExclusive(spec) {
   return bad;
 }
 
+/*
+ * Properties whose value has to be a length.
+ *
+ * Not every dimensional property — only the ones where a wrong value fails
+ * *silently*. A bad `font-size` is visible the moment anybody looks; a bad
+ * `width` collapses the element to nothing and the page just has a gap in it
+ * that reads as a spacing decision.
+ */
+const LENGTH_PROPS = new Set([
+  'width',
+  'height',
+  'minWidth',
+  'minHeight',
+  'maxWidth',
+  'maxHeight',
+  'gap',
+  'rowGap',
+  'columnGap',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'paddingTop',
+  'paddingRight',
+  'paddingBottom',
+  'paddingLeft',
+  'marginTop',
+  'marginRight',
+  'marginBottom',
+  'marginLeft',
+  'flexBasis',
+]);
+
+/** Keywords a length property may legitimately take instead of a number. */
+const LENGTH_WORDS = new Set([
+  'auto',
+  'none',
+  'inherit',
+  'initial',
+  'unset',
+  'revert',
+  '0',
+  'fit-content',
+  'max-content',
+  'min-content',
+  'stretch',
+  'available',
+  'normal',
+]);
+
+/**
+ * A length that is not a length.
+ *
+ * `avatar(size)` takes its diameter first. Called as `avatar('DT')` — which is
+ * how anybody would call something named "avatar" — it builds a frame with
+ * `width: DT`, the browser drops the declaration, the element is zero wide,
+ * and the block renders with a person's portrait silently missing. Nothing in
+ * the suite noticed: it is a valid document, a valid node and valid CSS
+ * syntax; it is only a nonsense *value*, and the browser's response to those
+ * is to say nothing at all.
+ *
+ * One unit list, deliberately conservative. Anything with a `var()`, a
+ * `calc()`, a `clamp()`, a `min()` or a `max()` in it is passed — those can
+ * evaluate to anything and this rule is not a CSS parser.
+ */
+const LENGTH = /^-?(\d+(\.\d+)?|\.\d+)(px|%|em|rem|ch|ex|vw|vh|vmin|vmax|fr|pt|cm|mm|in|q|pc|svh|lvh|dvh|svw|lvw|dvw)?$/i;
+
+function badLength(prop, value) {
+  if (!LENGTH_PROPS.has(prop)) return false;
+  const raw = String(value).trim();
+  if (!raw) return false;
+  // Bail on anything with a function in it before splitting: `calc(1px + 2px)`
+  // has spaces in it and is none of this rule's business.
+  if (/\b(var|calc|clamp|min|max|env|attr)\(/i.test(raw)) return false;
+  /*
+   * Every part, because `gap` takes two — a row gap and a column gap — and
+   * `gap: 8px 22px` is the commonest spelling in the library. Splitting rather
+   * than special-casing `gap` keeps the rule true for any other property that
+   * turns out to accept a pair, and costs nothing: a single value is a list of
+   * one.
+   */
+  const parts = raw.split(/\s+/);
+  return parts.some((part) => !LENGTH_WORDS.has(part.toLowerCase()) && !LENGTH.test(part));
+}
+
+/** Every length-shaped property in a spec tree that is not a length. */
+function checkLengths(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    const layers = [node.styles ?? {}, ...Object.values(node.responsive ?? {})];
+    for (const rule of node.rules ?? []) layers.push(rule.apply ?? {});
+    for (const state of Object.values(node.states ?? {})) layers.push(state ?? {});
+    for (const layer of layers) {
+      for (const [prop, value] of Object.entries(layer)) {
+        if (badLength(prop, value)) bad.push(`${path}: ${prop} is "${value}"`);
+      }
+    }
+  }
+  return bad;
+}
+
 /**
  * A card that rises under the pointer and goes nowhere.
  *
@@ -945,6 +1046,7 @@ const RULES = [
   ['small images clear the empty-slot floor', checkPlaceholderFloor],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['and nothing else rises under the pointer', checkFakeAffordance],
+  ['every length is one', checkLengths],
   ['every node is named for the layer tree', checkNames],
 ];
 
@@ -7834,6 +7936,33 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
       fakeAffordance(realButton) === null,
     'a shadow is feedback, a lift is an offer, and a card with a destination may make one'
   );
+  /*
+   * The length rule, handed the mistake that produced it and the four shapes
+   * it must not mistake for one. `avatar('DT')` is not hypothetical — it is
+   * what this rule was written after, and the portrait it erased was invisible
+   * to every other check in the file.
+   */
+  const initials = { type: 'frame', name: 'Avatar', styles: { width: 'DT', height: 'DT' } };
+  const okAvatar = { type: 'frame', name: 'Avatar', styles: { width: '40px', height: '40px' } };
+  const pairGap = { type: 'stack', name: 'Row', styles: { gap: '8px 22px' } };
+  const tokenWidth = { type: 'frame', name: 'Box', styles: { maxWidth: 'var(--w-narrow)' } };
+  const wordHeight = { type: 'frame', name: 'Box', styles: { height: 'auto', minWidth: 'fit-content' } };
+  const inResponsive = {
+    type: 'frame',
+    name: 'Box',
+    styles: {},
+    responsive: { mobile: { width: 'DT' } },
+  };
+  report.check(
+    'a length that is not a length is caught, wherever the layer it sits in',
+    checkLengths(initials).length === 2 &&
+      checkLengths(okAvatar).length === 0 &&
+      checkLengths(pairGap).length === 0 &&
+      checkLengths(tokenWidth).length === 0 &&
+      checkLengths(wordHeight).length === 0 &&
+      checkLengths(inResponsive).length === 1,
+    checkLengths(initials)[0] ?? 'nothing caught, which is the failure'
+  );
   report.check(
     'and reads a block spec as readily as a built document',
     fakeAffordance(specCard) === 'translateY(-3px)' &&
@@ -8825,6 +8954,129 @@ report.group('a hook that only sometimes runs');
   );
 }
 
+report.group('a switch arm that can never run');
+
+{
+  /*
+   * A `case` listed twice in one switch.
+   *
+   * The second one is dead — a switch takes the first match — and neither
+   * TypeScript nor the build says a word about it. C2 added
+   * `frame|section|container|stack|grid` to the top of `typeContent` for the
+   * new destination rows, five types that were already listed further down for
+   * `SemanticContent`, and the effect was that every layout box lost its tag
+   * choice and its anchor row. The panel that names a section so a link can
+   * point at it became unreachable on the elements that most need it, in the
+   * same milestone that made those elements linkable.
+   *
+   * It survived a fortnight because nothing looks at an inspector panel that
+   * is not there. The browser suite caught it in the end — `native` clicks the
+   * Semantics header — and this is the cheaper version of that catch.
+   *
+   * Textual, and the shape is exact: inside one `switch (…) { … }`, no
+   * `case 'x':` twice. Strings only, which is all this codebase switches on.
+   */
+  /**
+   * Shadowed arms in one source text, and how much was looked at.
+   *
+   * One function for the sweep and for the fixtures below, so the two cannot
+   * drift. Written the other way first — a second copy of the logic in the
+   * falsification — and the copy shared its `seen` set across switches, which
+   * made it disagree with the real rule about the case the detail line was
+   * boasting of.
+   */
+  const shadowedArms = (text) => {
+    const found = [];
+    let switches = 0;
+    let arms = 0;
+    // Split on `switch (`, then take each body up to the matching depth-zero
+    // brace. Good enough for a lint and wrong in no way that hides a dupe:
+    // a body cut short reports fewer arms, never a false one.
+    for (const chunk of text.split(/\bswitch\s*\(/).slice(1)) {
+      switches++;
+      let depth = 0;
+      let end = chunk.length;
+      for (let i = chunk.indexOf('{'); i >= 0 && i < chunk.length; i++) {
+        if (chunk[i] === '{') depth++;
+        else if (chunk[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
+      }
+      // Per switch, which is the whole point: the same name in the next
+      // switch is ordinary, and `typeContent` and the block registry both
+      // switch on element type.
+      const seen = new Set();
+      for (const arm of chunk.slice(0, end).matchAll(/\bcase\s+(['"])([^'"]+)\1\s*:/g)) {
+        arms++;
+        if (seen.has(arm[2])) found.push(arm[2]);
+        seen.add(arm[2]);
+      }
+    }
+    return { found, switches, arms };
+  };
+
+  const dupes = [];
+  let switches = 0;
+  let arms = 0;
+  const walkDir = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walkDir(full);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry.name)) continue;
+      const text = readFileSync(full, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      const seen = shadowedArms(text);
+      switches += seen.switches;
+      arms += seen.arms;
+      for (const name of seen.found) {
+        dupes.push(`${path.relative(ROOT, full)}: case '${name}' twice in one switch`);
+      }
+    }
+  };
+  walkDir(path.join(ROOT, 'src'));
+
+  report.check(
+    'no case is listed twice in one switch, where the second can never run',
+    dupes.length === 0,
+    dupes.slice(0, 3).join(' | ') || `${arms} arms across ${switches} switches, each reachable`
+  );
+  report.check(
+    'and the scan read enough of the tree to mean it',
+    // A tripwire for a path that stops resolving, not a count to keep in step:
+    // 199 arms today, and the floor is set well under it on purpose.
+    switches > 20 && arms > 150,
+    `${switches} switches, ${arms} string arms`
+  );
+
+  /* The same function, handed one of each. */
+  const shadowed = 'switch (t) { case \'a\': return 1; case \'a\': return 2; }';
+  const distinct = 'switch (t) { case \'a\': return 1; case \'b\': return 2; }';
+  const twoSwitches = `${distinct} ${distinct}`;
+  const real = "switch (t) { case 'frame': case 'section': return <A />; case 'popover': return <B />; case 'frame': return <C />; }";
+  report.check(
+    'the rule sees a shadowed arm and not a repeated one in a second switch',
+    shadowedArms(shadowed).found.length === 1 &&
+      shadowedArms(distinct).found.length === 0 &&
+      // The half that matters, and the half the first version of this
+      // falsification never actually tested: `typeContent` and the block
+      // registry both switch on element type, and flagging that would make
+      // the rule noise nobody reads.
+      shadowedArms(twoSwitches).found.length === 0 &&
+      shadowedArms(twoSwitches).switches === 2 &&
+      // And the shape that started it, in miniature.
+      shadowedArms(real).found.join() === 'frame',
+    `two switches over the same names: ${shadowedArms(twoSwitches).found.length} offences; one switch repeating itself: ${shadowedArms(shadowed).found.length}`
+  );
+}
+
 report.group('the library uses what the panel can now express');
 
 {
@@ -9416,6 +9668,88 @@ report.group('arriving as you scroll to it');
     'the reveal checks are reading a real stylesheet',
     css.length > 500 && css.includes('cre8-ap-'),
     `${css.length} characters`
+  );
+}
+
+report.group('a group of fields does not restyle what is in it');
+
+{
+  /*
+   * The legend's typography belongs to the legend.
+   *
+   * `<legend>` is a `lead` — the renderer emits it and no node owns it — so
+   * there was nowhere to put its size and weight except on the fieldset, and
+   * that is where they went: 13px and 580, inherited by every label, every
+   * help line and every paragraph inside the group. Four blocks used one and
+   * each looked slightly wrong in a way that reads as a font choice rather
+   * than as a bug.
+   *
+   * Deliberately about `fieldset` and not about leads in general. `table`
+   * emits a `caption` lead and sets `fontSize: 14px`, and that size is for the
+   * cells — a rule saying "no element with a lead may set typography" would
+   * call that an offence and be wrong.
+   */
+  const doc = createEmptyDocument('Fieldset');
+  const page = doc.pages[0];
+  const nodes = {};
+  const { rootId } = buildTree(
+    {
+      type: 'fieldset',
+      name: 'Group',
+      props: { legend: 'Delivery' },
+      children: [{ type: 'paragraph', name: 'Note', props: { text: 'Where it goes.' } }],
+    },
+    nodes,
+    page.rootNodeId
+  );
+  Object.assign(doc.nodes, nodes);
+  doc.nodes[page.rootNodeId].children.push(rootId);
+  const css = generateStylesheet(doc, { standalone: true, mode: 'media' });
+
+  const group = ELEMENTS.fieldset.defaultStyles ?? {};
+  const imposed = ['fontSize', 'fontWeight'].filter((prop) => prop in group);
+  report.check(
+    'the fieldset imposes no size or weight on its descendants',
+    imposed.length === 0,
+    imposed.length ? `still sets ${imposed.join(' and ')}` : 'only family and colour, which are the group’s own'
+  );
+
+  const legendRule = /:where\(\[data-cre8-root\]\) legend \{([^}]*)\}/.exec(css)?.[1] ?? '';
+  report.check(
+    'and the legend gets them from the stylesheet instead',
+    /font-size:\s*13px/.test(legendRule) && /font-weight:\s*580/.test(legendRule),
+    legendRule.trim() || 'no legend rule in the sheet'
+  );
+  const padded = /padding-left:\s*(-?\d+)px/.exec(legendRule)?.[1];
+  const pulled = /margin-left:\s*(-?\d+)px/.exec(legendRule)?.[1];
+  report.check(
+    'its padding is cancelled by a margin, so the words line up with the fields',
+    padded === '6' && pulled === '-6',
+    // Computed from what was read, not asserted alongside it: a detail line
+    // that says "none of indent" while the check fails is the fifth time this
+    // file has had to learn that lesson.
+    `padding ${padded ?? 'none'}, margin ${pulled ?? 'none'} — indent ${
+      padded && pulled ? Number(padded) + Number(pulled) : '?'
+    }px`
+  );
+  const cleared = /margin-bottom:\s*(\d+)px/.exec(legendRule)?.[1];
+  report.check(
+    'and it clears the first field, which no row gap will do for it',
+    cleared === '10',
+    `${cleared ? `${cleared}px` : 'nothing'} below the legend, and a legend is not a flex item of its own fieldset`
+  );
+
+  /* Falsification: the check is reading the sheet, and would notice. */
+  report.check(
+    'these are read from a real stylesheet with a real fieldset in it',
+    css.includes('legend') && css.length > 500 && Object.keys(group).length > 4,
+    `${css.length} characters, ${Object.keys(group).length} default declarations`
+  );
+  const brokenRule = 'padding-left: 6px; font-size: 13px;';
+  report.check(
+    'and a legend rule missing the cancelling margin does not pass',
+    !/margin-left:\s*-6px/.test(brokenRule) && /padding-left:\s*6px/.test(brokenRule),
+    'the pair is checked together, not the padding alone'
   );
 }
 

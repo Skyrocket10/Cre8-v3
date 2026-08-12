@@ -52,61 +52,12 @@ import {
   switchCase,
   switchGroup,
   switchStep,
+  field,
   table,
   tableRow,
   textLink,
   tint,
 } from './kit';
-
-/* --------------------------------------------------------------------------
- * Shared field furniture
- * ----------------------------------------------------------------------- */
-
-interface FieldOptions {
-  help?: string;
-  error?: string;
-  type?: string;
-  placeholder?: string;
-  multiline?: boolean;
-}
-
-/**
- * Label, control, and the line underneath.
- *
- * The label is a real `label` element so clicking it focuses the field, and
- * the help text sits below rather than beside, where it survives being
- * narrow.
- */
-const field = (name: string, options: FieldOptions = {}): NodeSpec =>
-  column(
-    name,
-    [
-      label(name, { ...CAPTION, fontSize: '13px', fontWeight: '560', color: 'var(--c-text)' }),
-      options.multiline
-        ? {
-            type: 'textarea',
-            name: `${name} input`,
-            props: { placeholder: options.placeholder ?? '', name: name.toLowerCase(), rows: 4 },
-            styles: { width: '100%' },
-          }
-        : {
-            type: 'input',
-            name: `${name} input`,
-            props: {
-              placeholder: options.placeholder ?? '',
-              inputType: options.type ?? 'text',
-              name: name.toLowerCase().replace(/\s+/g, '-'),
-            },
-            styles: { width: '100%' },
-          },
-      ...(options.error
-        ? [label(options.error, { ...CAPTION, color: 'var(--c-danger, #dc2626)' })]
-        : options.help
-          ? [label(options.help, { ...CAPTION, color: 'var(--c-muted)' })]
-          : []),
-    ],
-    { gap: '6px', width: '100%' }
-  );
 
 /* --------------------------------------------------------------------------
  * Form

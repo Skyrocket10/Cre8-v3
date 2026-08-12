@@ -9,6 +9,7 @@ import {
   TWO_TO_ONE,
   avatar,
   border,
+  bullets,
   card,
   column,
   container,
@@ -17,6 +18,7 @@ import {
   heading,
   icon,
   label,
+  cols,
   media,
   pad,
   paragraph,
@@ -483,5 +485,119 @@ export function ratingsSpec(): NodeSpec {
       ),
     ],
     { paddingTop: '64px', paddingBottom: '64px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Video testimonial
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The clip, and the quote for everyone who will not press play.
+ *
+ * Most people will not. So the pull quote beside the player is not a caption —
+ * it is the testimonial, written out, doing the whole job on its own; the
+ * video is the corroboration for the minority who want to see somebody say it.
+ * A block that put the words only inside the clip would be a block whose
+ * content is invisible to search engines, to anyone on a metered connection,
+ * and to anyone who cannot hear it.
+ *
+ * `controls` and no autoplay, deliberately. A face and a voice starting
+ * unbidden is the single most disliked thing a marketing page does, and an
+ * autoplaying video is also the one element that can make a page fail a
+ * reduced-motion preference no stylesheet can catch.
+ */
+export function videoTestimonialSpec(): NodeSpec {
+  return section(
+    'Video testimonial',
+    [
+      container(
+        [
+          {
+            type: 'grid',
+            name: 'Testimonial columns',
+            styles: { gridTemplateColumns: cols(1.15, 1), gap: '52px', width: '100%', alignItems: 'center' },
+            responsive: { tablet: { gridTemplateColumns: cols(1), gap: '32px' } },
+            children: [
+              frame(
+                'Player',
+                [
+                  {
+                    type: 'video',
+                    name: 'Customer interview',
+                    // A poster is the frame somebody sees before they press,
+                    // and it is left empty on purpose: whatever is put here has
+                    // to be a real still from the real clip, and a stand-in
+                    // would be a picture of a person who never said this.
+                    props: { controls: true, poster: '' },
+                    styles: {
+                      width: '100%',
+                      aspectRatio: '16 / 9',
+                      objectFit: 'cover',
+                      ...pad('0px'),
+                    },
+                  },
+                ],
+                {
+                  width: '100%',
+                  ...pad('0px'),
+                  ...radius('var(--r-lg)'),
+                  ...border('1px', 'var(--c-border)'),
+                  overflow: 'hidden',
+                  backgroundColor: 'var(--c-surface-2)',
+                  boxShadow: 'var(--sh-lg)',
+                }
+              ),
+              column(
+                'Testimonial copy',
+                [
+                  icon('quote', { width: '26px', height: '26px', color: 'var(--c-primary)' }),
+                  paragraph(
+                    'We moved eleven services across in a fortnight. The part I did not expect was that the on-call rota got quieter — there is simply less of it to page anyone about.',
+                    {
+                      fontSize: '23px',
+                      lineHeight: '1.42',
+                      letterSpacing: '-0.014em',
+                      color: 'var(--c-text)',
+                      maxWidth: '30ch',
+                      textWrap: 'pretty',
+                    },
+                    { mobile: { fontSize: '19px' } }
+                  ),
+                  stack(
+                    'Attribution',
+                    [
+                      avatar('40px'),
+                      column(
+                        'Speaker',
+                        [
+                          label('Dara Tkachenko', {
+                            fontSize: '14.5px',
+                            fontWeight: '600',
+                            color: 'var(--c-text)',
+                          }),
+                          label('Head of Platform, Northbank', { ...CAPTION, color: 'var(--c-muted)' }),
+                        ],
+                        { gap: '2px' }
+                      ),
+                    ],
+                    { gap: '12px', alignItems: 'center' }
+                  ),
+                  bullets(['3 min 40', 'Recorded March 2026'], 'play', 'Clip detail', {
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: '8px 22px',
+                    marginTop: '4px',
+                  }),
+                ],
+                { gap: '18px', alignItems: 'flex-start' }
+              ),
+            ],
+          },
+        ],
+        { gap: '0px' }
+      ),
+    ],
+    { backgroundColor: 'var(--c-surface)' }
   );
 }

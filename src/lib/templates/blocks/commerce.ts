@@ -1,6 +1,7 @@
 /** Commerce — products, and the reassurance around buying one. */
 
 import type { NodeSpec } from '../../document/factory';
+import type { StyleDecl } from '../../document/types';
 import {
   BODY,
   BODY_RESPONSIVE,
@@ -15,7 +16,10 @@ import {
   chip,
   column,
   container,
+  cols,
   divider,
+  field,
+  fieldset,
   frame,
   grid,
   heading,
@@ -376,4 +380,194 @@ export function cartSummarySpec(): NodeSpec {
     ],
     { paddingTop: '56px', paddingBottom: '72px' }
   );
+}
+
+/* --------------------------------------------------------------------------
+ * Checkout
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The form, and the order beside it, all the way down.
+ *
+ * Three `fieldset`s rather than three headings, and that is the whole
+ * accessibility argument for this block: a `<legend>` is what tells a screen
+ * reader that "Line 1" belongs to the delivery address and not to the billing
+ * one. Two address blocks with identical field labels and no grouping is the
+ * classic checkout that cannot be filled in without sight.
+ *
+ * The summary is sticky at desktop and ordinary flow below it, because the
+ * thing a person checks while typing their card number is what they are
+ * paying — and on a phone there is nowhere for it to stick to.
+ *
+ * No card number field. Payment details belong to a payment processor's iframe
+ * or hosted page, never to a form this project POSTs to its own Worker, and a
+ * block that drew one would be inviting somebody to collect card numbers into
+ * a D1 table. The step is named and handed off, which is what a real checkout
+ * does too.
+ */
+export function checkoutSpec(): NodeSpec {
+  /*
+   * A group with a legend and no box.
+   *
+   * `fieldset`'s default styles draw a bordered card, which is right for a
+   * filter panel sitting beside content and wrong for three groups stacked
+   * down a checkout: three boxes inside a form read as three forms. The
+   * legend is doing the grouping visually and the `<legend>` is doing it for
+   * a screen reader, and neither of them needs the rule around the outside.
+   */
+  const BARE_GROUP: StyleDecl = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+    width: '100%',
+    ...pad('0px'),
+    borderTopWidth: '0px',
+    borderRightWidth: '0px',
+    borderBottomWidth: '0px',
+    borderLeftWidth: '0px',
+  };
+
+  const line = (name: string, detail: string, price: string): NodeSpec =>
+    stack(
+      name,
+      [
+        media(`Photograph of ${name}`, '1 / 1', { width: '56px', flexShrink: '0' }),
+        column(
+          `${name} detail`,
+          [
+            label(name, { fontSize: '14px', fontWeight: '580', color: 'var(--c-text)' }),
+            label(detail, { ...CAPTION, color: 'var(--c-muted)' }),
+          ],
+          { gap: '3px', flexGrow: '1' }
+        ),
+        label(price, { fontSize: '14px', fontWeight: '580', color: 'var(--c-text)' }),
+      ],
+      { gap: '14px', alignItems: 'center', width: '100%' }
+    );
+
+  const total = (name: string, value: string, strong = false): NodeSpec =>
+    stack(
+      name,
+      [
+        label(name, {
+          fontSize: strong ? '15px' : '14px',
+          fontWeight: strong ? '620' : '400',
+          color: strong ? 'var(--c-text)' : 'var(--c-muted)',
+          flexGrow: '1',
+        }),
+        label(value, {
+          fontSize: strong ? '17px' : '14px',
+          fontWeight: strong ? '620' : '500',
+          color: 'var(--c-text)',
+        }),
+      ],
+      { gap: '12px', alignItems: 'baseline', width: '100%' }
+    );
+
+  return section('Checkout', [
+    container(
+      [
+        {
+          type: 'grid',
+          name: 'Checkout columns',
+          styles: { gridTemplateColumns: cols(1.3, 1), gap: '56px', width: '100%', alignItems: 'start' },
+          responsive: { tablet: { gridTemplateColumns: cols(1), gap: '36px' } },
+          children: [
+            {
+              type: 'form',
+              name: 'Checkout form',
+              styles: { display: 'flex', flexDirection: 'column', gap: '32px', width: '100%' },
+              children: [
+                fieldset(
+                  'Contact',
+                  [
+                    field('Email', {
+                      type: 'email',
+                      placeholder: 'you@example.com',
+                      key: 'email',
+                      help: 'For the receipt and the dispatch note.',
+                    }),
+                  ],
+                  BARE_GROUP
+                ),
+                fieldset(
+                  'Delivery address',
+                  [
+                    grid(
+                      'Name row',
+                      cols(1, 1),
+                      [
+                        field('First name', { placeholder: 'Mara', key: 'first-name' }),
+                        field('Last name', { placeholder: 'Ellison', key: 'last-name' }),
+                      ],
+                      { gap: '16px' },
+                      { mobile: { gridTemplateColumns: cols(1) } }
+                    ),
+                    field('Address', { placeholder: '41 Dover Street', key: 'address-1' }),
+                    field('Address line 2', { placeholder: 'Flat, floor or company', key: 'address-2' }),
+                    grid(
+                      'City row',
+                      cols(1.3, 1),
+                      [
+                        field('Town or city', { placeholder: 'London', key: 'city' }),
+                        field('Postcode', { placeholder: 'W1S 4NS', key: 'postcode' }),
+                      ],
+                      { gap: '16px' },
+                      { mobile: { gridTemplateColumns: cols(1) } }
+                    ),
+                  ],
+                  BARE_GROUP
+                ),
+                fieldset(
+                  'Payment',
+                  [
+                    paragraph(
+                      'Card details are taken on the next screen, by the payment provider. Nothing on this page touches them.',
+                      { ...CAPTION, color: 'var(--c-muted)', maxWidth: '52ch' }
+                    ),
+                    {
+                      type: 'button',
+                      name: 'Continue to payment',
+                      props: { label: 'Continue to payment', submit: true },
+                      styles: { width: '100%' },
+                      states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+                    },
+                  ],
+                  BARE_GROUP
+                ),
+              ],
+            },
+            column(
+              'Order summary',
+              [
+                heading('Your order', 2, { ...TITLE, fontSize: '19px' }),
+                line('Ridge mug', 'Green · ×2', '£48'),
+                line('Coupe bowl', 'Pale · ×1', '£32'),
+                divider(),
+                total('Subtotal', '£80'),
+                total('Delivery', 'Free'),
+                divider(),
+                total('Total', '£80', true),
+                label('Includes £13.33 VAT.', { ...CAPTION, color: 'var(--c-muted)' }),
+              ],
+              {
+                gap: '16px',
+                ...pad('26px'),
+                ...radius('var(--r-lg)'),
+                ...border('1px', 'var(--c-border)'),
+                backgroundColor: 'var(--c-surface)',
+                position: 'sticky',
+                top: '24px',
+              },
+              // Nothing to stick to on a phone: the summary is above or below
+              // the form in ordinary flow, and `sticky` there pins it over the
+              // fields somebody is trying to type into.
+              { tablet: { position: 'static' } }
+            ),
+          ],
+        },
+      ],
+      { gap: '0px' }
+    ),
+  ]);
 }

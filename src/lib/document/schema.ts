@@ -1042,8 +1042,22 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
       borderBottomRightRadius: 'var(--r-md)',
       borderBottomLeftRadius: 'var(--r-md)',
       fontFamily: 'var(--f-body)',
-      fontSize: '13px',
-      fontWeight: '580',
+      /*
+       * No `fontSize` or `fontWeight` here, and that is the fix rather than
+       * the omission.
+       *
+       * They used to be — 13px and 580, which are the legend's size and
+       * weight. But the legend is a `lead`: the renderer emits it, no node
+       * owns it, and there was nowhere else to put them. So they went on the
+       * fieldset, where every descendant inherits them, and a group of fields
+       * quietly rendered its labels, its help text and its prose at
+       * thirteen-pixel semibold. Nothing said so; each block that used one
+       * looked slightly wrong in a way that reads as a font choice.
+       *
+       * They now live on `legend` in the document reset, which is where the
+       * `padding` for the same element already was. `:where()` keeps that at
+       * zero specificity, so a designer restyling the group still wins.
+       */
       color: TEXT_COLOR,
     },
   },

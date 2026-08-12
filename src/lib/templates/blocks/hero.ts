@@ -9,11 +9,14 @@ import {
   EYEBROW,
   LEAD,
   LEAD_RESPONSIVE,
+  CAPTION,
   border,
+  bullets,
   button,
   commandRow,
   column,
   container,
+  field,
   frame,
   grid,
   heading,
@@ -660,5 +663,112 @@ export function videoHeroSpec(): NodeSpec {
       ),
     ],
     { paddingTop: '88px', paddingBottom: '96px' }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Hero with an email capture
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The headline and the one question, on the same screen.
+ *
+ * The hero that does not send anybody anywhere. Every other hero in the set
+ * hands the visitor a button and a page to go to; this one asks for the email
+ * address on the spot, which is what a product with a waiting list or a
+ * newsletter as its front door actually needs — and what the library could not
+ * build until a form had somewhere to POST.
+ *
+ * Centred, and narrow on purpose. A capture row wider than about 480px reads
+ * as a search bar, and the button drifts far enough from the field that the
+ * two stop looking like one thing.
+ */
+export function emailHeroSpec(): NodeSpec {
+  return section(
+    'Signup hero',
+    [
+      container(
+        [
+          column(
+            'Signup hero copy',
+            [
+              label('Now in open beta', {
+                ...EYEBROW,
+                ...pad('5px', '11px'),
+                ...radius('999px'),
+                ...border('1px', 'var(--c-border)'),
+                backgroundColor: 'var(--c-surface)',
+                color: 'var(--c-muted)',
+              }),
+              heading(
+                'The inbox that answers itself',
+                1,
+                { ...DISPLAY, maxWidth: '15ch', textWrap: 'balance', textAlign: 'center' },
+                DISPLAY_RESPONSIVE
+              ),
+              paragraph(
+                'Halcyon drafts the reply, cites the thread it came from, and waits for you to press send. Two thousand people are already on the list.',
+                { ...LEAD, maxWidth: '52ch', textAlign: 'center' },
+                LEAD_RESPONSIVE
+              ),
+            ],
+            { gap: '20px', alignItems: 'center', width: '100%' }
+          ),
+          {
+            type: 'form',
+            name: 'Waiting list form',
+            styles: {
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              width: '100%',
+              maxWidth: '480px',
+              alignItems: 'center',
+            },
+            children: [
+              stack(
+                'Capture row',
+                [
+                  field('Email', {
+                    type: 'email',
+                    placeholder: 'you@company.com',
+                    key: 'email',
+                  }),
+                  {
+                    type: 'button',
+                    name: 'Join the list',
+                    props: { label: 'Join the list', submit: true },
+                    styles: { flexShrink: '0', whiteSpace: 'nowrap' },
+                    states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+                  },
+                ],
+                { gap: '10px', alignItems: 'flex-end', width: '100%' },
+                { mobile: { flexDirection: 'column', alignItems: 'stretch' } }
+              ),
+              label('No spam, and one click to leave.', {
+                ...CAPTION,
+                color: 'var(--c-muted)',
+                textAlign: 'center',
+              }),
+            ],
+          },
+          bullets(
+            ['Works with Gmail and Outlook', 'Nothing sent without your press', 'Free while in beta'],
+            'check',
+            'Reassurances',
+            {
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              gap: '10px 26px',
+              marginTop: '4px',
+            }
+          ),
+        ],
+        { gap: '30px', alignItems: 'center', maxWidth: '760px', marginLeft: 'auto', marginRight: 'auto' }
+      ),
+    ],
+    { paddingTop: '120px', paddingBottom: '120px' },
+    { mobile: { paddingTop: '72px', paddingBottom: '72px' } }
   );
 }

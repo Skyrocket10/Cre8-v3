@@ -21,8 +21,10 @@ import {
   container,
   dataSet,
   divider,
+  field,
   grid,
   heading,
+  iconBadge,
   label,
   media,
   pad,
@@ -578,5 +580,322 @@ export function openingHoursSpec(): NodeSpec {
       ...borderSide('Bottom'),
     },
     { mobile: { paddingLeft: '20px', paddingRight: '20px' } }
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * The three blocks the form target unlocked
+ *
+ * A′ shipped a place for a form to POST — `element-model.ts` asks the
+ * publisher for an action and the Worker keeps the submissions — and the five
+ * blocks that existed to be unblocked by it were never built. The library
+ * carried a `Form` (a project-creation form, in the application set) and a
+ * `Sign in`, and no way at all to ask a visitor for their email address, which
+ * is the single most common thing a marketing page does.
+ *
+ * None of them types an `action`. The publisher supplies one per form, so a
+ * block dropped from the panel is wired to this project's submissions the
+ * moment it lands — and a designer who does type one wins, which is what the
+ * `own ||` in the form arm is for.
+ * ----------------------------------------------------------------------- */
+
+/**
+ * One field and a button, on the line.
+ *
+ * `alignItems: flex-end` rather than `center`: the email field carries a label
+ * above it and the button does not, so centring them puts the button halfway
+ * up the field. Aligning the bottoms is what makes the row read as one
+ * control, and it survives the label wrapping.
+ */
+export function newsletterSpec(): NodeSpec {
+  return section(
+    'Newsletter',
+    [
+      container(
+        [
+          column(
+            'Newsletter copy',
+            [
+              label('The Dispatch', EYEBROW),
+              heading(
+                'One email a fortnight, and nothing else',
+                2,
+                { ...TITLE, fontSize: '32px', maxWidth: '20ch', textWrap: 'balance' },
+                { mobile: { fontSize: '25px' } }
+              ),
+              paragraph(
+                'What we shipped, what broke, and what we learned fixing it. No product news, no webinars, unsubscribe in one click.',
+                { ...BODY, maxWidth: '46ch' },
+                BODY_RESPONSIVE
+              ),
+            ],
+            { gap: '12px' }
+          ),
+          {
+            type: 'form',
+            name: 'Signup form',
+            styles: {
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              width: '100%',
+              maxWidth: '440px',
+            },
+            children: [
+              stack(
+                'Signup row',
+                [
+                  field('Email', {
+                    type: 'email',
+                    placeholder: 'you@company.com',
+                    key: 'email',
+                  }),
+                  {
+                    type: 'button',
+                    name: 'Subscribe',
+                    props: { label: 'Subscribe', submit: true },
+                    styles: { flexShrink: '0', whiteSpace: 'nowrap' },
+                    states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+                  },
+                ],
+                { gap: '10px', alignItems: 'flex-end', width: '100%' },
+                { mobile: { flexDirection: 'column', alignItems: 'stretch' } }
+              ),
+              label(
+                'We store your address to send the email and for nothing else.',
+                { ...CAPTION, color: 'var(--c-muted)' }
+              ),
+            ],
+          },
+        ],
+        {
+          gap: '28px',
+          alignItems: 'flex-start',
+          maxWidth: '620px',
+          marginLeft: 'auto',
+          marginRight: 'auto',
+        }
+      ),
+    ],
+    { backgroundColor: 'var(--c-surface)' }
+  );
+}
+
+/**
+ * The form, and the answers to the questions it does not ask.
+ *
+ * Two columns, and the right one is the reason this is a block rather than a
+ * bare form: somebody who would rather telephone, or who wants to know where
+ * you are and when you reply, is on this page too. A contact page with only a
+ * form tells them to use the form.
+ */
+export function contactSpec(): NodeSpec {
+  const detail = (icon: string, title: string, lines: string[]): NodeSpec =>
+    stack(
+      title,
+      [
+        iconBadge(icon),
+        column(
+          `${title} lines`,
+          [
+            label(title, { ...CAPTION, fontWeight: '600', color: 'var(--c-text)' }),
+            ...lines.map((line) => paragraph(line, { ...CAPTION, color: 'var(--c-muted)' })),
+          ],
+          { gap: '3px' }
+        ),
+      ],
+      { gap: '13px', alignItems: 'flex-start', width: '100%' }
+    );
+
+  return section('Contact', [
+    container(
+      [
+        sectionHeader('Contact', 'Tell us what you need', 'We answer every message, usually the same working day.'),
+        {
+          type: 'grid',
+          name: 'Contact columns',
+          styles: { gridTemplateColumns: cols(1.35, 1), gap: '56px', width: '100%', alignItems: 'start' },
+          responsive: { tablet: { gridTemplateColumns: cols(1), gap: '40px' } },
+          children: [
+            {
+              type: 'form',
+              name: 'Contact form',
+              styles: { display: 'flex', flexDirection: 'column', gap: '18px', width: '100%' },
+              children: [
+                grid(
+                  'Name row',
+                  cols(1, 1),
+                  [
+                    field('Name', { placeholder: 'Mara Ellison', key: 'name' }),
+                    field('Email', { type: 'email', placeholder: 'you@company.com', key: 'email' }),
+                  ],
+                  { gap: '18px' },
+                  { mobile: { gridTemplateColumns: cols(1) } }
+                ),
+                field('Company', { placeholder: 'Northwind', key: 'company' }),
+                field('What is this about?', {
+                  key: 'topic',
+                  options: ['A new project', 'An existing project', 'Careers', 'Something else'],
+                  placeholder: 'Choose one',
+                }),
+                field('Message', {
+                  multiline: true,
+                  placeholder: 'Roughly what you need, and when you need it by.',
+                  key: 'message',
+                }),
+                stack(
+                  'Contact actions',
+                  [
+                    {
+                      type: 'button',
+                      name: 'Send message',
+                      props: { label: 'Send message', submit: true },
+                      styles: {},
+                      states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+                    },
+                    label('Or email us directly.', { ...CAPTION, color: 'var(--c-muted)' }),
+                  ],
+                  { gap: '14px', alignItems: 'center', flexWrap: 'wrap' },
+                  { mobile: { flexDirection: 'column', alignItems: 'stretch' } }
+                ),
+              ],
+              responsive: { mobile: { gap: '14px' } },
+            },
+            column(
+              'Contact details',
+              [
+                detail('mail', 'Email', ['hello@northwind.co', 'press@northwind.co']),
+                detail('phone', 'Telephone', ['+44 20 7946 0812', 'Weekdays, 9am–6pm UK']),
+                detail('map-pin', 'Studio', ['41 Dover Street', 'London W1S 4NS']),
+                detail('clock', 'Response time', ['Same working day', 'Monday to Friday']),
+              ],
+              {
+                gap: '26px',
+                ...pad('28px'),
+                ...radius('var(--r-lg)'),
+                ...border('1px', 'var(--c-border)'),
+                backgroundColor: 'var(--c-surface)',
+              }
+            ),
+          ],
+        },
+      ],
+      { gap: '52px' }
+    ),
+  ]);
+}
+
+/**
+ * A longer form, and the reasons to finish it.
+ *
+ * The reassurance column is doing the work here. A demo request asks for more
+ * than a newsletter does — a work email, a company, how many people — and
+ * every extra field loses somebody, so the page has to answer "what actually
+ * happens if I send this" before the button rather than after it.
+ */
+export function demoRequestSpec(): NodeSpec {
+  return section(
+    'Demo request',
+    [
+      container(
+        [
+          {
+            type: 'grid',
+            name: 'Demo columns',
+            styles: { gridTemplateColumns: cols(1, 1.1), gap: '64px', width: '100%', alignItems: 'start' },
+            responsive: { tablet: { gridTemplateColumns: cols(1), gap: '40px' } },
+            children: [
+              column(
+                'Demo copy',
+                [
+                  label('Book a demo', EYEBROW),
+                  heading(
+                    'Thirty minutes, your data, no deck',
+                    2,
+                    { ...TITLE, maxWidth: '16ch', textWrap: 'balance' },
+                    TITLE_RESPONSIVE
+                  ),
+                  paragraph(
+                    'An engineer walks through the product against a copy of your own repository. If it is not a fit we will say so on the call.',
+                    { ...BODY, maxWidth: '44ch' },
+                    BODY_RESPONSIVE
+                  ),
+                  bullets(
+                    [
+                      'A reply within one working day',
+                      'An engineer on the call, not a salesperson',
+                      'No follow-up sequence if you say no',
+                    ],
+                    'check',
+                    'What happens next'
+                  ),
+                  divider(),
+                  paragraph(
+                    'Already a customer? Support answers faster than this form does.',
+                    { ...CAPTION, color: 'var(--c-muted)' }
+                  ),
+                ],
+                { gap: '18px' }
+              ),
+              {
+                type: 'form',
+                name: 'Demo form',
+                styles: {
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '18px',
+                  width: '100%',
+                  ...pad('32px'),
+                  ...radius('var(--r-lg)'),
+                  ...border('1px', 'var(--c-border)'),
+                  backgroundColor: 'var(--c-surface)',
+                },
+                responsive: {
+                  mobile: { gap: '14px', paddingLeft: '20px', paddingRight: '20px' },
+                },
+                children: [
+                  grid(
+                    'Name row',
+                    cols(1, 1),
+                    [
+                      field('First name', { placeholder: 'Mara', key: 'first-name' }),
+                      field('Last name', { placeholder: 'Ellison', key: 'last-name' }),
+                    ],
+                    { gap: '18px' },
+                    { mobile: { gridTemplateColumns: cols(1) } }
+                  ),
+                  field('Work email', {
+                    type: 'email',
+                    placeholder: 'you@company.com',
+                    key: 'work-email',
+                    help: 'We use this to send the invitation and nothing else.',
+                  }),
+                  field('Company', { placeholder: 'Northwind', key: 'company' }),
+                  field('How large is the team?', {
+                    key: 'team-size',
+                    options: ['1–10 engineers', '11–50', '51–200', 'More than 200'],
+                    placeholder: 'Choose one',
+                  }),
+                  field('Anything we should know?', {
+                    multiline: true,
+                    placeholder: 'What you are trying to do, and what is in the way.',
+                    key: 'notes',
+                  }),
+                  {
+                    type: 'button',
+                    name: 'Request a demo',
+                    props: { label: 'Request a demo', submit: true },
+                    styles: { width: '100%' },
+                    states: { hover: { backgroundColor: 'var(--c-secondary)' } },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        { gap: '0px' }
+      ),
+    ],
+    {}
   );
 }

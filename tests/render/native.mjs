@@ -389,25 +389,43 @@ try {
     `${await opensTrigger.count()} pickers`
   );
 
+  const countInvokers = () =>
+    page.evaluate(() => {
+      const frame = document.querySelector('.cre8-frame.cre8-editing');
+      return {
+        count: frame?.querySelectorAll('button[popovertarget]').length ?? 0,
+        // An anchor cannot invoke a popover, so choosing one has to change the
+        // tag as well as add the attribute.
+        anchors: frame?.querySelectorAll('a[popovertarget]').length ?? 0,
+      };
+    });
+  const before = await countInvokers();
+
   await opensTrigger.click();
   await page.waitForTimeout(300);
-  await page.locator('button:has(span:text-is("Command menu"))').first().click();
+  /*
+   * Scoped to the picker, which it was not.
+   *
+   * `insert()` leaves the Insert panel open, so a page-wide
+   * `button:has(span:text-is("Command menu"))` matches the *insert card* long
+   * before it matches the option — and clicking it dropped a second Command
+   * menu and moved the selection to that block's root. Every check after this
+   * point was then reading a layout box, and the one below reported that a
+   * button's URL field had not stepped aside when no button was selected at
+   * all. `.anim-pop` is the portalled panel every inspector `Popover` renders
+   * into; it is the only thing on screen that is the picker.
+   */
+  await page.locator('.anim-pop button:has(span:text-is("Command menu"))').first().click();
   await page.waitForTimeout(700);
 
-  const wired = await page.evaluate(() => {
-    const frame = document.querySelector('.cre8-frame.cre8-editing');
-    const invokers = [...(frame?.querySelectorAll('button[popovertarget]') ?? [])];
-    return {
-      count: invokers.length,
-      // An anchor cannot invoke a popover, so choosing one has to change the
-      // tag as well as add the attribute.
-      anchors: frame?.querySelectorAll('a[popovertarget]').length ?? 0,
-    };
-  });
+  const wired = await countInvokers();
   report.check(
     'wiring it from the inspector adds a second invoker',
-    wired.count >= 2,
-    `${wired.count} invokers`
+    // Against the count *before*, not against two. The Command menu block
+    // ships several invokers of its own, so `>= 2` was true whether or not
+    // the wiring happened — the check could not fail and did not.
+    wired.count === before.count + 1,
+    `${before.count} invokers before, ${wired.count} after`
   );
   report.check('and none of them is an anchor', wired.anchors === 0);
 

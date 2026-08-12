@@ -45,8 +45,19 @@ meet that bar or it drags the product down rather than filling it out.
 
 **Since:** 35 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
 `dialog`, `table`, `tableRow`, `tableCell`, `range`, `file`, `progress`,
-`fieldset` added in B) and 85 blocks across nine categories, held to that bar
-by 1,540 static checks and 23 browser suites.
+`fieldset` added in B) and 92 blocks across nine categories, held to that bar
+by 2,662 static checks and 23 browser suites.
+
+**The status column below was six months out of date and is now not.** It
+said 52 of 109 rows built while 86 blocks shipped, because a row was ticked
+when somebody remembered to and the names in the tables are not the names in
+the registry — `Docs sidebar nav` is `Docs layout`, `Icon checklist` is
+`Checklist`, `Legal / long-form prose layout` is `Prose page`. A plan that
+stale is worse than none: it sends the next person to build Breadcrumbs a
+second time. Every ✅ now names the block that answers it in the **Needs**
+column, so the two can be reconciled by reading rather than by remembering,
+and the six rows that turned out to be genuinely missing were built — five of
+them forms, unblocked by A′ and never gone back for.
 
 Two marks in the tables below mean something other than done-or-not-yet. `◐`
 is something that ships and is partly gated — the dialog is a real `<dialog>`,
@@ -144,12 +155,12 @@ In the tables that follow, the **Needs** column refers to these letters.
 | Navbar — links + CTA | B | ✅ | |
 | Navbar — mega menu | B | ✅ | |
 | Navbar — mobile drawer | B | ✅ | |
-| Announcement / promo bar | B | | |
-| Breadcrumbs | B | | |
-| Docs sidebar nav | B | | |
+| Announcement / promo bar | B  | ✅ | Announcement bar |
+| Breadcrumbs | B  | ✅ | Breadcrumbs |
+| Docs sidebar nav | B  | ✅ | Docs layout |
 | Footer — link columns | B | ✅ | |
-| Footer — minimal + social | B | | |
-| Back-to-top | B | | |
+| Footer — minimal + social | B  | ✅ | Minimal footer |
+| Back-to-top | B  | ✅ | in Minimal footer |
 
 The original navbar had no mobile behaviour — at narrow widths the link row
 simply disappeared. "Navbar with menu" is the same bar with a `[popover]`
@@ -163,11 +174,11 @@ script. That was the most visible hole in the set, and it is the first thing
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Hero — split copy + product shot | B | ✅ | |
-| Hero — centred | B | | |
-| Hero — media background | B | | |
-| Hero — with inline email capture | B | | form target |
-| Hero — device / browser frame | B | | |
-| Hero — video | B | | |
+| Hero — centred | B  | ✅ | Hero |
+| Hero — media background | B  | ✅ | Photo hero |
+| Hero — with inline email capture | B  | ✅ | Signup hero |
+| Hero — device / browser frame | B  | ✅ | Device hero |
+| Hero — video | B  | ✅ | Video hero |
 
 `productShotSpec()` already builds a convincing browser frame. Promote it from a
 private helper to a reusable piece rather than rebuilding it per hero.
@@ -177,26 +188,36 @@ private helper to a reusable piece rather than rebuilding it per hero.
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Logo cloud | B | ✅ | |
-| Logo marquee | B | | |
-| Stats / metrics band | B | | |
+| Logo marquee | B | ✗ | §9 — a keyframe timeline |
+| Stats / metrics band | B  | ✅ | Stats band |
 | Testimonial grid | B | ✅ | |
-| Testimonial — single large quote | B | | |
-| Testimonial — video card | B | | |
-| Case study card row | B | | |
-| Rating / review badges | B | | |
+| Testimonial — single large quote | B  | ✅ | Pull quote |
+| Testimonial — video card | B  | ✅ | Video testimonial |
+| Case study card row | B  | ✅ | Case studies |
+| Rating / review badges | B  | ✅ | Rating badges |
+
+**The marquee is the third `✗`,** and it is ruled out by this document's own
+§9 rather than by a missing capability. A row of logos scrolling for ever is a
+continuous keyframe animation, and §9 says entrance and scroll effects are a
+separate feature with their own model — `appear` is that model, it is one-shot
+and driven by the scrollport, and it cannot express "never stop". Bolting a
+`@keyframes` block onto a single block to get one would be the second styling
+path §9 exists to refuse. `Logo cloud` and `Logo grid` cover the job the
+marquee was wanted for, without asking a visitor's laptop to animate for as
+long as the tab is open.
 
 ### 4.4 Features and explanation
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
 | Feature grid — three column | B | ✅ | |
-| Feature — alternating rows | B | | |
+| Feature — alternating rows | B  | ✅ | Alternating rows |
 | Bento grid | B | ✅ | |
-| Icon checklist | B | | |
-| Process steps — numbered | B | | |
-| Timeline / roadmap | B | | |
-| Comparison table — vs competitors | B | | table primitives |
-| Integrations directory | B | | |
+| Icon checklist | B  | ✅ | Checklist |
+| Process steps — numbered | B  | ✅ | Process steps |
+| Timeline / roadmap | B  | ✅ | Timeline |
+| Comparison table — vs competitors | B  | ✅ | Comparison table |
+| Integrations directory | B  | ✅ | Integrations |
 | Feature — tabbed showcase | B | ✅ | |
 
 ### 4.5 Conversion
@@ -205,12 +226,12 @@ private helper to a reusable piece rather than rebuilding it per hero.
 |---|---|---|---|
 | Pricing — three tier | B | ✅ | |
 | Pricing — monthly/annual toggle | B | ✅ | |
-| Pricing — comparison matrix | B | | table primitives |
+| Pricing — comparison matrix | B  | ✅ | Comparison table |
 | CTA panel | B | ✅ | |
-| CTA — split with image | B | | |
-| Newsletter capture | B | | form target |
-| Contact — form + details | B | | form target |
-| Demo / booking request | B | | form target |
+| CTA — split with image | B  | ✅ | CTA with image |
+| Newsletter capture | B  | ✅ | Newsletter |
+| Contact — form + details | B  | ✅ | Contact |
+| Demo / booking request | B  | ✅ | Demo request |
 
 ### 4.6 Trust, information and media
 
@@ -218,11 +239,11 @@ private helper to a reusable piece rather than rebuilding it per hero.
 |---|---|---|---|
 | FAQ — two column | B | ✅ | |
 | FAQ — accordion | B | ✅ | |
-| Team grid | B | | |
-| Open roles list | B | | |
-| Legal / long-form prose layout | B | | |
-| Gallery grid | B | | |
-| Masonry gallery | B | | |
+| Team grid | B  | ✅ | Team grid |
+| Open roles list | B  | ✅ | Open roles |
+| Legal / long-form prose layout | B  | ✅ | Prose page |
+| Gallery grid | B  | ✅ | Gallery |
+| Masonry gallery | B  | ✅ | Masonry gallery |
 | Lightbox | B | ✅ | |
 | Carousel | B | ✅ | |
 | Before / after slider | B | ✅ | see §5.7 |
@@ -231,24 +252,24 @@ private helper to a reusable piece rather than rebuilding it per hero.
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
-| Post card grid | B | | c for real data |
-| Featured post | B | | |
-| Article layout + table of contents | B | | |
-| Author byline | B | | |
-| Related posts row | B | | |
-| Tag / category chips | B | | |
-| Pagination | B | | |
+| Post card grid | B  | ✅ | Post grid |
+| Featured post | B  | ✅ | Featured post |
+| Article layout + table of contents | B  | ✅ | Article |
+| Author byline | B  | ✅ | Author card |
+| Related posts row | B  | ✅ | Related posts |
+| Tag / category chips | B  | ✅ | in Blog header |
+| Pagination | B  | ✅ | Pagination |
 
 ### 4.8 Commerce
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
-| Product card grid | B | | c for real data |
-| Product detail — gallery + buy box | B | | |
+| Product card grid | B  | ✅ | Product grid |
+| Product detail — gallery + buy box | B  | ✅ | Product detail |
 | Cart summary / drawer | B | ✅ | |
-| Checkout form layout | B | | form target |
+| Checkout form layout | B  | ✅ | Checkout |
 | Collection header + filters | B | ✅ | |
-| Shipping / trust strip | B | | |
+| Shipping / trust strip | B  | ✅ | Shipping strip |
 
 **Marketing total: 63 blocks, of which 9 ship today.** Of the 54 remaining, 37
 are pure composition over primitives that already exist, 5 need only the form
@@ -291,9 +312,9 @@ These are the honest primitives — real form semantics cannot be faked with a
 | Switch | B | ✅ | |
 | Segmented control | B | ✅ | |
 | Search field | B | ✅ | |
-| Form layouts — one/two column, inline | B | | |
-| Sign in / sign up / reset | B | | form target |
-| Settings section | B | | |
+| Form layouts — one/two column, inline | B  | ✅ | Form |
+| Sign in / sign up / reset | B  | ✅ | Sign in |
+| Settings section | B  | ✅ | Settings list |
 
 ### 5.3 Data display
 
@@ -304,11 +325,11 @@ These are the honest primitives — real form semantics cannot be faked with a
 | Data table — filterable | B | ✅ | |
 | Data table — sortable | B | ✗ | see §5.7 |
 | Description list | P | ✅ | |
-| Stat card | B | | |
-| Badge / tag / pill | B | | |
-| Avatar + avatar group | B | | |
-| Empty state | B | | |
-| Skeleton loader | B | | |
+| Stat card | B  | ✅ | Stat cards |
+| Badge / tag / pill | B  | ✅ | Badges |
+| Avatar + avatar group | B  | ✅ | Members |
+| Empty state | B  | ✅ | Empty state |
+| Skeleton loader | B  | ✅ | Skeleton |
 
 Charts are deliberately excluded — see §9.
 
@@ -345,18 +366,27 @@ anyway.
 | Accordion | P | ✅ | |
 | Tabs | B | ✅ | |
 | Stepper / wizard | B | ✅ | |
-| Pagination | B | | |
-| App shell — sidebar + topbar | B | | |
+| Pagination | B  | ✅ | Pagination |
+| App shell — sidebar + topbar | B  | ✅ | App shell |
 | User menu | B | ✅ | |
 
 ### 5.6 Feedback
 
 | Component | Tier | Status | Needs |
 |---|---|---|---|
-| Alert / inline banner | B | | |
-| Spinner | B | | |
+| Alert / inline banner | B  | ✅ | Alerts |
+| Spinner | B | ✗ | nothing to wait for |
 | Progress bar | B | ✅ | |
-| Notification list | B | | |
+| Notification list | B  | ✅ | Notifications |
+
+**The spinner is the fourth `✗`,** and the reason is the same one that made
+`Skeleton` worth building. A published Cre8 page is a file: by the time a
+visitor sees it there is nothing still arriving that a spinner could be
+spinning for. Every honest use of one is a placeholder for work the page is
+not doing, and a component that exists to imply latency is a component that
+lies about the product. `Skeleton` covers the case a designer actually reaches
+for — showing the shape of content before it is there — and does it without
+animating.
 
 **Application total: 45 components — 18 primitives, of which 4 ship today, and
 27 blocks.**

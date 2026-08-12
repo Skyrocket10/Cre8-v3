@@ -141,13 +141,26 @@ function typeContent(type: ElementType) {
      * deliberately absent is a label field — a card's words are the elements
      * inside it, and an element that already shows its content has nothing a
      * text prop could add.
+     *
+     * Both sections, in one arm. These five types were already listed further
+     * down for `SemanticContent`, and adding a second `case` for them here
+     * made that one unreachable — a `switch` takes the first match and there
+     * is no warning for a duplicate label. The cost was invisible and large:
+     * every layout box lost its tag choice and its anchor row, so a section
+     * could no longer be named for a link to point at, on precisely the
+     * elements that most need to be.
      */
     case 'frame':
     case 'section':
     case 'container':
     case 'stack':
     case 'grid':
-      return <ContainerContent />;
+      return (
+        <>
+          <ContainerContent />
+          <SemanticContent />
+        </>
+      );
     case 'popover':
       return <PopoverContent />;
     case 'dialog':
@@ -174,12 +187,6 @@ function typeContent(type: ElementType) {
       return <FieldsetContent />;
     case 'details':
       return <DisclosureContent />;
-    case 'frame':
-    case 'section':
-    case 'container':
-    case 'stack':
-    case 'grid':
-      return <SemanticContent />;
     case 'instance':
       return <InstanceContent />;
     default:
