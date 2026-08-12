@@ -59,6 +59,7 @@ import {
   workGridBlock,
 } from './compose';
 import { categorySections, categorySlug, galleryCounts } from './gallery';
+import { STRESS_PAGES, stressLinks } from './stress';
 
 export interface TemplateDefinition {
   id: string;
@@ -2117,6 +2118,80 @@ const gallery: TemplateDefinition = {
     }),
 };
 
+/* --------------------------------------------------------------------------
+ * Stress — every primitive, pushed until something gives
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The document that is not trying to look good.
+ *
+ * The gallery asks what the library can draw. This asks what the element model
+ * cannot say, and finds out by trying to say hard things: text with no spaces,
+ * a heading of one eighty-character word, seven table columns on a phone, an
+ * empty string where copy should be, and every value of every enumerated
+ * property side by side. See `templates/stress.ts`.
+ *
+ * It is a template rather than a fixture because the failures worth finding are
+ * the ones somebody hits by opening a page and looking at it, and a fixture
+ * only ever gets the assertions somebody thought to write.
+ */
+const stress: TemplateDefinition = {
+  id: 'stress',
+  name: 'Primitive stress test',
+  description: 'Every element type, pushed with the content that breaks layouts.',
+  swatch: ['#0f172a', '#f43f5e'],
+  build: () =>
+    makeDocument({
+      name: 'Primitive stress test',
+      description: 'Every element type, at its limits.',
+      colors: {
+        primary: '#e11d48',
+        secondary: '#0f172a',
+        accent: '#f43f5e',
+        text: '#0f172a',
+        muted: '#64748b',
+        surface: '#f8fafc',
+        border: '#cbd5e1',
+        inverse: '#0f172a',
+      },
+      fonts: { heading: 'Inter', body: 'Inter' },
+      pages: [
+        {
+          name: 'Overview',
+          slug: '',
+          isHome: true,
+          title: 'Primitive stress test',
+          sections: [
+            navBlock({
+              brand: 'Stress',
+              brandIcon: 'flask-conical',
+              links: stressLinks().slice(0, 4),
+              cta: { label: 'Interactive', href: pageRef('interactive') },
+            }),
+            heroBlock({
+              eyebrow: '35 primitives',
+              title: 'Every element type, at its limits',
+              body: 'Not a nice-looking site. Each page takes one family of primitives and gives it the content that breaks layouts — no spaces, no content at all, or far too much of it.',
+              buttons: [
+                { label: 'Start with text', href: pageRef('text') },
+                { label: 'Layout', variant: 'secondary', href: pageRef('layout') },
+              ],
+            }),
+            footerBlock('Primitive stress test', 'Every element type, at its limits.', [
+              { title: 'Pages', links: stressLinks() },
+            ]),
+          ],
+        },
+        ...STRESS_PAGES.map((p) => ({
+          name: p.name,
+          slug: p.slug,
+          title: `${p.name} — primitive stress test`,
+          sections: p.sections(),
+        })),
+      ],
+    }),
+};
+
 export const TEMPLATES: TemplateDefinition[] = [
   blank,
   saas,
@@ -2127,6 +2202,7 @@ export const TEMPLATES: TemplateDefinition[] = [
   ecommerce,
   blog,
   gallery,
+  stress,
 ];
 
 export function getTemplate(id: string): TemplateDefinition | undefined {

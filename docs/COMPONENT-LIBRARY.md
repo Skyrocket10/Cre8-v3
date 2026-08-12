@@ -266,6 +266,84 @@ long as the tab is open.
 | Index that filters itself | B | ✅ | Filtered index |
 | Pagination | B  | ✅ | Pagination |
 
+## What the stress template found
+
+`templates/stress.ts` is the document that is not trying to look good. Five
+pages, one per family of primitives, each given the content that breaks
+layouts: a URL with no spaces, a seventy-four-character word, seven table
+columns on a phone, an empty string, nine hundred words, and every value of
+every enumerated property side by side. It exists to answer a question the
+gallery cannot — *what can the element model not say?*
+
+Measured rather than guessed, and two hypotheses I started with turned out to
+be wrong, which is recorded below because a list of gaps is only trustworthy if
+the non-gaps were checked too.
+
+### Gaps, with evidence
+
+**1. A string with no break opportunity cannot be made to wrap.** The style
+vocabulary has 102 properties and none of them is `overflow-wrap`, `word-break`
+or `hyphens`. Uncontained, the text page scrolled **732px sideways at 390px**;
+injecting `overflow-wrap: anywhere` by hand took it to **0**.
+
+Worth being exact about which content did it, because the obvious candidate is
+not the culprit. A long *URL* mostly behaves — browsers take a break
+opportunity after `/` and `?`, so it wraps on its own. The 767px spill was a
+single seventy-four-character **word**, which has none. So the case to worry
+about is a product code, a hash, a German compound, or a database identifier
+dropped into a heading — and there is nothing a designer can set that helps.
+
+`overflow-x: auto` stops the *page* scrolling, and the stress template uses it,
+but that produces a scrollbar rather than wrapped text; `overflow: hidden`
+truncates it invisibly instead. Neither is the fix.
+
+**2. No line clamping.** No `-webkit-line-clamp`, no `text-overflow`. "Truncate
+this description to two lines" is a card-grid staple and cannot be expressed,
+so a card grid's height is at the mercy of its longest item — which is exactly
+the raggedness `workGridBlock` and `galleryBlock` had to solve with alignment
+instead.
+
+**3. `scroll-margin-top` is a constant nobody can change.** The generator emits
+`scroll-margin-top: 96px` globally, which is why jump links currently land
+correctly under the 68px sticky header. It is not in the vocabulary, so a site
+with a taller header has jump targets that land behind it and no control that
+helps.
+
+**4. No `order`, `justify-self` or `justify-items`.** Reordering on a phone —
+picture above copy at 390, beside it at 1440 — has to be done by building both
+arrangements and hiding one, which doubles the layer tree for a layout concern.
+
+**5. No individual `rotate` / `scale` / `translate`.** `transform` is there, so
+anything is *reachable*, but the individual properties are what compose without
+overwriting each other, and a rule that wants to nudge one axis has to restate
+the whole transform.
+
+**6. Nothing for internationalisation.** No `direction`, no logical properties
+(`padding-inline`, `margin-block`). Every spacing decision in the library is
+physical, so a right-to-left site would need every one of them mirrored by
+hand. This is the largest gap by effort and the least likely to be noticed.
+
+**7. Four primitives nothing exercises**, now covered by the stress template:
+`richtext` (no block uses it at all), `spacer`, and `page`/`instance`, which are
+structural. `dialog`, `file` and `range` appear exactly once each in ninety-three
+blocks. Props nothing sets anywhere: `video.src`/`autoplay`/`loop`/`muted`,
+`form.action`/`method`, `button.target`, `link.target`, `richtext.html`.
+
+### Checked and *not* gaps
+
+- **Jump links do not land behind the sticky header.** The obvious guess, and
+  wrong: the generator's global `scroll-margin-top` already handles it, and the
+  headings measure visible on every jump in the startup template. The gap is
+  the missing *control*, not the behaviour.
+- **A wide table does not break the page.** Both the comparison table and the
+  data table exceed 390px and both scroll inside their own `overflow-x: auto`
+  container, with `documentElement.scrollWidth` equal to `clientWidth`.
+- **The library composes without collisions.** Ninety-three blocks in one
+  document: no duplicate DOM ids, no switch key declared twice on a page, no
+  reference with more than one candidate in its own slot.
+
+---
+
 ### 4.8 Commerce
 
 | Component | Tier | Status | Needs |
