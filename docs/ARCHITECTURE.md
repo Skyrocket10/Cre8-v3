@@ -1742,6 +1742,65 @@ so a click in the editor does not navigate away from it — true of links and
 buttons since Phase 3, and inherited here by going through the same resolver
 hook. The check was wrong, not the code.
 
+### Forty-six fragments
+
+The SaaS rebuild had established the pattern, so the other six templates were
+surveyed before being touched. The survey is the finding:
+
+| | grids | spans | reveals | jumps | copies |
+|---|---|---|---|---|---|
+| six templates | 17 | 0 | 0 | 0 | 0 |
+
+And the navigation, which is the part that mattered: **forty-six hand-typed
+`href: '#work'` fragments**. Every one worked. That is why they lasted — a
+fragment is a *name*, so it breaks silently on rename, into a link that scrolls
+nowhere, and nothing had renamed anything yet. The reference machinery built for
+exactly this had been unused since M3.
+
+**Why it was unused: "a label and somewhere to go" was declared three times.**
+`BlockLink` in the kit, `LinkSpec` in `compose`, `ButtonSpec` beside it. `jumpTo`
+was added to the first, so `navBlock` and `button()` could only ever type a
+fragment — the capability existed and two of the three doors to it did not open.
+`LinkSpec` is an alias now, `ButtonSpec` extends it, and one `goesTo()` answers
+for the nav row, the nav's call to action, the footer and every button. The
+footer was a *fourth* caller, found only because a converted link there fell
+back to `#` while the identical nav entry above it worked.
+
+**A reference could resolve to the node making it.** Names resolve first-wins,
+and the natural name for a nav entry is the name of the section it points at — a
+link called "Work" above a section called "Work". The nav comes first, so the
+link took its own id, resolved to an element with no anchor, and published as a
+link to nowhere while looking in the document exactly like a working reference.
+
+The first fix was half of one: skip self, drop the reference. That converts a
+silent wrong into a visible wrong rather than into a working link. The index
+keeps every candidate per name in document order now and takes the first that is
+not the referrer. First-wins is unchanged otherwise, for its original reason —
+last-wins would rewire a block the moment somebody duplicated something below it.
+
+That fix nearly went untested. Naming the nav links "Work link" *also* fixes the
+templates, so with both in place, undoing the resolver clause broke nothing
+visible and the falsification came back green. The collision is built
+deliberately in a fixture and kept.
+
+**What was not done, and why.** A clickable card had no honest home in these
+templates: the blog's post card is already a `link` element, and the other three
+galleries sit on single-page sites with nowhere for a card to go. Inventing a
+destination to demonstrate a feature would be the same mistake as the uniform
+grid, arrived at from the other direction. The galleries got reveals and an
+optional wide card instead — and the agency's work grid became a bento, which
+needed a *seventh* piece of work: two wide plus five ordinary is nine cells in
+three columns and lands exactly, where one wide would be seven and leave two
+empty at the end. Measured at 740/360, 360/360/360, 740/360 across three rows,
+no overflow at any width.
+
+One environmental note worth writing down: the photo-bearing templates cannot be
+opened through `openProject` in a sandbox with no route to the placeholder
+photography host — the requests never settle and `load` never fires. It predates
+this work and is not a product fault. Geometry for those is measured by
+generating the published file and opening it over `file://`, which is what was
+being measured anyway.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

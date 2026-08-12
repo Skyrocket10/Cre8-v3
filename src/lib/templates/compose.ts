@@ -824,6 +824,16 @@ export interface GalleryItem {
   photo?: { seed: string; alt: string; width: number; height: number };
   gradient?: string;
   ratio?: string;
+  /**
+   * Twice the width, for the one piece of work worth leading with.
+   *
+   * Optional and off by default: a gallery where everything is featured is a
+   * gallery where nothing is. The narrow-width reset is handled below rather
+   * than asked of the caller — a span left un-released on a phone makes the
+   * grid invent a column and the page scroll sideways, which is not a mistake
+   * a template author should have to remember not to make.
+   */
+  wide?: boolean;
 }
 
 export function galleryBlock(
@@ -848,7 +858,20 @@ export function galleryBlock(
               overflow: 'hidden',
               ...border('1px', 'var(--c-border)'),
               transition: 'transform 220ms ease, box-shadow 220ms ease',
+              ...(item.wide ? { gridColumn: 'span 2' } : {}),
+              // Arrives as it is scrolled to. Costs the page nothing to run —
+              // the timeline is the scrollport — and a gallery is the one place
+              // on a page where a reveal reads as intent rather than decoration.
+              appear: 'rise',
             },
+            ...(item.wide
+              ? {
+                  responsive: {
+                    tablet: { gridColumn: 'span 2' },
+                    mobile: { gridColumn: 'auto' },
+                  },
+                }
+              : {}),
             states: { hover: { transform: 'translateY(-3px)', boxShadow: 'var(--sh-lg)' } },
             children: [
               item.photo

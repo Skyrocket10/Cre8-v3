@@ -674,12 +674,20 @@ const agency: TemplateDefinition = {
                 'Selected work',
                 'A few recent engagements. Full case studies available on request.',
                 [
-                  { title: 'Meridian', subtitle: 'Brand identity · 2026', photo: { seed: 'ff-meridian', alt: 'Meridian’s identity applied across printed matter', width: 900, height: 675 } },
+                  /*
+                   * Two wide and five ordinary is nine cells in three columns:
+                   * three exact rows, no trailing gap. One wide card would be
+                   * seven cells and leave two empty at the end — worse than the
+                   * uniform grid it replaced, which is why the count changed
+                   * with the layout rather than after somebody noticed.
+                   */
+                  { title: 'Meridian', subtitle: 'Brand identity · 2026', wide: true, photo: { seed: 'ff-meridian', alt: 'Meridian’s identity applied across printed matter', width: 1200, height: 675 } },
                   { title: 'Cobalt Health', subtitle: 'Product design · 2025', photo: { seed: 'ff-cobalt', alt: 'The Cobalt Health console on a desk', width: 900, height: 675 } },
                   { title: 'Orenda', subtitle: 'Website · 2025', photo: { seed: 'ff-orenda', alt: 'The Orenda site on a laptop and a phone', width: 900, height: 675 } },
                   { title: 'Two Rivers', subtitle: 'Packaging · 2025', photo: { seed: 'ff-tworivers', alt: 'Two Rivers packaging, three sizes side by side', width: 900, height: 675 } },
                   { title: 'Northbank', subtitle: 'Design system · 2024', photo: { seed: 'ff-northbank', alt: 'Northbank’s component library on screen', width: 900, height: 675 } },
-                  { title: 'Salter', subtitle: 'Brand identity · 2024', photo: { seed: 'ff-salter', alt: 'Salter’s wordmark on a shopfront', width: 900, height: 675 } },
+                  { title: 'Salter', subtitle: 'Brand identity · 2024', wide: true, photo: { seed: 'ff-salter', alt: 'Salter’s wordmark on a shopfront', width: 1200, height: 675 } },
+                  { title: 'Havlin & Co', subtitle: 'Editorial · 2024', photo: { seed: 'ff-havlin', alt: 'A Havlin & Co quarterly open on a table', width: 900, height: 675 } },
                 ]
               ),
               'work'
