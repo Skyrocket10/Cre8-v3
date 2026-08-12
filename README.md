@@ -438,6 +438,7 @@ sandbox CSP to keep author-supplied `<script>` away from the session.
 | `npm run typecheck` | App and Worker |
 | `npm run deploy` | Build and deploy the editor + API |
 | `npm run deploy:sites` | Deploy the published-sites Worker |
+| `npm run test:prod -- <site-url> [template]` | Compare a *deployed* site against the local renderer |
 | `npm run db:init` | Apply `workers/schema.sql` to D1 |
 | `npm run db:init:local` | Same, against the local dev database |
 | `node scripts/gen-icons.mjs` | Regenerate the icon set from Lucide |

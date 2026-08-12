@@ -12,6 +12,7 @@
     "test": "node tests/static/run.mjs",
     "test:render": "node tests/render/run.mjs",
     "test:blocks": "node tests/render/blocks.mjs",
+    "test:prod": "node tests/prod/gate.mjs",
     "verify": "npm run typecheck && npm run test",
     "deploy": "next build && wrangler deploy",
     "deploy:sites": "wrangler deploy --config workers/sites/wrangler.jsonc",
