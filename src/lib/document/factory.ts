@@ -203,14 +203,30 @@ const REF_SCOPE: Record<RefSlot, (node: SceneNodeType) => boolean> = {
 };
 
 function resolveRefs(nodes: NodeMap): void {
-  const byName = new Map<RefSlot, Map<string, NodeId>>();
+  /*
+   * Every candidate per name, in document order — not just the first.
+   *
+   * First still wins, and for the reason it always did: last-wins would change
+   * a block's wiring the moment somebody duplicated something below it. What
+   * the list adds is somewhere to go when the first candidate is the *referring
+   * node itself*, which is not an exotic case. The natural name for a nav entry
+   * is the name of the section it points at, and the nav comes first, so a link
+   * called "Work" above a section called "Work" claimed its own id — resolved
+   * to an element with no anchor, published as a link to nowhere, and looked in
+   * the document exactly like a working reference.
+   *
+   * Skipping self and stopping was the first fix, and it was only half right:
+   * the reference was dropped instead of pointing at the section, which turns a
+   * silent wrong into a visible one rather than into a working link.
+   */
+  const byName = new Map<RefSlot, Map<string, NodeId[]>>();
   for (const slot of Object.keys(REF_SCOPE) as RefSlot[]) {
-    const index = new Map<string, NodeId>();
+    const index = new Map<string, NodeId[]>();
     for (const node of Object.values(nodes)) {
-      // First wins. Two layers with one name is a thing people do, and the
-      // alternative — last wins — would mean a block's wiring changing when
-      // somebody duplicates something further down it.
-      if (REF_SCOPE[slot](node) && !index.has(node.name)) index.set(node.name, node.id);
+      if (!REF_SCOPE[slot](node)) continue;
+      const list = index.get(node.name);
+      if (list) list.push(node.id);
+      else index.set(node.name, [node.id]);
     }
     byName.set(slot, index);
   }
@@ -223,7 +239,11 @@ function resolveRefs(nodes: NodeMap): void {
       // to match an id resolves to the wrong element. Rare enough never to be
       // found, which is the kind of bug worth spending a sentinel on.
       if (!ref?.node.startsWith(NAME_REF)) continue;
-      const found = byName.get(slot as RefSlot)?.get(ref.node.slice(NAME_REF.length));
+      // The first candidate that is not the node doing the referring.
+      const found = byName
+        .get(slot as RefSlot)
+        ?.get(ref.node.slice(NAME_REF.length))
+        ?.find((id) => id !== node.id);
       if (found) node.refs[slot as RefSlot] = { node: found };
       else delete node.refs[slot as RefSlot];
     }

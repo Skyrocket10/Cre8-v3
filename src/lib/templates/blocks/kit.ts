@@ -57,6 +57,23 @@ export interface BlockLink {
 export const asLink = (link: string | BlockLink): BlockLink =>
   typeof link === 'string' ? { label: link } : link;
 
+/**
+ * The props and refs that send a control somewhere — one spelling, one place.
+ *
+ * Every kind of control asks the same question and each used to answer it
+ * itself: `linkButton` for buttons, `navBlock` for the nav row, another for the
+ * nav's call to action. That is how forty-six hand-typed `#fragment` links
+ * ended up across six templates while the reference machinery built to replace
+ * them went unused — nothing was *wrong* with any one of those sites, and
+ * nothing pointed at the better way either.
+ *
+ * A jump wins and clears the href, because a control with both is two answers
+ * to one press — and the href is the one that silently takes over if the
+ * reference ever stops resolving.
+ */
+export const goesTo = (link: BlockLink): Pick<NodeSpec, 'props' | 'refs'> =>
+  link.jumpTo ? { refs: { scrollTo: link.jumpTo } } : { props: { href: link.href ?? '#' } };
+
 /* --------------------------------------------------------------------------
  * Style shorthands
  * ----------------------------------------------------------------------- */
@@ -446,13 +463,16 @@ export const linkButton = (
   variant: 'primary' | 'secondary' | 'ghost' = 'primary'
 ): NodeSpec => {
   const base = button(link.label, variant, link.href ?? '#');
-  if (!link.jumpTo) return base;
-  const { href: _navigatesInstead, ...props } = base.props ?? {};
-  // By name: a spec has no ids, and `buildTree` turns the name into a real
-  // reference once the page exists. Which is per *page*, not per section —
-  // see `makeDocument`, where that scope had to be widened for this to work
-  // across two blocks at all.
-  return { ...base, props, refs: { scrollTo: link.jumpTo } };
+  const { href: _maybeReplaced, ...rest } = base.props ?? {};
+  const to = goesTo(link);
+  /*
+   * `rest` without the href, then whatever `goesTo` says — so a jump leaves no
+   * href behind it and a plain link gets one back. By name for the jump: a spec
+   * has no ids, and `buildTree` resolves the name once the page exists. Per
+   * *page*, not per section — see `makeDocument`, where that scope had to be
+   * widened for a reference to cross two blocks at all.
+   */
+  return { ...base, props: { ...rest, ...to.props }, ...(to.refs ? { refs: to.refs } : {}) };
 };
 
 /**

@@ -545,18 +545,18 @@ const startup: TemplateDefinition = {
               brand: 'Halcyon',
               brandIcon: 'infinity',
               links: [
-                { label: 'Product', href: '#product' },
-                { label: 'Results', href: '#results' },
+                { label: 'Product', jumpTo: 'Features' },
+                { label: 'Results', jumpTo: 'Stats' },
               ],
-              cta: { label: 'Join waitlist', href: '#waitlist' },
+              cta: { label: 'Join waitlist', jumpTo: 'Call to action' },
             }),
             heroBlock({
               eyebrow: 'Private beta',
               title: 'The inbox that answers itself',
               body: 'Halcyon drafts, triages and schedules your email so the only messages you see are the ones that genuinely need you.',
               buttons: [
-                { label: 'Join the waitlist', href: '#waitlist' },
-                { label: 'Watch the demo', variant: 'secondary', href: '#product' },
+                { label: 'Join the waitlist', jumpTo: 'Call to action' },
+                { label: 'Watch the demo', variant: 'secondary', jumpTo: 'Features' },
               ],
               media: gradientPanel(
                 'linear-gradient(140deg, var(--c-secondary) 0%, var(--c-accent) 130%)',
@@ -599,14 +599,14 @@ const startup: TemplateDefinition = {
               {
                 title: 'Product',
                 links: [
-                  { label: 'What it does', href: '#product' },
-                  { label: 'Results', href: '#results' },
+                  { label: 'What it does', jumpTo: 'Features' },
+                  { label: 'Results', jumpTo: 'Stats' },
                 ],
               },
               {
                 title: 'Get in',
                 links: [
-                  { label: 'Join the waitlist', href: '#waitlist' },
+                  { label: 'Join the waitlist', jumpTo: 'Call to action' },
                   { label: 'waitlist@halcyon.email', href: 'mailto:waitlist@halcyon.email' },
                 ],
               },
@@ -653,18 +653,18 @@ const agency: TemplateDefinition = {
               brand: 'Field & Frame',
               brandIcon: 'feather',
               links: [
-                { label: 'Work', href: '#work' },
-                { label: 'Services', href: '#services' },
-                { label: 'Contact', href: '#contact' },
+                { label: 'Work', jumpTo: 'Gallery' },
+                { label: 'Services', jumpTo: 'Services' },
+                { label: 'Contact', jumpTo: 'Contact' },
               ],
-              cta: { label: 'Start a project', href: '#contact' },
+              cta: { label: 'Start a project', jumpTo: 'Contact' },
             }),
             heroBlock({
               title: 'Brand and product design for companies that have outgrown their first look.',
               body: 'We are a nine-person studio in Lisbon. We work with a handful of clients a year, deeply, from positioning through to the shipped interface.',
               buttons: [
-                { label: 'See selected work', href: '#work' },
-                { label: 'Book a call', variant: 'secondary', href: '#contact' },
+                { label: 'See selected work', jumpTo: 'Gallery' },
+                { label: 'Book a call', variant: 'secondary', jumpTo: 'Contact' },
               ],
               align: 'left',
               tone: 'plain',
@@ -706,9 +706,9 @@ const agency: TemplateDefinition = {
               {
                 title: 'Studio',
                 links: [
-                  { label: 'Work', href: '#work' },
-                  { label: 'Services', href: '#services' },
-                  { label: 'Start a project', href: '#contact' },
+                  { label: 'Work', jumpTo: 'Gallery' },
+                  { label: 'Services', jumpTo: 'Services' },
+                  { label: 'Start a project', jumpTo: 'Contact' },
                 ],
               },
               {
@@ -761,9 +761,9 @@ const portfolio: TemplateDefinition = {
               brand: 'Ilse Moreau',
               brandIcon: 'pen-tool',
               links: [
-                { label: 'Work', href: '#work' },
-                { label: 'Writing', href: '#writing' },
-                { label: 'Contact', href: '#contact' },
+                { label: 'Work', jumpTo: 'Work' },
+                { label: 'Writing', jumpTo: 'Writing' },
+                { label: 'Contact', jumpTo: 'Call to action' },
               ],
               sticky: false,
             }),
@@ -772,7 +772,7 @@ const portfolio: TemplateDefinition = {
               body: 'Currently at Lumen, previously at Basewave and two startups that no longer exist. I care about interfaces that get out of the way.',
               align: 'left',
               tone: 'plain',
-              buttons: [{ label: 'Get in touch', variant: 'secondary', href: '#contact' }],
+              buttons: [{ label: 'Get in touch', variant: 'secondary', jumpTo: 'Call to action' }],
             }),
             anchored(
               listBlock(
@@ -814,8 +814,8 @@ const portfolio: TemplateDefinition = {
               {
                 title: 'This site',
                 links: [
-                  { label: 'Work', href: '#work' },
-                  { label: 'Writing', href: '#writing' },
+                  { label: 'Work', jumpTo: 'Work' },
+                  { label: 'Writing', jumpTo: 'Writing' },
                 ],
               },
               {
@@ -868,19 +868,19 @@ const restaurant: TemplateDefinition = {
               brand: 'Ambrose',
               brandIcon: 'utensils',
               links: [
-                { label: 'Menu', href: '#menu' },
-                { label: 'Story', href: '#story' },
-                { label: 'Visit', href: '#visit' },
+                { label: 'Menu', jumpTo: 'Menu' },
+                { label: 'Story', jumpTo: 'Split' },
+                { label: 'Visit', jumpTo: 'Footer' },
               ],
-              cta: { label: 'Book a table', href: '#book' },
+              cta: { label: 'Book a table', jumpTo: 'Contact' },
             }),
             heroBlock({
               eyebrow: 'Dover Street, London',
               title: 'A small kitchen, a short menu, and whatever the market had that morning.',
               body: 'Twenty-four covers, one sitting a night. The menu changes weekly and is written on the wall at five.',
               buttons: [
-                { label: 'Book a table', href: '#book' },
-                { label: 'See this week’s menu', variant: 'secondary', href: '#menu' },
+                { label: 'Book a table', jumpTo: 'Contact' },
+                { label: 'See this week’s menu', variant: 'secondary', jumpTo: 'Menu' },
               ],
               media: photo({
                 seed: 'ambrose-pass',
@@ -938,8 +938,8 @@ const restaurant: TemplateDefinition = {
                   title: 'Visit',
                   links: [
                     { label: 'Directions', href: 'https://www.openstreetmap.org/search?query=Dover%20Street%2C%20London' },
-                    { label: 'This week’s menu', href: '#menu' },
-                    { label: 'Private dining', href: '#book' },
+                    { label: 'This week’s menu', jumpTo: 'Menu' },
+                    { label: 'Private dining', jumpTo: 'Contact' },
                   ],
                 },
                 {
@@ -996,18 +996,18 @@ const ecommerce: TemplateDefinition = {
               brand: 'Verdant',
               brandIcon: 'sprout',
               links: [
-                { label: 'Shop', href: '#shop' },
-                { label: 'Why Verdant', href: '#promises' },
+                { label: 'Shop', jumpTo: 'Gallery' },
+                { label: 'Why Verdant', jumpTo: 'Promises' },
               ],
-              cta: { label: 'Sign up', href: '#newsletter' },
+              cta: { label: 'Sign up', jumpTo: 'Call to action' },
             }),
             heroBlock({
               eyebrow: 'New season',
               title: 'Everyday ceramics, made in small batches.',
               body: 'Thrown by hand in Stoke, glazed in six colours, and built to go in the dishwasher. Free delivery over £60.',
               buttons: [
-                { label: 'Shop the collection', href: '#shop' },
-                { label: 'How we make them', variant: 'secondary', href: '#promises' },
+                { label: 'Shop the collection', jumpTo: 'Gallery' },
+                { label: 'How we make them', variant: 'secondary', jumpTo: 'Promises' },
               ],
               media: photo({
                 seed: 'verdant-hero',
@@ -1055,14 +1055,14 @@ const ecommerce: TemplateDefinition = {
               {
                 title: 'Shop',
                 links: [
-                  { label: 'Best sellers', href: '#shop' },
-                  { label: 'Ten percent off', href: '#newsletter' },
+                  { label: 'Best sellers', jumpTo: 'Gallery' },
+                  { label: 'Ten percent off', jumpTo: 'Call to action' },
                 ],
               },
               {
                 title: 'Help',
                 links: [
-                  { label: 'Delivery and guarantee', href: '#promises' },
+                  { label: 'Delivery and guarantee', jumpTo: 'Promises' },
                   { label: 'hello@verdant.studio', href: 'mailto:hello@verdant.studio' },
                 ],
               },
@@ -1207,10 +1207,10 @@ const blog: TemplateDefinition = {
               brand: 'The Long Field',
               brandIcon: 'file-text',
               links: [
-                { label: 'Essays', href: '#essays' },
-                { label: 'About', href: '#about' },
+                { label: 'Essays', jumpTo: 'Latest' },
+                { label: 'About', jumpTo: 'Split' },
               ],
-              cta: { label: 'Subscribe', href: '#subscribe' },
+              cta: { label: 'Subscribe', jumpTo: 'Call to action' },
               sticky: false,
             }),
             heroBlock({
@@ -1218,7 +1218,7 @@ const blog: TemplateDefinition = {
               body: 'A slow publication. Something long every other Thursday, and shorter notes in between.',
               align: 'center',
               tone: 'plain',
-              buttons: [{ label: 'Subscribe free', href: '#subscribe' }],
+              buttons: [{ label: 'Subscribe free', jumpTo: 'Call to action' }],
             }),
             anchored(
               feedBlock({
@@ -1265,14 +1265,14 @@ const blog: TemplateDefinition = {
               {
                 title: 'Read',
                 links: [
-                  { label: 'Latest essays', href: '#essays' },
-                  { label: 'About', href: '#about' },
+                  { label: 'Latest essays', jumpTo: 'Latest' },
+                  { label: 'About', jumpTo: 'Split' },
                 ],
               },
               {
                 title: 'Follow',
                 links: [
-                  { label: 'Subscribe', href: '#subscribe' },
+                  { label: 'Subscribe', jumpTo: 'Call to action' },
                   { label: 'Email', href: 'mailto:hello@thelongfield.press' },
                   { label: 'Mastodon', href: 'https://mastodon.social' },
                 ],

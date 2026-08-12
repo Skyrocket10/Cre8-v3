@@ -7091,6 +7091,7 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
   const unnamed = [];
   const droppedSet = [];
   const bothWays = [];
+  const handTyped = [];
   const placeholder = [];
   const skippedHeading = [];
   const noHeading = [];
@@ -7172,6 +7173,14 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
          * reason this file keeps relearning: the block rule reads specs, and a
          * template is free to compose a node the block library never wrote.
          */
+        {
+          const href = String(node.props?.href ?? '');
+          // A bare `#` is the element default, not a destination anybody typed.
+          if (href.startsWith('#') && href.length > 1) {
+            handTyped.push(`${where}: href "${href}"`);
+          }
+        }
+
         if (node.refs?.scrollTo) {
           const href = String(node.props?.href ?? '').trim();
           if (href && href !== '#') {
@@ -7575,6 +7584,23 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     rawColour.slice(0, 4).join(' | ') || 'tokens throughout'
   );
   report.check('every node is named for the layer tree', unnamed.length === 0, unnamed.slice(0, 3).join(' | '));
+  report.check(
+    'no template navigates its own page by hand-typed fragment',
+    handTyped.length === 0,
+    /*
+     * Forty-six of these shipped across six templates while the reference
+     * machinery built to replace them sat unused. Every one worked, which is
+     * why nobody noticed: a fragment is a *name*, and it goes stale the moment
+     * somebody renames the section — silently, into a link that scrolls
+     * nowhere. A reference survives the rename and `pruneRefs` clears it when
+     * the target is deleted.
+     *
+     * A fragment on a *cross-page* link is untouched and legitimate:
+     * `/pricing/#plans` is a page and a place on it, which no same-page
+     * reference can express.
+     */
+    handTyped.slice(0, 3).join(' | ') || 'every same-page jump is a reference'
+  );
   report.check(
     'no control in a template both jumps and navigates',
     bothWays.length === 0,
@@ -8249,6 +8275,59 @@ report.group('a value cannot leave its own rule');
       return offenders.length === 0;
     })(),
     'no legitimate declaration needs one of those characters'
+  );
+}
+
+report.group('a reference never resolves to the thing making it');
+
+{
+  /*
+   * Written because renaming the nav links stopped exercising the fix.
+   *
+   * A name reference takes the first node with that name, and the most natural
+   * name for a nav entry is the name of the section it points at — a link
+   * called "Work" above a section called "Work". The nav comes first, so the
+   * link claimed its own id, resolved to an element with no anchor, and
+   * published as a link to nowhere while looking in the document exactly like
+   * a working reference.
+   *
+   * The fix is one clause in `resolveRefs`. Naming the links "Work link" also
+   * fixes the templates, and that is the problem: with both in place, undoing
+   * the clause breaks nothing anybody would see. So the collision is built
+   * here on purpose and kept.
+   */
+  const nodes = {};
+  buildTree(
+    {
+      type: 'section',
+      name: 'Page',
+      children: [
+        { type: 'link', name: 'Work', props: { text: 'Work' }, refs: { scrollTo: 'Work' } },
+        { type: 'section', name: 'Work', props: { anchor: 'work' } },
+      ],
+    },
+    nodes,
+    null
+  );
+  const link = Object.values(nodes).find((one) => one.type === 'link');
+  const band = Object.values(nodes).find((one) => one.type === 'section' && one.props.anchor);
+
+  report.check(
+    'a link named after its target reaches the target, not itself',
+    Boolean(link) && Boolean(band) && link.refs?.scrollTo?.node === band.id,
+    // Pointing at itself is the failure; having no reference at all is the
+    // second-best outcome and still wrong, so both are named.
+    link?.refs?.scrollTo?.node === link?.id
+      ? 'it resolved to itself'
+      : link?.refs?.scrollTo
+        ? 'it reached the section'
+        : 'the reference was dropped entirely'
+  );
+  report.check(
+    'and the fixture really does have two nodes of the same name',
+    Object.values(nodes).filter((one) => one.name === 'Work').length === 2,
+    // Without the collision the check above passes on any tree at all.
+    `${Object.values(nodes).filter((one) => one.name === 'Work').length} nodes named Work`
   );
 }
 

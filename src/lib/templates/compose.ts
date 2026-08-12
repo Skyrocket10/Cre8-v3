@@ -8,6 +8,8 @@
  */
 
 import type { NodeSpec } from '../document/factory';
+// Peer module, no cycle: `kit` imports only from `document/` and `runtime/`.
+import { asLink, goesTo, type BlockLink } from './blocks/kit';
 import type { ResponsiveStyles, StyleDecl } from '../document/types';
 
 /* --------------------------------------------------------------------------
@@ -22,7 +24,15 @@ import type { ResponsiveStyles, StyleDecl } from '../document/types';
  * point — it has no idea what else is on the page. A *template* does know, and
  * every one of its links now says so.
  */
-export type LinkSpec = string | { label: string; href?: string };
+/*
+ * The same thing the kit calls a `BlockLink`, and now literally so.
+ *
+ * It was a separate, identical declaration, which is how the two halves of the
+ * library drifted: the kit learned `jumpTo` and this did not, so every nav
+ * built through `navBlock` could only type a fragment. An alias rather than a
+ * second shape means the next field arrives in both at once.
+ */
+export type LinkSpec = string | BlockLink;
 
 export const linkLabel = (link: LinkSpec): string =>
   typeof link === 'string' ? link : link.label;
@@ -141,16 +151,27 @@ export const grid = (
   children,
 });
 
-export interface ButtonSpec {
-  label: string;
-  href?: string;
+/**
+ * A button, which is a link that looks like a button.
+ *
+ * Extends `BlockLink` rather than restating it. This was the *third* parallel
+ * declaration of "a label and somewhere to go" — the kit had one, the nav had
+ * one, and this had one — and they drifted exactly as you would expect:
+ * `jumpTo` was added to the first and the other two carried on able to type a
+ * fragment and nothing else.
+ */
+export interface ButtonSpec extends BlockLink {
   variant?: 'primary' | 'secondary' | 'ghost';
 }
 
-export const button = ({ label, href = '#', variant = 'primary' }: ButtonSpec): NodeSpec => ({
+export const button = (spec: ButtonSpec): NodeSpec => {
+  const { label, variant = 'primary' } = spec;
+  const to = goesTo(spec);
+  return {
   type: 'button',
   name: `${label} button`,
-  props: { label, href },
+  props: { label, ...to.props },
+  ...(to.refs ? { refs: to.refs } : {}),
   styles:
     variant === 'primary'
       ? {}
@@ -170,7 +191,8 @@ export const button = ({ label, href = '#', variant = 'primary' }: ButtonSpec): 
     variant === 'primary'
       ? { hover: { backgroundColor: 'var(--c-secondary)' } }
       : { hover: { backgroundColor: 'var(--c-surface)' } },
-});
+  };
+};
 
 export const section = (
   name: string,
@@ -229,6 +251,7 @@ export interface NavOptions {
 }
 
 export function navBlock({ brand, brandIcon = 'sparkles', links, cta, sticky = true }: NavOptions): NodeSpec {
+  const ctaGoes = cta ? goesTo(asLink(cta)) : { props: {} };
   return {
     type: 'section',
     name: 'Navbar',
@@ -263,20 +286,42 @@ export function navBlock({ brand, brandIcon = 'sparkles', links, cta, sticky = t
             name: 'Nav links',
             styles: { gap: '28px', alignItems: 'center' },
             responsive: { mobile: { display: 'none' } },
-            children: links.map((link) => ({
-              type: 'link' as const,
-              name: linkLabel(link),
-              props: { text: linkLabel(link), href: linkHref(link) },
-              styles: { fontSize: '14.5px', color: 'var(--c-muted)' },
-              states: { hover: { color: 'var(--c-text)' } },
-            })),
+            /*
+             * A nav entry that can name a section rather than typing its
+             * fragment. `goesTo` decides which, so the nav row, the nav's call
+             * to action and every button in the kit answer "where does this go"
+             * the same way.
+             */
+            children: links.map((link) => {
+              const to = goesTo(asLink(link));
+              return {
+                type: 'link' as const,
+                /*
+                 * "Work link", not "Work", and the suffix is load-bearing.
+                 *
+                 * References resolve by name and the first match wins, so a nav
+                 * entry named after the section it points at claimed its own id
+                 * — the link resolved to itself, had no anchor, and shipped as a
+                 * link to nowhere. `buildTree` refuses a self-reference now,
+                 * which turns that into a visible miss; naming them apart is
+                 * what makes the reference land on the section instead. It also
+                 * matches the `… button` convention beside it.
+                 */
+                name: `${linkLabel(link)} link`,
+                props: { text: linkLabel(link), ...to.props },
+                ...(to.refs ? { refs: to.refs } : {}),
+                styles: { fontSize: '14.5px', color: 'var(--c-muted)' },
+                states: { hover: { color: 'var(--c-text)' } },
+              };
+            }),
           },
           ...(cta
             ? [
                 {
                   type: 'button' as const,
                   name: `${linkLabel(cta)} button`,
-                  props: { label: linkLabel(cta), href: linkHref(cta) },
+                  ...(ctaGoes.refs ? { refs: ctaGoes.refs } : {}),
+                  props: { label: linkLabel(cta), ...ctaGoes.props },
                   styles: {
                     fontSize: '14px',
                     paddingTop: '9px',
@@ -1285,10 +1330,15 @@ export function footerBlock(
                       textTransform: 'uppercase',
                       color: 'var(--c-text)',
                     }),
+                    // The footer, through the same helper as the nav. It was
+                    // the last place still calling `linkHref` directly, so a
+                    // footer entry naming a section fell back to `#` while the
+                    // identical nav entry beside it worked.
                     ...column.links.map((link) => ({
                       type: 'link' as const,
-                      name: linkLabel(link),
-                      props: { text: linkLabel(link), href: linkHref(link) },
+                      name: `${linkLabel(link)} link`,
+                      props: { text: linkLabel(link), ...goesTo(asLink(link)).props },
+                      ...(goesTo(asLink(link)).refs ? { refs: goesTo(asLink(link)).refs } : {}),
                       styles: { fontSize: '13.5px', color: 'var(--c-muted)' },
                       states: { hover: { color: 'var(--c-text)' } },
                     })),
