@@ -760,6 +760,55 @@ function checkJumpExclusive(spec) {
   return bad;
 }
 
+/**
+ * Whether an image reserves its space before the bytes arrive.
+ *
+ * Two ways to be sized, because there are two kinds of image and only one of
+ * them can carry numbers.
+ *
+ * A designer's photograph declares intrinsic `width`/`height`, which reach the
+ * markup and give the browser the ratio for nothing. An image whose `src` is
+ * *bound* cannot: `boundProps` deletes `width`, `height` and `srcset` the
+ * moment a record writes the src, because all three describe the picture that
+ * was there at design time and a record supplies a URL and nothing else. That
+ * deletion is right — shipping numbers about a different image is worse than
+ * shipping none — and it names the substitute: an `aspectRatio` on the node,
+ * which is a decision made once for the whole list.
+ *
+ * Reading only `props.width` was therefore a rule that had stopped covering
+ * what it claimed. It went on passing on every bound image in the library,
+ * reporting "all sized" about markup with no dimensions in it, because the
+ * property it read was the design-time one the publisher throws away.
+ */
+function holdsItsShape(node) {
+  if (!node.bind?.src) return Boolean(node.props?.width) && Boolean(node.props?.height);
+  /*
+   * `styles` is keyed by breakpoint — `{ desktop: {…}, mobile: {…} }` — and
+   * reading `styles.aspectRatio` off it finds nothing on every node in the
+   * library, which is a rule that fails on correct work. Both halves are
+   * required: the base has to set one, and a narrow breakpoint must not throw
+   * it away, because a phone is where the picture is widest relative to the
+   * page and where the shift costs most.
+   */
+  // Over the breakpoints by name rather than over whatever keys the object
+  // happens to have: a flat `{ aspectRatio }` is precisely the misreading this
+  // rule was written with, and iterating keys would hand a string to `in`.
+  const base = node.styles?.desktop?.aspectRatio;
+  const released = ['tablet', 'mobile'].some((bp) => {
+    const decl = node.styles?.[bp];
+    return decl && 'aspectRatio' in decl && !String(decl.aspectRatio ?? '').trim();
+  });
+  return Boolean(base) && !released;
+}
+
+/** Said in the words of whichever of the two rules the node fell under. */
+function whyUnsized(node) {
+  if (!node.bind?.src) return 'has no intrinsic size';
+  return node.styles?.desktop?.aspectRatio
+    ? 'takes its picture from a record and lets go of its aspect ratio when narrow'
+    : 'takes its picture from a record and has no aspect ratio to hold the space';
+}
+
 function checkContentRules(spec) {
   const bad = [];
   for (const { node, path } of walk(spec)) {
@@ -7211,12 +7260,8 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
           imagesSwept++;
           const alt = String(node.props?.alt ?? '').trim();
           if (LAZY.has(alt.toLowerCase())) lazyAlt.push(`${where}: alt is “${alt}”`);
-          // Intrinsic pixels, so the browser knows the shape before the bytes
-          // arrive. It matters more for these than for an upload: a template's
-          // photography is served from somewhere else, so it is the slowest
-          // thing on the page and the most likely to arrive after layout.
-          if (!node.props?.width || !node.props?.height) {
-            unsized.push(`${where}: ${alt || 'an image'} has no intrinsic size`);
+          if (!holdsItsShape(node)) {
+            unsized.push(`${where}: ${alt || 'an image'} ${whyUnsized(node)}`);
           }
           const src = String(node.props?.src ?? '');
           if (/^https?:\/\//.test(src)) photoHosts.add(new URL(src).origin);
@@ -7561,10 +7606,26 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     lazyAlt.length === 0 && imagesSwept > 0,
     lazyAlt.slice(0, 3).join(' | ') || `${imagesSwept} images, every one described`
   );
+  const boundImages = built
+    .flatMap(({ doc }) => Object.values(doc?.nodes ?? {}))
+    .filter((node) => node.type === 'image' && node.bind?.src);
   report.check(
     'and declares the size it will be, so nothing moves when it arrives',
     unsized.length === 0 && imagesSwept > 0,
     unsized.slice(0, 3).join(' | ') || `${imagesSwept} images, all sized`
+  );
+  /*
+   * And the rule is looking at the images it claims to. A bound image is the
+   * case it silently stopped covering, so "no offences" has to be a fact about
+   * some of those rather than a fact about there being none.
+   */
+  const looseBound = boundImages.filter((node) => !holdsItsShape(node));
+  report.check(
+    'including the ones that take their picture from a record',
+    boundImages.length > 0 && looseBound.length === 0,
+    looseBound.length
+      ? `${looseBound.length} of ${boundImages.length} bound images: ${whyUnsized(looseBound[0])}`
+      : `${boundImages.length} bound images, each holding its own shape`
   );
   report.check(
     'at most one image a page is worth loading first',
@@ -7648,6 +7709,44 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     PLACEHOLDER.test('Lorem ipsum dolor') &&
       !PLACEHOLDER.test('The platform layer for product teams') &&
       !PLACEHOLDER.test('Mastodon')
+  );
+  /*
+   * Both branches of the sizing rule, each handed the thing it must reject.
+   *
+   * The bound pair is the one that matters. Before this the rule asked one
+   * question of every image, and a bound image answers it with numbers the
+   * publisher then deletes — so the old rule would have called the third of
+   * these sized, which is the exact false pass being closed.
+   */
+  const sized = { type: 'image', props: { width: 900, height: 675 }, styles: {} };
+  const noSize = { type: 'image', props: {}, styles: {} };
+  const boundFlat = { ...noSize, bind: { src: 'image' } };
+  const boundRatio = { ...boundFlat, styles: { desktop: { aspectRatio: '4 / 3' } } };
+  const boundNumbers = { ...sized, bind: { src: 'image' } };
+  // The shape the rule read before it was written against a real node: an
+  // aspect ratio at the top level, where no built document has ever put one.
+  const boundMisread = { ...boundFlat, styles: { aspectRatio: '4 / 3' } };
+  const boundDropped = {
+    ...boundRatio,
+    styles: { desktop: { aspectRatio: '4 / 3' }, mobile: { aspectRatio: '' } },
+  };
+  report.check(
+    'the sizing rule asks a hand-placed photo for pixels and a bound one for a ratio',
+    holdsItsShape(sized) &&
+      !holdsItsShape(noSize) &&
+      holdsItsShape(boundRatio) &&
+      !holdsItsShape(boundFlat) &&
+      !holdsItsShape(boundNumbers) &&
+      !holdsItsShape(boundMisread) &&
+      !holdsItsShape(boundDropped),
+    'and the numbers on a bound image do not count, because they are not published'
+  );
+  report.check(
+    'and says which of the two ways it failed',
+    whyUnsized(noSize) === 'has no intrinsic size' &&
+      whyUnsized(boundFlat).includes('no aspect ratio') &&
+      whyUnsized(boundDropped).includes('when narrow'),
+    `“${whyUnsized(boundDropped)}”`
   );
 }
 

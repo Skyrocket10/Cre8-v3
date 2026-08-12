@@ -41,6 +41,7 @@ import {
   anchored,
   articleBlock,
   cardGridBlock,
+  caseStudyBlock,
   contactBlock,
   ctaBlock,
   feedBlock,
@@ -51,8 +52,10 @@ import {
   listBlock,
   navBlock,
   photo,
+  photoUrl,
   splitBlock,
   statsBlock,
+  workGridBlock,
 } from './compose';
 
 export interface TemplateDefinition {
@@ -621,6 +624,130 @@ const startup: TemplateDefinition = {
  * Agency
  * ----------------------------------------------------------------------- */
 
+/**
+ * Six engagements, each of which is a page.
+ *
+ * Six and not seven, and the count is a layout decision rather than an
+ * editorial one — said plainly because it is the sort of thing that looks
+ * arbitrary later. Three columns take six cards in two exact rows; the seventh
+ * used to exist to fill a bento, and a repeater cannot draw a bento (see
+ * `workGridBlock`), so the card that was only ever there for the geometry goes
+ * with the geometry.
+ *
+ * `image` carries the same URL a `photo` node would build, through the same
+ * function, so the host is still named in exactly one place.
+ */
+const WORK: SeedRow[] = [
+  {
+    collection: 'Work',
+    slug: 'meridian',
+    data: {
+      title: 'An identity Meridian could hand to anyone',
+      client: 'Meridian',
+      discipline: 'Brand identity',
+      year: '2026',
+      summary:
+        'A twelve-year-old logistics company with four sub-brands, no wordmark anyone could find the file for, and a rebrand due before an acquisition.',
+      image: photoUrl('ff-meridian', 1200, 675),
+      alt: 'Meridian’s identity applied across printed matter',
+      body:
+        '<p>Meridian arrived with the problem most companies of that age arrive with: not a bad identity, but eleven of them. Four business units had each hired their own designer, and the only asset all of them shared was a logo nobody had the original of.</p>' +
+        '<p>We started by finding out what was actually true. Two weeks of interviews across the four units produced one sentence everybody recognised — that Meridian is the company you call when the route is difficult — and the identity is built on it: a wordmark cut from a single stroke, a palette that survives being printed badly on a lorry, and a system of route marks that give each unit somewhere to be different without needing its own logo.</p>' +
+        '<p>The guidelines run to eighteen pages. That is deliberate. The last set ran to ninety and nobody opened them.</p>',
+    },
+  },
+  {
+    collection: 'Work',
+    slug: 'cobalt-health',
+    data: {
+      title: 'A console clinicians stop noticing',
+      client: 'Cobalt Health',
+      discipline: 'Product design',
+      year: '2025',
+      summary:
+        'Redesigning the triage console used by 2,400 nurses, where every extra second is a second taken from a patient.',
+      image: photoUrl('ff-cobalt', 900, 675),
+      alt: 'The Cobalt Health triage console on a ward desk',
+      body:
+        '<p>The existing console had grown one field at a time for six years. It worked — nurses are extraordinary at absorbing bad software — and the cost of it working was hidden in the two minutes it took to admit somebody who should have taken forty seconds.</p>' +
+        '<p>We spent four shifts on the ward before drawing anything. What that produced was not a list of usability problems but a different unit of work: the console was designed around records, and the ward is organised around people. Rebuilding it around the patient in front of you collapsed six screens into one.</p>' +
+        '<p>Median admission time fell to fifty-one seconds. The metric the trust actually cared about was different, and better: the number of admissions abandoned halfway through went to nearly nothing.</p>',
+    },
+  },
+  {
+    collection: 'Work',
+    slug: 'orenda',
+    data: {
+      title: 'A site that sells a thing you cannot photograph',
+      client: 'Orenda',
+      discipline: 'Website',
+      year: '2025',
+      summary:
+        'Orenda insures freelancers. The product is a promise, the competitors all use stock photography of smiling people, and the founder was adamant about neither.',
+      image: photoUrl('ff-orenda', 900, 675),
+      alt: 'The Orenda site open on a laptop and a phone',
+      body:
+        '<p>Insurance sites are photographs of reassurance. We could not use them and did not want to, so the site had to be carried by writing and by typography, which is a harder brief and a much better one.</p>' +
+        '<p>The structure is one question per screen, in the order a freelancer actually asks them: what happens if a client sues me, what is this going to cost, and how quickly can I have it. The quote calculator is on the first screen rather than behind a form, because the price is the objection and hiding it does not make it smaller.</p>' +
+        '<p>Sign-ups per visit roughly doubled. The founder attributes it to the price being visible; we would not argue.</p>',
+    },
+  },
+  {
+    collection: 'Work',
+    slug: 'two-rivers',
+    data: {
+      title: 'Packaging that survives a wet shelf',
+      client: 'Two Rivers',
+      discipline: 'Packaging',
+      year: '2025',
+      summary:
+        'A cider maker moving from farm-gate sales to eleven hundred supermarkets, with three weeks before the first print run.',
+      image: photoUrl('ff-tworivers', 900, 675),
+      alt: 'Two Rivers bottles and cans, three sizes side by side',
+      body:
+        '<p>Two Rivers had a label drawn by the founder’s sister that everybody who had ever bought a bottle loved. Replacing it would have been the obvious move and the wrong one.</p>' +
+        '<p>So the drawing stayed, and everything around it changed: a structure that reads from four metres away in a chiller cabinet, varietal colours that hold up under supermarket lighting, and a can format that did not exist before because the range had never needed one.</p>' +
+        '<p>Three weeks was not enough time to be precious. It was enough time to be right about the two decisions that mattered.</p>',
+    },
+  },
+  {
+    collection: 'Work',
+    slug: 'northbank',
+    data: {
+      title: 'A design system that outlived the team that asked for it',
+      client: 'Northbank',
+      discipline: 'Design system',
+      year: '2024',
+      summary:
+        'Eighty-one components, four product teams, and one rule: nothing goes in that has not already shipped twice.',
+      image: photoUrl('ff-northbank', 900, 675),
+      alt: 'Northbank’s component library on screen',
+      body:
+        '<p>Most design systems fail the same way. They are built in advance of the products that need them, by people who will not maintain them, and they become a museum of components nobody uses.</p>' +
+        '<p>Northbank’s has one governing rule, and it is the whole design: a component is admitted after it has shipped in two products, not before. The system therefore lags the products slightly and is never wrong about them.</p>' +
+        '<p>Two years on, the team that commissioned it has largely moved on and the system is still in use. That is the only measure of a design system worth quoting.</p>',
+    },
+  },
+  {
+    collection: 'Work',
+    slug: 'salter',
+    data: {
+      title: 'A shopfront, and everything that follows from it',
+      client: 'Salter',
+      discipline: 'Brand identity',
+      year: '2024',
+      summary:
+        'A hardware shop trading since 1911, four doors down from a competitor that opened with a national marketing budget.',
+      image: photoUrl('ff-salter', 1200, 675),
+      alt: 'Salter’s hand-painted wordmark above the shopfront',
+      body:
+        '<p>Salter did not need a modern identity. It needed the one it already had to be legible again after decades of paint, additions and one unfortunate awning.</p>' +
+        '<p>The work started with the sign — hand-painted, twice, once wrong — and everything else follows from its letterforms: the receipts, the paper bags, the trade cards, the small enamel plaque on the door that gets photographed more than anything else we have made.</p>' +
+        '<p>No website. They did not want one, and were right not to.</p>',
+    },
+  },
+];
+
 const agency: TemplateDefinition = {
   id: 'agency',
   name: 'Agency',
@@ -643,12 +770,38 @@ const agency: TemplateDefinition = {
       },
       fonts: { heading: 'Fraunces', body: 'DM Sans' },
       radii: { md: '4px', lg: '6px', xl: '10px' },
+      /*
+       * A studio's work is content, not design.
+       *
+       * It was six hand-written cards, which meant the grid was as close to a
+       * case study as the template could get: the cards lifted on hover,
+       * pointed nowhere, and "full case studies available on request" was the
+       * copy written to cover for it. Six records and one page template make
+       * the cards honest and make adding the seventh engagement an afternoon
+       * of writing rather than an afternoon of duplicating nodes.
+       */
+      collections: [
+        {
+          name: 'Work',
+          slugField: 'title',
+          fields: [
+            { key: 'title', label: 'Title', type: 'text', required: true },
+            { key: 'client', label: 'Client', type: 'text' },
+            { key: 'discipline', label: 'Discipline', type: 'text' },
+            { key: 'year', label: 'Year', type: 'text' },
+            { key: 'summary', label: 'Summary', type: 'text' },
+            { key: 'image', label: 'Image', type: 'image' },
+            { key: 'alt', label: 'Image description', type: 'text' },
+            { key: 'body', label: 'Body', type: 'richtext' },
+          ],
+        },
+      ],
       pages: [
         {
           name: 'Home',
           slug: '',
           isHome: true,
-          sections: [
+          sections: (ids) => [
             navBlock({
               brand: 'Field & Frame',
               brandIcon: 'feather',
@@ -670,26 +823,12 @@ const agency: TemplateDefinition = {
               tone: 'plain',
             }),
             anchored(
-              galleryBlock(
-                'Selected work',
-                'A few recent engagements. Full case studies available on request.',
-                [
-                  /*
-                   * Two wide and five ordinary is nine cells in three columns:
-                   * three exact rows, no trailing gap. One wide card would be
-                   * seven cells and leave two empty at the end — worse than the
-                   * uniform grid it replaced, which is why the count changed
-                   * with the layout rather than after somebody noticed.
-                   */
-                  { title: 'Meridian', subtitle: 'Brand identity · 2026', wide: true, photo: { seed: 'ff-meridian', alt: 'Meridian’s identity applied across printed matter', width: 1200, height: 675 } },
-                  { title: 'Cobalt Health', subtitle: 'Product design · 2025', photo: { seed: 'ff-cobalt', alt: 'The Cobalt Health console on a desk', width: 900, height: 675 } },
-                  { title: 'Orenda', subtitle: 'Website · 2025', photo: { seed: 'ff-orenda', alt: 'The Orenda site on a laptop and a phone', width: 900, height: 675 } },
-                  { title: 'Two Rivers', subtitle: 'Packaging · 2025', photo: { seed: 'ff-tworivers', alt: 'Two Rivers packaging, three sizes side by side', width: 900, height: 675 } },
-                  { title: 'Northbank', subtitle: 'Design system · 2024', photo: { seed: 'ff-northbank', alt: 'Northbank’s component library on screen', width: 900, height: 675 } },
-                  { title: 'Salter', subtitle: 'Brand identity · 2024', wide: true, photo: { seed: 'ff-salter', alt: 'Salter’s wordmark on a shopfront', width: 1200, height: 675 } },
-                  { title: 'Havlin & Co', subtitle: 'Editorial · 2024', photo: { seed: 'ff-havlin', alt: 'A Havlin & Co quarterly open on a table', width: 900, height: 675 } },
-                ]
-              ),
+              workGridBlock({
+                title: 'Selected work',
+                intro: 'Six recent engagements, written up in full.',
+                collection: ids.Work ?? '',
+                detail: pageRef('work'),
+              }),
               'work'
             ),
             anchored(
@@ -730,8 +869,65 @@ const agency: TemplateDefinition = {
             ], 'feather'),
           ],
         },
+        {
+          name: 'Case study',
+          slug: 'work',
+          title: 'Case study — Field & Frame',
+          dynamic: 'Work',
+          /*
+           * Every jump on this page is a fragment on the *home* page, not a
+           * name to resolve. A `jumpTo` names a section in the page being
+           * built, and none of these sections are here — the nav on a case
+           * study has to leave before it can scroll.
+           */
+          sections: () => [
+            navBlock({
+              brand: 'Field & Frame',
+              brandIcon: 'feather',
+              links: [
+                { label: 'Work', href: `${pageRef('')}#work` },
+                { label: 'Services', href: `${pageRef('')}#services` },
+                { label: 'Contact', href: `${pageRef('')}#contact` },
+              ],
+              cta: { label: 'Start a project', href: `${pageRef('')}#contact` },
+            }),
+            caseStudyBlock({
+              back: `${pageRef('')}#work`,
+              facts: [
+                { label: 'Client', field: 'client' },
+                { label: 'Discipline', field: 'discipline' },
+                { label: 'Year', field: 'year' },
+              ],
+            }),
+            ctaBlock(
+              'Something like this?',
+              'We take on a handful of engagements a year. Tell us what you are working on.',
+              [{ label: 'Start a project', href: `${pageRef('')}#contact` }],
+              'surface'
+            ),
+            footerBlock('Field & Frame', 'A design studio in Lisbon.', [
+              {
+                title: 'Studio',
+                links: [
+                  { label: 'Work', href: `${pageRef('')}#work` },
+                  { label: 'Services', href: `${pageRef('')}#services` },
+                  { label: 'Start a project', href: `${pageRef('')}#contact` },
+                ],
+              },
+              {
+                title: 'Contact',
+                links: [
+                  { label: 'hello@fieldframe.co', href: 'mailto:hello@fieldframe.co' },
+                  { label: 'Instagram', href: 'https://instagram.com' },
+                  { label: 'LinkedIn', href: 'https://linkedin.com' },
+                ],
+              },
+            ], 'feather'),
+          ],
+        },
       ],
     }),
+  seed: WORK,
 };
 
 /* --------------------------------------------------------------------------

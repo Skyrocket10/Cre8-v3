@@ -761,6 +761,17 @@ export function statsBlock(items: { value: string; label: string }[], surface = 
  */
 const PLACEHOLDER_PHOTO = 'https://picsum.photos';
 
+/**
+ * The same URL a `photo` node carries, for content rather than for design.
+ *
+ * A seeded row supplies its own picture — that is what an `image` field is —
+ * and it has to spell the address the same way, or the one line above stops
+ * being the only place the host is named and moving off picsum quietly leaves
+ * every template's records pointing at it.
+ */
+export const photoUrl = (seed: string, width: number, height: number): string =>
+  `${PLACEHOLDER_PHOTO}/seed/${seed}/${width}/${height}`;
+
 export interface PhotoOptions {
   /** Stable per picture. Two slots wanting the same photo share a seed. */
   seed: string;
@@ -795,7 +806,7 @@ export function photo({
     type: 'image',
     name: alt.slice(0, 28),
     props: {
-      src: `${PLACEHOLDER_PHOTO}/seed/${seed}/${width}/${height}`,
+      src: photoUrl(seed, width, height),
       alt,
       width,
       height,
@@ -1121,6 +1132,339 @@ export function feedBlock({
     ],
     surface ? { backgroundColor: 'var(--c-surface)' } : {}
   );
+}
+
+export interface WorkGridOptions {
+  /** Names the section, so a nav can jump to it and a page can anchor it. */
+  name?: string;
+  title: string;
+  intro?: string;
+  collection: string;
+  /** The page one record opens on. A `pageRef`, resolved once pages have ids. */
+  detail: string;
+  /** Which fields the card reads. Defaults suit a portfolio of work. */
+  fields?: { image?: string; alt?: string; title?: string; meta?: string };
+  /** The words on the affordance. Not a control — see below. */
+  cue?: string;
+  columns?: number;
+  ratio?: string;
+}
+
+/**
+ * A gallery of work, one card per record, each card a link to its own page.
+ *
+ * The first place in the library where a *layout box* is the thing you click.
+ * Until containers could carry a destination this had to be a link element
+ * wrapping a picture and a caption, or a card with a "View case study" button
+ * stuck in the corner — the second being what a builder makes you do and the
+ * reason "make the whole card clickable" is the request it is.
+ *
+ * The card holds an image and three lines of text and nothing operable, which
+ * is what makes it legal: a control inside a clickable card is markup the
+ * parser rearranges, and `canReparent` refuses it now. The last of those lines
+ * is why the affordance is *text* — a card that goes somewhere should say so,
+ * and the moment it says so with a button the card can no longer be the link.
+ *
+ * Uniformly one shape per record, deliberately. `galleryBlock` can hand one
+ * item a double-width span because each of its cards is its own node; a
+ * repeater draws one node many times, and per-record layout would need a
+ * binding that reaches a style property, which is not a thing yet. Told
+ * plainly here so the next person reaching for a bento over a collection finds
+ * the reason rather than the omission.
+ */
+export function workGridBlock({
+  name = 'Gallery',
+  title,
+  intro,
+  collection,
+  detail,
+  fields = {},
+  cue = 'View case study',
+  columns = 3,
+  ratio = '4 / 3',
+}: WorkGridOptions): NodeSpec {
+  const imageField = fields.image ?? 'image';
+  /*
+   * Its own field, not the title.
+   *
+   * Binding `alt` to whatever the card already says is the easy shortcut and
+   * it produces a page where a screen reader reads every heading twice — the
+   * picture announcing the words printed underneath it. A record that carries
+   * a picture carries a description of the picture, which is the same rule
+   * `photo` applies to a designer and there is no reason it should relax for
+   * content.
+   */
+  const altField = fields.alt ?? 'alt';
+  const titleField = fields.title ?? 'title';
+  const metaField = fields.meta ?? 'discipline';
+
+  const card: NodeSpec = {
+    type: 'frame',
+    name: 'Case card',
+    props: { href: detail },
+    styles: {
+      ...pad('0px'),
+      gap: '0px',
+      ...radius('var(--r-lg)'),
+      overflow: 'hidden',
+      ...border('1px', 'var(--c-border)'),
+      backgroundColor: 'var(--c-background)',
+      transition: 'transform 220ms ease, box-shadow 220ms ease',
+      appear: 'rise',
+    },
+    states: { hover: { transform: 'translateY(-3px)', boxShadow: 'var(--sh-lg)' } },
+    children: [
+      {
+        ...photo({
+          seed: 'ff-case',
+          alt: 'A piece of work',
+          width: 900,
+          height: 675,
+          // Squared off: the card clips it, and a rounded picture inside a
+          // rounded card leaves a sliver of border at each corner.
+          styles: { ...radius('0px'), aspectRatio: ratio },
+        }),
+        bind: { src: imageField, alt: altField },
+      },
+      stack(
+        'Caption',
+        [
+          {
+            ...text('Project', {
+              fontSize: '15.5px',
+              fontWeight: '580',
+              color: 'var(--c-text)',
+            }),
+            bind: { text: titleField },
+          },
+          {
+            ...text('Discipline · Year', { fontSize: '13px', color: 'var(--c-muted)' }),
+            bind: { text: metaField },
+          },
+          /*
+           * Static, and the card's lift is the whole hover response.
+           *
+           * The obvious flourish — the arrow sliding right as the pointer
+           * enters the card — is not expressible and should not be faked. A
+           * `pointer` condition joins the element's *own* compound, so a hover
+           * declared on this line fires on these three words and not on the
+           * nine tenths of the card that actually triggers it. Faking it there
+           * would ship a cue that ignores most of its own target.
+           */
+          /*
+           * `auto`, not a fixed gap. Grid stretches the cards in a row to one
+           * height, so a card whose title fits on one line has slack in it
+           * somewhere — and with a fixed margin the slack lands under the cue,
+           * leaving the six cues on a row at two different heights. Pushing
+           * the top margin to `auto` moves the slack above the cue instead, so
+           * every cue sits the same distance off the bottom edge whatever the
+           * title above it did. `paddingTop` is the floor for the case where
+           * there is no slack at all.
+           */
+          text(`${cue} →`, {
+            fontSize: '13px',
+            fontWeight: '560',
+            color: 'var(--c-primary)',
+            marginTop: 'auto',
+            paddingTop: '10px',
+          }),
+        ],
+        {
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: '4px',
+          ...pad('16px', '18px'),
+          backgroundColor: 'var(--c-background)',
+          width: '100%',
+          // Takes what the picture leaves, so the `auto` margin above has
+          // something to distribute.
+          flexGrow: '1',
+        }
+      ),
+    ],
+  };
+
+  return section(name, [
+    container(
+      [
+        ...(title ? [sectionHeader(undefined, title, intro)] : []),
+        {
+          ...grid('Work grid', [card], columns, { gap: '20px' }),
+          repeat: { collection },
+        },
+      ],
+      { gap: '52px' }
+    ),
+  ]);
+}
+
+export interface CaseStudyOptions {
+  /** Where the back link goes — the index this record was reached from. */
+  back: string;
+  backLabel?: string;
+  /** Which fields it reads. Only `title` and `body` are required of a record. */
+  fields?: {
+    title?: string;
+    eyebrow?: string;
+    summary?: string;
+    image?: string;
+    alt?: string;
+    body?: string;
+  };
+  /** Named pairs down the side: `label` is fixed, `field` varies per record. */
+  facts?: { label: string; field: string }[];
+}
+
+/**
+ * One record of work, laid out to be looked at.
+ *
+ * `articleBlock`'s sibling, and separate rather than a flag on it: an essay is
+ * a column of prose and a case study is a picture with a column of prose under
+ * it and a short table of facts beside it. Trying to be both would have been a
+ * block with three layout switches, which is how a library of blocks becomes a
+ * library of options.
+ *
+ * The facts are the reason this exists at all. A studio's case study answers
+ * "who, what, when" before it answers anything else, and those are three
+ * fields on a record rather than three sentences in the body — so the label
+ * stays put in the design and only the value comes from the content.
+ */
+export function caseStudyBlock({
+  back,
+  backLabel = '← All work',
+  fields = {},
+  facts = [],
+}: CaseStudyOptions): NodeSpec {
+  const titleField = fields.title ?? 'title';
+  const eyebrowField = fields.eyebrow ?? 'client';
+  const summaryField = fields.summary ?? 'summary';
+  const imageField = fields.image ?? 'image';
+  const altField = fields.alt ?? 'alt';
+  const bodyField = fields.body ?? 'body';
+
+  const factRow = (label: string, field: string): NodeSpec =>
+    stack(
+      label,
+      [
+        text(label, {
+          fontSize: '12px',
+          fontWeight: '580',
+          color: 'var(--c-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.07em',
+        }),
+        { ...text('—', { fontSize: '15px', color: 'var(--c-text)' }), bind: { text: field } },
+      ],
+      { flexDirection: 'column', alignItems: 'flex-start', gap: '5px', width: '100%' }
+    );
+
+  return section('Case study', [
+    container(
+      [
+        stack(
+          'Masthead',
+          [
+            {
+              type: 'link',
+              name: 'Back',
+              props: { text: backLabel, href: back },
+              styles: { fontSize: '14px', color: 'var(--c-muted)' },
+              states: { hover: { color: 'var(--c-text)' } },
+            },
+            {
+              ...text('Client', {
+                fontSize: '13px',
+                fontWeight: '580',
+                color: 'var(--c-primary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.07em',
+              }),
+              bind: { text: eyebrowField },
+            },
+            {
+              ...heading(
+                'The project',
+                1,
+                {
+                  fontSize: '52px',
+                  fontWeight: '600',
+                  lineHeight: '1.08',
+                  letterSpacing: '-0.03em',
+                  maxWidth: '18ch',
+                  textWrap: 'balance',
+                },
+                DISPLAY_RESPONSIVE
+              ),
+              bind: { text: titleField },
+            },
+            {
+              ...body('What the work was.', { fontSize: '19px', maxWidth: '54ch' }),
+              bind: { text: summaryField },
+            },
+          ],
+          { flexDirection: 'column', alignItems: 'flex-start', gap: '18px', width: '100%' }
+        ),
+        {
+          ...photo({
+            seed: 'ff-case-hero',
+            alt: 'The work',
+            width: 1600,
+            height: 900,
+            // Above the fold on this page in a way it never is in the grid,
+            // and the one image on it: worth the eager fetch.
+            priority: true,
+            styles: { aspectRatio: '16 / 9', width: '100%' },
+          }),
+          bind: { src: imageField, alt: altField },
+        },
+        /*
+         * Facts beside the prose on a wide screen, above it on a narrow one —
+         * `flex-wrap` rather than a grid, because the two are not tracks: the
+         * sidebar has a fixed comfortable width and the prose takes the rest.
+         */
+        stack(
+          'Detail',
+          [
+            ...(facts.length
+              ? [
+                  stack(
+                    'Facts',
+                    facts.map((fact) => factRow(fact.label, fact.field)),
+                    {
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: '22px',
+                      width: '196px',
+                      flexGrow: '0',
+                      flexShrink: '0',
+                    },
+                    { mobile: { width: '100%' } }
+                  ),
+                ]
+              : []),
+            {
+              type: 'richtext',
+              name: 'Case body',
+              props: { html: '<p>The work.</p>' },
+              bind: { html: bodyField },
+              styles: {
+                fontSize: '17.5px',
+                lineHeight: '1.72',
+                color: 'var(--c-text)',
+                maxWidth: '66ch',
+                flexGrow: '1',
+                flexShrink: '1',
+                flexBasis: '380px',
+              },
+            },
+          ],
+          { gap: '56px', alignItems: 'flex-start', flexWrap: 'wrap', width: '100%' },
+          { mobile: { gap: '32px' } }
+        ),
+      ],
+      { gap: '44px', alignItems: 'flex-start' }
+    ),
+  ]);
 }
 
 /**
