@@ -205,16 +205,25 @@ StyleEntry>` now makes the compiler answer half of it: every property has a
 word, a section and a control, or the build fails. The static suite answers the
 half a compiler cannot see — that the entry is *reached*: every section holding
 a tabled property is rendered by a panel, and every property the table defers
-on is named somewhere in it. That second rule reports exactly one gap today,
-`transition`, and naming it is the point rather than an oversight.
+on is named somewhere in it. That second rule reported exactly one gap when it
+was written, `transition`, and naming it was the point rather than an
+oversight; it reports none now.
 
 What none of that can check is whether the row *works*, so the browser suite
 drives three control kinds that were unreachable before — a switch, a menu and
-the grid span — and asserts each writes the document, that turning a switch off
-removes the declaration rather than writing the opposite value, and that the
-span control writes `span 2` from a field showing `2`. It earned its place
+the grid span — and asserts each writes the document. It earned its place
 immediately: `NumberField` appends its default unit, so a unitless count was
 writing `2px`, which the compiler and the static suite both accepted.
+
+Both the switch and the span are driven **twice, at two breakpoints**, because
+"off" is not one behaviour. In the base layer it is the absence of the
+declaration; at a narrower breakpoint absence means "whatever the wider layer
+said", so off has to be written out — `normal`, or `auto` for a span. The first
+version of both the control and this file knew only the base half, which is why
+a card could be widened on desktop and not narrowed on mobile, and why the
+switch would leave an element italic with the box unticked. One breakpoint is
+the layer where the bug is invisible; running only there is what let it sit
+through three milestones.
 
 The `only` gate is checked on a table, not on a heading. The first version
 asserted a heading has no focal-point row and passed with the gate switched

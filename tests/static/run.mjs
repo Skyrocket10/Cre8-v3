@@ -185,13 +185,27 @@ function checkResponsive(spec) {
 function checkColumnSpans(spec) {
   const bad = [];
   for (const { node, path } of walk(spec)) {
-    const span = node.styles?.gridColumn;
-    if (!span || !/span\s+[2-9]/.test(span)) continue;
-    const released = ['mobile', 'tablet'].some((bp) => {
-      const value = node.responsive?.[bp]?.gridColumn;
-      return value === 'auto' || value === '1' || value === 'span 1';
-    });
-    if (!released) bad.push(`${path}: ${span} with no narrow reset`);
+    /*
+     * Rows as well as columns, and the row half was added late for a telling
+     * reason: when this rule was written nothing in the codebase had ever set a
+     * `gridRow`, because the one bento in the library varied only by width and
+     * the inspector had no row for the other axis. So it guarded the hazard it
+     * could see. A row span left un-released is the quieter failure — nothing
+     * spills sideways, the card is simply twice as tall as the phone needs —
+     * which is exactly the kind of thing that survives a sweep.
+     */
+    for (const axis of ['gridColumn', 'gridRow']) {
+      const span = node.styles?.[axis];
+      if (!span || !/span\s+[2-9]/.test(span)) continue;
+      const released = ['mobile', 'tablet'].some((bp) => {
+        const value = node.responsive?.[bp]?.[axis];
+        return value === 'auto' || value === '1' || value === 'span 1';
+      });
+      // The axis is named because both spell themselves `span 2`: a card that
+      // covers two of each reports one failure, and without the axis there is
+      // no way to tell from the message which half is unreleased.
+      if (!released) bad.push(`${path}: ${axis} ${span} with no narrow reset`);
+    }
   }
   return bad;
 }
@@ -886,6 +900,11 @@ const VIOLATIONS = [
     checkColumnSpans,
     'a card spanning two columns with no narrow reset',
     { type: 'frame', name: 'F', styles: { gridColumn: 'span 2' }, responsive: { mobile: { gap: '8px' } } },
+  ],
+  [
+    checkColumnSpans,
+    'and a card spanning two rows with no narrow reset',
+    { type: 'frame', name: 'F', styles: { gridRow: 'span 2' }, responsive: { mobile: { gap: '8px' } } },
   ],
   [
     checkHeadings,
@@ -8090,6 +8109,116 @@ report.group('a value cannot leave its own rule');
       return offenders.length === 0;
     })(),
     'no legitimate declaration needs one of those characters'
+  );
+}
+
+report.group('the library uses what the panel can now express');
+
+{
+  /*
+   * Checked against the shipped output rather than asserted, and the finding is
+   * narrower than the audit first claimed. The library *could* reach a column
+   * span all along — a block author writes TypeScript — and exactly one block
+   * did. What nothing had ever written is a **row** span: the half no template
+   * needed and no panel row offered. `checkColumnSpans` is the evidence, since
+   * it was written to guard the one bento that existed and only ever looked at
+   * the axis that bento used.
+   */
+  const bento = BLOCKS.find((one) => one.name === 'Bento grid')?.build();
+
+  const cells = [];
+  const walkCells = (node) => {
+    if (node.styles?.gridColumn || node.styles?.gridRow) cells.push(node);
+    (node.children ?? []).forEach(walkCells);
+  };
+  if (bento) walkCells(bento);
+
+  report.check(
+    'the bento varies downward as well as across',
+    cells.length >= 4 && cells.some((one) => /span [2-9]/.test(one.styles.gridRow ?? '')),
+    // A bento that varies only by width is a row of wide and narrow cards,
+    // which is a fair description of what this block was.
+    cells
+      .map((one) => `${one.name}: ${one.styles.gridColumn ?? '-'} / ${one.styles.gridRow ?? '-'}`)
+      .join(' · ') || 'every card is one cell'
+  );
+
+  /*
+   * Restated, not dropped — the bug this layout found in the span control. A
+   * narrower breakpoint that omits the span inherits it, and a card still
+   * asking for three columns inside a two-column grid makes the browser invent
+   * a third, so the phone gets a sideways scrollbar instead of a stack.
+   *
+   * The predicate is named because the detail has to be computed from it. The
+   * first version tested all four spellings and then listed only the cards
+   * whose *mobile* row was wrong, so deleting the tablet reset produced a
+   * failing check whose message read "4 cards restate both axes" — a check that
+   * fails while reporting success is worse than one that does not fail at all.
+   */
+  const restates = (one) =>
+    Boolean(one.responsive?.tablet?.gridColumn) &&
+    one.responsive?.tablet?.gridRow === 'auto' &&
+    one.responsive?.mobile?.gridColumn === 'auto' &&
+    one.responsive?.mobile?.gridRow === 'auto';
+  report.check(
+    'and every span it takes is restated on the narrower layouts',
+    cells.length > 0 && cells.every(restates),
+    cells.filter((one) => !restates(one)).map((one) => one.name).join(', ') ||
+      `${cells.length} cards restate both axes`
+  );
+
+  report.check(
+    'and every one of its cards arrives as you scroll to it',
+    cells.length > 0 && cells.every((one) => one.styles.appear),
+    // The same shape as the transition gap: the effect existed in the model,
+    // the panel could not write it, so nothing outside a hand-authored block
+    // ever used it.
+    `${cells.filter((one) => one.styles.appear).length}/${cells.length} cards reveal`
+  );
+
+  const saasSpanning = (() => {
+    const saas = TEMPLATES.find((one) => one.id === 'saas')?.build();
+    /*
+     * `styles.desktop`, not `styles` — a block spec keeps its base declarations
+     * at the top level and a *document* node keys them by breakpoint. The first
+     * version read the spec shape against document nodes and reported zero,
+     * which is the good version of that mistake: a check looking for something
+     * that is there and finding nothing fails loudly, where one looking for
+     * something absent would have passed for the wrong reason.
+     */
+    return Object.values(saas?.nodes ?? {}).filter((node) =>
+      /span [2-9]/.test(node.styles?.desktop?.gridRow ?? '')
+    );
+  })();
+  report.check(
+    'the flagship template is the one using it',
+    saasSpanning.length > 0,
+    // Not "a bento exists somewhere in the library" — that was already true.
+    // Every grid in all eight templates was uniform, which is the part visible
+    // to anyone who opened one.
+    saasSpanning.map((node) => node.name).join(', ') || 'no card spans a row in the SaaS document'
+  );
+
+  report.check(
+    'every switch in the vocabulary can say off as well as on',
+    Object.values(vocabulary.STYLE_VOCABULARY)
+      .filter((entry) => entry.control.kind === 'switch')
+      .every((entry) => Boolean(entry.control.off)),
+    /*
+     * The same bug as the span reset, one layer up, and found the same way. In
+     * the base layer "off" is the absence of the declaration; at a narrower
+     * breakpoint absence means "whatever the wider layer said", so a switch
+     * with no off value leaves the box unticked and the element still italic.
+     */
+    Object.entries(vocabulary.STYLE_VOCABULARY)
+      .filter(([, entry]) => entry.control.kind === 'switch' && !entry.control.off)
+      .map(([prop]) => prop)
+      .join(', ') || 'all seven'
+  );
+  report.check(
+    'and the block being read is the one that was rebuilt',
+    Boolean(bento) && cells.length > 0,
+    bento ? `${cells.length} spanning cards found` : 'no Bento grid block'
   );
 }
 

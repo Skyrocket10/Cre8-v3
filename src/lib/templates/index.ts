@@ -26,9 +26,9 @@ import type { NodeMap } from '../document/tree';
 import { uid } from '../document/id';
 import type { Cre8Document, Field, NodeId, Theme } from '../document/types';
 import {
+  bentoFeaturesSpec,
   ctaSpec,
   faqSpec,
-  featureSectionSpec,
   footerSpec,
   heroSectionSpec,
   logoCloudSpec,
@@ -391,7 +391,7 @@ const saas: TemplateDefinition = {
               secondary: { label: 'Book a demo', href: pageRef('contact') },
             }),
             logoCloudSpec(),
-            anchored(featureSectionSpec(), 'features'),
+            anchored(bentoFeaturesSpec(), 'features'),
             testimonialsSpec(),
             northwindCta(),
             northwindFooter(),

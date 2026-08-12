@@ -51,6 +51,17 @@ export function StyleField({ prop }: { prop: StyleProp }) {
   const entry = STYLE_VOCABULARY[prop];
   const types = useSelectedTypes();
   /*
+   * Whether "off" can be spelled by absence.
+   *
+   * In the base layer it can: clearing a declaration is exactly what unticking
+   * a box means, and writing `font-style: normal` there would say nothing the
+   * cascade had not already said. Anywhere else — a narrower breakpoint, or
+   * inside a rule — absence means "whatever the layer above said", so clearing
+   * leaves the box unticked and the element still italic.
+   */
+  const base =
+    useEditor((s) => s.breakpoint) === 'desktop' && !useEditor((s) => s.activeRuleId);
+  /*
    * Both bindings in one call, and unconditionally: `when` names a *sibling*
    * property whose effective value decides whether this row appears, and a
    * hook cannot be called only when an entry happens to have one.
@@ -80,18 +91,11 @@ export function StyleField({ prop }: { prop: StyleProp }) {
   };
 
   if (control.kind === 'switch') {
-    /*
-     * Off is the *absence* of the declaration, not a second value. `italic`
-     * versus `normal` is a distinction with no meaning in the base layer and a
-     * real one in a narrower breakpoint — writing `normal` there would pin the
-     * property and stop the base from ever reaching it again, which is the
-     * opposite of what unticking a box means.
-     */
     return (
       <StyleRow {...shared}>
         <Switch
           checked={style.value === control.on}
-          onChange={(on) => style.set(on ? control.on : undefined)}
+          onChange={(on) => style.set(on ? control.on : base ? undefined : control.off)}
           label={control.label}
         />
       </StyleRow>
@@ -144,9 +148,10 @@ export function StyleField({ prop }: { prop: StyleProp }) {
      * apart is the whole control — a field that made somebody type `span 2` is
      * the CSS text box this milestone exists to stop shipping.
      *
-     * One is the absence of the declaration rather than `span 1`: covering one
-     * cell is what every item does already, and writing it down would pin the
-     * property so a wider breakpoint could never reach it.
+     * One means different things by layer, the same way a switch's "off" does:
+     * in the base it is the absence of the declaration, since covering one cell
+     * is what every item does anyway, and away from the base it has to be
+     * written as `auto` or the span simply carries over.
      */
     const covered = Number(/span\s+(\d+)/.exec(style.value ?? '')?.[1] ?? 1);
     return (
@@ -163,7 +168,13 @@ export function StyleField({ prop }: { prop: StyleProp }) {
           overridden={style.overridden}
           onChange={(value) => {
             const next = Math.round(Number.parseFloat(value ?? '1'));
-            style.set(Number.isFinite(next) && next > 1 ? `span ${next}` : undefined);
+            // `auto` rather than nothing away from the base, for the reason the
+            // switches take an off value: a bento card spanning two columns on
+            // desktop has to be able to stop on mobile, and clearing the
+            // declaration there just inherits the span.
+            style.set(
+              Number.isFinite(next) && next > 1 ? `span ${next}` : base ? undefined : 'auto'
+            );
           }}
         />
       </StyleRow>

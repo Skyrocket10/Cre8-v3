@@ -191,7 +191,7 @@ private helper to a reusable piece rather than rebuilding it per hero.
 |---|---|---|---|
 | Feature grid — three column | B | ✅ | |
 | Feature — alternating rows | B | | |
-| Bento grid | B | | |
+| Bento grid | B | ✅ | |
 | Icon checklist | B | | |
 | Process steps — numbered | B | | |
 | Timeline / roadmap | B | | |

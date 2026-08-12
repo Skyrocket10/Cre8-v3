@@ -78,8 +78,22 @@ export type StyleControl =
   | { kind: 'bespoke' }
   /** One of a fixed set. Renders as a menu, or as a segmented row when short. */
   | { kind: 'choice'; options: StyleChoice[]; segmented?: boolean }
-  /** On or off, where "off" means the declaration is absent rather than a value. */
-  | { kind: 'switch'; on: string; label: string }
+  /**
+   * On or off — and "off" is two different things depending on the layer.
+   *
+   * In the base layer it is the *absence* of the declaration, because writing
+   * `font-style: normal` there says nothing the cascade did not already say.
+   * At a narrower breakpoint, or inside a rule, absence means "whatever the
+   * wider layer said" — so the only way to spell "off here" is the explicit
+   * value, and a control that cleared instead would leave the box unticked and
+   * the element still italic.
+   *
+   * The first version of this had only `on`, and reasoned that writing the off
+   * value would "pin the property". True of the base layer, backwards
+   * everywhere else, and invisible until somebody tried to un-span a bento card
+   * on mobile.
+   */
+  | { kind: 'switch'; on: string; off: string; label: string }
   /** A number with a unit. Pass no units for a bare count. */
   | { kind: 'length'; units: string[]; placeholder?: string }
   /**
@@ -173,7 +187,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     label: 'Keep together',
     hint: 'Stops a card being split across a column boundary',
     section: 'layout',
-    control: { kind: 'switch', on: 'avoid', label: 'Never split this' },
+    control: { kind: 'switch', on: 'avoid', off: 'auto', label: 'Never split this' },
   },
   gridTemplateColumns: { label: 'Columns', section: 'layout', control: { kind: 'bespoke' } },
   gridTemplateRows: {
@@ -273,7 +287,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     label: 'Visible',
     hint: 'Hidden empties the box but keeps its space, so nothing else moves',
     section: 'position',
-    control: { kind: 'switch', on: 'hidden', label: 'Keep its space, but empty' },
+    control: { kind: 'switch', on: 'hidden', off: 'visible', label: 'Keep its space, but empty' },
   },
 
   /* --------------------------------------------------------------- size -- */
@@ -289,7 +303,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     label: 'Shrink',
     hint: 'Off is what stops a sidebar collapsing when the row runs out of room',
     section: 'parent',
-    control: { kind: 'switch', on: '0', label: 'Never shrink' },
+    control: { kind: 'switch', on: '0', off: '1', label: 'Never shrink' },
   },
   flexBasis: {
     label: 'Starts at',
@@ -316,7 +330,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
   fontStyle: {
     label: 'Italic',
     section: 'typography',
-    control: { kind: 'switch', on: 'italic', label: 'Italic' },
+    control: { kind: 'switch', on: 'italic', off: 'normal', label: 'Italic' },
   },
   lineHeight: { label: 'Line height', section: 'typography', control: { kind: 'bespoke' } },
   letterSpacing: { label: 'Letter spacing', section: 'typography', control: { kind: 'bespoke' } },
@@ -347,7 +361,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     label: 'Figures',
     hint: 'Same-width figures stop a column of numbers jittering as it changes',
     section: 'typography',
-    control: { kind: 'switch', on: 'tabular-nums', label: 'Same width' },
+    control: { kind: 'switch', on: 'tabular-nums', off: 'normal', label: 'Same width' },
   },
   color: {
     label: 'Colour',
@@ -397,7 +411,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     label: 'Scrolls',
     hint: 'Fixed holds the image still while the page moves over it',
     section: 'fill',
-    control: { kind: 'switch', on: 'fixed', label: 'Hold still while scrolling' },
+    control: { kind: 'switch', on: 'fixed', off: 'scroll', label: 'Hold still while scrolling' },
   },
 
   /* ------------------------------------------------------------- border -- */
@@ -613,7 +627,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     label: 'Clickable',
     hint: 'Off lets clicks pass straight through to whatever is behind',
     section: 'effects',
-    control: { kind: 'switch', on: 'none', label: 'Let clicks pass through' },
+    control: { kind: 'switch', on: 'none', off: 'auto', label: 'Let clicks pass through' },
   },
   /*
    * The escape hatch, and `bespoke` because it is the one entry that is not a

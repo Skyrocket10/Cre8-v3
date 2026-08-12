@@ -183,11 +183,36 @@ export function alternatingFeaturesSpec(): NodeSpec {
  * Bento grid
  * ----------------------------------------------------------------------- */
 
-const BENTO = [
-  { icon: 'gauge', title: 'Sub-second builds', body: 'Incremental everywhere, so a one-line change ships in the time it takes to switch tabs.', span: 2 },
-  { icon: 'globe', title: '310 edge locations', body: 'Served from wherever your users are.', span: 1 },
-  { icon: 'lock', title: 'SOC 2 and HIPAA', body: 'Controls switched on by default.', span: 1 },
-  { icon: 'git-branch', title: 'Preview every branch', body: 'A real URL per pull request, torn down on merge.', span: 2 },
+/**
+ * Four cards over a 3×3, and the second axis is the new part.
+ *
+ * This block was already a bento in the loose sense — cards of unequal width in
+ * one row of a grid. What it could not do was be unequal *downward*, because
+ * `gridRow` had no way of being written: the block library could have reached
+ * it in TypeScript and never did, and the inspector had no row for it at all
+ * until M4, so nothing in the codebase had ever set one. A bento that varies
+ * only by width is a row of wide and narrow cards, which is a fair description
+ * of what this was.
+ *
+ * Nine cells, and every one filled: the opener covers 2×2, the two small cards
+ * stack in the third column beside it, and the last card takes the full width
+ * underneath. `rows` and the narrow-layout spans are stated per item rather
+ * than derived, because the arrangement only works as a whole and a reader
+ * should be able to count it.
+ */
+const BENTO: {
+  icon: string;
+  title: string;
+  body: string;
+  span: number;
+  rows?: number;
+  /** What it covers once the grid drops to two columns. */
+  tablet: number;
+}[] = [
+  { icon: 'gauge', title: 'Sub-second builds', body: 'Incremental everywhere, so a one-line change ships in the time it takes to switch tabs.', span: 2, rows: 2, tablet: 2 },
+  { icon: 'globe', title: '310 edge locations', body: 'Served from wherever your users are.', span: 1, tablet: 1 },
+  { icon: 'lock', title: 'SOC 2 and HIPAA', body: 'Controls switched on by default.', span: 1, tablet: 1 },
+  { icon: 'git-branch', title: 'Preview every branch', body: 'A real URL per pull request, torn down on merge.', span: 3, tablet: 2 },
 ];
 
 export function bentoFeaturesSpec(): NodeSpec {
@@ -216,19 +241,33 @@ export function bentoFeaturesSpec(): NodeSpec {
                   ...pad('28px'),
                   gap: '16px',
                   gridColumn: `span ${item.span}`,
+                  ...(item.rows ? { gridRow: `span ${item.rows}` } : {}),
                   justifyContent: 'flex-end',
                   minHeight: '210px',
+                  // Arrives as it is scrolled to, and costs the page nothing to
+                  // execute: the timeline is the scrollport, so a page with the
+                  // block on it still ships zero scripts.
+                  appear: 'rise',
                 },
-                // The span has to be released, not just the template. A card
-                // still asking for `span 2` inside a one-column grid makes the
-                // browser invent a second column, and the whole section goes
-                // back to two cramped columns on a phone.
-                { mobile: { gridColumn: 'auto', minHeight: '0px' } }
+                {
+                  /*
+                   * Both spans have to be *restated*, not dropped. A narrower
+                   * breakpoint that omits one inherits the wider value, and a
+                   * card still asking for three columns inside a two-column
+                   * grid makes the browser invent a third — so the phone gets a
+                   * sideways scrollbar rather than a stack. The row span is the
+                   * quieter half of the same mistake: nothing spills, the card
+                   * is simply twice as tall as it needs to be.
+                   */
+                  tablet: { gridColumn: `span ${item.tablet}`, gridRow: 'auto' },
+                  mobile: { gridColumn: 'auto', gridRow: 'auto', minHeight: '0px' },
+                }
               )
             ),
             { gap: '16px' },
             {
-              // Two columns still reads as a bento: one wide card, two narrow.
+              // Two columns still reads as a bento: a full-width card, then two
+              // narrow ones beside each other, then another full-width one.
               tablet: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
               mobile: { gridTemplateColumns: cols(1) },
             }

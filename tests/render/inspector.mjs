@@ -630,25 +630,34 @@ try {
   await selectLayer('Second');
   await page.waitForTimeout(300);
 
-  const styleOf = async (nodeId) =>
+  const layerOf = async (nodeId, layer) =>
     page.evaluate(
-      async ([pid, nid]) => {
+      async ([pid, nid, bp]) => {
         const r = await fetch(`/api/projects/${pid}`, {
           credentials: 'include',
           headers: { 'x-cre8-csrf': '1' },
         });
         const { document: doc } = await r.json();
-        return doc.nodes[nid]?.styles?.desktop ?? {};
+        return doc.nodes[nid]?.styles?.[bp] ?? {};
       },
-      [id, nodeId]
+      [id, nodeId, layer]
     );
+  const styleOf = async (nodeId) => layerOf(nodeId, 'desktop');
 
   const rowFor = (label) =>
     page.locator('aside').last().locator(`label:text-is("${label}")`).locator('xpath=../..');
 
-  // Italic — a `switch`, where off is the absence of the declaration rather
-  // than `normal`, because writing `normal` in a narrow breakpoint would pin
-  // the property and stop the base layer ever reaching it again.
+  /*
+   * Italic — a `switch`, and "off" means two different things by layer.
+   *
+   * In the base it is the *absence* of the declaration: `font-style: normal`
+   * there says nothing the cascade had not already said. At a narrower
+   * breakpoint absence means "whatever the wider layer said", so off has to be
+   * written out. The base half is checked here and the narrow half below,
+   * because for three milestones only the base half existed — in the code and
+   * in this file — and the panel would cheerfully leave an element italic with
+   * the box unticked.
+   */
   const italic = rowFor('Italic').locator('button[role="switch"]');
   report.check(
     'a property with only a table entry still gets a row',
@@ -670,12 +679,38 @@ try {
     await italic.first().click();
     await page.waitForTimeout(700);
     report.check(
-      'and turning it off removes the declaration rather than writing the other value',
+      'and turning it off in the base layer removes the declaration',
       (await styleOf('headingtwo')).fontStyle === undefined,
-      // `normal` would pin the property. Absent is the only spelling of "off"
-      // that a wider breakpoint can still speak through.
+      // `normal` here would pin the property for no gain: nothing wider exists
+      // to speak through it.
       JSON.stringify((await styleOf('headingtwo')).fontStyle ?? null)
     );
+
+    /*
+     * The same switch, one layer down, which is where it was broken.
+     *
+     * Turn it on in the base so the narrower layer has something to override,
+     * then turn it off on Tablet. Clearing there inherits `italic` from
+     * desktop — the box reads off and the text stays italic — so the only
+     * correct write is the explicit value.
+     */
+    await italic.first().click();
+    await page.waitForTimeout(500);
+    await page.keyboard.press('2');
+    await page.waitForTimeout(500);
+    const onTablet = rowFor('Italic').locator('button[role="switch"]');
+    await onTablet.first().click();
+    await page.waitForTimeout(700);
+    const tabletStyles = await layerOf('headingtwo', 'tablet');
+    report.check(
+      'and turning it off at a narrower breakpoint writes the off value instead',
+      tabletStyles.fontStyle === 'normal',
+      // Absence would mean "whatever desktop said", which is exactly the value
+      // being switched off.
+      `desktop ${JSON.stringify((await styleOf('headingtwo')).fontStyle ?? null)}, tablet ${JSON.stringify(tabletStyles.fontStyle ?? null)}`
+    );
+    await page.keyboard.press('1');
+    await page.waitForTimeout(400);
   }
 
   // Spans across — the control the whole grid gap comes down to. A number on
@@ -686,7 +721,7 @@ try {
   report.check(
     'the grid span control is a count, not a CSS phrase',
     (await span.count()) === 1 && (await span.inputValue()) === '1',
-    // Every grid in all eight templates is a uniform `repeat(n, 1fr)`, because
+    // Every grid in all eight templates was a uniform `repeat(n, 1fr)`, because
     // until this row a child could not be told to cover two cells.
     `${await span.count()} field(s), showing “${await span.inputValue().catch(() => '')}”`
   );
@@ -700,6 +735,28 @@ try {
       (await styleOf('headingtwo')).gridColumn === 'span 2',
       JSON.stringify((await styleOf('headingtwo')).gridColumn ?? null)
     );
+
+    /*
+     * Back to one on a narrower layout, which is the move a bento needs and
+     * the one that was impossible. Clearing the declaration inherits the span,
+     * and a two-column span on a one-column grid makes the browser invent the
+     * missing column — so the phone gets a sideways scrollbar rather than a
+     * stack. `auto` is the only spelling that actually stops it.
+     */
+    await page.keyboard.press('3');
+    await page.waitForTimeout(500);
+    const onMobile = rowFor('Spans across').locator('input').first();
+    await onMobile.fill('1');
+    await onMobile.press('Enter');
+    await page.waitForTimeout(700);
+    const mobileStyles = await layerOf('headingtwo', 'mobile');
+    report.check(
+      'and going back to one on a phone writes auto rather than nothing',
+      mobileStyles.gridColumn === 'auto',
+      `desktop ${JSON.stringify((await styleOf('headingtwo')).gridColumn ?? null)}, mobile ${JSON.stringify(mobileStyles.gridColumn ?? null)}`
+    );
+    await page.keyboard.press('1');
+    await page.waitForTimeout(400);
   }
 
   /* Each of the above, handed something it must reject. */

@@ -1240,9 +1240,12 @@ ways: **the engine is general and the editor is hand-carved.**
 identically, so a property costs one line in `StyleDecl` — while every control
 was written out by hand, one row at a time. Thirty-five of a hundred properties
 had no control anywhere. Not decisions: rows nobody got to. No italic. No image
-focal point. No way to make a grid child span two columns, which is why every
-grid in all eight templates is a uniform `repeat(n, 1fr)` — the limitation is
-visible in the shipped output.
+focal point. No way to make a grid child span anything, which is roughly why
+every grid in all eight templates was a uniform `repeat(n, 1fr)` — the
+limitation was visible in the shipped output, and looked enough like a house
+style that nobody had read it as one. "Roughly", because a block author writes
+TypeScript and could always reach past the panel; see *Building something with
+it* below for what that turned out to mean.
 
 Nothing said so, and that is the real finding. Answering "is this property
 reachable?" meant grepping the panel for the name, and a word-boundary grep
@@ -1275,11 +1278,13 @@ control at all.
 
 The compiler cannot see whether an entry is *reached*, so the static suite
 checks that every section with a tabled property is rendered and every
-`bespoke` property is named somewhere in the panel. That last rule currently
-reports exactly one gap, `transition`, and reporting it is the design: the
-model has the property, the block library authors it in TypeScript, and the
-panel has never offered it — so a designer's own element cannot animate and a
-shipped block's timing cannot be changed.
+`bespoke` property is named somewhere in the panel. When it was written that
+last rule reported exactly one gap, `transition`, and reporting it was the
+design: the model had the property, the block library authored it in
+TypeScript, and the panel had never offered it — so a designer's own element
+could not animate and a shipped block's timing could not be changed. It reports
+none now, because a failing check with a name on it is a piece of work rather
+than a complaint.
 
 Three things only a browser could catch, and it did. `NumberField` appends its
 default unit, so a count field wrote `2px` into `column-count` — valid CSS to
@@ -1497,6 +1502,64 @@ dropped *and* uncounted — the panel said "1 declaration" and stayed silent abo
 the line it had just thrown away. It counts everything non-empty now; trimming
 is what keeps the trailing semicolon everybody writes from being reported as a
 mistake.
+
+### Building something with it
+
+A panel full of new rows is a claim, not evidence, so the SaaS template's
+feature band was rebuilt as a real **bento**: a 2×2 opener, two small cards
+stacked in the third column beside it, one full-width card underneath. Nine
+cells over a 3×3, every one filled by auto-placement with no item naming a line,
+so dragging a card into a different order produces a different bento rather than
+a broken one.
+
+The first version of this write-up claimed the library had never been able to do
+any of it. That was wrong, and the correction is the more interesting finding.
+A **column** span was always reachable — a block author writes TypeScript, and
+one block, the bento, already used it. What no code anywhere had ever written
+was a **row** span. So the honest statement is narrower and worse: the library
+could vary a card's width and did, could vary its height and never did, and
+every grid in all eight *templates* was uniform regardless — the capability
+existed in the one place a user never looks.
+
+That is what "the editor shapes the output" means concretely. A bento that
+varies only by width is a row of wide and narrow cards, which is a fair
+description of what shipped. Nobody decided that; it is just where a library
+settles when the second axis has no control behind it.
+
+Two bugs came out of building it, and both are the argument for building rather
+than asserting.
+
+**A switch could not say "off" anywhere but the base layer.** Off was
+implemented as clearing the declaration, with a comment explaining that writing
+`font-style: normal` would pin the property. True of the base layer, exactly
+backwards everywhere else: at a narrower breakpoint absence means *whatever the
+wider layer said*, so unticking the box left the element italic and the panel
+insisting it was not. The same hole sat in the new span control — a card
+spanning two columns on desktop could not stop on mobile, and a span wider than
+the grid makes the browser invent the missing column, so the phone gets a
+sideways scrollbar instead of a stack. Seven switches gained an `off` value and
+the span control writes `auto`. Three milestones of checks did not find this;
+trying to un-span one card found it in a minute.
+
+**The static suite already knew, for one axis.** `checkColumnSpans` was sitting
+in `tests/static/run.mjs` with a docblock describing that precise hazard —
+written to guard the one hand-authored bento, and looking only at `gridColumn`,
+because at the time nothing in the codebase had ever set a `gridRow` and no
+panel row offered one. The rule was not wrong; it was as wide as the problem was
+when somebody wrote it. A row span left unreleased is the quieter half — nothing
+spills sideways, the card is simply twice as tall as the phone needs — which is
+how it would have shipped. Both axes now, a rejection fixture for each, and the
+failure message names the axis, since both spell themselves `span 2`.
+
+Two of the new checks were themselves wrong first, in opposite ways worth
+keeping apart. One read a block spec's shape against *document* nodes, where
+base declarations are keyed by breakpoint under `styles.desktop` — it reported
+zero and failed loudly, which is the harmless version, because it was looking
+for something that was there. The other tested four conditions and then built
+its failure message from one of them, so deleting the tablet reset produced a
+failing check whose detail read `4 cards restate both axes`. A check that fails
+while reporting success is worse than one that never fires: the summary line
+says look here, and the line under it says nothing is wrong.
 
 ### Why an AI can drive this later
 
