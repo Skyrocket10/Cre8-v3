@@ -84,6 +84,7 @@ export function loadBlocks() {
     ICON_NAMES: require(path.join(OUT, 'renderer/icons.js')).ICON_NAMES,
     ELEMENTS: require(path.join(OUT, 'document/schema.js')).ELEMENTS,
     canContain: require(path.join(OUT, 'document/schema.js')).canContain,
+    isInteractive: require(path.join(OUT, 'document/schema.js')).isInteractive,
     readCase: require(path.join(OUT, 'document/schema.js')).readCase,
     anchorId: require(path.join(OUT, 'document/schema.js')).anchorId,
     vocabulary: require(path.join(OUT, 'document/style-vocabulary.js')),
@@ -98,6 +99,8 @@ export function loadBlocks() {
     // The generator, so the checks can assert on real compiled selectors
     // rather than on a description of what they are supposed to be.
     buildTree: require(path.join(OUT, 'document/factory.js')).buildTree,
+    canReparent: require(path.join(OUT, 'document/tree.js')).canReparent,
+    wouldNestInteractive: require(path.join(OUT, 'document/tree.js')).wouldNestInteractive,
     generateNodeCss: require(path.join(OUT, 'renderer/css.js')).generateNodeCss,
     generateStylesheet: require(path.join(OUT, 'renderer/css.js')).generateStylesheet,
     parseCustomDeclarations: require(path.join(OUT, 'renderer/css.js')).parseCustomDeclarations,

@@ -35,6 +35,7 @@ const {
   ELEMENTS,
   PLACEHOLDER_MIN_HEIGHT,
   canContain,
+  isInteractive,
   anchorId,
   vocabulary,
   motion,
@@ -43,6 +44,7 @@ const {
   danglingReads,
   migrateDocument,
   buildTree,
+  canReparent,
   generateNodeCss,
   generateStylesheet,
   parseCustomDeclarations,
@@ -356,6 +358,37 @@ function checkNesting(spec) {
       }
     }
   }
+  return bad;
+}
+
+/**
+ * And the same hazard one level further out, which the pairwise rule cannot
+ * reach.
+ *
+ * `canContain` refuses a button directly inside a link and can do no more: it
+ * compares two types and has no tree. So `link > frame > button` passed —
+ * every step legal, nothing looking at the chain. The parser does not reject
+ * that markup, it lifts the button out of the link, so the canvas shows one
+ * thing and the published file another.
+ *
+ * Walking down from each interactive node rather than up from each leaf,
+ * because the message wants to name the ancestor: "a button inside this link"
+ * is actionable and "this button has an interactive ancestor somewhere" is a
+ * puzzle.
+ */
+function checkInteractiveNesting(spec) {
+  const bad = [];
+  const descend = (node, path, ancestor) => {
+    const operable = isInteractive(node);
+    if (operable && ancestor) {
+      bad.push(`${path}: <${node.type}> is operable and sits inside <${ancestor}>`);
+    }
+    const inherited = ancestor ?? (operable ? node.type : null);
+    for (const child of node.children ?? []) {
+      descend(child, `${path} › ${child.name ?? child.type}`, inherited);
+    }
+  };
+  descend(spec, spec.name ?? spec.type, null);
   return bad;
 }
 
@@ -795,6 +828,7 @@ const RULES = [
   ['every icon name exists in the registry', checkIconNames],
   ['children are only where an element can render them', checkContainerChildren],
   ['no nesting the HTML parser would rearrange', checkNesting],
+  ['and nothing operable inside anything else operable', checkInteractiveNesting],
   ['every popover button names a popover in its block', checkPopoverRefs],
   ['a panel is a modal or a menu, never half of one', checkAnchoring],
   ['an anchored panel has something to be anchored to', checkAnchorTargets],
@@ -937,6 +971,16 @@ const VIOLATIONS = [
     checkColumnSpans,
     'and a card spanning two rows with no narrow reset',
     { type: 'frame', name: 'F', styles: { gridRow: 'span 2' }, responsive: { mobile: { gap: '8px' } } },
+  ],
+  [
+    checkInteractiveNesting,
+    'a button two levels down inside a link',
+    {
+      type: 'link',
+      name: 'Card link',
+      props: { href: '/x/' },
+      children: [{ type: 'frame', name: 'Body', children: [{ type: 'button', name: 'Go' }] }],
+    },
   ],
   [
     checkJumpExclusive,
@@ -8205,6 +8249,72 @@ report.group('a value cannot leave its own rule');
       return offenders.length === 0;
     })(),
     'no legitimate declaration needs one of those characters'
+  );
+}
+
+report.group('nothing operable lands inside anything operable');
+
+{
+  /*
+   * The editor half of the rule the block sweep now applies to specs.
+   *
+   * Both are needed and neither covers the other: the sweep reads what the
+   * library ships, and this reads what a drag is allowed to do. A rule enforced
+   * only on authored blocks is a rule a person can walk straight past with the
+   * mouse.
+   */
+  const doc = createEmptyDocument();
+  const home = doc.pages[0];
+  const built = {};
+  const add = (spec, parent) => {
+    const { rootId } = buildTree(spec, built, parent);
+    return rootId;
+  };
+  const root = home.rootNodeId;
+  Object.assign(built, doc.nodes);
+
+  const cardLink = add({ type: 'link', name: 'Card link', props: { href: '/x/' } }, root);
+  const inner = add({ type: 'frame', name: 'Inner' }, cardLink);
+  const plainFrame = add({ type: 'frame', name: 'Plain' }, root);
+  const loneButton = add({ type: 'button', name: 'Lone' }, root);
+  const cardWithButton = add({ type: 'frame', name: 'Card' }, root);
+  const nestedButton = add({ type: 'button', name: 'Nested' }, cardWithButton);
+  Object.assign(doc.nodes, built);
+  for (const [id, node] of Object.entries(built)) {
+    if (node.parentId && doc.nodes[node.parentId] && !doc.nodes[node.parentId].children.includes(id)) {
+      doc.nodes[node.parentId].children.push(id);
+    }
+  }
+
+  report.check(
+    'a button cannot be dragged into a frame that sits inside a link',
+    !canReparent(doc.nodes, loneButton, inner),
+    // The case `canContain` cannot see: every step of link › frame › button is
+    // legal on its own, and the parser lifts the button out of the link.
+    `canReparent(button → frame-in-link) = ${canReparent(doc.nodes, loneButton, inner)}`
+  );
+  report.check(
+    'nor a card that merely contains one',
+    !canReparent(doc.nodes, cardWithButton, inner),
+    // The easier mistake, and the one nobody pictures: it is the same invalid
+    // markup arrived at by moving the wrapper instead of the control.
+    `canReparent(card-holding-a-button → frame-in-link) = ${canReparent(doc.nodes, cardWithButton, inner)}`
+  );
+  report.check(
+    'and an ordinary frame still goes anywhere it could before',
+    canReparent(doc.nodes, plainFrame, inner) && canReparent(doc.nodes, loneButton, cardWithButton),
+    // Both directions of "still works", because a rule that refuses everything
+    // passes the two checks above and breaks the editor.
+    `plain frame into the link: ${canReparent(doc.nodes, plainFrame, inner)}, ` +
+      `button into an ordinary card: ${canReparent(doc.nodes, loneButton, cardWithButton)}`
+  );
+  report.check(
+    'and the fixture is the shape the checks think it is',
+    // Without this the three above pass on a tree where the link never got
+    // built and nothing was ever nested at all.
+    doc.nodes[inner]?.parentId === cardLink && doc.nodes[nestedButton]?.parentId === cardWithButton,
+    `inner’s parent is the link: ${doc.nodes[inner]?.parentId === cardLink}, ` +
+      `the card holds a button: ${doc.nodes[nestedButton]?.parentId === cardWithButton}`
   );
 }
 

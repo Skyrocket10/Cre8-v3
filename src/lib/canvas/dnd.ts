@@ -11,8 +11,8 @@
  * inserts above/below.
  */
 
-import { canContain } from '../document/schema';
-import { isAncestorOf, type NodeMap } from '../document/tree';
+import { canContain, getElement } from '../document/schema';
+import { interactiveAncestor, isAncestorOf, type NodeMap } from '../document/tree';
 import type { Cre8Document, ElementType, NodeId, SceneNode } from '../document/types';
 import { getElementFor } from '../editor/registry';
 
@@ -194,6 +194,23 @@ function findContainer(
     payloadTypes?.length
       ? payloadTypes.every((payload) => canContain(type, payload))
       : canContain(type, 'frame');
+  /*
+   * And the half `accepts` cannot answer, because it is handed a *type* and the
+   * hazard is about ancestry.
+   *
+   * A drop inside anything operable is refused for a payload that is itself
+   * operable, however many plain frames sit between them. Checked here as well
+   * as in `canReparent` for the reason the layer tree already gives two
+   * functions up: an indicator over a target the drop then refuses is a promise
+   * the drop breaks.
+   *
+   * Types rather than ids, because a payload dragged from the insert panel does
+   * not exist yet. A dragged *subtree* carrying a button deeper down is caught
+   * by `canReparent`, which does have ids and does walk it.
+   */
+  const carriesControl = (payloadTypes ?? []).some((type) => getElement(type).interactive);
+  const wouldNest = (id: NodeId): boolean =>
+    carriesControl && Boolean(interactiveAncestor(nodes, id));
 
   const stack = document.elementsFromPoint(clientX, clientY);
 
@@ -210,6 +227,7 @@ function findContainer(
 
       const usable =
         accepts(node.type) &&
+        !wouldNest(current) &&
         !exclude.has(current) &&
         !node.meta.locked &&
         ![...exclude].some((id) => isAncestorOf(nodes, id, current!)) &&
@@ -225,7 +243,7 @@ function findContainer(
   // cannot hold it either, in which case no drop is the right answer: a `<tr>`
   // parked in the page root disappears when the file is written.
   const root = nodes[rootId];
-  return root && accepts(root.type) ? rootId : null;
+  return root && accepts(root.type) && !wouldNest(rootId) ? rootId : null;
 }
 
 /**

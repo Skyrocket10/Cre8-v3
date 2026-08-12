@@ -5,7 +5,7 @@
  * against an immer draft, a published snapshot or a detached component tree.
  */
 
-import { canContain } from './schema';
+import { canContain, isInteractive } from './schema';
 import type { Cre8Document, NodeId, Page, SceneNode } from './types';
 
 export type NodeMap = Record<NodeId, SceneNode>;
@@ -83,7 +83,50 @@ export function canReparent(nodes: NodeMap, nodeId: NodeId, targetParentId: Node
   if (!canContain(parent.type, node.type)) return false;
   if (isAncestorOf(nodes, nodeId, targetParentId)) return false;
   if (isEffectivelyLocked(nodes, targetParentId)) return false;
+  if (wouldNestInteractive(nodes, nodeId, targetParentId)) return false;
   return true;
+}
+
+/**
+ * The nearest thing a person can operate, this node or above it.
+ *
+ * Inclusive of `id` itself, because the question a drop asks is "would this
+ * land inside something operable", and the drop target is the first candidate.
+ */
+export function interactiveAncestor(nodes: NodeMap, id: NodeId): SceneNode | null {
+  let current: SceneNode | undefined = nodes[id];
+  let guard = 0;
+  while (current && guard++ < 1000) {
+    if (isInteractive(current)) return current;
+    current = current.parentId ? nodes[current.parentId] : undefined;
+  }
+  return null;
+}
+
+/**
+ * Would this move put something operable inside something else operable?
+ *
+ * `canContain` already refuses the pair — a button directly inside a link —
+ * and cannot do more, because it compares two *types* and has no tree. So
+ * `link > frame > button` was allowed: every individual step is legal and
+ * nothing looked at the chain. The parser does not reject that markup, it
+ * re-parents the button out of the link, so the canvas shows one thing and the
+ * published page shows another with nothing reporting a problem.
+ *
+ * Both directions matter and only one is obvious. Dropping a button into a
+ * link is the one people picture; dragging a *card that contains* a button
+ * into a link is the same invalid markup and the easier mistake to make.
+ */
+export function wouldNestInteractive(
+  nodes: NodeMap,
+  nodeId: NodeId,
+  targetParentId: NodeId
+): boolean {
+  if (!interactiveAncestor(nodes, targetParentId)) return false;
+  return collectSubtree(nodes, nodeId).some((id) => {
+    const node = nodes[id];
+    return node ? isInteractive(node) : false;
+  });
 }
 
 /** Drops nodes whose ancestor is also in the set — they move with it anyway. */

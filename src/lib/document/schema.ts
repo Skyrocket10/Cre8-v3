@@ -1116,6 +1116,9 @@ export function getElement(type: ElementType): ElementDefinition {
  * consulted: a `<table>` states what it takes, a `<td>` states where it can
  * go, and either alone would leave half the illegal pairs allowed.
  */
+/** Layout boxes that may take a different tag — see `SEMANTIC_TAGS`. */
+const RETAGGABLE = new Set<ElementType>(['frame', 'section', 'container', 'stack', 'grid']);
+
 export function canContain(parentType: ElementType, childType: ElementType): boolean {
   const parent = getElement(parentType);
   if (!parent.container) return false;
@@ -1132,6 +1135,24 @@ export function canContain(parentType: ElementType, childType: ElementType): boo
    */
   if ((parentType === 'link' || parentType === 'button') && child.interactive) return false;
   return true;
+}
+
+/**
+ * Is this node something a person can operate, as it will actually render?
+ *
+ * One question, asked in one place, because the answer is about to stop being
+ * a property of the element *type*. `canContain` compares types and always
+ * will — it is a local predicate, used while a drag is in flight, and it has
+ * no tree to consult. This is the tree-aware half.
+ *
+ * The reason it takes a whole node rather than a type: a layout box that has
+ * been given somewhere to go renders as an `<a>`, and its type is still
+ * `frame`. A rule reading types cannot see that by construction.
+ */
+export function isInteractive(node: { type: ElementType; props?: NodeProps }): boolean {
+  if (getElement(node.type).interactive) return true;
+  // A container with a destination is a link, whatever the layer tree calls it.
+  return RETAGGABLE.has(node.type) && Boolean(node.props?.href);
 }
 
 /** Elements offered in the insert panel, grouped by category. */
@@ -1165,7 +1186,6 @@ export const SEMANTIC_TAGS = [
 ] as const;
 
 /** Which element types offer the choice. */
-const RETAGGABLE = new Set<ElementType>(['frame', 'section', 'container', 'stack', 'grid']);
 
 /**
  * Narrow a designer's string to something safe to put in markup and in a
