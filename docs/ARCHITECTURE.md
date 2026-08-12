@@ -1436,6 +1436,37 @@ appears on anything with a switch above it, whatever its type — so the gap is
 narrower than it looks: it is navigation and copying that still need a button or
 a link around them.
 
+### A value cannot leave its own rule
+
+Found while looking for somewhere to put a custom-CSS field, which is the sort
+of thing that should be built on a foundation rather than into one.
+Declarations were written into the `<style>` block verbatim, so a style value of
+`red</style><script>…</script>` left the stylesheet, left the style *element*,
+and ran. `red } body { display: none` was the quieter version: no script, but
+every element on the page restyled.
+
+The reach is wider than the published page. There is one generator, so the same
+string runs in the **editor canvas** — meaning anybody with edit rights on a
+shared project could have it execute in a collaborator's authenticated session,
+on the app's own origin. Editing rights on a shared project are not meant to be
+rights over a teammate's account.
+
+The interesting part is how it lasted. This codebase *did* think about
+injection: everything that reaches a **selector** goes through `slug()` or
+`anchorId()`, which whitelist to letters, digits, `_` and `-`, and three
+separate comments in the runtime and the generator say so. Values were the other
+half — the half a person types into — and nothing narrowed them. A guard applied
+thoroughly to one input path and not at all to its neighbour is harder to notice
+than no guard at all, because the file reads as though the question was
+answered.
+
+`<`, `>`, `{`, `}` and `;` are dropped, not stripped — the same choice already
+made for an unknown reveal effect and for a condition naming a state nothing
+declares. A mangled version of a value nobody wrote is worse than no value.
+Dropping is only safe if nothing real needs those characters, so the whole block
+library is swept for them rather than argued about, and that sweep is a check:
+the rule cannot start quietly deleting design from a template.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

@@ -7997,6 +7997,101 @@ report.group('what moves, and how it gets there');
   );
 }
 
+report.group('a value cannot leave its own rule');
+
+{
+  /*
+   * A hole that shipped, found while looking for somewhere to put a custom-CSS
+   * field: declarations were written into the `<style>` block verbatim.
+   *
+   * Selectors were never exposed to this — everything reaching one goes through
+   * `slug()` or `anchorId()`, which whitelist to letters, digits, `_` and `-`,
+   * and the code says so in three places. Values were the half nobody narrowed,
+   * and they are the half a person types into.
+   */
+  const withValue = (value) => {
+    const doc = createEmptyDocument('Escape');
+    const page = doc.pages[0];
+    const nodes = {};
+    const { rootId } = buildTree({ type: 'section', name: 'S', styles: { color: value } }, nodes, page.rootNodeId);
+    Object.assign(doc.nodes, nodes);
+    doc.nodes[page.rootNodeId].children.push(rootId);
+    return renderPage(doc, page, { mode: 'publish' });
+  };
+
+  const scripted = withValue('red</style><script>alert(document.cookie)</script>');
+  report.check(
+    'a value cannot end the style element and start a script',
+    !/<script>alert/.test(scripted),
+    /*
+     * Stored XSS, in the published page *and* in the editor canvas of anybody
+     * the project is shared with — one generator feeds both, so the same string
+     * runs on the app's own origin with their session. Editing rights on a
+     * shared project should not be rights over a collaborator's account.
+     */
+    /<script>alert[^<]*/.exec(scripted)?.[0] ?? 'nothing escaped'
+  );
+
+  const braced = withValue('red } body { display: none');
+  report.check(
+    'and cannot end its own rule and open another',
+    // Whitespace-insensitive, because the published stylesheet is minified and
+    // the first version of this looked for `body { display: none` with the
+    // spaces intact. It passed with the hole wide open, which is the whole
+    // reason every one of these gets broken on purpose before it is believed.
+    !/body\s*\{\s*display\s*:\s*none/.test(braced),
+    // The quieter version of the same thing: no script, but every element on
+    // the page is now whatever the value said.
+    // The *injected* rule, not the first `body {` in the file — that one is the
+    // reset's, and printing it sends the reader hunting a rule that is fine.
+    /body\s*\{\s*display\s*:\s*none[^}]*/.exec(braced)?.[0] ?? 'nothing escaped'
+  );
+
+  const semi = withValue('red; position: fixed');
+  report.check(
+    'and cannot smuggle a second declaration into the first',
+    !/position:\s*fixed/.test(semi),
+    // Not an escape — same element, same rule — but still a property the panel
+    // never offered and the designer never wrote.
+    /position:\s*fixed/.exec(semi)?.[0] ?? 'one declaration only'
+  );
+
+  /* Each of the above, handed something it must reject. */
+  report.check(
+    'an ordinary value still reaches the page',
+    // A distinctive value, not `red`: the reset ships `color: inherit`, so the
+    // first version of this matched that and would have passed against a
+    // generator dropping every declaration it was given.
+    /color:\s*rebeccapurple/.test(withValue('rebeccapurple')),
+    /color:\s*rebeccapurple/.exec(withValue('rebeccapurple'))?.[0] ?? 'nothing emitted'
+  );
+  report.check(
+    'and so does every value the block library actually uses',
+    (() => {
+      /*
+       * The reason dropping is safe rather than merely strict. If any real
+       * value carried one of these characters, this rule would be silently
+       * deleting design from every template — so the whole library is swept
+       * rather than argued about.
+       */
+      const offenders = [];
+      const walk = (node) => {
+        const layers = [node.styles, ...Object.values(node.responsive ?? {})];
+        for (const rule of node.rules ?? []) layers.push(rule.apply);
+        for (const layer of layers) {
+          for (const [prop, value] of Object.entries(layer ?? {})) {
+            if (typeof value === 'string' && /[<>{};]/.test(value)) offenders.push(`${prop}: ${value}`);
+          }
+        }
+        (node.children ?? []).forEach(walk);
+      };
+      for (const block of BLOCKS) walk(block.build());
+      return offenders.length === 0;
+    })(),
+    'no legitimate declaration needs one of those characters'
+  );
+}
+
 report.group('what a press does');
 
 {

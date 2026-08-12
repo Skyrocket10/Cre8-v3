@@ -148,12 +148,55 @@ function collapseFourSided(pairs: [string, string][]): [string, string][] {
   return out;
 }
 
-export function declarationsToCss(styles: StyleDecl, indent = '  '): string {
+/**
+ * Characters no CSS value the editor can produce contains, and that a hostile
+ * one needs.
+ *
+ * This closes a hole that shipped. Declarations were emitted verbatim into the
+ * `<style>` block, so a value of
+ * `red</style><script>alert(document.cookie)</script>` left the stylesheet, left
+ * the style *element*, and ran — in the published page and, because there is one
+ * generator, in the editor canvas of anybody the project is shared with, on the
+ * app's own origin with their session. `red } body { display: none` was the
+ * quieter version of the same thing.
+ *
+ * Selectors were never exposed to this: everything that reaches one goes
+ * through `slug()` or `anchorId()`, which whitelist to letters, digits, `_` and
+ * `-`, and the runtime's comments say so. Values were the half nobody narrowed.
+ *
+ * `<` and `>` end the style element. `{` and `}` end the rule. `;` ends the
+ * declaration, which is not an escape but is still a way to set properties the
+ * panel never wrote. None of the four appears in any value in the entire block
+ * library, and none can be produced by a control — a value carrying one is a
+ * document that has been hand-edited or tampered with.
+ */
+const UNSAFE_IN_VALUE = /[<>{};]/;
+
+/**
+ * Declarations, with anything that could leave its own rule left out.
+ *
+ * Dropped rather than stripped, which is the same choice made for an unknown
+ * reveal effect and for a condition naming a state nothing declares: emitting a
+ * mangled version of a value nobody wrote is worse than emitting nothing, and
+ * an element missing one declaration is a great deal better than a page running
+ * somebody else's script.
+ */
+function safePairs(styles: StyleDecl): [string, string][] {
   const pairs: [string, string][] = [];
   for (const [prop, value] of Object.entries(styles)) {
     if (value === undefined || value === null || value === '') continue;
-    for (const [name, resolved] of expand(prop, String(value))) pairs.push([name, resolved]);
+    // The property too. It is a key of `StyleDecl` in anything the editor
+    // writes, but a document is JSON and arrives from disk.
+    if (UNSAFE_IN_VALUE.test(prop)) continue;
+    const text = String(value);
+    if (UNSAFE_IN_VALUE.test(text)) continue;
+    for (const [name, resolved] of expand(prop, text)) pairs.push([name, resolved]);
   }
+  return pairs;
+}
+
+export function declarationsToCss(styles: StyleDecl, indent = '  '): string {
+  const pairs = safePairs(styles);
   return collapseFourSided(pairs)
     .map(([name, value]) => `${indent}${name}: ${value};`)
     .join('\n');
@@ -162,9 +205,8 @@ export function declarationsToCss(styles: StyleDecl, indent = '  '): string {
 /** Inline-style object, used for the page frame's token variables. */
 export function declarationsToStyleObject(styles: StyleDecl): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [prop, value] of Object.entries(styles)) {
-    if (value === undefined || value === null || value === '') continue;
-    for (const [name, resolved] of expand(prop, String(value))) out[name] = resolved;
+  for (const [name, resolved] of safePairs(styles)) {
+    out[name] = resolved;
   }
   return out;
 }

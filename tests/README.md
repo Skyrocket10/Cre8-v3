@@ -92,6 +92,20 @@ reading a control *inside* the element that owns it, which works at runtime and
 which the picker does not offer; answer the label from the offer list alone and
 a working rule reads as broken while the warning correctly stays quiet.
 
+That a style value cannot leave its own rule is checked against a published
+page rather than against the emitter, because the failure is an escape and an
+escape is only visible in the finished file. Three ways out — ending the style
+element, ending the rule, ending the declaration — and two controls that stop
+the rule being vacuous: an ordinary value still reaches the page, and no value
+in the entire block library carries one of the forbidden characters, so dropping
+them cannot be silently deleting design.
+
+The first version of the brace rule looked for `body { display: none` with the
+spaces intact and passed with the hole wide open, because the published
+stylesheet is minified. It is whitespace-insensitive now. Its failure message
+was also printing the reset's `body` rule rather than the injected one, which
+would have sent the reader hunting a rule that was fine.
+
 What a press does is checked mostly as output, because most of it is markup the
 platform understands. A jump resolves to a fragment, the target emits the id that
 fragment names — either alone is a link to nowhere — and the control renders as
