@@ -1052,8 +1052,28 @@ function describeBase(
     default: {
       // Every remaining type is a plain container: frame, section, container,
       // stack, grid, navigation.
-      const tag = resolveTag(node.type, props);
-      return { tag, attrs: base, void: false, acceptsChildren: true };
+      const scrollTo = node.refs?.scrollTo?.node;
+      const rawHref = scrollTo ? `${NODE_HREF_PREFIX}${scrollTo}` : str(props.href);
+      const tag = resolveTag(node.type, props, { scrollsTo: Boolean(scrollTo) });
+      if (tag !== 'a') return { tag, attrs: base, void: false, acceptsChildren: true };
+      /*
+       * A container that goes somewhere, resolved exactly as a button's link
+       * is — same reference, same resolver, same "nowhere to go means hidden".
+       * Anything less than the same code path is a second answer to the
+       * question "where does this go", and there were already three.
+       */
+      const resolved = options.hrefResolver
+        ? options.hrefResolver(rawHref, options.record ?? null)
+        : resolveHref(doc, rawHref, mode);
+      const attrs: Record<string, AttrValue> = { ...base };
+      if (resolved === '') attrs.hidden = true;
+      else attrs.href = resolved;
+      const target = str(props.target, '_self');
+      if (target && target !== '_self') {
+        attrs.target = target;
+        attrs.rel = 'noopener noreferrer';
+      }
+      return { tag, attrs, void: false, acceptsChildren: true };
     }
   }
 }

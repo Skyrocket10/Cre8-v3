@@ -1433,13 +1433,12 @@ removed — rather than a string the runtime decides. An attribute condition is
 something the rules panel has expressed since stage 2, so "say Copied for a
 second" is a rule the designer writes and styles like any other state.
 
-What is deliberately not here: making an arbitrary container clickable. It would
-mean the renderer changing an element's tag from the actions panel and enforcing
-the no-nested-interactive rule as it did so, which is a real piece of work rather
-than a row. Putting a state on any element already works — `SwitchSetterSection`
-appears on anything with a switch above it, whatever its type — so the gap is
-narrower than it looks: it is navigation and copying that still need a button or
-a link around them.
+What was deliberately not here for three milestones: making an arbitrary
+container clickable. The reason given each time was right — it needs the
+renderer to change an element's tag, and the no-nested-interactive rule enforced
+as it does — and it is done now; see *Making a container clickable* below for
+what that turned out to cost, including the half of the rule that was already
+broken without the feature.
 
 ### A value cannot leave its own rule
 
@@ -1693,6 +1692,55 @@ Worth naming the pattern separately, because it showed up **four times** in this
 work: a check whose detail is a fixed string reports success while failing. The
 summary line says look here and the line under it says nothing is wrong. Every
 detail in the new checks is computed from the same values the assertion tests.
+
+### Making a container clickable
+
+Under *deliberately not done* for three milestones, and the reason given each
+time was right: it needs the renderer to change an element's tag, and it needs
+the no-nested-interactive rule enforced as it does. What that entry did not say
+is that **the second half was already broken without the feature**.
+
+`canContain` has refused a button directly inside a link since Fix 1, with a
+comment explaining that the parser lifts the button out rather than rejecting
+it. It could never do more — it compares two *types* and is called mid-drag,
+with no tree to consult. So `link > frame > button` was allowed: every step
+legal, nothing looking at the chain, the same invalid markup at the end. Nothing
+anywhere enforced interactive nesting past one level.
+
+So the order was: fix that first, then the feature.
+
+**One question, one place.** `isInteractive(node)` takes a node rather than a
+type, and that is the whole design. A layout box given somewhere to go renders
+as an `<a>` while its type stays `frame`, so anything reasoning about types goes
+blind at exactly the moment the element becomes interactive. It answers for both
+spellings of a destination — an `href`, and a `scrollTo` reference, which
+carries no href at all until the renderer resolves one. The first version
+checked `props.href` only and would have waved a button straight into a card
+that jumps.
+
+**Three gates, because there are three questions.** `canReparent` governs the
+move and has ids, so it walks the dragged subtree — dropping a button into a
+link is the case people picture, and dragging a *card containing* a button is
+the same markup and the easier mistake. `findContainer` governs canvas drop
+targeting and has only payload *types*, because a payload from the insert panel
+does not exist yet. The layer tree was previewing with `canContain` and would
+have drawn an "inside" indicator over a target the drop then refused — which its
+own comment, three lines up, warns against.
+
+**The control is not a new one.** The destination rows were lifted out of
+`LinkContent` into a shared `Destination`, and lifted rather than copied for the
+reason this codebase already has written down: "where does this go" had three
+answers in the renderer and the fix was one function all three ask. A second
+copy in the panel would be the same mistake one layer up. A button, a link and a
+clickable card now get identical rows, and a card has no label field because its
+words are the elements inside it.
+
+One thing that looked like a bug and was not. Driving the new control in a
+browser showed the canvas rendering `<a href="#">` where the published page had
+the real URL. That is `canvas/engine.ts` resolving every href to `#` on purpose,
+so a click in the editor does not navigate away from it — true of links and
+buttons since Phase 3, and inherited here by going through the same resolver
+hook. The check was wrong, not the code.
 
 ### Why an AI can drive this later
 

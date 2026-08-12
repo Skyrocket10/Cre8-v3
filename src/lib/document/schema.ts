@@ -1149,10 +1149,28 @@ export function canContain(parentType: ElementType, childType: ElementType): boo
  * been given somewhere to go renders as an `<a>`, and its type is still
  * `frame`. A rule reading types cannot see that by construction.
  */
-export function isInteractive(node: { type: ElementType; props?: NodeProps }): boolean {
+export function isInteractive(node: {
+  type: ElementType;
+  props?: NodeProps;
+  /**
+   * Loose on purpose. A document node holds `{ scrollTo: { node: id } }` and a
+   * block spec holds `{ scrollTo: 'Some name' }`; the question here is only
+   * whether there is one, and demanding either shape would leave the other
+   * unchecked in whichever place it lives.
+   */
+  refs?: { scrollTo?: unknown } | null;
+}): boolean {
   if (getElement(node.type).interactive) return true;
-  // A container with a destination is a link, whatever the layer tree calls it.
-  return RETAGGABLE.has(node.type) && Boolean(node.props?.href);
+  /*
+   * A container with a destination is a link, whatever the layer tree calls it.
+   *
+   * Both spellings, and the second is why this is a function rather than a
+   * property lookup: a card that *jumps* to a section carries no href at all —
+   * the reference becomes one later, in the renderer — so a check reading
+   * `props.href` sees an ordinary frame and lets a button be dropped into it.
+   */
+  if (!RETAGGABLE.has(node.type)) return false;
+  return Boolean(node.props?.href) || Boolean(node.refs?.scrollTo);
 }
 
 /** Elements offered in the insert panel, grouped by category. */
@@ -1377,6 +1395,16 @@ export function resolveTag(
   }
   if (type === 'tableCell') return props.header ? 'th' : 'td';
   if (RETAGGABLE.has(type)) {
+    /*
+     * A layout box that has been given somewhere to go is a link.
+     *
+     * This is how "make the whole card clickable" is spelled — the thing every
+     * other builder offers and this one kept telling people to wrap in a link.
+     * It beats an explicitly chosen tag because a destination is a stronger
+     * statement than a `nav` or an `article`: those describe the content, and
+     * this describes what happens when somebody presses it.
+     */
+    if (props.href || opts.scrollsTo) return 'a';
     const requested = String(props.tag ?? '');
     if ((SEMANTIC_TAGS as readonly string[]).includes(requested)) return requested;
   }

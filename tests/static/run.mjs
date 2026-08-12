@@ -8252,6 +8252,94 @@ report.group('a value cannot leave its own rule');
   );
 }
 
+report.group('a container can be the thing you click');
+
+{
+  /*
+   * The gap this closes was written down under "deliberately not done" for
+   * three milestones: every other builder lets you make a whole card clickable
+   * and this one said wrap it in a link. The reason it was deferred is the
+   * reason it needs checking from both ends — a layout box that renders as an
+   * `<a>` keeps its type, so every rule that reasons about types goes blind at
+   * exactly the moment the element becomes interactive.
+   */
+  const render = (spec) => {
+    const doc = createEmptyDocument();
+    const home = doc.pages[0];
+    const into = {};
+    const { rootId } = buildTree(spec, into, home.rootNodeId);
+    Object.assign(doc.nodes, into);
+    doc.nodes[home.rootNodeId].children.push(rootId);
+    return {
+      doc,
+      rootId,
+      html: generateSite(doc).files.find((file) => file.path === 'index.html').contents,
+    };
+  };
+
+  const linked = render({
+    type: 'frame',
+    name: 'Clickable card',
+    props: { href: 'https://example.com/', target: '_blank' },
+    children: [{ type: 'heading', name: 'T', props: { text: 'Read more', level: 3 } }],
+  });
+  report.check(
+    'a frame with somewhere to go publishes as a link around its content',
+    /<a [^>]*href="https:\/\/example\.com\/"[^>]*>\s*<h3/.test(linked.html),
+    // Around its content, not beside it: the heading has to stay inside the
+    // anchor or the card is a link to nothing with a title next to it.
+    /<a [^>]*>(<h3[^>]*>)?[^<]{0,30}/.exec(linked.html)?.[0] ?? 'no anchor at all'
+  );
+  report.check(
+    'and a new tab still gets the opener protection every other link gets',
+    /target="_blank"/.test(linked.html) && /rel="noopener noreferrer"/.test(linked.html),
+    // Same code path as a button's link rather than a second one, which is the
+    // only reason this is true without being written twice.
+    /rel="[^"]*"/.exec(linked.html)?.[0] ?? 'no rel'
+  );
+
+  const plain = render({ type: 'frame', name: 'Ordinary', children: [] });
+  report.check(
+    'and a frame with nowhere to go is still a div',
+    !/<a [^>]*class="c-/.test(plain.html),
+    // Or every layout box on every page just became a link.
+    /<div [^>]*class="c-[^"]*"/.exec(plain.html)?.[0]?.slice(0, 40) ?? 'no div'
+  );
+
+  report.check(
+    'the nesting rule sees a clickable container, which has no interactive type',
+    isInteractive({ type: 'frame', props: { href: '/x/' } }) &&
+      isInteractive({ type: 'frame', refs: { scrollTo: 'Somewhere' } }) &&
+      !isInteractive({ type: 'frame', props: {} }),
+    /*
+     * Both spellings. A card that *jumps* carries no href at all — the
+     * reference becomes one in the renderer — so a rule reading `props.href`
+     * would wave a button straight into it. That was true of the first version
+     * of `isInteractive`, written an hour before the jump existed.
+     */
+    `href ${isInteractive({ type: 'frame', props: { href: '/x/' } })}, ` +
+      `jump ${isInteractive({ type: 'frame', refs: { scrollTo: 'Somewhere' } })}, ` +
+      `plain ${isInteractive({ type: 'frame', props: {} })}`
+  );
+  report.check(
+    'and refuses a button inside one, the same as inside a link',
+    (() => {
+      const built = render({
+        type: 'frame',
+        name: 'Clickable card',
+        props: { href: '/x/' },
+        children: [{ type: 'frame', name: 'Inner' }],
+      });
+      const inner = Object.values(built.doc.nodes).find((one) => one.name === 'Inner');
+      const loose = {};
+      const { rootId: buttonId } = buildTree({ type: 'button', name: 'B' }, loose, null);
+      Object.assign(built.doc.nodes, loose);
+      return inner ? !canReparent(built.doc.nodes, buttonId, inner.id) : false;
+    })(),
+    'a button cannot be dropped into a frame inside a clickable frame'
+  );
+}
+
 report.group('nothing operable lands inside anything operable');
 
 {

@@ -134,6 +134,20 @@ function typeContent(type: ElementType) {
       return <LinkContent labelProp="label" title="Button" canOpenPopover />;
     case 'link':
       return <LinkContent labelProp="text" title="Link" />;
+    /*
+     * The layout boxes, which can now be the thing you click.
+     *
+     * Same three rows a button gets, because it is the same question. What is
+     * deliberately absent is a label field — a card's words are the elements
+     * inside it, and an element that already shows its content has nothing a
+     * text prop could add.
+     */
+    case 'frame':
+    case 'section':
+    case 'container':
+    case 'stack':
+    case 'grid':
+      return <ContainerContent />;
     case 'popover':
       return <PopoverContent />;
     case 'dialog':
@@ -1869,38 +1883,51 @@ function IconPreview({ name }: { name: string }) {
  * Links
  * ----------------------------------------------------------------------- */
 
-function LinkContent({
-  labelProp,
-  title,
-  canOpenPopover = false,
-}: {
-  labelProp: string;
-  title: string;
-  canOpenPopover?: boolean;
-}) {
-  const label = useNodeProp(labelProp);
+/**
+ * Where a control goes, asked once.
+ *
+ * Lifted out of `LinkContent` when layout boxes learned to carry a
+ * destination, and lifted rather than copied on purpose. "Where does this go"
+ * already had three answers in the renderer — the publisher's, the canvas's
+ * and the default — and the fix for that was one exported function all three
+ * ask. A second copy of the *panel* would have been the same mistake in the
+ * editor: two places to teach about a new kind of destination, one of which
+ * somebody would miss.
+ *
+ * So a button, a link and a clickable card get the identical three rows, and
+ * "make the whole card clickable" is not a different feature from "make this
+ * button go somewhere" — it is the same control on a different element.
+ */
+/**
+ * A layout box, and whether pressing it does anything.
+ *
+ * The gap that sat under "deliberately not done" for three milestones: every
+ * other builder lets you make a whole card clickable, and this one said to
+ * wrap it in a link. What made it real was not the control — it is the same
+ * `<Destination />` a button gets — but the two rules underneath it. A box
+ * with somewhere to go renders as an `<a>` while its *type* stays `frame`, so
+ * `isInteractive` had to stop being a property of the type, and the nesting
+ * rule had to stop being pairwise: `link > frame > button` was legal at every
+ * step and invalid as a whole.
+ *
+ * Empty until somebody picks a destination, and that is the point. Nothing is
+ * clickable by accident, and a frame with nowhere to go is still a `div`.
+ */
+function ContainerContent() {
+  return (
+    <Section title="Link">
+      <InspectorGroup>
+        <Destination />
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+function Destination() {
   const href = useNodeProp('href');
   const target = useNodeProp('target');
-  const opensAPopover = useEditor((s) => {
-    const id = s.selection[0];
-    return Boolean(id && s.doc.nodes[id]?.refs?.popover);
-  });
   const pages = useEditor((s) => s.doc.pages);
-  /*
-   * Children replace the label rather than sitting beside it — both renderers
-   * short-circuit on the text prop. So once something has been dropped inside,
-   * the field is dead, and a live-looking input that changes nothing is worse
-   * than no input at all.
-   */
-  const hasChildren = useEditor((s) => {
-    const id = s.selection[0];
-    return id ? (s.doc.nodes[id]?.children.length ?? 0) > 0 : false;
-  });
-
-  const submit = useNodeProp('submit');
-  const insideForm = useInsideForm();
-  const submits = Boolean(submit.value);
-  const opensPopover = opensAPopover;
+  const nodeId = useEditor((s) => s.selection[0]);
   const current = String(href.value ?? '');
   const isPageLink = current.startsWith('page:');
   /*
@@ -1910,7 +1937,6 @@ function LinkContent({
    * link where it was rather than silently claiming to point somewhere.
    */
   const isSectionLink = current.length > 1 && current.startsWith('#');
-  const nodeId = useEditor((s) => s.selection[0]);
   /*
    * Where this jumps to, as a reference rather than a fragment.
    *
@@ -1933,6 +1959,132 @@ function LinkContent({
     : jumpsTo || isSectionLink || sectionFor === nodeId
       ? 'section'
       : 'url';
+
+  return (
+    <>
+          <StyleRow label="Links to">
+            <Segmented
+              full
+              value={mode}
+              onChange={(value) => {
+                setSectionFor(value === 'section' ? nodeId : undefined);
+                if (value !== 'section' && nodeId) {
+                  useEditor.getState().transact('Change where a link goes', (draft) => {
+                    ops.setScrollTarget(draft, nodeId, null);
+                  });
+                }
+                if (value === 'page') href.set(`page:${pages[0]?.id ?? ''}`);
+                else if (value === 'url') href.set('#');
+                // Section picks nothing on its own. The row below is the
+                // choice, and guessing at the first candidate would be a link
+                // pointing somewhere nobody asked for.
+              }}
+              options={[
+                { value: 'page', label: 'Page' },
+                { value: 'section', label: 'Section' },
+                { value: 'url', label: 'URL' },
+              ]}
+            />
+          </StyleRow>
+
+          {isPageLink && (
+            <StyleRow label="Page">
+              <Select
+                className="flex-1"
+                value={current.slice(5)}
+                onChange={(value) => href.set(`page:${value}`)}
+                options={pages
+                  .slice()
+                  .sort((a, b) => a.order - b.order)
+                  .map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                    hint: p.isHome ? '/' : `/${p.slug}`,
+                  }))}
+              />
+            </StyleRow>
+          )}
+
+          {/* A page with nothing named on it has nowhere to point, and an
+              empty dropdown does not say why. */}
+          {mode === 'section' &&
+            (jumpTargets.length ? (
+              <StyleRow label="Scrolls to" hint="Somewhere on this page">
+                <Select
+                  className="flex-1"
+                  value={jumpsTo}
+                  placeholder={isSectionLink ? current : 'Pick a section'}
+                  onChange={(value) =>
+                    nodeId &&
+                    useEditor.getState().transact('Scroll to a section', (draft) => {
+                      ops.setScrollTarget(draft, nodeId, value || null);
+                    })
+                  }
+                  options={jumpTargets.map((one) => ({ value: one.id, label: one.name }))}
+                />
+              </StyleRow>
+            ) : (
+              <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+                There is nothing on this page to scroll to yet.
+              </p>
+            ))}
+
+          {mode === 'url' && (
+            <StyleRow label="URL">
+              <TextInput
+                className="flex-1"
+                value={current}
+                onValueChange={(v) => href.set(v)}
+                placeholder="https://…"
+                prefix={<ExternalLink size={11} />}
+              />
+            </StyleRow>
+          )}
+
+          <StyleRow label="Opens">
+            <Segmented
+              full
+              value={String(target.value ?? '_self')}
+              onChange={(value) => target.set(value)}
+              options={[
+                { value: '_self', label: 'Same tab' },
+                { value: '_blank', label: 'New tab' },
+              ]}
+            />
+          </StyleRow>
+    </>
+  );
+}
+
+function LinkContent({
+  labelProp,
+  title,
+  canOpenPopover = false,
+}: {
+  labelProp: string;
+  title: string;
+  canOpenPopover?: boolean;
+}) {
+  const label = useNodeProp(labelProp);
+  const opensAPopover = useEditor((s) => {
+    const id = s.selection[0];
+    return Boolean(id && s.doc.nodes[id]?.refs?.popover);
+  });
+  /*
+   * Children replace the label rather than sitting beside it — both renderers
+   * short-circuit on the text prop. So once something has been dropped inside,
+   * the field is dead, and a live-looking input that changes nothing is worse
+   * than no input at all.
+   */
+  const hasChildren = useEditor((s) => {
+    const id = s.selection[0];
+    return id ? (s.doc.nodes[id]?.children.length ?? 0) > 0 : false;
+  });
+
+  const submit = useNodeProp('submit');
+  const insideForm = useInsideForm();
+  const submits = Boolean(submit.value);
+  const opensPopover = opensAPopover;
   const copy = useNodeProp('copyText');
 
   return (
@@ -1973,97 +2125,7 @@ function LinkContent({
             reason, so its href would be ignored too. */}
         {!opensPopover && !submits && (
           <>
-            <StyleRow label="Links to">
-              <Segmented
-                full
-                value={mode}
-                onChange={(value) => {
-                  setSectionFor(value === 'section' ? nodeId : undefined);
-                  if (value !== 'section' && nodeId) {
-                    useEditor.getState().transact('Change where a link goes', (draft) => {
-                      ops.setScrollTarget(draft, nodeId, null);
-                    });
-                  }
-                  if (value === 'page') href.set(`page:${pages[0]?.id ?? ''}`);
-                  else if (value === 'url') href.set('#');
-                  // Section picks nothing on its own. The row below is the
-                  // choice, and guessing at the first candidate would be a link
-                  // pointing somewhere nobody asked for.
-                }}
-                options={[
-                  { value: 'page', label: 'Page' },
-                  { value: 'section', label: 'Section' },
-                  { value: 'url', label: 'URL' },
-                ]}
-              />
-            </StyleRow>
-
-            {isPageLink && (
-              <StyleRow label="Page">
-                <Select
-                  className="flex-1"
-                  value={current.slice(5)}
-                  onChange={(value) => href.set(`page:${value}`)}
-                  options={pages
-                    .slice()
-                    .sort((a, b) => a.order - b.order)
-                    .map((p) => ({
-                      value: p.id,
-                      label: p.name,
-                      hint: p.isHome ? '/' : `/${p.slug}`,
-                    }))}
-                />
-              </StyleRow>
-            )}
-
-            {/* A page with nothing named on it has nowhere to point, and an
-                empty dropdown does not say why. */}
-            {mode === 'section' &&
-              (jumpTargets.length ? (
-                <StyleRow label="Scrolls to" hint="Somewhere on this page">
-                  <Select
-                    className="flex-1"
-                    value={jumpsTo}
-                    placeholder={isSectionLink ? current : 'Pick a section'}
-                    onChange={(value) =>
-                      nodeId &&
-                      useEditor.getState().transact('Scroll to a section', (draft) => {
-                        ops.setScrollTarget(draft, nodeId, value || null);
-                      })
-                    }
-                    options={jumpTargets.map((one) => ({ value: one.id, label: one.name }))}
-                  />
-                </StyleRow>
-              ) : (
-                <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
-                  There is nothing on this page to scroll to yet.
-                </p>
-              ))}
-
-            {mode === 'url' && (
-              <StyleRow label="URL">
-                <TextInput
-                  className="flex-1"
-                  value={current}
-                  onValueChange={(v) => href.set(v)}
-                  placeholder="https://…"
-                  prefix={<ExternalLink size={11} />}
-                />
-              </StyleRow>
-            )}
-
-            <StyleRow label="Opens">
-              <Segmented
-                full
-                value={String(target.value ?? '_self')}
-                onChange={(value) => target.set(value)}
-                options={[
-                  { value: '_self', label: 'Same tab' },
-                  { value: '_blank', label: 'New tab' },
-                ]}
-              />
-            </StyleRow>
-          </>
+            <Destination />          </>
         )}
 
         {/*
