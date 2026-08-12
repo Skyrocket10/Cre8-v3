@@ -27,6 +27,7 @@ import type { NodeMap } from '../document/tree';
 import { uid } from '../document/id';
 import type { Cre8Document, Field, NodeId, Theme } from '../document/types';
 import {
+  BLOCKS,
   bentoFeaturesSpec,
   ctaSpec,
   faqSpec,
@@ -57,6 +58,7 @@ import {
   statsBlock,
   workGridBlock,
 } from './compose';
+import { categorySections, categorySlug, galleryCounts } from './gallery';
 
 export interface TemplateDefinition {
   id: string;
@@ -2004,6 +2006,117 @@ const blog: TemplateDefinition = {
  * Registry
  * ----------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------
+ * Component gallery — every block in the library
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The whole library, browsable.
+ *
+ * A gallery is a thing a builder ought to ship — "what can this actually
+ * draw?" is the first question anybody has, and ninety-three screenshots in a
+ * README is the wrong answer to it. It is also the only document in the
+ * repository that puts every block on the same page as every other, which is
+ * where the failures that need company live. See `templates/gallery.ts`.
+ *
+ * One page per category rather than one enormous page: nine pages of ten is
+ * navigable, and one page of ninety-three is a 2 MB document that nobody
+ * scrolls to the bottom of. It also means the nav is doing real work, which
+ * makes the cross-page jumps R5 built part of what gets exercised.
+ */
+const gallery: TemplateDefinition = {
+  id: 'gallery',
+  name: 'Component gallery',
+  description: 'Every block in the library, grouped by category and named.',
+  swatch: ['#1e293b', '#8b5cf6'],
+  build: () =>
+    makeDocument({
+      name: 'Component gallery',
+      description: 'Every block Cre8 can draw, on one site.',
+      colors: {
+        primary: '#4f46e5',
+        secondary: '#1e293b',
+        accent: '#8b5cf6',
+        text: '#0f172a',
+        muted: '#64748b',
+        surface: '#f8fafc',
+        border: '#e2e8f0',
+        inverse: '#0f172a',
+      },
+      fonts: { heading: 'Inter', body: 'Inter' },
+      pages: [
+        {
+          name: 'Overview',
+          slug: '',
+          isHome: true,
+          title: 'Component gallery',
+          description: 'Every block Cre8 can draw, grouped by category.',
+          sections: [
+            navBlock({
+              brand: 'Gallery',
+              brandIcon: 'layers',
+              // Named pages rather than jumps: each category is its own page,
+              // and `pageRef` is resolved once every page exists.
+              links: galleryCounts()
+                .slice(0, 4)
+                .map((c) => ({ label: c.label, href: pageRef(categorySlug(c.id)) })),
+              cta: { label: 'Application', href: pageRef(categorySlug('app')) },
+            }),
+            heroBlock({
+              eyebrow: `${BLOCKS.length} blocks`,
+              title: 'Every block in the library',
+              body: 'Each one is named and captioned with the id you type into the Insert panel. Nothing here is a screenshot — it is the same renderer the editor and your published site use.',
+              buttons: [
+                { label: 'Start with headers', href: pageRef(categorySlug('chrome')) },
+                { label: 'Application set', variant: 'secondary', href: pageRef(categorySlug('app')) },
+              ],
+            }),
+            // The index. A card per category, each counting what is inside it,
+            // so the page says something true rather than something written
+            // down once and left behind.
+            // A card per category, counting what is inside it — read off the
+            // registry, so the page says something true rather than something
+            // written down once and left behind. The cards do not link: a card
+            // grid draws no affordance, and the nav and footer both carry the
+            // real links.
+            cardGridBlock({
+              name: 'Categories',
+              title: 'Nine categories',
+              intro: 'Every count below is read off the block registry at build time.',
+              items: galleryCounts().map((c) => ({
+                title: c.label,
+                body: `${c.count} block${c.count === 1 ? '' : 's'} in this category.`,
+              })),
+              columns: 3,
+            }),
+            footerBlock('Component gallery', 'Built from the block registry.', [
+              {
+                title: 'Categories',
+                links: galleryCounts()
+                  .slice(0, 5)
+                  .map((c) => ({ label: c.label, href: pageRef(categorySlug(c.id)) })),
+              },
+              {
+                title: 'More',
+                links: galleryCounts()
+                  .slice(5)
+                  .map((c) => ({ label: c.label, href: pageRef(categorySlug(c.id)) })),
+              },
+            ]),
+          ],
+        },
+        // One page per category, in the order the Insert panel lists them.
+        ...galleryCounts().map((c) => ({
+          name: c.label,
+          slug: categorySlug(c.id),
+          title: `${c.label} — component gallery`,
+          description: `${c.count} blocks in the ${c.label.toLowerCase()} category.`,
+          sections: categorySections(c.id),
+        })),
+      ],
+    }),
+};
+
 export const TEMPLATES: TemplateDefinition[] = [
   blank,
   saas,
@@ -2013,6 +2126,7 @@ export const TEMPLATES: TemplateDefinition[] = [
   restaurant,
   ecommerce,
   blog,
+  gallery,
 ];
 
 export function getTemplate(id: string): TemplateDefinition | undefined {

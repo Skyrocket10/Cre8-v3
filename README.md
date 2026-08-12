@@ -85,8 +85,10 @@ images and all — that works dropped on any host or opened straight from disk.
 **Together** *(optional backend)*  Accounts, shared workspaces with roles, link
 invites, and realtime co-editing with live cursors and selections.
 
-**Templates**  Eight, including a four-page SaaS landing site. A template is
-just a document, so anything you build could become one.
+**Templates**  Nine, including a four-page SaaS landing site and a ten-page
+component gallery holding every block in the library. A template is just a
+document, so anything you build could become one — and the gallery is built by
+mapping the block registry, so it never falls behind it.
 
 ---
 

@@ -1009,7 +1009,26 @@ function checkFakeAffordance(spec) {
  * property it read was the design-time one the publisher throws away.
  */
 function holdsItsShape(node) {
-  if (!node.bind?.src) return Boolean(node.props?.width) && Boolean(node.props?.height);
+  /*
+   * An aspect ratio counts for *any* image, not only a bound one.
+   *
+   * This read `width`/`height` for everything unbound, which is right for a
+   * photograph and wrong for the `media()` placeholder every block in the
+   * library uses: that carries no `src` at all and reserves its box with
+   * `width: 100%` and an `aspectRatio`. There is nothing to load and therefore
+   * nothing to shift, and adding intrinsic numbers to a fluid slot would be
+   * both redundant and a worse description of it.
+   *
+   * Surfaced by the component gallery, which is the first template to contain
+   * blocks as they come out of the Insert panel. The templates all pass real
+   * photographs in, so the placeholders were never in front of this rule. Same
+   * shape as the bound-image miss the rest of this docblock describes: a guard
+   * as wide as the road that existed when it was written.
+   */
+  const ratio = ratioHolds(node);
+  if (!node.bind?.src) {
+    return ratio || filledByItsParent(node) || (Boolean(node.props?.width) && Boolean(node.props?.height));
+  }
   /*
    * `styles` is keyed by breakpoint — `{ desktop: {…}, mobile: {…} }` — and
    * reading `styles.aspectRatio` off it finds nothing on every node in the
@@ -1021,6 +1040,40 @@ function holdsItsShape(node) {
   // Over the breakpoints by name rather than over whatever keys the object
   // happens to have: a flat `{ aspectRatio }` is precisely the misreading this
   // rule was written with, and iterating keys would hand a string to `in`.
+  return ratioHolds(node);
+}
+
+/**
+ * Taken out of flow and stretched to whatever contains it.
+ *
+ * The third way to be sized, and the one the media hero's backdrop uses: an
+ * absolutely positioned image pinned to its parent's box occupies exactly that
+ * box before and after the bytes arrive, and being out of flow it cannot move
+ * anything else even in principle. Demanding intrinsic numbers of it would be
+ * asking a layer to declare a size it does not get to choose.
+ *
+ * Narrow on purpose — positioned *and* given a definite height. Position alone
+ * would excuse an absolutely placed thumbnail that really can shift.
+ */
+function filledByItsParent(node) {
+  const desktop = node.styles?.desktop ?? {};
+  const positioned = desktop.position === 'absolute' || desktop.position === 'fixed';
+  const height = String(desktop.height ?? '').trim();
+  return positioned && Boolean(height) && height !== 'auto';
+}
+
+/**
+ * A ratio set at the base and not thrown away when the screen narrows.
+ *
+ * Both halves are required: a phone is where the picture is widest relative to
+ * the page and where the shift costs most, so a narrow breakpoint that clears
+ * `aspectRatio` un-reserves the box exactly where it matters.
+ *
+ * Over the breakpoints by name rather than over whatever keys the object
+ * happens to have: a flat `{ aspectRatio }` is precisely the misreading this
+ * rule was written with, and iterating keys would hand a string to `in`.
+ */
+function ratioHolds(node) {
   const base = node.styles?.desktop?.aspectRatio;
   const released = ['tablet', 'mobile'].some((bp) => {
     const decl = node.styles?.[bp];
@@ -10894,6 +10947,110 @@ report.group('nothing on a node is unreachable from a block');
     // empty set the check above would pass for the worst possible reason.
     `node: ${[...(nodeFields ?? [])].length} fields, spec: ${[...(specFields ?? [])].length}`
   );
+}
+
+
+
+/* ==========================================================================
+ * The gallery is the library, and stays the library
+ * ======================================================================= */
+
+report.group('the gallery is the library, and stays the library');
+
+{
+  /*
+   * The component gallery is built by mapping the block registry, which makes
+   * it complete today and says nothing about tomorrow. "Reads the registry" is
+   * true right up until somebody adds a filter, a slice or a hand-written list
+   * — and the failure is silent in the worst way: the gallery still builds, the
+   * page still looks right, the new block is simply not in it and nobody finds
+   * out until they go looking for it.
+   *
+   * So the claim is checked rather than trusted, against the built document
+   * rather than against the function that builds it.
+   */
+  const gallery = TEMPLATES.find((t) => t.id === 'gallery');
+
+  report.check(
+    'the gallery template is registered',
+    Boolean(gallery),
+    gallery ? gallery.name : `only: ${TEMPLATES.map((t) => t.id).join(', ')}`
+  );
+
+  if (gallery) {
+    const doc = gallery.build();
+    /*
+     * Every caption prints `<name>  ·  <id>`, and the id is the half somebody
+     * types into the Insert panel — so it is also the half worth searching for.
+     *
+     * Matched on the whole shape rather than on the separator alone. A middle
+     * dot is ordinary punctuation in this library — every byline in the
+     * editorial blocks reads "Priya Raman · 4 Aug 2026 · 9 min" — so scanning
+     * for it found fifteen more "captions" than there are blocks and reported
+     * reading times as unknown block ids. The two spaces and the trailing slug
+     * are what make the caption a caption.
+     */
+    const CAPTION = /^(.+?) {2}· {2}([a-z0-9][a-z0-9-]*)$/;
+    const shown = new Set(
+      Object.values(doc.nodes)
+        .map((node) => CAPTION.exec(String(node.props?.text ?? ''))?.[2])
+        .filter(Boolean)
+    );
+
+    const missing = BLOCKS.filter((b) => !shown.has(b.id)).map((b) => b.id);
+    report.check(
+      'every block in the registry is in the gallery',
+      missing.length === 0 && BLOCKS.length > 0,
+      missing.length
+        ? `${missing.length} missing: ${missing.slice(0, 6).join(', ')}`
+        : `all ${BLOCKS.length} of them, captioned by id`
+    );
+
+    /*
+     * And the other direction, which is the one a filter would not break but a
+     * typo would: a caption naming something the registry does not have.
+     */
+    const ids = new Set(BLOCKS.map((b) => b.id));
+    const strays = [...shown].filter((id) => !ids.has(id));
+    report.check(
+      'and nothing is in the gallery that is not in the registry',
+      strays.length === 0,
+      strays.length ? strays.slice(0, 6).join(', ') : `${shown.size} captions, every id real`
+    );
+
+    /*
+     * A block whose category is not in `BLOCK_CATEGORIES` gets no page at all,
+     * because the gallery walks the category list to decide what pages to make.
+     * That is a way to be missing that the count above would also catch — but
+     * this one says *why*, which is the difference between a failing test and a
+     * useful one.
+     */
+    const known = new Set(BLOCK_CATEGORIES.map((c) => c.id));
+    const orphans = BLOCKS.filter((b) => !known.has(b.category)).map((b) => `${b.id}:${b.category}`);
+    report.check(
+      'every block belongs to a category that gets a page',
+      orphans.length === 0,
+      orphans.length ? orphans.slice(0, 5).join(', ') : `${known.size} categories, ${BLOCKS.length} blocks placed`
+    );
+
+    report.check(
+      'and there is a page for each category, plus the overview',
+      doc.pages.length === BLOCK_CATEGORIES.length + 1,
+      `${doc.pages.length} pages for ${BLOCK_CATEGORIES.length} categories`
+    );
+
+    /*
+     * The check has to be able to fail. If the caption format ever changes, the
+     * scan above finds nothing, `missing` becomes every block, and that reads
+     * as a catastrophe rather than as a broken test — so the count of captions
+     * is asserted too, and it is the number that tells the two apart.
+     */
+    report.check(
+      'the scan is reading real captions rather than nothing',
+      shown.size === BLOCKS.length,
+      `${shown.size} captions found for ${BLOCKS.length} blocks`
+    );
+  }
 }
 
 
