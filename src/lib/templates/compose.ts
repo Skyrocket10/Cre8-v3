@@ -847,6 +847,18 @@ export interface GalleryItem {
   wide?: boolean;
 }
 
+/**
+ * A wide card gets a wide picture unless the caller says otherwise.
+ *
+ * Not cosmetic: at three columns a double-width card is a bit over twice as
+ * wide as its neighbours, so holding the ratio at 4/3 makes it twice as tall
+ * as well and the row goes badly out of balance. A letterbox crop brings the
+ * two within a hand's breadth of each other, which is as close as a fixed
+ * ratio can get across breakpoints.
+ */
+const ratioOf = (item: GalleryItem): string =>
+  item.ratio ?? (item.wide ? '11 / 4' : '4 / 3');
+
 export function galleryBlock(
   title: string,
   intro: string | undefined,
@@ -868,7 +880,6 @@ export function galleryBlock(
               ...radius('var(--r-lg)'),
               overflow: 'hidden',
               ...border('1px', 'var(--c-border)'),
-              transition: 'transform 220ms ease, box-shadow 220ms ease',
               ...(item.wide ? { gridColumn: 'span 2' } : {}),
               /*
                * Arrives as it is scrolled to, and costs the page nothing to run:
@@ -892,7 +903,17 @@ export function galleryBlock(
                   },
                 }
               : {}),
-            states: { hover: { transform: 'translateY(-3px)', boxShadow: 'var(--sh-lg)' } },
+            /*
+             * And no lift on hover, which it used to have.
+             *
+             * That lift was borrowed from a card you click, and while this
+             * block was standing in for the agency's case studies it was very
+             * nearly honest. It is not any more: `workGridBlock` is where a
+             * card that goes somewhere lives, and what is left here is a wall
+             * of pictures. A photograph that rises under the pointer and does
+             * nothing when pressed is the smallest possible lie a page can
+             * tell, and it is still one.
+             */
             children: [
               item.photo
                 ? photo({
@@ -900,11 +921,11 @@ export function galleryBlock(
                     // Square off the bottom: the card's own radius clips it,
                     // and a rounded photo inside a rounded card leaves a
                     // sliver of border showing at each corner.
-                    styles: { ...radius('0px'), aspectRatio: item.ratio ?? '4 / 3' },
+                    styles: { ...radius('0px'), aspectRatio: ratioOf(item) },
                   })
                 : frame('Thumbnail', [], {
                     width: '100%',
-                    aspectRatio: item.ratio ?? '4 / 3',
+                    aspectRatio: ratioOf(item),
                     backgroundImage: item.gradient ?? 'linear-gradient(135deg, var(--c-surface-2), var(--c-surface))',
                   }),
               stack(
@@ -931,7 +952,20 @@ export function galleryBlock(
             ],
           })),
           columns,
-          { gap: '20px' }
+          /*
+           * `start`, so a card is as tall as its own contents.
+           *
+           * Grid stretches by default, and in a mixed-width gallery that is
+           * wrong in a way that looks like a bug: a double-width card at the
+           * same aspect ratio is roughly twice as tall as its neighbour, and
+           * stretching makes the neighbour a tall empty box with its caption
+           * stranded at the top. Exact height matching is not available —
+           * whatever ratio pairs at three columns is wrong at two, because the
+           * wide card's share of the row changes and the narrow one's does not
+           * — so the honest arrangement is ragged bottoms and cards that are
+           * the size of what is in them.
+           */
+          { gap: '20px', alignItems: 'start' }
         ),
       ],
       { gap: '52px' }
@@ -992,7 +1026,21 @@ export function listBlock(
               )
             ),
             columns,
-            { gap: '24px 40px' },
+            {
+              gap: '24px 40px',
+              // The same measure `feedBlock` takes, for the same reason: one
+              // column across the full content width leaves a left-aligned
+              // list sitting off to one side of its own centred title, with
+              // every row's meta stranded at the far edge.
+              ...(columns === 1
+                ? {
+                    maxWidth: 'var(--w-narrow)',
+                    width: '100%',
+                    marginLeft: 'auto',
+                    marginRight: 'auto',
+                  }
+                : {}),
+            },
             { mobile: { gridTemplateColumns: '1fr' } }
           ),
         ],
@@ -1015,6 +1063,12 @@ export interface FeedOptions {
   collection: string;
   /** Where a card goes — the deferred reference to the detail page. */
   detail: string;
+  /**
+   * Which fields a row reads. The defaults are an essay's; a list of projects
+   * calls the same three things by different names, and renaming the *fields*
+   * to suit the block would be the design dictating the content model.
+   */
+  fields?: { title?: string; meta?: string; summary?: string };
   columns?: number;
   /** Rows per published file. Splits the page, not the list. */
   paginate?: number;
@@ -1040,10 +1094,15 @@ export function feedBlock({
   intro,
   collection,
   detail,
+  fields = {},
   columns = 2,
   paginate,
   surface = false,
 }: FeedOptions): NodeSpec {
+  const titleField = fields.title ?? 'title';
+  const metaField = fields.meta ?? 'readingTime';
+  const summaryField = fields.summary ?? 'excerpt';
+
   const card: NodeSpec = {
     type: 'link',
     name: 'Essay card',
@@ -1071,7 +1130,7 @@ export function feedBlock({
               lineHeight: '1.35',
               flexGrow: '1',
             }),
-            bind: { text: 'title' },
+            bind: { text: titleField },
           },
           {
             ...text('12 min', {
@@ -1080,12 +1139,15 @@ export function feedBlock({
               color: 'var(--c-primary)',
               whiteSpace: 'nowrap',
             }),
-            bind: { text: 'readingTime' },
+            bind: { text: metaField },
           },
         ],
         { gap: '16px', alignItems: 'baseline', width: '100%' }
       ),
-      { ...body('The essay’s opening line.', { fontSize: '14.5px' }), bind: { text: 'excerpt' } },
+      {
+        ...body('The essay’s opening line.', { fontSize: '14.5px' }),
+        bind: { text: summaryField },
+      },
     ],
   };
 
@@ -1096,7 +1158,36 @@ export function feedBlock({
         [
           sectionHeader(undefined, title, intro),
           {
-            ...grid('Essays', [card], columns, { gap: '8px 40px' }, { mobile: { gridTemplateColumns: '1fr' } }),
+            ...grid(
+              'Essays',
+              [card],
+              columns,
+              {
+                gap: '8px 40px',
+                /*
+                 * One column is a different shape, not a narrower two.
+                 *
+                 * Each row puts its title at the left edge and its meta at the
+                 * right, which works across a card and falls apart across a
+                 * container: at full content width the date ends up four
+                 * hundred pixels from the title it belongs to and the eye
+                 * cannot pair them. Two columns already halve the distance, so
+                 * only the single-column case needs the measure.
+                 */
+                // Centred with it, because `sectionHeader` is centred and a
+                // capped list left in place sits off to one side of its own
+                // title.
+                ...(columns === 1
+                  ? {
+                      maxWidth: 'var(--w-narrow)',
+                      width: '100%',
+                      marginLeft: 'auto',
+                      marginRight: 'auto',
+                    }
+                  : {}),
+              },
+              { mobile: { gridTemplateColumns: '1fr' } }
+            ),
             repeat: { collection, ...(paginate ? { paginate } : {}) },
           },
           // Only where the list is split. `series:prev` and `series:next`
@@ -1313,6 +1404,29 @@ export interface CaseStudyOptions {
   };
   /** Named pairs down the side: `label` is fixed, `field` varies per record. */
   facts?: { label: string; field: string }[];
+  /**
+   * A hero picture. On by default, off for a site that has no photography.
+   *
+   * A boolean and not a nullable field name, because the question is not which
+   * field holds the picture — that is `fields.image` — but whether this kind of
+   * record has one at all. A designer's portfolio of software has screenshots;
+   * a writer's list of projects often has nothing to photograph, and a block
+   * that insists leaves a grey rectangle where the record's silence was.
+   */
+  picture?: boolean;
+  /** The hero's shape. Landscape suits work; a product wants its own. */
+  ratio?: string;
+  /**
+   * A ceiling on how wide the hero gets, and therefore on how tall.
+   *
+   * Needed the moment the ratio stops being landscape. A 16/9 hero across the
+   * content width is about five hundred pixels tall and reads as a header; the
+   * same width at 1/1 is eight hundred, which is a screen and a half of
+   * photograph with the price underneath it. Capping the width rather than the
+   * height because a square product shot cropped to a letterbox loses the top
+   * and the bottom of the object, which on a carafe is the object.
+   */
+  pictureWidth?: string;
 }
 
 /**
@@ -1334,6 +1448,9 @@ export function caseStudyBlock({
   backLabel = '← All work',
   fields = {},
   facts = [],
+  picture = true,
+  ratio = '16 / 9',
+  pictureWidth,
 }: CaseStudyOptions): NodeSpec {
   const titleField = fields.title ?? 'title';
   const eyebrowField = fields.eyebrow ?? 'client';
@@ -1404,19 +1521,27 @@ export function caseStudyBlock({
           ],
           { flexDirection: 'column', alignItems: 'flex-start', gap: '18px', width: '100%' }
         ),
-        {
-          ...photo({
-            seed: 'ff-case-hero',
-            alt: 'The work',
-            width: 1600,
-            height: 900,
-            // Above the fold on this page in a way it never is in the grid,
-            // and the one image on it: worth the eager fetch.
-            priority: true,
-            styles: { aspectRatio: '16 / 9', width: '100%' },
-          }),
-          bind: { src: imageField, alt: altField },
-        },
+        ...(picture
+          ? [
+              {
+                ...photo({
+                  seed: 'ff-case-hero',
+                  alt: 'The work',
+                  width: 1600,
+                  height: 900,
+                  // Above the fold on this page in a way it never is in the
+                  // grid, and the one image on it: worth the eager fetch.
+                  priority: true,
+                  styles: {
+                    aspectRatio: ratio,
+                    width: '100%',
+                    ...(pictureWidth ? { maxWidth: pictureWidth } : {}),
+                  },
+                }),
+                bind: { src: imageField, alt: altField },
+              },
+            ]
+          : []),
         /*
          * Facts beside the prose on a wide screen, above it on a narrow one —
          * `flex-wrap` rather than a grid, because the two are not tracks: the
@@ -1474,7 +1599,27 @@ export function caseStudyBlock({
  * is bound, so the page is a template rather than a page — the publisher makes
  * one file per record from it.
  */
-export function articleBlock(back: string): NodeSpec {
+export interface ArticleOptions {
+  backLabel?: string;
+  /**
+   * Which fields it reads.
+   *
+   * Named rather than assumed, and the reason is worth stating: a field the
+   * record does not carry leaves the design-time prop alone — that is what
+   * makes a half-filled record show placeholder copy rather than a row of
+   * blanks. It also means a block bound to `readingTime` on a collection whose
+   * records carry `date` publishes the literal words "12 min" to a real page,
+   * and nothing anywhere would call that an error.
+   */
+  fields?: { title?: string; meta?: string; body?: string };
+}
+
+export function articleBlock(back: string, options: ArticleOptions = {}): NodeSpec {
+  const { backLabel = '← All essays', fields = {} } = options;
+  const titleField = fields.title ?? 'title';
+  const metaField = fields.meta ?? 'readingTime';
+  const bodyField = fields.body ?? 'body';
+
   return section('Essay', [
     {
       ...container(
@@ -1482,7 +1627,7 @@ export function articleBlock(back: string): NodeSpec {
           {
             type: 'link',
             name: 'Back',
-            props: { text: '← All essays', href: back },
+            props: { text: backLabel, href: back },
             styles: { fontSize: '14px', color: 'var(--c-muted)' },
             states: { hover: { color: 'var(--c-text)' } },
           },
@@ -1493,7 +1638,7 @@ export function articleBlock(back: string): NodeSpec {
               { fontSize: '44px', fontWeight: '600', lineHeight: '1.14', letterSpacing: '-0.028em' },
               { mobile: { fontSize: '31px' } }
             ),
-            bind: { text: 'title' },
+            bind: { text: titleField },
           },
           {
             ...text('12 min', {
@@ -1503,13 +1648,13 @@ export function articleBlock(back: string): NodeSpec {
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
             }),
-            bind: { text: 'readingTime' },
+            bind: { text: metaField },
           },
           {
             type: 'richtext',
             name: 'Essay body',
             props: { html: '<p>The essay.</p>' },
-            bind: { html: 'body' },
+            bind: { html: bodyField },
             styles: { fontSize: '18px', lineHeight: '1.7', color: 'var(--c-text)' },
           },
         ],

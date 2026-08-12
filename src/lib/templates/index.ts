@@ -893,8 +893,10 @@ const agency: TemplateDefinition = {
             }),
             caseStudyBlock({
               back: `${pageRef('')}#work`,
+              // No Client row: the eyebrow above the title already is the
+              // client, and a fact table that repeats the line above it reads
+              // as a template with a slot to fill rather than as a page.
               facts: [
-                { label: 'Client', field: 'client' },
                 { label: 'Discipline', field: 'discipline' },
                 { label: 'Year', field: 'year' },
               ],
@@ -934,6 +936,119 @@ const agency: TemplateDefinition = {
  * Portfolio
  * ----------------------------------------------------------------------- */
 
+/**
+ * Two collections on one site, which nothing in the library had yet.
+ *
+ * Worth doing for the template and worth doing for the proof. A personal site
+ * is the obvious case — projects and writing are different shapes with
+ * different fields and different detail pages — and until now every document
+ * with a collection had exactly one, so "a page is a template for a
+ * collection" was a claim resting on a single example.
+ */
+const PROJECTS: SeedRow[] = [
+  {
+    collection: 'Projects',
+    slug: 'lumen-editor',
+    data: {
+      title: 'Lumen Editor',
+      period: '2024 — now',
+      role: 'Design lead',
+      team: 'Four designers, twenty engineers',
+      summary:
+        'Rebuilt the document editor around a live outline. Time-to-first-draft fell by a third.',
+      body:
+        '<p>Lumen’s editor had the problem long-document editors have: writers could see the paragraph they were in and nothing else, so structure was something you held in your head and lost every time you left the tab.</p>' +
+        '<p>The outline is not a sidebar of headings. It is the document at a different zoom — you can drag in it, type in it, and collapse a section to a line, and the prose view follows. Building it meant making the document model addressable at every level, which took most of the first year and is the reason the rest was quick.</p>' +
+        '<p>The number I care about is not time-to-first-draft. It is that support stopped receiving “I lost my place” tickets entirely.</p>',
+    },
+  },
+  {
+    collection: 'Projects',
+    slug: 'basewave-console',
+    data: {
+      title: 'Basewave Console',
+      period: '2022 — 2024',
+      role: 'Design lead',
+      team: 'Two designers, nine engineers',
+      summary:
+        'Design lead on the developer console: navigation, data density, the whole dark theme.',
+      body:
+        '<p>Developer consoles are read, not browsed. The old one was laid out like a marketing site — generous whitespace, one card per fact — and engineers were reading it in a second monitor at three in the morning while something was on fire.</p>' +
+        '<p>So the redesign went the other way: tighter rows, more per screen, and a dark theme built first rather than derived. Density is not clutter when every line on screen is a line somebody came for.</p>' +
+        '<p>The navigation was the harder half. Sixty-one pages that had accreted over four years went to nine sections, and the rule for what earned a section was how often somebody arrived there from a link rather than from the menu.</p>',
+    },
+  },
+  {
+    collection: 'Projects',
+    slug: 'tempo',
+    data: {
+      title: 'Tempo',
+      period: '2021',
+      role: 'Everything',
+      team: 'Just me',
+      summary:
+        'A small calendar app for people who plan in blocks. Sold to a larger calendar app.',
+      body:
+        '<p>Tempo started because every calendar I had used was a grid of appointments other people had made for me, and none of them had anywhere to put the work.</p>' +
+        '<p>It did one thing: you drag a block of time onto the day and give it a name, and the appointments arrange themselves around what you have already claimed. About nine hundred people paid for it.</p>' +
+        '<p>It is now a feature inside something larger, which is a fine ending for a small app.</p>',
+    },
+  },
+  {
+    collection: 'Projects',
+    slug: 'field-notes',
+    data: {
+      title: 'Field Notes',
+      period: 'Ongoing',
+      role: 'Maintainer',
+      team: 'Eleven contributors',
+      summary: 'An open-source note-taking format and the reference client for it.',
+      body:
+        '<p>A plain-text note format with a specification short enough to read in one sitting, and a client that proves the specification is sufficient rather than aspirational.</p>' +
+        '<p>The design work here is mostly refusal. Every request to add a field to the format is a request to make every other implementation wrong, so the answer is usually no and the reason has to be written down.</p>',
+    },
+  },
+];
+
+const NOTES: SeedRow[] = [
+  {
+    collection: 'Notes',
+    slug: 'density-is-a-feature',
+    data: {
+      title: 'Density is a feature',
+      date: 'Mar 2026',
+      excerpt: 'Why professional software should not look like a consumer app.',
+      body:
+        '<p>Consumer apps are designed for people who did not come for anything in particular. Professional software is used by people who arrived knowing what they wanted and are being kept from it.</p>' +
+        '<p>Those are opposite briefs, and the second one rewards density: more on screen means fewer trips, and fewer trips means the tool disappears. The mistake is thinking density means cramped. A dense screen with a clear reading order is calmer than a sparse one you have to scroll.</p>',
+    },
+  },
+  {
+    collection: 'Notes',
+    slug: 'against-the-empty-state',
+    data: {
+      title: 'Against the empty state',
+      date: 'Jan 2026',
+      excerpt: 'The blank screen is the hardest screen. Most products give up on it.',
+      body:
+        '<p>The empty state is where a product explains itself to somebody who has not decided to trust it yet, and it is almost always the last screen anyone designs.</p>' +
+        '<p>What usually ships is an illustration and a sentence beginning “You don’t have any”. What should ship is the thing itself, half made, with the next move obvious.</p>',
+    },
+  },
+  {
+    collection: 'Notes',
+    slug: 'notes-on-undo',
+    data: {
+      title: 'Notes on undo',
+      date: 'Nov 2025',
+      excerpt: 'Undo is not a feature you add later. It is a shape your whole app takes.',
+      body:
+        '<p>Undo added at the end is a stack of inverse operations somebody has to remember to write, and the one nobody wrote is the one that loses work.</p>' +
+        '<p>Undo designed in is a different thing: every change is a transaction, the transaction is the unit the app thinks in, and undo is what you get for free once it is. The cost is paid on day one and never again.</p>',
+    },
+  },
+];
+
 const portfolio: TemplateDefinition = {
   id: 'portfolio',
   name: 'Portfolio',
@@ -955,12 +1070,36 @@ const portfolio: TemplateDefinition = {
         inverse: '#0c0a09',
       },
       fonts: { heading: 'Instrument Serif', body: 'Inter' },
+      collections: [
+        {
+          name: 'Projects',
+          slugField: 'title',
+          fields: [
+            { key: 'title', label: 'Title', type: 'text', required: true },
+            { key: 'period', label: 'Period', type: 'text' },
+            { key: 'role', label: 'Role', type: 'text' },
+            { key: 'team', label: 'Team', type: 'text' },
+            { key: 'summary', label: 'Summary', type: 'text' },
+            { key: 'body', label: 'Body', type: 'richtext' },
+          ],
+        },
+        {
+          name: 'Notes',
+          slugField: 'title',
+          fields: [
+            { key: 'title', label: 'Title', type: 'text', required: true },
+            { key: 'date', label: 'Date', type: 'text' },
+            { key: 'excerpt', label: 'Excerpt', type: 'text' },
+            { key: 'body', label: 'Body', type: 'richtext' },
+          ],
+        },
+      ],
       pages: [
         {
           name: 'Home',
           slug: '',
           isHome: true,
-          sections: [
+          sections: (ids) => [
             navBlock({
               brand: 'Ilse Moreau',
               brandIcon: 'pen-tool',
@@ -978,34 +1117,33 @@ const portfolio: TemplateDefinition = {
               tone: 'plain',
               buttons: [{ label: 'Get in touch', variant: 'secondary', jumpTo: 'Call to action' }],
             }),
+            /*
+             * Both lists were `listBlock` — rows of text with nowhere to go,
+             * on a site whose entire purpose is somebody reading about the
+             * work. A visitor who wants to know what Lumen Editor was had no
+             * next click.
+             */
             anchored(
-              listBlock(
-                'Work',
-                'Selected work',
-                undefined,
-                [
-                  { title: 'Lumen Editor', meta: '2024 — now', body: 'Rebuilt the document editor around a live outline. Time-to-first-draft fell by a third.' },
-                  { title: 'Basewave Console', meta: '2022 — 2024', body: 'Design lead on the developer console: navigation, data density, the whole dark theme.' },
-                  { title: 'Tempo', meta: '2021', body: 'A small calendar app for people who plan in blocks. Sold to a larger calendar app.' },
-                  { title: 'Field Notes', meta: 'Ongoing', body: 'An open-source note-taking format and the reference client for it.' },
-                ],
-                1
-              ),
+              feedBlock({
+                name: 'Work',
+                title: 'Selected work',
+                collection: ids.Projects ?? '',
+                detail: pageRef('projects'),
+                fields: { meta: 'period', summary: 'summary' },
+                columns: 1,
+              }),
               'work'
             ),
             anchored(
-              listBlock(
-                'Writing',
-                'Writing',
-                undefined,
-                [
-                  { title: 'Density is a feature', meta: 'Mar 2026', body: 'Why professional software should not look like a consumer app.' },
-                  { title: 'Against the empty state', meta: 'Jan 2026', body: 'The blank screen is the hardest screen. Most products give up on it.' },
-                  { title: 'Notes on undo', meta: 'Nov 2025', body: 'Undo is not a feature you add later. It is a shape your whole app takes.' },
-                ],
-                1,
-                true
-              ),
+              feedBlock({
+                name: 'Writing',
+                title: 'Writing',
+                collection: ids.Notes ?? '',
+                detail: pageRef('notes'),
+                fields: { meta: 'date' },
+                columns: 1,
+                surface: true,
+              }),
               'writing'
             ),
             anchored(
@@ -1033,8 +1171,99 @@ const portfolio: TemplateDefinition = {
             ], 'pen-tool'),
           ],
         },
+        {
+          name: 'Project',
+          slug: 'projects',
+          title: 'A project — Ilse Moreau',
+          dynamic: 'Projects',
+          sections: () => [
+            navBlock({
+              brand: 'Ilse Moreau',
+              brandIcon: 'pen-tool',
+              links: [
+                { label: 'Work', href: `${pageRef('')}#work` },
+                { label: 'Writing', href: `${pageRef('')}#writing` },
+                { label: 'Contact', href: `${pageRef('')}#contact` },
+              ],
+              sticky: false,
+            }),
+            caseStudyBlock({
+              back: `${pageRef('')}#work`,
+              backLabel: '← All work',
+              // No photography anywhere on this site — a serif and a warm
+              // paper background, and nothing to photograph in most of these
+              // projects anyway. A hero here would be a grey rectangle
+              // standing in for a picture that is never coming.
+              picture: false,
+              fields: { eyebrow: 'period' },
+              facts: [
+                { label: 'Role', field: 'role' },
+                { label: 'Team', field: 'team' },
+              ],
+            }),
+            footerBlock('Ilse Moreau', 'Product designer, Amsterdam.', [
+              {
+                title: 'This site',
+                links: [
+                  { label: 'Work', href: `${pageRef('')}#work` },
+                  { label: 'Writing', href: `${pageRef('')}#writing` },
+                ],
+              },
+              {
+                title: 'Elsewhere',
+                links: [
+                  { label: 'Email', href: 'mailto:ilse@moreau.design' },
+                  { label: 'Are.na', href: 'https://are.na' },
+                  { label: 'GitHub', href: 'https://github.com' },
+                ],
+              },
+            ], 'pen-tool'),
+          ],
+        },
+        {
+          name: 'Note',
+          slug: 'notes',
+          title: 'A note — Ilse Moreau',
+          dynamic: 'Notes',
+          sections: () => [
+            navBlock({
+              brand: 'Ilse Moreau',
+              brandIcon: 'pen-tool',
+              links: [
+                { label: 'Work', href: `${pageRef('')}#work` },
+                { label: 'Writing', href: `${pageRef('')}#writing` },
+                { label: 'Contact', href: `${pageRef('')}#contact` },
+              ],
+              sticky: false,
+            }),
+            // The prose shape, not the case-study one: a note is a column of
+            // writing with a date on it and nothing to tabulate beside it.
+            articleBlock(`${pageRef('')}#writing`, {
+              backLabel: '← All writing',
+              fields: { meta: 'date' },
+            }),
+            footerBlock('Ilse Moreau', 'Product designer, Amsterdam.', [
+              {
+                title: 'This site',
+                links: [
+                  { label: 'Work', href: `${pageRef('')}#work` },
+                  { label: 'Writing', href: `${pageRef('')}#writing` },
+                ],
+              },
+              {
+                title: 'Elsewhere',
+                links: [
+                  { label: 'Email', href: 'mailto:ilse@moreau.design' },
+                  { label: 'Are.na', href: 'https://are.na' },
+                  { label: 'GitHub', href: 'https://github.com' },
+                ],
+              },
+            ], 'pen-tool'),
+          ],
+        },
       ],
     }),
+  seed: [...PROJECTS, ...NOTES],
 };
 
 /* --------------------------------------------------------------------------
@@ -1074,6 +1303,7 @@ const restaurant: TemplateDefinition = {
               links: [
                 { label: 'Menu', jumpTo: 'Menu' },
                 { label: 'Story', jumpTo: 'Split' },
+                { label: 'The room', jumpTo: 'Gallery' },
                 { label: 'Visit', jumpTo: 'Footer' },
               ],
               cta: { label: 'Book a table', jumpTo: 'Contact' },
@@ -1129,6 +1359,36 @@ const restaurant: TemplateDefinition = {
               }),
               'story'
             ),
+            /*
+             * The one gallery in the library that should not be a collection.
+             *
+             * Everywhere else a grid of pictures was cards pretending to be
+             * links, and V2 turned those into records with pages. Not here:
+             * nobody clicks a photograph of a dining room to read more about
+             * the dining room. Five pictures, hand-placed, two of them wide —
+             * which is also the only arrangement a repeater cannot draw, so
+             * this is where `galleryBlock`'s bento earns its keep.
+             */
+            anchored(
+              galleryBlock(
+                'The room',
+                undefined,
+                [
+                  /*
+                   * Two wide and two ordinary is six cells in three columns:
+                   * two exact rows, wide-then-narrow and narrow-then-wide, no
+                   * trailing gap. Five pictures would have been seven cells
+                   * and left two holes at the end, which is the arithmetic to
+                   * do before choosing the photographs rather than after.
+                   */
+                  { title: 'The counter', subtitle: 'Eight seats, first come', wide: true, photo: { seed: 'ambrose-counter', alt: 'The counter at Ambrose, eight stools along the kitchen', width: 1400, height: 510 } },
+                  { title: 'Bread, every morning', photo: { seed: 'ambrose-bread', alt: 'Loaves cooling on a rack behind the pass', width: 900, height: 675 } },
+                  { title: 'The garden tables', subtitle: 'April to September', photo: { seed: 'ambrose-garden', alt: 'Four tables in a walled garden, early evening', width: 900, height: 675 } },
+                  { title: 'Last orders', subtitle: 'Kitchen closes at ten', wide: true, photo: { seed: 'ambrose-night', alt: 'The dining room late, two tables still seated', width: 1400, height: 510 } },
+                ]
+              ),
+              'room'
+            ),
             anchored(
               contactBlock('Book a table', 'Bookings open two weeks ahead. Walk-ins welcome at the counter.', 'Request a table'),
               'book'
@@ -1167,6 +1427,93 @@ const restaurant: TemplateDefinition = {
  * Ecommerce
  * ----------------------------------------------------------------------- */
 
+/**
+ * Four pieces, each with a page.
+ *
+ * The price is its own field rather than part of the title, which is the
+ * change that makes the rest possible: "Ridge mug · £24" is one string a
+ * template author typed, and a shop needs the number separately to show it on
+ * the card, on the page, and eventually to a basket.
+ */
+const PRODUCTS: SeedRow[] = [
+  {
+    collection: 'Products',
+    slug: 'ridge-mug',
+    data: {
+      title: 'Ridge mug',
+      price: '£24',
+      range: 'Everyday range',
+      material: 'Stoneware, six glazes',
+      size: '9cm tall, 300ml',
+      care: 'Dishwasher and microwave safe',
+      summary:
+        'A mug with a thumb-width ridge where your hand goes, in a shape that stays hot for the length of a conversation.',
+      image: photoUrl('verdant-mug', 700, 700),
+      alt: 'A ridged stoneware mug in green glaze',
+      body:
+        '<p>The ridge started as a throwing mark nobody meant to leave. It turned out to be the thing everybody held the mug by, so the fourth prototype put it there on purpose and the shape has not changed since.</p>' +
+        '<p>Thrown on the wheel in Stoke, bisque fired, glazed by hand and fired again. Each one is slightly different and the ones that are too different do not leave the workshop.</p>',
+    },
+  },
+  {
+    collection: 'Products',
+    slug: 'coupe-bowl',
+    data: {
+      title: 'Coupe bowl',
+      price: '£32',
+      range: 'Everyday range',
+      material: 'Stoneware, pale glaze',
+      size: '18cm across, sold in twos',
+      care: 'Dishwasher and oven safe to 180°C',
+      summary:
+        'A shallow bowl wide enough for a whole dinner and low enough to eat out of on a sofa.',
+      image: photoUrl('verdant-bowl', 700, 700),
+      alt: 'A shallow coupe bowl, pale glaze, seen from above',
+      body:
+        '<p>Most bowls are designed to hold soup and then used for everything else. This one is the other way round: the depth is set by a plate of pasta and it takes soup anyway.</p>' +
+        '<p>Sold in twos because the second one is always needed within a week.</p>',
+    },
+  },
+  {
+    collection: 'Products',
+    slug: 'slab-plate',
+    data: {
+      title: 'Slab plate',
+      price: '£28',
+      range: 'Table range',
+      material: 'Hand-cut stoneware, four glazes',
+      size: '26cm across, no two alike',
+      care: 'Dishwasher safe, not for the oven',
+      summary:
+        'Rolled and cut by hand rather than thrown, so the rim is uneven on purpose and never twice the same way.',
+      image: photoUrl('verdant-plate', 700, 700),
+      alt: 'A hand-cut slab plate with an uneven rim',
+      body:
+        '<p>A slab plate is made flat: the clay is rolled to thickness, cut, and lifted onto a mould to take a shallow curve. There is no wheel involved, which is why the edge is never a circle.</p>' +
+        '<p>They stack, but not perfectly. That is the trade.</p>',
+    },
+  },
+  {
+    collection: 'Products',
+    slug: 'carafe',
+    data: {
+      title: 'Carafe',
+      price: '£46',
+      range: 'Table range',
+      material: 'Stoneware, unglazed foot',
+      size: 'One litre, 24cm tall',
+      care: 'Hand wash — the unglazed foot holds water',
+      summary:
+        'A litre of water on the table without a plastic bottle in sight, with a neck that pours without glugging.',
+      image: photoUrl('verdant-carafe', 700, 700),
+      alt: 'A one-litre carafe beside two small tumblers',
+      body:
+        '<p>The neck went through eleven versions. Too narrow and it glugs, too wide and it dribbles down the side, and the difference between the two is about four millimetres.</p>' +
+        '<p>The foot is left unglazed so it grips a wet worktop, which does mean washing it by hand.</p>',
+    },
+  },
+];
+
 const ecommerce: TemplateDefinition = {
   id: 'ecommerce',
   name: 'Ecommerce',
@@ -1188,12 +1535,30 @@ const ecommerce: TemplateDefinition = {
         inverse: '#0c1512',
       },
       fonts: { heading: 'Manrope', body: 'Inter' },
+      collections: [
+        {
+          name: 'Products',
+          slugField: 'title',
+          fields: [
+            { key: 'title', label: 'Title', type: 'text', required: true },
+            { key: 'price', label: 'Price', type: 'text' },
+            { key: 'range', label: 'Range', type: 'text' },
+            { key: 'material', label: 'Material', type: 'text' },
+            { key: 'size', label: 'Size', type: 'text' },
+            { key: 'care', label: 'Care', type: 'text' },
+            { key: 'summary', label: 'Summary', type: 'text' },
+            { key: 'image', label: 'Image', type: 'image' },
+            { key: 'alt', label: 'Image description', type: 'text' },
+            { key: 'body', label: 'Body', type: 'richtext' },
+          ],
+        },
+      ],
       pages: [
         {
           name: 'Home',
           slug: '',
           isHome: true,
-          sections: [
+          sections: (ids) => [
             // A cart button with no cart behind it is the worst kind of dead
             // link: it looks like the one control on the page that must work.
             navBlock({
@@ -1223,17 +1588,16 @@ const ecommerce: TemplateDefinition = {
               align: 'left',
             }),
             anchored(
-              galleryBlock(
-                'Best sellers',
-                'The pieces people come back for.',
-                [
-                  { title: 'Ridge mug · £24', subtitle: 'Six colours', ratio: '1 / 1', photo: { seed: 'verdant-mug', alt: 'A ridged stoneware mug in green glaze', width: 700, height: 700 } },
-                  { title: 'Coupe bowl · £32', subtitle: 'Set of two', ratio: '1 / 1', photo: { seed: 'verdant-bowl', alt: 'A shallow coupe bowl, pale glaze, seen from above', width: 700, height: 700 } },
-                  { title: 'Slab plate · £28', subtitle: 'Four colours', ratio: '1 / 1', photo: { seed: 'verdant-plate', alt: 'A hand-cut slab plate with an uneven rim', width: 700, height: 700 } },
-                  { title: 'Carafe · £46', subtitle: 'One litre', ratio: '1 / 1', photo: { seed: 'verdant-carafe', alt: 'A one-litre carafe beside two small tumblers', width: 700, height: 700 } },
-                ],
-                4
-              ),
+              workGridBlock({
+                title: 'Best sellers',
+                intro: 'The pieces people come back for.',
+                collection: ids.Products ?? '',
+                detail: pageRef('shop'),
+                fields: { meta: 'price' },
+                cue: 'See the piece',
+                columns: 4,
+                ratio: '1 / 1',
+              }),
               'shop'
             ),
             anchored(
@@ -1273,8 +1637,76 @@ const ecommerce: TemplateDefinition = {
             ], 'sprout'),
           ],
         },
+        {
+          name: 'Product',
+          slug: 'shop',
+          title: 'A piece — Verdant',
+          dynamic: 'Products',
+          sections: () => [
+            navBlock({
+              brand: 'Verdant',
+              brandIcon: 'sprout',
+              links: [
+                { label: 'Shop', href: `${pageRef('')}#shop` },
+                { label: 'Why Verdant', href: `${pageRef('')}#promises` },
+              ],
+              cta: { label: 'Sign up', href: `${pageRef('')}#newsletter` },
+            }),
+            caseStudyBlock({
+              back: `${pageRef('')}#shop`,
+              backLabel: '← Everything',
+              // Square, like the piece on the card. A product photographed at
+              // 16/9 is a product with a lot of table in the shot — and capped,
+              // because square across the full content width is a wall.
+              ratio: '1 / 1',
+              pictureWidth: '520px',
+              fields: { eyebrow: 'range' },
+              facts: [
+                { label: 'Price', field: 'price' },
+                { label: 'Material', field: 'material' },
+                { label: 'Size', field: 'size' },
+                { label: 'Care', field: 'care' },
+              ],
+            }),
+            /*
+             * And still no basket, for the reason the nav gives above: a
+             * button that says "Add to basket" and does nothing is worse on
+             * this page than it was on that one, because here it is the only
+             * thing the visitor came to press. The mailing list is a real
+             * destination, so that is what the page offers.
+             */
+            ctaBlock(
+              'Ten percent off your first order',
+              'Join the list for new drops and the occasional seconds sale.',
+              [
+                {
+                  label: 'Sign up',
+                  href: 'mailto:list@verdant.studio?subject=Add%20me%20to%20the%20list',
+                },
+              ],
+              'surface'
+            ),
+            footerBlock('Verdant', 'Everyday ceramics, made in small batches.', [
+              {
+                title: 'Shop',
+                links: [
+                  { label: 'Best sellers', href: `${pageRef('')}#shop` },
+                  { label: 'Ten percent off', href: `${pageRef('')}#newsletter` },
+                ],
+              },
+              {
+                title: 'Help',
+                links: [
+                  { label: 'Delivery and guarantee', href: `${pageRef('')}#promises` },
+                  { label: 'hello@verdant.studio', href: 'mailto:hello@verdant.studio' },
+                ],
+              },
+            ], 'sprout'),
+          ],
+        },
       ],
     }),
+  seed: PRODUCTS,
 };
 
 /**
