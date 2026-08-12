@@ -13,7 +13,9 @@ import {
   BREAKPOINT_DEFS,
   type CollectionRecord,
   type Cre8Document,
+  type NodeId,
   type NodeProps,
+  type Page,
   type SceneNode,
 } from '../document/types';
 import { needsRuntime, publishedValues, stateFrom } from './test';
@@ -194,7 +196,28 @@ const READABLE = new Set<string>([
 ]);
 
 /**
- * A jump to somewhere on this page, or `null` if that is not what this is.
+ * Which page a node belongs to, or `undefined` for one that belongs to none.
+ *
+ * Walking parents rather than searching subtrees: the chain is short and the
+ * alternative is a scan of every page for every reference. `undefined` is a
+ * real answer, not a failure — a node inside a *component master* has no page,
+ * because the master is not on one. The instances are.
+ */
+function pageOwning(doc: Cre8Document, id: NodeId): Page | undefined {
+  let cursor: NodeId | undefined = id;
+  const seen = new Set<NodeId>();
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const page = doc.pages.find((p) => p.rootNodeId === cursor);
+    if (page) return page;
+    cursor = doc.nodes[cursor]?.parentId ?? undefined;
+  }
+  return undefined;
+}
+
+/**
+ * A jump, resolved as far as this function can take it, or `null` if the href
+ * is not one.
  *
  * Separate and exported because there are three href resolvers — the default
  * here, the publisher's, and the canvas's — and the first version of this
@@ -208,24 +231,51 @@ const READABLE = new Set<string>([
  * has lost its anchor resolves to the empty string — the renderer's "nowhere to
  * go" signal, which hides the link — rather than to `#`, which looks fine and
  * scrolls nowhere.
+ *
+ * What it hands back for a *found* target is a page reference and a fragment,
+ * not a bare fragment, and that is the whole of the cross-page jump. Every
+ * resolver already knows what `page:<id>#frag` means: the publisher's collapses
+ * it to the fragment alone when the target page is the one being written and
+ * builds a relative path when it is not, and the canvas's leaves it inert the
+ * way it leaves every page link inert. So a jump to another page's section
+ * needed no new mechanism — only for these two to be joined, which is the
+ * reason a bare fragment was the wrong return value rather than an incomplete
+ * one. A bare fragment on a case-study page scrolls to nothing, silently,
+ * because the section it names is on the home page.
  */
 export function resolveNodeHref(doc: Cre8Document, href: string): string | null {
   const [target] = splitFragment(href);
   if (!target.startsWith(NODE_HREF_PREFIX)) return null;
-  const node = doc.nodes[target.slice(NODE_HREF_PREFIX.length)];
+  const id = target.slice(NODE_HREF_PREFIX.length);
+  const node = doc.nodes[id];
   const anchor = anchorId(node?.props.anchor);
-  return anchor ? `#${anchor}` : '';
+  if (!anchor) return '';
+  const page = pageOwning(doc, id);
+  // No page means a component master, where "which copy" has no answer — the
+  // same ambiguity `describeBase` documents for the anchor itself. The bare
+  // fragment is what the browser does best with that: the nearest match.
+  return page ? `${PAGE_HREF_PREFIX}${page.id}#${anchor}` : `#${anchor}`;
 }
 
 export function resolveHref(doc: Cre8Document, href: string | undefined, mode: RenderMode): string {
   if (!href) return mode === 'publish' ? '#' : '#';
-  // A fragment on its own is a scroll on this page and needs no resolving.
-  const [target, fragment] = splitFragment(href);
 
+  /*
+   * A jump first, and then *through* the page branch rather than around it.
+   *
+   * `resolveNodeHref` hands back `page:<id>#anchor` for a target it found, so
+   * returning it here would ship the internal scheme as an href. Feeding it
+   * back in is the point: the lines below already know how to turn a page
+   * reference and a fragment into a link, and a jump to another page's section
+   * is exactly that.
+   */
   const jump = resolveNodeHref(doc, href);
-  if (jump !== null) return jump;
+  if (jump === '') return '';
+  const resolved = jump ?? href;
 
-  if (!target.startsWith(PAGE_HREF_PREFIX)) return href;
+  // A fragment on its own is a scroll on this page and needs no resolving.
+  const [target, fragment] = splitFragment(resolved);
+  if (!target.startsWith(PAGE_HREF_PREFIX)) return resolved;
 
   const pageId = target.slice(PAGE_HREF_PREFIX.length);
   const page = doc.pages.find((p) => p.id === pageId);

@@ -99,8 +99,14 @@ export function loadBlocks() {
     // The generator, so the checks can assert on real compiled selectors
     // rather than on a description of what they are supposed to be.
     buildTree: require(path.join(OUT, 'document/factory.js')).buildTree,
+    finishDocument: require(path.join(OUT, 'document/factory.js')).finishDocument,
+    // The jump resolver on its own. It is asked by three callers and its
+    // answer now names a page, which is the whole of the cross-page jump —
+    // a claim about a function, so checked as one.
+    resolveNodeHref: require(path.join(OUT, 'renderer/element-model.js')).resolveNodeHref,
     canReparent: require(path.join(OUT, 'document/tree.js')).canReparent,
     wouldNestInteractive: require(path.join(OUT, 'document/tree.js')).wouldNestInteractive,
+    jumpTargetsFor: require(path.join(OUT, 'document/tree.js')).jumpTargetsFor,
     generateNodeCss: require(path.join(OUT, 'renderer/css.js')).generateNodeCss,
     generateStylesheet: require(path.join(OUT, 'renderer/css.js')).generateStylesheet,
     parseCustomDeclarations: require(path.join(OUT, 'renderer/css.js')).parseCustomDeclarations,
@@ -115,6 +121,7 @@ export function loadBlocks() {
     plan: require(path.join(OUT, 'publishing/routes.js')).plan,
     renderPage: onePage(require),
     createEmptyDocument: require(path.join(OUT, 'document/factory.js')).createEmptyDocument,
+    createPage: require(path.join(OUT, 'document/factory.js')).createPage,
     hydrateDocument: require(path.join(OUT, 'document/factory.js')).hydrateDocument,
     buildInto: require(path.join(OUT, 'document/factory.js')).buildTree,
     PLACEHOLDER_MIN_HEIGHT: require(path.join(OUT, 'renderer/css.js')).PLACEHOLDER_MIN_HEIGHT,

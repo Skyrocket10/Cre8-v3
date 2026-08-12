@@ -5,7 +5,7 @@
  * against an immer draft, a published snapshot or a detached component tree.
  */
 
-import { canContain, isInteractive } from './schema';
+import { canContain, getElement, isInteractive } from './schema';
 import type { Cre8Document, NodeId, Page, SceneNode } from './types';
 
 export type NodeMap = Record<NodeId, SceneNode>;
@@ -141,4 +141,45 @@ export function topMostNodes(nodes: NodeMap, ids: NodeId[]): NodeId[] {
     }
     return true;
   });
+}
+
+/**
+ * Everywhere a jump could go, across the whole site.
+ *
+ * A pure function rather than logic inside the inspector hook, and the reason
+ * is that "which page is this target on" is now part of the answer: the
+ * grouping a designer sees has to agree with the page the reference resolves
+ * against, and two copies of that rule would be two chances to disagree.
+ *
+ * The root being edited comes first and ungrouped — that is where most jumps
+ * go, and a heading over the only list anybody wanted is noise. Every other
+ * page follows under its own name. A component master is a root and is not a
+ * page, so it is passed as `rootId` and its own nodes lead the list.
+ */
+export function jumpTargetsFor(
+  doc: Pick<Cre8Document, 'nodes' | 'pages'>,
+  rootId: NodeId,
+  exclude?: NodeId
+): { id: NodeId; name: string; page?: string }[] {
+  const roots: { root: NodeId; page: string }[] = [{ root: rootId, page: '' }];
+  for (const page of doc.pages) {
+    if (page.rootNodeId !== rootId) roots.push({ root: page.rootNodeId, page: page.name });
+  }
+
+  const seen = new Set<NodeId>();
+  const out: { id: NodeId; name: string; page?: string }[] = [];
+  for (const { root, page } of roots) {
+    for (const id of collectSubtree(doc.nodes, root)) {
+      if (id === exclude || id === root || seen.has(id)) continue;
+      const node = doc.nodes[id];
+      if (!node) continue;
+      // Something with a box or a heading. A jump needs an id in the markup,
+      // which is minted when the reference is made — what it needs *here* is
+      // to be a place somebody would recognise in a list.
+      if (!getElement(node.type).container && node.type !== 'heading') continue;
+      seen.add(id);
+      out.push(page ? { id, name: node.name, page } : { id, name: node.name });
+    }
+  }
+  return out;
 }

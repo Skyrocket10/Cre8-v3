@@ -642,8 +642,18 @@ try {
 
   const padding = page.locator('[data-style-props][data-style-label="Padding"]').first();
   await padding.waitFor({ state: 'visible', timeout: 6000 });
-  const at2 = await padding.boundingBox();
-  await page.mouse.click(at2.x + 6, at2.y + 6, { button: 'right' });
+  /*
+   * Through the locator, so it is scrolled to before it is clicked.
+   *
+   * `boundingBox()` plus `mouse.click` reads a position and then clicks the
+   * screen, and the inspector is a scrolling column: with enough panels above
+   * it the padding widget is *visible* by Playwright's definition — it has a
+   * box and is not hidden — while sitting below the fold, and the click lands
+   * on whatever is actually at those coordinates. The offset is kept because
+   * the point of the check is the corner label rather than the middle, which
+   * is a different control.
+   */
+  await padding.click({ button: 'right', position: { x: 6, y: 6 } });
   await page.waitForSelector('[role="menu"]', { timeout: 4000 });
 
   const headings = await page.$$eval('[data-menu-heading]', (nodes) =>
@@ -721,16 +731,21 @@ try {
   await selectLayer('Box A');
   const field = page.locator('aside input[type="text"], aside input:not([type])').first();
   if (await field.count()) {
-    const fbox = await field.boundingBox();
-    if (fbox) {
-      await page.mouse.click(fbox.x + fbox.width / 2, fbox.y + fbox.height / 2, { button: 'right' });
-      await page.waitForTimeout(400);
-      report.check(
-        'a text field in the inspector keeps the browser’s own menu',
-        (await page.locator('[role="menu"]').count()) === 0,
-        'ours stayed out of the way'
-      );
-    }
+    // Through the locator so it is scrolled to first. Right-clicking screen
+    // coordinates read from a `boundingBox()` hit whatever is at that point,
+    // and in a scrolled inspector that was a style row — which opens our menu,
+    // and made this check report that ours had not stayed out of the way when
+    // it had never been asked.
+    await field.click({ button: 'right' });
+    await page.waitForTimeout(400);
+    const ours = await page.locator('[role="menu"]').count();
+    report.check(
+      'a text field in the inspector keeps the browser’s own menu',
+      ours === 0,
+      // Computed, not asserted: a detail line reading "stayed out of the way"
+      // beside a red cross is worse than no detail at all.
+      ours === 0 ? 'ours stayed out of the way' : `${ours} of our menus opened over it`
+    );
   }
 
   /* --- A setting the menu reports back ------------------------------------ */

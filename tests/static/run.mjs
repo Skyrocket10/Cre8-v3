@@ -44,7 +44,10 @@ const {
   danglingReads,
   migrateDocument,
   buildTree,
+  finishDocument,
+  resolveNodeHref,
   canReparent,
+  jumpTargetsFor,
   generateNodeCss,
   generateStylesheet,
   parseCustomDeclarations,
@@ -53,6 +56,7 @@ const {
   generateSite,
   renderNodeToHtml,
   createEmptyDocument,
+  createPage,
   hydrateDocument,
   ops,
   components: componentLib,
@@ -8951,6 +8955,159 @@ report.group('a hook that only sometimes runs');
         return !OPERATORS.test(line);
       }),
     'five spellings caught, three lookalikes left alone'
+  );
+}
+
+report.group('a jump that reaches another page');
+
+{
+  /*
+   * The whole of R5, in the two places it lives.
+   *
+   * `resolveNodeHref` hands back a page reference and a fragment rather than a
+   * bare fragment, and the resolvers that already understood `page:` finish
+   * the job. Before this a jump was silently a same-page scroll: a nav on a
+   * case-study page pointed at `#work`, there is no `#work` on a case-study
+   * page, and pressing it did nothing at all.
+   */
+  const doc = createEmptyDocument('Two pages');
+  const home = doc.pages[0];
+  const second = createPage('Second', 'second', doc.nodes, 1, false);
+  doc.pages.push(second);
+  const { rootId: target } = buildTree(
+    { type: 'section', name: 'Work', props: { anchor: 'work' } },
+    doc.nodes,
+    home.rootNodeId
+  );
+  doc.nodes[home.rootNodeId].children.push(target);
+
+  report.check(
+    'a jump names the page its target is on, not just the place',
+    resolveNodeHref(doc, `node:${target}`) === `page:${home.id}#work`,
+    resolveNodeHref(doc, `node:${target}`)
+  );
+  report.check(
+    'a target that has lost its anchor still resolves to nowhere',
+    // The empty string is the renderer's "hide this link" signal, and it has
+    // to survive the change: `#` would look fine and scroll nowhere.
+    resolveNodeHref(doc, 'node:missing') === '',
+    JSON.stringify(resolveNodeHref(doc, 'node:missing'))
+  );
+  report.check(
+    'and an href that is not a jump is left alone',
+    resolveNodeHref(doc, 'https://example.com') === null,
+    'null means "not mine", which is how three resolvers share one answer'
+  );
+
+  /* A node with no page — a component master — keeps the bare fragment. */
+  const loose = buildTree(
+    { type: 'section', name: 'Shared', props: { anchor: 'shared' } },
+    doc.nodes,
+    null
+  ).rootId;
+  report.check(
+    'a target inside no page keeps the fragment it always had',
+    resolveNodeHref(doc, `node:${loose}`) === '#shared',
+    // Which copy a master means has no answer, and the browser's own — the
+    // nearest match — is the best one available.
+    `${resolveNodeHref(doc, `node:${loose}`)} for a node on no page`
+  );
+
+  /*
+   * And the published proof, in a document built for it.
+   *
+   * Deliberately not asserted over the templates. "A fragment on a nested page
+   * is wrong" is not true — the SaaS pricing page links to its own `#plans`,
+   * correctly — and the case that *is* wrong, a fragment naming nothing on the
+   * page carrying it, is what `brokenLinks` already walks every link to catch.
+   * What is worth checking here is narrower and is R5 itself: one link, one
+   * target, two pages, and the href each page gets.
+   */
+  const site = createEmptyDocument('Jumper');
+  const first = site.pages[0];
+  const other = createPage('Other', 'other', site.nodes, 1, false);
+  site.pages.push(other);
+  const { rootId: section } = buildTree(
+    { type: 'section', name: 'Work', props: { anchor: 'work' } },
+    site.nodes,
+    first.rootNodeId
+  );
+  site.nodes[first.rootNodeId].children.push(section);
+  // The same link on both pages, pointing at the section on the first.
+  for (const page of [first, other]) {
+    const { rootId: link } = buildTree(
+      { type: 'link', name: 'To work', props: { text: 'Work' } },
+      site.nodes,
+      page.rootNodeId
+    );
+    site.nodes[link].refs = { scrollTo: { node: section } };
+    site.nodes[page.rootNodeId].children.push(link);
+  }
+
+  const files = new Map(
+    generateSite(site, { pretty: false }).files.map((f) => [f.path, String(f.contents)])
+  );
+  const hrefIn = (path) => /<a\b[^>]*\shref="([^"]*)"/.exec(files.get(path) ?? '')?.[1] ?? 'no link';
+
+  report.check(
+    'the same jump climbs out of the page that does not hold its target',
+    hrefIn('other/index.html') === '../#work',
+    `${hrefIn('other/index.html')} from other/index.html`
+  );
+  report.check(
+    'and stays a bare fragment on the page that does',
+    // The half that catches over-correcting: `./#work` would work and would
+    // reload the document, losing the smooth scroll and the scroll position.
+    hrefIn('index.html') === '#work',
+    `${hrefIn('index.html')} from index.html`
+  );
+}
+
+{
+  /*
+   * And the picker offers what the mechanism can now express.
+   *
+   * The inspector listed sections on the page being edited and nothing else,
+   * which matched what a jump could do: offering a section on another page
+   * would have been offering something that did not work. Now it does, and a
+   * capability only templates can reach is not a capability the product has.
+   *
+   * Asked of the function the hook calls rather than of the hook, so there is
+   * one rule and not two — the grouping a designer sees has to agree with the
+   * page the reference resolves against.
+   */
+  const doc = TEMPLATES.find((t) => t.id === 'agency').build();
+  const home = doc.pages.find((p) => p.isHome || p.slug === '');
+  const detail = doc.pages.find((p) => p !== home);
+  const fromDetail = jumpTargetsFor(doc, detail.rootNodeId);
+  const named = (list, name) => list.find((one) => one.name === name);
+
+  report.check(
+    'standing on a detail page, the home page’s sections are on offer',
+    Boolean(named(fromDetail, 'Gallery')) && Boolean(named(fromDetail, 'Services')),
+    `${fromDetail.length} places to jump to, from a page with ${
+      jumpTargetsFor({ nodes: doc.nodes, pages: [] }, detail.rootNodeId).length
+    } of its own`
+  );
+  report.check(
+    'and they say which page they are on, while this page’s do not',
+    named(fromDetail, 'Gallery')?.page === home.name &&
+      named(fromDetail, 'Case study')?.page === undefined,
+    `Gallery is grouped under "${named(fromDetail, 'Gallery')?.page}", and this page's are ungrouped`
+  );
+  report.check(
+    'nothing is offered twice, and nothing offers itself',
+    new Set(fromDetail.map((one) => one.id)).size === fromDetail.length &&
+      !fromDetail.some((one) => one.id === detail.rootNodeId),
+    `${fromDetail.length} entries, ${new Set(fromDetail.map((o) => o.id)).size} distinct`
+  );
+  report.check(
+    'and the node being edited is never in its own list',
+    (() => {
+      const first = fromDetail[0];
+      return !jumpTargetsFor(doc, detail.rootNodeId, first.id).some((o) => o.id === first.id);
+    })(),
+    'a control cannot scroll to itself'
   );
 }
 

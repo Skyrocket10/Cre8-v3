@@ -333,14 +333,22 @@ function hrefResolverFor(doc: Cre8Document, from: Output, all: Output[]) {
     if (href.startsWith('page@')) return '#';
     if (href === 'series:prev') return seriesAt(-1);
     if (href === 'series:next') return seriesAt(1);
-    // A jump to somewhere on this page resolves the same way wherever it is
-    // asked, so it is asked rather than answered again here.
+    /*
+     * A jump resolves the same way wherever it is asked, so it is asked rather
+     * than answered again here — and what comes back is a page reference with
+     * a fragment, which then goes through the lines below like any other.
+     *
+     * That last part is the cross-page jump in its entirety. `here()` collapses
+     * a reference to the page being written down to the fragment alone, and
+     * builds a relative path when it is some other page; both were already
+     * true of a `page:` link and neither needed changing.
+     */
     const jump = resolveNodeHref(doc, href);
-    if (jump !== null) return jump;
+    if (jump === '') return '';
     // A page reference may name a section of that page — the fragment is not
     // this function's business beyond carrying it to the end.
-    const [wanted, fragment] = splitFragment(href);
-    if (!wanted.startsWith('page:')) return href;
+    const [wanted, fragment] = splitFragment(jump ?? href);
+    if (!wanted.startsWith('page:')) return jump ?? href;
 
     /*
      * A link into the page it is already on is the fragment and nothing else.

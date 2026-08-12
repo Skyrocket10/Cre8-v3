@@ -36,7 +36,7 @@ import {
   setRangeValue,
 } from '@/lib/document/operations';
 import { exposableTargets, targetKey } from '@/lib/document/components';
-import { collectSubtree } from '@/lib/document/tree';
+import { collectSubtree, jumpTargetsFor } from '@/lib/document/tree';
 import * as ops from '@/lib/document/operations';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
@@ -352,24 +352,36 @@ function useAnchors(): { id: string; name: string; anchor: string }[] {
  * menu nobody can choose from, and neither is a thing anybody means by "scroll
  * to".
  */
-function useJumpTargets(): { id: string; name: string }[] {
+/**
+ * Everywhere a jump could go, across the whole site.
+ *
+ * The page being edited comes first and ungrouped, because that is where most
+ * jumps go and a group heading over the only list anybody wanted is noise.
+ * Every other page follows under its own name.
+ *
+ * It was this page and nothing else, which matched what a jump could express:
+ * the reference resolved within one page, so offering a section on another one
+ * would have been offering something that did not work. R5 made it work, and a
+ * capability nothing in the editor can reach is a capability only templates
+ * have.
+ */
+function useJumpTargets(): { id: string; name: string; page?: string }[] {
   const encoded = useEditor((s) => {
     const rootId = activeRootId(s);
     if (!rootId) return '';
-    const mine = s.selection[0];
-    return collectSubtree(s.doc.nodes, rootId)
-      .filter((id) => id !== mine && id !== rootId)
-      .map((id) => s.doc.nodes[id])
-      .filter((node) => node && (getElement(node.type).container || node.type === 'heading'))
-      .map((node) => `${node!.id}${FIELD}${node!.name}`)
+    // Encoded to a string because the selector runs on every store change and
+    // a fresh array would re-render the inspector each time. The rule itself
+    // lives in `document/tree.ts`, where the static suite can ask it directly.
+    return jumpTargetsFor(s.doc, rootId, s.selection[0])
+      .map((one) => `${one.id}${FIELD}${one.name}${FIELD}${one.page ?? ''}`)
       .join(ENTRY);
   });
 
   return useMemo(() => {
     if (!encoded) return [];
     return encoded.split(ENTRY).map((entry) => {
-      const [id = '', name = ''] = entry.split(FIELD);
-      return { id, name };
+      const [id = '', name = '', page = ''] = entry.split(FIELD);
+      return page ? { id, name, page } : { id, name };
     });
   }, [encoded]);
 }
@@ -2027,12 +2039,19 @@ function Destination() {
                       ops.setScrollTarget(draft, nodeId, value || null);
                     })
                   }
-                  options={jumpTargets.map((one) => ({ value: one.id, label: one.name }))}
+                  options={jumpTargets.map((one) => ({
+                    value: one.id,
+                    label: one.name,
+                    // Only the other pages are grouped. The page being edited
+                    // is the list somebody came for, and a heading above it
+                    // just pushes it down.
+                    ...(one.page ? { group: one.page } : {}),
+                  }))}
                 />
               </StyleRow>
             ) : (
               <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
-                There is nothing on this page to scroll to yet.
+                There is nothing on this site to scroll to yet.
               </p>
             ))}
 

@@ -202,7 +202,28 @@ const REF_SCOPE: Record<RefSlot, (node: SceneNodeType) => boolean> = {
   scrollTo: () => true,
 };
 
-function resolveRefs(nodes: NodeMap): void {
+/**
+ * How good a candidate is, when several answer to one name.
+ *
+ * `scrollTo` accepts any node, which is the right rule and an insufficient one
+ * the moment a name is looked up across a whole document. "Contact" in the
+ * agency names three things: the page's Contact section, and the frame and
+ * label of the footer's Contact column. All three are jumpable in the sense
+ * that they could be given an id; only one is what anybody means.
+ *
+ * A rank rather than a filter, so nothing stops being reachable — a name that
+ * matches only a text label still resolves to it. What changes is which wins
+ * when there is a choice, and the order is the order of intent: something the
+ * author already named as a destination, then a section, then whatever is
+ * left. Ties fall back to document order, which is the rule this had before.
+ */
+function destinationRank(node: SceneNodeType): number {
+  if (node.props?.anchor) return 2;
+  if (node.type === 'section') return 1;
+  return 0;
+}
+
+function resolveRefs(nodes: NodeMap, pageOf?: Map<NodeId, string>): void {
   /*
    * Every candidate per name, in document order — not just the first.
    *
@@ -239,16 +260,67 @@ function resolveRefs(nodes: NodeMap): void {
       // to match an id resolves to the wrong element. Rare enough never to be
       // found, which is the kind of bug worth spending a sentinel on.
       if (!ref?.node.startsWith(NAME_REF)) continue;
-      // The first candidate that is not the node doing the referring.
-      const found = byName
-        .get(slot as RefSlot)
-        ?.get(ref.node.slice(NAME_REF.length))
-        ?.find((id) => id !== node.id);
+      // Every candidate that is not the node doing the referring, best first.
+      const here = pageOf?.get(node.id);
+      const found = (byName.get(slot as RefSlot)?.get(ref.node.slice(NAME_REF.length)) ?? [])
+        .filter((id) => id !== node.id)
+        .map((id, order) => ({ id, order, node: nodes[id] }))
+        .sort((a, b) => {
+          if (slot === 'scrollTo') {
+            const rank = destinationRank(b.node!) - destinationRank(a.node!);
+            if (rank) return rank;
+            /*
+             * Then the referring node's own page, so widening the search
+             * cannot move a link that already worked. Only after the rank,
+             * though: a footer column named "Contact" sitting on this page
+             * must not beat the Contact *section* on another one, which is
+             * exactly the way round the first version of this had it.
+             */
+            if (here) {
+              const mine = Number(pageOf?.get(b.id) === here) - Number(pageOf?.get(a.id) === here);
+              if (mine) return mine;
+            }
+          }
+          return a.order - b.order;
+        })[0]?.id;
       if (found) node.refs[slot as RefSlot] = { node: found };
+      // A name matching nothing is dropped rather than left dangling.
       else delete node.refs[slot as RefSlot];
     }
     if (!Object.keys(node.refs).length) delete node.refs;
   }
+}
+
+/**
+ * Resolve every name in a document, once, with every page in hand.
+ *
+ * `finishTree` resolves within one page, which is all a single-page document
+ * ever needed — but it also decided, silently, that a link could never name a
+ * section on another page: the name matched nothing, the reference was
+ * dropped, and the control kept whatever href it had. That is why a two-page
+ * template wrote its navigation twice, one copy scrolling and one copy
+ * navigating.
+ *
+ * The page map is what lets the ranking prefer a target on the referring
+ * node's own page, so widening the search cannot move a link that already
+ * worked. It is built here rather than asked of the caller because only the
+ * page roots are known outside, and the ranking needs every node.
+ *
+ * Written first as two passes — each page against itself, then the leftovers
+ * against everything — which looks equivalent and is not. It let a footer
+ * column named "Contact" on the referring page beat the Contact *section* on
+ * another one, because the first pass could not see that one candidate was a
+ * destination and the other was a label. Rank first, page second.
+ */
+export function finishDocument(pageRoots: Map<NodeId, string>, all: NodeMap): void {
+  const pageOf = new Map<NodeId, string>();
+  const mark = (id: NodeId, page: string): void => {
+    pageOf.set(id, page);
+    for (const child of all[id]?.children ?? []) mark(child, page);
+  };
+  for (const [rootId, pageId] of pageRoots) mark(rootId, pageId);
+  resolveRefs(all, pageOf);
+  defaultAnchors(all);
 }
 
 /**

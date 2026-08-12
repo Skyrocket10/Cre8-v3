@@ -623,19 +623,34 @@ to D1 — and `form_submissions` already covers the case that actually comes up.
 4. **Is 5,000 records the right ceiling for a client-side editor?** The record
    table has to page against D1 rather than hold them all, which is a different
    panel from the one Assets uses.
-5. **A reference cannot name a section on another page, so a two-page template
-   writes its nav twice.** Surfaced by V2, which gave five templates a detail
-   page. A `jumpTo` resolves against the page being built, so the home page's
-   nav scrolls (`refs.scrollTo`, survives a rename) while the detail page's nav
-   navigates (`page:<id>#work`, a fragment). The two are then genuinely
-   different sections, `shareRepeatedSections` correctly refuses to merge them,
-   and editing the nav means editing it twice — exactly the problem T1 solved
-   for the four-page SaaS template.
+5. ~~**A reference cannot name a section on another page, so a two-page
+   template writes its nav twice.**~~ **Answered by R5.** Kept because the
+   diagnosis was right and the fix was not where the question expected.
 
-   The portfolio shows the shape of the answer: it has *three* pages, its two
-   detail pages carry identical navs, and those two do share. Only the home
-   page stands apart. So the fix is not in the sharing pass — it is a
-   `scrollTo` that can name a section on a named page, at which point every
-   nav in a template is the same nav again. That is an extension to the `Ref`
-   slot, not to the templates, and it is the next thing worth building in the
-   `R` series.
+   Surfaced by V2, which gave five templates a detail page. A `jumpTo`
+   resolved against the page being built, so the home page's nav scrolled
+   (`refs.scrollTo`, survives a rename) while the detail page's nav navigated
+   (`page:<id>#work`, a fragment). The two were then genuinely different
+   sections, `shareRepeatedSections` correctly refused to merge them, and
+   editing the nav meant editing it twice.
+
+   The question guessed at "a `scrollTo` that can name a section on a named
+   page" — a new spelling for the reference. It needed no new spelling. A
+   `Ref` already names a node, and a node already belongs to a page; the two
+   facts were simply never joined. `resolveNodeHref` now answers with
+   `page:<id>#anchor` instead of `#anchor`, and every resolver that already
+   understood a page reference — the publisher's builds a relative path and
+   collapses a self-reference to the bare fragment; the canvas's leaves it
+   inert — got the cross-page jump for nothing.
+
+   The other half was resolution scope, and it had the same shape one level
+   up as the bug that preceded it: names resolved per *section* once, which
+   meant no template could have a jump link at all; then per *page*, which
+   meant no template could jump between pages. It is now per document, with
+   candidates ranked so a section beats a label of the same name and the
+   referring node's own page breaks the tie. That ranking is not decoration —
+   without it, "Contact" on a case-study page resolved to the footer's Contact
+   *column*, because the footer was on that page and the section was not.
+
+   Agency, ecommerce, blog and portfolio now carry one nav and one footer
+   each.

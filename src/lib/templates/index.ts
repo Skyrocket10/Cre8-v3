@@ -9,7 +9,7 @@
 
 import {
   buildTree,
-  finishTree,
+  finishDocument,
   createEmptyDocument,
   createPage,
   pageRef,
@@ -141,6 +141,14 @@ function makeDocument(input: TemplateInput): Cre8Document {
   doc.nodes = {};
   doc.pages = [];
 
+  /*
+   * Which page each root belongs to, for the resolution that comes after.
+   *
+   * It has to come after: a nav on page two naming a section on page five
+   * cannot resolve until page five exists, which is the whole of R5b.
+   */
+  const pageRoots = new Map<NodeId, string>();
+
   input.pages.forEach((spec, index) => {
     const nodes: NodeMap = {};
     const page = createPage(spec.name, spec.slug, nodes, index, spec.isHome ?? index === 0);
@@ -162,6 +170,12 @@ function makeDocument(input: TemplateInput): Cre8Document {
      * that matched nothing in its own section was dropped without a word. That
      * is why no template had a jump link — the hero could not name the section
      * it wanted to scroll to, so nobody tried twice.
+     *
+     * Then the scope was one *page*, which had the same shape one level up: a
+     * name matching nothing on this page was dropped, so a case-study page's
+     * nav could not point at the home page's Work section and had to type a
+     * fragment instead. That is why four templates carried two navigations.
+     * Resolution now waits for every page — see below.
      */
     // Seeded with the page root so `attachChild` can find the parent; the same
     // object as the one already in `doc.nodes`, so writing it back is a no-op.
@@ -170,9 +184,11 @@ function makeDocument(input: TemplateInput): Cre8Document {
       const { rootId } = buildTree(section, pageNodes, page.rootNodeId, { defer: true });
       attachChild(pageNodes, page.rootNodeId, rootId);
     }
-    finishTree(pageNodes);
     Object.assign(doc.nodes, pageNodes);
+    pageRoots.set(page.rootNodeId, page.id);
   });
+
+  finishDocument(pageRoots, doc.nodes);
 
   shareRepeatedSections(doc);
 
@@ -885,11 +901,11 @@ const agency: TemplateDefinition = {
               brand: 'Field & Frame',
               brandIcon: 'feather',
               links: [
-                { label: 'Work', href: `${pageRef('')}#work` },
-                { label: 'Services', href: `${pageRef('')}#services` },
-                { label: 'Contact', href: `${pageRef('')}#contact` },
+                { label: 'Work', jumpTo: 'Gallery' },
+                { label: 'Services', jumpTo: 'Services' },
+                { label: 'Contact', jumpTo: 'Contact' },
               ],
-              cta: { label: 'Start a project', href: `${pageRef('')}#contact` },
+              cta: { label: 'Start a project', jumpTo: 'Contact' },
             }),
             caseStudyBlock({
               back: `${pageRef('')}#work`,
@@ -904,16 +920,16 @@ const agency: TemplateDefinition = {
             ctaBlock(
               'Something like this?',
               'We take on a handful of engagements a year. Tell us what you are working on.',
-              [{ label: 'Start a project', href: `${pageRef('')}#contact` }],
+              [{ label: 'Start a project', jumpTo: 'Contact' }],
               'surface'
             ),
             footerBlock('Field & Frame', 'A design studio in Lisbon.', [
               {
                 title: 'Studio',
                 links: [
-                  { label: 'Work', href: `${pageRef('')}#work` },
-                  { label: 'Services', href: `${pageRef('')}#services` },
-                  { label: 'Start a project', href: `${pageRef('')}#contact` },
+                  { label: 'Work', jumpTo: 'Gallery' },
+                  { label: 'Services', jumpTo: 'Services' },
+                  { label: 'Start a project', jumpTo: 'Contact' },
                 ],
               },
               {
@@ -1181,9 +1197,9 @@ const portfolio: TemplateDefinition = {
               brand: 'Ilse Moreau',
               brandIcon: 'pen-tool',
               links: [
-                { label: 'Work', href: `${pageRef('')}#work` },
-                { label: 'Writing', href: `${pageRef('')}#writing` },
-                { label: 'Contact', href: `${pageRef('')}#contact` },
+                { label: 'Work', jumpTo: 'Gallery' },
+                { label: 'Writing', jumpTo: 'Writing' },
+                { label: 'Contact', jumpTo: 'Contact' },
               ],
               sticky: false,
             }),
@@ -1205,8 +1221,8 @@ const portfolio: TemplateDefinition = {
               {
                 title: 'This site',
                 links: [
-                  { label: 'Work', href: `${pageRef('')}#work` },
-                  { label: 'Writing', href: `${pageRef('')}#writing` },
+                  { label: 'Work', jumpTo: 'Gallery' },
+                  { label: 'Writing', jumpTo: 'Writing' },
                 ],
               },
               {
@@ -1230,9 +1246,9 @@ const portfolio: TemplateDefinition = {
               brand: 'Ilse Moreau',
               brandIcon: 'pen-tool',
               links: [
-                { label: 'Work', href: `${pageRef('')}#work` },
-                { label: 'Writing', href: `${pageRef('')}#writing` },
-                { label: 'Contact', href: `${pageRef('')}#contact` },
+                { label: 'Work', jumpTo: 'Gallery' },
+                { label: 'Writing', jumpTo: 'Writing' },
+                { label: 'Contact', jumpTo: 'Contact' },
               ],
               sticky: false,
             }),
@@ -1246,8 +1262,8 @@ const portfolio: TemplateDefinition = {
               {
                 title: 'This site',
                 links: [
-                  { label: 'Work', href: `${pageRef('')}#work` },
-                  { label: 'Writing', href: `${pageRef('')}#writing` },
+                  { label: 'Work', jumpTo: 'Gallery' },
+                  { label: 'Writing', jumpTo: 'Writing' },
                 ],
               },
               {
@@ -1647,10 +1663,10 @@ const ecommerce: TemplateDefinition = {
               brand: 'Verdant',
               brandIcon: 'sprout',
               links: [
-                { label: 'Shop', href: `${pageRef('')}#shop` },
-                { label: 'Why Verdant', href: `${pageRef('')}#promises` },
+                { label: 'Shop', jumpTo: 'Gallery' },
+                { label: 'Why Verdant', jumpTo: 'Promises' },
               ],
-              cta: { label: 'Sign up', href: `${pageRef('')}#newsletter` },
+              cta: { label: 'Sign up', jumpTo: 'Call to action' },
             }),
             caseStudyBlock({
               back: `${pageRef('')}#shop`,
@@ -1690,14 +1706,14 @@ const ecommerce: TemplateDefinition = {
               {
                 title: 'Shop',
                 links: [
-                  { label: 'Best sellers', href: `${pageRef('')}#shop` },
-                  { label: 'Ten percent off', href: `${pageRef('')}#newsletter` },
+                  { label: 'Best sellers', jumpTo: 'Gallery' },
+                  { label: 'Ten percent off', jumpTo: 'Call to action' },
                 ],
               },
               {
                 title: 'Help',
                 links: [
-                  { label: 'Delivery and guarantee', href: `${pageRef('')}#promises` },
+                  { label: 'Delivery and guarantee', jumpTo: 'Promises' },
                   { label: 'hello@verdant.studio', href: 'mailto:hello@verdant.studio' },
                 ],
               },
@@ -1926,10 +1942,10 @@ const blog: TemplateDefinition = {
               brand: 'The Long Field',
               brandIcon: 'file-text',
               links: [
-                { label: 'Essays', href: `${pageRef('')}#essays` },
-                { label: 'About', href: `${pageRef('')}#about` },
+                { label: 'Essays', jumpTo: 'Latest' },
+                { label: 'About', jumpTo: 'Split' },
               ],
-              cta: { label: 'Subscribe', href: `${pageRef('')}#subscribe` },
+              cta: { label: 'Subscribe', jumpTo: 'Call to action' },
               sticky: false,
             }),
             articleBlock(`${pageRef('')}#essays`),
@@ -1937,14 +1953,14 @@ const blog: TemplateDefinition = {
               {
                 title: 'Read',
                 links: [
-                  { label: 'Latest essays', href: `${pageRef('')}#essays` },
-                  { label: 'About', href: `${pageRef('')}#about` },
+                  { label: 'Latest essays', jumpTo: 'Latest' },
+                  { label: 'About', jumpTo: 'Split' },
                 ],
               },
               {
                 title: 'Follow',
                 links: [
-                  { label: 'Subscribe', href: `${pageRef('')}#subscribe` },
+                  { label: 'Subscribe', jumpTo: 'Call to action' },
                   { label: 'Email', href: 'mailto:hello@thelongfield.press' },
                   { label: 'Mastodon', href: 'https://mastodon.social' },
                 ],
