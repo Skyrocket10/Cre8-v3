@@ -859,9 +859,18 @@ export function galleryBlock(
               ...border('1px', 'var(--c-border)'),
               transition: 'transform 220ms ease, box-shadow 220ms ease',
               ...(item.wide ? { gridColumn: 'span 2' } : {}),
-              // Arrives as it is scrolled to. Costs the page nothing to run —
-              // the timeline is the scrollport — and a gallery is the one place
-              // on a page where a reveal reads as intent rather than decoration.
+              /*
+               * Arrives as it is scrolled to, and costs the page nothing to run:
+               * the timeline is the scrollport.
+               *
+               * On a gallery and not on every card in the library, which is a
+               * judgement rather than an oversight. A reveal reads as intent on
+               * something with visual weight arriving in a rhythm — pictures of
+               * work, products — and as noise on a dense list of lines, which
+               * is what `listBlock` mostly is: menus, FAQs, changelogs. Twelve
+               * menu prices fading up one after another is motion for its own
+               * sake.
+               */
               appear: 'rise',
             },
             ...(item.wide

@@ -1788,8 +1788,13 @@ templates: the blog's post card is already a `link` element, and the other three
 galleries sit on single-page sites with nowhere for a card to go. Inventing a
 destination to demonstrate a feature would be the same mistake as the uniform
 grid, arrived at from the other direction. The galleries got reveals and an
-optional wide card instead — and the agency's work grid became a bento, which
-needed a *seventh* piece of work: two wide plus five ordinary is nine cells in
+optional wide card instead — on galleries and not on every card in the library,
+which is a judgement worth stating: a reveal reads as intent on something with
+visual weight arriving in a rhythm, and as noise on a dense list of lines. Twelve
+menu prices fading up one after another is motion for its own sake, so
+`listBlock` — menus, FAQs, changelogs — was left alone.
+
+The agency's work grid became a bento, which needed a *seventh* piece of work: two wide plus five ordinary is nine cells in
 three columns and lands exactly, where one wide would be seven and leave two
 empty at the end. Measured at 740/360, 360/360/360, 740/360 across three rows,
 no overflow at any width.
