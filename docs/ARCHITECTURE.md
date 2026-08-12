@@ -1610,14 +1610,13 @@ destination, so nothing had ever exercised the case; the copy control is the
 first thing in the codebase that genuinely goes nowhere. Omitting the key does
 not help — the default fills it back in — so it sets `href: ''` explicitly.
 
-**And the word could not change.** The first version keyed a rule on the copied
-attribute and gave it `set: { label: 'Copied' }`, which should render the node
-once per condition and let CSS choose between them. `variantsOf` expands only
-along a **state** or **data** axis, because those are the two that guarantee
-mutual exclusion and keep the expansion linear; an `attr` condition has neither
-guarantee, so the `set` is skipped. Skipped, not rejected — it reads as working
-and does nothing. The feedback is a colour change, which is the honest limit of
-what that attribute can drive.
+**And the word could not change** — at the time. The first version keyed a rule
+on the copied attribute and gave it `set: { label: 'Copied' }`, which should
+render the node once per condition and let CSS choose. `variantsOf` expanded
+content along a **state** or **data** axis only, so the `set` was skipped:
+skipped, not rejected, so it read as working and did nothing. That is fixed
+now — see *An axis has to be visible to every variant*, which is also where the
+reason recorded here turned out to be the wrong one.
 
 That last one is the interesting failure, because **the rule against it already
 existed**: `checkContentRules` has refused exactly this since stage 2. It runs
@@ -1805,6 +1804,44 @@ photography host — the requests never settle and `load` never fires. It predat
 this work and is not a product fault. Geometry for those is measured by
 generating the published file and opening it over `file://`, which is what was
 being measured anyway.
+
+### An axis has to be visible to every variant
+
+The restriction that stopped a copy button saying "Copied" was recorded as
+mutual exclusion: each variant needs one condition, the base needs one more,
+and only a state or a data source guarantees it. That reasoning does not
+survive contact with an attribute. An attribute equals one of a set of values
+or it does not — the same two-sided split — so the expansion stays linear.
+`attr` was excluded because attributes arrived after the list was written and
+nobody revisited it.
+
+So the axis was widened, both static rules that mirrored the restriction were
+widened with it, and the markup came out right immediately: two elements, one
+saying `Copy` and one saying `Copied`, chosen by
+`:where(:is([data-cre8-copied=""]))` with **no ancestor prefix** — the one shape
+that cannot repeat the data-condition bug, because an attribute condition tests
+the element itself.
+
+Then pressing the button made it disappear.
+
+**The real requirement is a different one, and only a browser showed it.** An
+axis has to be *legible to every element the expansion produces*. A state lives
+on an ancestor and a data value on the document element, so every variant can
+read them. The copy runtime set the mark on the element that was clicked — and
+its sibling is a different element, so the sibling's rule, which says "hide
+unless *I* am marked", kept it hidden. Both halves hidden, no button.
+
+The fix says the thing that was always true and had never needed saying: **the
+mark belongs to the node, and a node may render as more than one element.** The
+runtime now marks every element sharing the node's class, through its own
+`root` rather than the document, so mounting on the editor's canvas frame does
+not reach into the app's chrome. For a control with no variants that is the
+clicked element and nothing else.
+
+Worth keeping the shape of the mistake. The argument for widening was sound and
+the thing it proved was not the thing that mattered — linearity was never at
+risk, and observability was never considered. A check derived from that argument
+would have been green on a button that vanished when pressed.
 
 ### Why an AI can drive this later
 

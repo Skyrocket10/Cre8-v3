@@ -482,16 +482,18 @@ export const linkButton = (
  * kept to what the platform can already say: the runtime sets an attribute for
  * a moment, and a rule keyed on that attribute restyles the button.
  *
- * It does *not* change the word, and that was worth finding out rather than
- * assuming. A rule carrying `set` renders the node as one element per
- * condition, which would put "Copied" in the markup and let CSS choose — but
- * `variantsOf` only expands along a **state** or **data** axis, because those
- * are the two that guarantee mutual exclusion and keep the expansion linear.
- * An `attr` condition has no such guarantee, so the `set` is skipped: it reads
- * as working and does nothing. A colour change is the honest limit of what the
- * copied attribute can drive today.
+ * The word changes too, and nothing rewrites text at runtime to do it. A rule
+ * carrying `set` renders the node once per condition, so "Copied" is in the
+ * markup before anybody presses anything and CSS only chooses between them.
+ *
+ * That was not true when this was written: `variantsOf` expanded content along
+ * a state or a data axis only, so the `set` was silently skipped and a colour
+ * change was the honest limit. An attribute splits two ways exactly as those
+ * two do — it equals one of a set of values or it does not — so the linearity
+ * the restriction protected was never at risk. Attributes had simply arrived
+ * after the list was written.
  */
-export const commandRow = (command: string, label = 'Copy'): NodeSpec =>
+export const commandRow = (command: string, label = 'Copy', done = 'Copied'): NodeSpec =>
   stack(
     'Install command',
     [
@@ -543,6 +545,7 @@ export const commandRow = (command: string, label = 'Copy'): NodeSpec =>
             // selector from the one the generator writes for this condition.
             when: [{ kind: 'attr', name: COPIED_ATTR, op: 'is', values: [''] }],
             apply: { backgroundColor: 'var(--c-primary)', color: 'var(--c-inverse)' },
+            set: { label: done },
           },
         ],
       },

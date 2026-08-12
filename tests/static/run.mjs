@@ -780,6 +780,10 @@ function checkContentRules(spec) {
     const axisOf = (condition) => {
       if (condition.kind === 'state') return condition.key || 'the nearest state';
       if (condition.kind === 'data') return condition.source;
+      // An attribute splits two ways like the other two, so the expansion stays
+      // linear and it is a legal axis. It was left out because attributes came
+      // later than this rule, which is what cost the copy button its word.
+      if (condition.kind === 'attr') return condition.name;
       return null;
     };
 
@@ -7193,7 +7197,7 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
           const only = rule.when?.length === 1 ? rule.when[0] : null;
           const expands =
             only &&
-            (only.kind === 'state' || only.kind === 'data') &&
+            (only.kind === 'state' || only.kind === 'data' || only.kind === 'attr') &&
             only.op === 'is' &&
             only.values?.length &&
             !rule.part &&
@@ -8275,6 +8279,62 @@ report.group('a value cannot leave its own rule');
       return offenders.length === 0;
     })(),
     'no legitimate declaration needs one of those characters'
+  );
+}
+
+report.group('content can vary on an attribute');
+
+{
+  /*
+   * `variantsOf` refused an `attr` axis, and the reason recorded for it was
+   * wrong. The stated requirement is mutual exclusion — each variant one
+   * condition, the base one more — and an attribute splits two ways exactly as
+   * a state does. Nothing about linearity was at risk; attributes had simply
+   * arrived after the list of allowed kinds was written, which is what cost the
+   * copy button its word.
+   *
+   * The requirement it *did* violate is different and only showed up in a
+   * browser: an axis has to be legible to every element the expansion produces.
+   * A state lives on an ancestor and a data value on the document element, so
+   * all the variants can read them. An attribute set on one element cannot be
+   * read by its sibling — see the runtime check below.
+   */
+  const doc = TEMPLATES.find((one) => one.id === 'saas')?.build();
+  const html = doc
+    ? generateSite(doc).files.find((file) => file.path === 'index.html').contents
+    : '';
+  const runtime = readFileSync(path.join(ROOT, 'src/lib/runtime/behaviour.ts'), 'utf8');
+
+  report.check(
+    'both words are in the markup, so nothing rewrites text at runtime',
+    /<button[^>]*>Copy<\/button>/.test(html) && /<button[^>]*>Copied<\/button>/.test(html),
+    // One element per case, and CSS chooses. A script that set `textContent`
+    // would work with no keyframes and no variants, and would also mean the
+    // published page said something the file did not.
+    `${/>Copy</.test(html) ? 'Copy' : '—'} and ${/>Copied</.test(html) ? 'Copied' : '—'}`
+  );
+  report.check(
+    'and the pair is chosen by a self-scoped attribute selector',
+    /-v0:where\(:is\(\[data-cre8-copied=""\]\)\)\{display:none\}/.test(html) &&
+      /-v1:where\(:not\(:is\(\[data-cre8-copied=""\]\)\)\)\{display:none\}/.test(html),
+    /*
+     * No ancestor prefix, which is the failure the data conditions had: a
+     * prefix is satisfied by `<body>`, so the negative half matched everything.
+     * An attribute condition tests the element itself and cannot fail that way.
+     */
+    (/-v[01]:where\([^{]*\)\{display:none\}/.exec(html)?.[0] ?? 'no variant rules').slice(0, 80)
+  );
+  report.check(
+    'and the runtime marks every element the node renders as',
+    // The bug this found. The mark went on the element that was clicked, whose
+    // sibling then stayed hidden because its rule reads "hide unless *I* am
+    // marked" — so pressing the button made it disappear entirely.
+    /function markKin\(/.test(runtime) && /markKin\(copier, true\)/.test(runtime),
+    // Both halves named, because they fail separately: the helper can survive
+    // while the call site stops using it, which is what the first version of
+    // this detail reported as "present" while going red.
+    `helper ${/function markKin\(/.test(runtime) ? 'present' : 'missing'}, ` +
+      `call site ${/markKin\(copier, true\)/.test(runtime) ? 'uses it' : 'marks only the clicked element'}`
   );
 }
 

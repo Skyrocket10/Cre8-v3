@@ -124,21 +124,50 @@ const hideRule = (id: string, when: Condition[]): StyleRule => ({
  */
 function axisOf(
   condition: Condition
-): { kind: 'state' | 'data'; key: string; values: string[] } | null {
-  if (condition.kind !== 'state' && condition.kind !== 'data') return null;
-  if (condition.op !== 'is' || !condition.values.length) return null;
-  return condition.kind === 'state'
-    ? { kind: 'state', key: condition.key, values: condition.values }
-    : { kind: 'data', key: condition.source, values: condition.values };
+): { kind: Axis; key: string; values: string[] } | null {
+  // Narrowed before the operator is read: `pointer` and `control` conditions
+  // are pseudo-classes and carry neither an operator nor values.
+  switch (condition.kind) {
+    case 'state':
+      return condition.op === 'is' && condition.values.length
+        ? { kind: 'state', key: condition.key, values: condition.values }
+        : null;
+    case 'data':
+      return condition.op === 'is' && condition.values.length
+        ? { kind: 'data', key: condition.source, values: condition.values }
+        : null;
+    /*
+     * An attribute is an axis too, and the guarantee this function exists to
+     * protect holds for it unchanged.
+     *
+     * What is required is mutual exclusion: each variant needs exactly one
+     * condition, and the base needs one more. An attribute either equals one of
+     * a set of values or it does not — the same two-sided split a state gives —
+     * so the expansion stays linear. Nothing about `state` was load-bearing
+     * beyond that.
+     *
+     * It was excluded because attributes came later and nobody revisited the
+     * list, which cost the copy button its word: the runtime marks it with
+     * `data-cre8-copied`, a rule keyed on that could restyle it, and a rule
+     * that changed it to "Copied" was silently dropped here.
+     */
+    case 'attr':
+      return condition.op === 'is' && condition.values.length
+        ? { kind: 'attr', key: condition.name, values: condition.values }
+        : null;
+    default:
+      return null;
+  }
 }
 
-const onAxis = (
-  kind: 'state' | 'data',
-  key: string,
-  op: 'is' | 'isNot',
-  values: string[]
-): Condition =>
-  kind === 'data' ? { kind: 'data', source: key, op, values } : { kind: 'state', key, op, values };
+/** The three things a content variant may key on. */
+type Axis = 'state' | 'data' | 'attr';
+
+const onAxis = (kind: Axis, key: string, op: 'is' | 'isNot', values: string[]): Condition => {
+  if (kind === 'data') return { kind: 'data', source: key, op, values };
+  if (kind === 'attr') return { kind: 'attr', name: key, op, values };
+  return { kind: 'state', key, op, values };
+};
 
 const cache = new WeakMap<SceneNode, Variant[]>();
 
@@ -187,7 +216,7 @@ function build(node: SceneNode, props: NodeProps): Variant[] {
    * condition it cannot resolve, and the static suite refuses to let a block
    * ship one.
    */
-  let axis: { kind: 'state' | 'data'; key: string } | null = null;
+  let axis: { kind: Axis; key: string } | null = null;
   const claimed = new Set<string>();
   const usable: { rule: StyleRule; values: string[] }[] = [];
 
@@ -326,6 +355,15 @@ export function activeVariant(
       if (!owner || owner.node.props.switchDesign === SWITCH_SHOW_ALL) break;
       value = slug(owner.node.props.switchDesign) || slug(owner.node.props.switchDefault);
     } else {
+      /*
+       * An attribute axis, and the base variant is always the answer.
+       *
+       * The attributes content varies on are written by the runtime in response
+       * to a press — `data-cre8-copied` after a successful copy — so at design
+       * time none of them is set and the base is what a visitor sees first.
+       * That is also what a designer wants on the canvas: a copy button reading
+       * "Copy", not one frozen in its confirmation.
+       */
       return variant;
     }
 

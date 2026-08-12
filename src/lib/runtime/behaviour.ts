@@ -422,6 +422,34 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
     sync(group);
   }
 
+  /*
+   * Every element this node renders as, not just the one under the pointer.
+   *
+   * A node whose content varies is published as one element per case, and CSS
+   * picks. They are siblings sharing the node's class, with a variant class
+   * appended — `c-ab12 c-ab12-v0` and `c-ab12 c-ab12-v1`. So a mark set on the
+   * element that was clicked is invisible to the element that should replace
+   * it: the first hides itself correctly and the second stays hidden too,
+   * because its rule says "hide unless *I* carry the mark". The control
+   * vanishes on press.
+   *
+   * The mark belongs to the node, so it goes on all of them. For a control with
+   * no variants this is the clicked element and nothing else.
+   */
+  function markKin(el: Tagged, on: boolean): void {
+    // Through `root`, not the document: in the editor the runtime is mounted on
+    // the canvas frame, and reaching past it would mark elements in the app's
+    // own chrome that happen to share a class name.
+    var base = (el.getAttribute('class') || '').split(' ')[0];
+    var all = base ? root.querySelectorAll('.' + base) : [el];
+    for (var i = 0; i < all.length; i++) {
+      var one = all[i];
+      if (!one) continue;
+      if (on) one.setAttribute('data-cre8-copied', '');
+      else one.removeAttribute('data-cre8-copied');
+    }
+  }
+
   function onClick(event: Fired): void {
     const target = event.target as Tagged | null;
     if (!target || !target.closest) return;
@@ -433,9 +461,9 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
       if (clip && clip.writeText) {
         clip.writeText(copier.getAttribute('data-cre8-copy') || '').then(
           function () {
-            copier.setAttribute('data-cre8-copied', '');
+            markKin(copier, true);
             setTimeout(function () {
-              copier.removeAttribute('data-cre8-copied');
+              markKin(copier, false);
             }, 1400);
           },
           function () {}

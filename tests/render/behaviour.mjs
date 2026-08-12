@@ -172,17 +172,29 @@ try {
   /*
    * What the runtime is allowed to cost, as a number rather than a feeling.
    *
-   * Raised once, from 3000, when copying to the clipboard arrived — the one
-   * action in the set with no element behind it, and therefore the only one
-   * that can only be done here. Written down because raising a budget you have
-   * just broken is how a budget stops meaning anything: the number sits just
-   * above what the runtime actually weighs, so the next thing that grows it
-   * trips this immediately and has to make the same argument.
+   * Raised twice, and both arguments are kept because the number only means
+   * something if raising it costs something.
    *
-   * The published copy is minified, which is worth knowing before trying to
-   * fix a failure here by deleting comments — that saves nothing at all.
+   * From 3000, when copying to the clipboard arrived — the one action in the
+   * set with no element behind it, and therefore the only one that can only be
+   * done here.
+   *
+   * From 3200, when a node whose content varies turned out to publish as more
+   * than one element. The mark went on the element that was pressed, its
+   * sibling's rule said "hide unless *I* am marked", and the control vanished
+   * on click. Marking every element of the node is the fix and it costs a class
+   * lookup and a loop. It went to 3308 first; collapsing two functions into one
+   * brought it to 3233, and the rest is structural — string literals and a
+   * `querySelectorAll` — so this is what the correct version weighs.
+   *
+   * The number still sits just above that, deliberately, so the next thing to
+   * grow it trips this immediately and has to make the same argument.
+   *
+   * The published copy is minified, which is worth knowing before trying to fix
+   * a failure here by deleting comments or shortening names — neither saves
+   * anything at all.
    */
-  const RUNTIME_BUDGET = 3200;
+  const RUNTIME_BUDGET = 3250;
   const source = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
   report.check(
     'and it is small enough to be read in one sitting',
