@@ -17,7 +17,6 @@ import {
   heading,
   icon,
   label,
-  liftCard,
   media,
   pad,
   paragraph,
@@ -391,7 +390,13 @@ export function caseStudiesSpec(): NodeSpec {
           'Cases',
           3,
           CASES.map((item) =>
-            liftCard(
+            /*
+             * Not a link card, and it could not be one: "Read the story" is
+             * inside it, and a control inside a clickable card is markup the
+             * parser rearranges. The link is the affordance; the card lifting
+             * as well was two offers for one destination.
+             */
+            card(
               item.company,
               [
                 label(item.company, {

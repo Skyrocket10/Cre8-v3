@@ -554,13 +554,23 @@ export function cardGridBlock({
                 ...radius('var(--r-lg)'),
                 ...(bordered ? border('1px', 'var(--c-border)') : {}),
                 backgroundColor: surface ? 'var(--c-background)' : 'var(--c-surface)',
-                transition: 'border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease',
+                transition: 'border-color 180ms ease, box-shadow 180ms ease',
               },
+              /*
+               * Border and shadow, and no lift.
+               *
+               * The rule the library now holds to: a card that *rises* under
+               * the pointer is promising a destination, and these cards are
+               * features and promises and prices — they have nowhere to go and
+               * never will. A border warming and a shadow arriving is feedback
+               * ("you are here"); two pixels of travel is an offer. The same
+               * cut `galleryBlock` took, and `checkFakeAffordance` in the
+               * static suite is what stops it coming back.
+               */
               states: {
                 hover: {
                   borderColor: 'color-mix(in srgb, var(--c-primary) 40%, var(--c-border))',
                   boxShadow: 'var(--sh-md)',
-                  transform: 'translateY(-2px)',
                 },
               },
               children: [

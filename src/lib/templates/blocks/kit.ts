@@ -364,8 +364,29 @@ export const card = (
   children,
 });
 
-/** A card that lifts on hover. For anything clickable. */
-export const liftCard = (
+/**
+ * A whole card that is the link, and lifts because it is.
+ *
+ * Was `liftCard`, whose doc comment read "for anything clickable" and whose
+ * four callers were a feature grid, a bento of infrastructure chores, a set of
+ * case-study cards with their own "Read the story" link inside, and a list of
+ * blog posts. None of them clickable. The comment was right and nothing
+ * enforced it, so the lift spread to every card in the library and stopped
+ * meaning anything.
+ *
+ * The rename is the point: `href` is the first argument, so a card cannot lift
+ * without somewhere to go. `#` is the honest answer for a block dropped from
+ * the insert panel — it has no idea what else is on the page — and the same
+ * convention `linkHref` uses everywhere else.
+ *
+ * A `frame` with an href rather than a `link` element, which C2 made possible
+ * and which is the whole reason it exists: the card *is* the target, so the
+ * picture and the four lines inside it are all part of the same press. Nothing
+ * operable may go in it — `canReparent` refuses, and the parser would
+ * rearrange the markup if it did not.
+ */
+export const linkCard = (
+  href: string,
   name: string,
   children: NodeSpec[],
   styles: StyleDecl = {},
@@ -380,6 +401,7 @@ export const liftCard = (
     },
     responsive
   ),
+  props: { href },
   states: {
     hover: {
       borderColor: `color-mix(in srgb, var(--c-primary) 40%, var(--c-border))`,

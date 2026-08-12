@@ -25,7 +25,7 @@ import {
   grid,
   heading,
   label,
-  liftCard,
+  linkCard,
   media,
   pad,
   paragraph,
@@ -209,7 +209,11 @@ export function postGridSpec(): NodeSpec {
           'Posts',
           3,
           POSTS.map((post) =>
-            liftCard(
+            // The one card in the library that genuinely is a link: a post
+            // card with nothing operable in it, so the whole card is the
+            // press. `#` until the person who drops it says where.
+            linkCard(
+              '#',
               post.title.slice(0, 28),
               [
                 media(`Cover image for “${post.title}”`, '16 / 10', {

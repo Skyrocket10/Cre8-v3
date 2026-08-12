@@ -761,6 +761,58 @@ function checkJumpExclusive(spec) {
 }
 
 /**
+ * A card that rises under the pointer and goes nowhere.
+ *
+ * The rule, stated once: `transform` on hover is a promise of a destination.
+ * Border colour and shadow are feedback — "the pointer is here" — and every
+ * card in the library may have them. Travel is different. Nothing else on a
+ * page moves when you point at it, so two pixels of lift is read as "press
+ * me", and a visitor who presses and gets nothing has been told something
+ * untrue by the design.
+ *
+ * `isInteractive` is the right predicate and it already exists: C2 widened it
+ * so a layout box carrying an `href` or a `scrollTo` counts, which is exactly
+ * the case that *may* lift. `workGridBlock`'s case card lifts and should.
+ *
+ * Two blocks failed this the day it was written — `galleryBlock`, which lifted
+ * while it was standing in for the agency's case studies and kept lifting
+ * after they became real pages, and `cardGridBlock`, which lifts on features
+ * and prices that were never going anywhere.
+ */
+function fakeAffordance(node) {
+  if (isInteractive(node)) return null;
+  /*
+   * Both spellings, because this runs on both sides of the library. A block
+   * spec writes `states: { hover: {…} }` and a built document holds the rule
+   * that `rulesFromLegacy` turned it into. Reading only one of them would have
+   * left three of the four offences this rule was written for invisible: they
+   * were in blocks, and only the fourth reached a template.
+   */
+  const moved = (decl) => decl?.transform ?? decl?.translate;
+  for (const pseudo of ['hover', 'active']) {
+    const found = moved(node.states?.[pseudo]);
+    if (found) return String(found);
+  }
+  for (const rule of node.rules ?? []) {
+    const hovered = (rule.when ?? []).some(
+      (c) => c.kind === 'pointer' && (c.pseudo === 'hover' || c.pseudo === 'active')
+    );
+    if (hovered && moved(rule.apply)) return String(moved(rule.apply));
+  }
+  return null;
+}
+
+/** The same rule, over a block spec's tree, for the `RULES` table. */
+function checkFakeAffordance(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    const moves = fakeAffordance(node);
+    if (moves) bad.push(`${path}: lifts on hover (${moves}) and goes nowhere`);
+  }
+  return bad;
+}
+
+/**
  * Whether an image reserves its space before the bytes arrive.
  *
  * Two ways to be sized, because there are two kinds of image and only one of
@@ -892,6 +944,7 @@ const RULES = [
   ['a control jumps or navigates, never both', checkJumpExclusive],
   ['small images clear the empty-slot floor', checkPlaceholderFloor],
   ['buttons and links respond to hover', checkInteractiveStates],
+  ['and nothing else rises under the pointer', checkFakeAffordance],
   ['every node is named for the layer tree', checkNames],
 ];
 
@@ -7157,6 +7210,7 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
   const lazyAlt = [];
   const unsized = [];
   const tooEager = [];
+  const fakeAffordances = [];
   const photoHosts = new Set();
   let imagesSwept = 0;
   let seededRows = 0;
@@ -7232,6 +7286,11 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
           if (href.startsWith('#') && href.length > 1) {
             handTyped.push(`${where}: href "${href}"`);
           }
+        }
+
+        {
+          const moves = fakeAffordance(node);
+          if (moves) fakeAffordances.push(`${where}: lifts on hover (${moves}), goes nowhere`);
         }
 
         if (node.refs?.scrollTo) {
@@ -7672,6 +7731,11 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     bothWays.slice(0, 3).join(' | ') || 'every jump is the only answer its control gives'
   );
   report.check(
+    'nothing rises under the pointer unless pressing it does something',
+    fakeAffordances.length === 0,
+    fakeAffordances.slice(0, 3).join(' | ') || 'every lift in eight templates leads somewhere'
+  );
+  report.check(
     'no template ships a content rule the expansion will drop',
     droppedSet.length === 0,
     droppedSet.slice(0, 3).join(' | ') || 'every set expands on a state or a data source'
@@ -7740,6 +7804,43 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
       !holdsItsShape(boundMisread) &&
       !holdsItsShape(boundDropped),
     'and the numbers on a bound image do not count, because they are not published'
+  );
+  /*
+   * The affordance rule, handed the four cases it has to tell apart. The last
+   * one is the whole point: the case card lifts, and it should, because
+   * pressing it opens the record's page.
+   */
+  const lifts = { transform: 'translateY(-3px)' };
+  const hover = [{ kind: 'pointer', pseudo: 'hover' }];
+  const plainCard = { type: 'frame', props: {}, rules: [{ when: hover, apply: lifts }] };
+  const glowCard = {
+    type: 'frame',
+    props: {},
+    rules: [{ when: hover, apply: { boxShadow: 'var(--sh-md)' } }],
+  };
+  const linkedCard = { ...plainCard, props: { href: 'page:abc' } };
+  const jumpCard = { ...plainCard, refs: { scrollTo: { node: 'abc' } } };
+  const realButton = { type: 'button', props: {}, rules: [{ when: hover, apply: lifts }] };
+  // The spec spelling, which is the one three of the four offences were
+  // written in. A rule that read only `rules` would call this card clean.
+  const specCard = { type: 'frame', props: {}, states: { hover: lifts } };
+  const specJump = { ...specCard, refs: { scrollTo: 'Gallery' } };
+  report.check(
+    'the affordance rule can tell a lift that leads somewhere from one that does not',
+    fakeAffordance(plainCard) === 'translateY(-3px)' &&
+      fakeAffordance(glowCard) === null &&
+      fakeAffordance(linkedCard) === null &&
+      fakeAffordance(jumpCard) === null &&
+      fakeAffordance(realButton) === null,
+    'a shadow is feedback, a lift is an offer, and a card with a destination may make one'
+  );
+  report.check(
+    'and reads a block spec as readily as a built document',
+    fakeAffordance(specCard) === 'translateY(-3px)' &&
+      fakeAffordance(specJump) === null &&
+      checkFakeAffordance({ type: 'section', children: [specCard] }).length === 1 &&
+      checkFakeAffordance({ type: 'section', children: [specJump] }).length === 0,
+    'states on a spec, rules on a document, one rule over both'
   );
   report.check(
     'and says which of the two ways it failed',

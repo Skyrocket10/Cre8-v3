@@ -27,7 +27,6 @@ import {
   icon,
   iconBadge,
   label,
-  liftCard,
   media,
   pad,
   paragraph,
@@ -88,7 +87,9 @@ export function featureSectionSpec(): NodeSpec {
             'Feature grid',
             3,
             FEATURES.map((feature) =>
-              liftCard(feature.title, [
+              // A feature tile. Informational, and staying that way: the lift
+              // it used to carry offered a page that was never going to exist.
+              card(feature.title, [
                 iconBadge(feature.icon),
                 heading(feature.title, 3, CARD_TITLE),
                 paragraph(feature.body, { ...SMALL, lineHeight: '1.6' }),
@@ -230,7 +231,7 @@ export function bentoFeaturesSpec(): NodeSpec {
             'Bento',
             3,
             BENTO.map((item) =>
-              liftCard(
+              card(
                 item.title,
                 [
                   iconBadge(item.icon),
