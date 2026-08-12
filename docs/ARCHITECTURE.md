@@ -1627,6 +1627,35 @@ blocks are forbidden to ship could ship from a template instead. Same shape as
 `checkColumnSpans` guarding one axis, and as the browser suite driving one
 breakpoint: a guard as wide as the road that existed when it was written.
 
+### The jump that only works on one page
+
+A jump lives in a section, and a section can appear on four pages. Put one in
+the navbar and it points at something the home page has and the other three do
+not. That looked like the next hole worth closing, and it is worth writing down
+that **it was already closed** — the guess was wrong and checking took a minute.
+Adding a jump to the shared navbar makes the suite name all three pages:
+`saas pricing/index.html: #features — nothing on that page answers to it`. The
+other half is covered too: where the reference is dropped rather than resolved,
+the control falls back to `#` and the dead-link rule catches it by page.
+
+One variant genuinely was not covered, and it is the quiet one. A node carrying
+**both** a `scrollTo` reference and a real `href` renders as the jump — the
+renderer prefers the reference — so the href is invisible dead weight right up
+until the reference stops resolving, at which point the control silently
+navigates somewhere instead of scrolling. It still works. It still passes the
+dead-link rule, because the href is real, and the fragment rule, because there
+is no fragment. Nothing would ever have reported it.
+
+`setScrollTarget` has always deleted the href, and that was checked — but the
+check tests the *editor operation*, and an author writing a spec by hand never
+goes through it. So the rule is now structural and in both places for the reason
+this file keeps relearning: over block specs, where `linkButton` should have
+made it impossible, and over what templates actually build, where a composed
+node need never have come from the library at all.
+
+`#` is exempt and has to be — a button's `defaultProps` supply one, so every
+jump button in a document carries a vestigial `href="#"` under a working jump.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

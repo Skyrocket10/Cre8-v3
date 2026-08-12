@@ -696,6 +696,37 @@ const SETTABLE = new Set([
   'text', 'html', 'label', 'alt', 'src', 'href', 'name', 'caption', 'placeholder', 'value', 'title',
 ]);
 
+/**
+ * A control that both jumps and navigates.
+ *
+ * The renderer picks the jump — `rawHref` prefers `refs.scrollTo` — so the two
+ * never both happen, and while the reference resolves the href is dead weight
+ * nobody sees. The failure is what happens when it *stops* resolving. A name
+ * matching nothing is deleted, and the href underneath quietly takes over: the
+ * control still works, still passes the dead-link and broken-fragment rules,
+ * and goes somewhere other than where it says.
+ *
+ * That is the one variant of this hazard the existing rules miss. A jump to a
+ * section that some pages lack falls back to `#`, which `deadLinks` catches; a
+ * fragment naming nothing gets caught by name on every page. Only a *real*
+ * href behind a jump is invisible, and only an author writing the node by hand
+ * can produce one — `linkButton` strips it.
+ *
+ * `#` is exempt, and has to be: a button's `defaultProps` supply it, so every
+ * jump button in a document carries one whatever the spec said.
+ */
+function checkJumpExclusive(spec) {
+  const bad = [];
+  for (const { node, path } of walk(spec)) {
+    if (!node.refs?.scrollTo) continue;
+    const href = String(node.props?.href ?? '').trim();
+    if (href && href !== '#') {
+      bad.push(`${path}: jumps to "${node.refs.scrollTo}" and also links to "${href}"`);
+    }
+  }
+  return bad;
+}
+
 function checkContentRules(spec) {
   const bad = [];
   for (const { node, path } of walk(spec)) {
@@ -771,6 +802,7 @@ const RULES = [
   ['every switch is wired to its own cases', checkSwitches],
   ['no block still says when it shows in props', checkRetiredProps],
   ['content varies on one state, exclusively', checkContentRules],
+  ['a control jumps or navigates, never both', checkJumpExclusive],
   ['small images clear the empty-slot floor', checkPlaceholderFloor],
   ['buttons and links respond to hover', checkInteractiveStates],
   ['every node is named for the layer tree', checkNames],
@@ -905,6 +937,16 @@ const VIOLATIONS = [
     checkColumnSpans,
     'and a card spanning two rows with no narrow reset',
     { type: 'frame', name: 'F', styles: { gridRow: 'span 2' }, responsive: { mobile: { gap: '8px' } } },
+  ],
+  [
+    checkJumpExclusive,
+    'a control that jumps and also carries a real href',
+    {
+      type: 'button',
+      name: 'Both',
+      props: { label: 'Go', href: '/pricing/' },
+      refs: { scrollTo: 'Pricing' },
+    },
   ],
   [
     checkHeadings,
@@ -7004,6 +7046,7 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
   const rawColour = [];
   const unnamed = [];
   const droppedSet = [];
+  const bothWays = [];
   const placeholder = [];
   const skippedHeading = [];
   const noHeading = [];
@@ -7079,6 +7122,19 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
          * from a template instead — which is exactly how the first version of
          * the copy button here claimed to change its own word.
          */
+        /*
+         * The same jump/navigate exclusivity the block rule checks, applied to
+         * what a template actually builds. Worth having in both places for the
+         * reason this file keeps relearning: the block rule reads specs, and a
+         * template is free to compose a node the block library never wrote.
+         */
+        if (node.refs?.scrollTo) {
+          const href = String(node.props?.href ?? '').trim();
+          if (href && href !== '#') {
+            bothWays.push(`${where}: jumps and also links to "${href}"`);
+          }
+        }
+
         for (const rule of node.rules ?? []) {
           if (!rule.set || !Object.keys(rule.set).some((prop) => SETTABLE.has(prop))) continue;
           const only = rule.when?.length === 1 ? rule.when[0] : null;
@@ -7475,6 +7531,11 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     rawColour.slice(0, 4).join(' | ') || 'tokens throughout'
   );
   report.check('every node is named for the layer tree', unnamed.length === 0, unnamed.slice(0, 3).join(' | '));
+  report.check(
+    'no control in a template both jumps and navigates',
+    bothWays.length === 0,
+    bothWays.slice(0, 3).join(' | ') || 'every jump is the only answer its control gives'
+  );
   report.check(
     'no template ships a content rule the expansion will drop',
     droppedSet.length === 0,
