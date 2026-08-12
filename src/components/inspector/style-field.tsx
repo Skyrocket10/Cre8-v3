@@ -58,9 +58,17 @@ export function StyleField({ prop }: { prop: StyleProp }) {
    * cascade had not already said. Anywhere else — a narrower breakpoint, or
    * inside a rule — absence means "whatever the layer above said", so clearing
    * leaves the box unticked and the element still italic.
+   *
+   * Both subscriptions are read into locals first, and that is not style. The
+   * first version was one expression — `useEditor(…) === 'desktop' &&
+   * !useEditor(…)` — where `&&` short-circuits, so the second hook ran on
+   * desktop and not anywhere else. A hook count that changes between renders
+   * corrupts React's hook list, and the whole inspector came down through its
+   * error boundary the instant anybody switched to Tablet.
    */
-  const base =
-    useEditor((s) => s.breakpoint) === 'desktop' && !useEditor((s) => s.activeRuleId);
+  const breakpoint = useEditor((s) => s.breakpoint);
+  const activeRuleId = useEditor((s) => s.activeRuleId);
+  const base = breakpoint === 'desktop' && !activeRuleId;
   /*
    * Both bindings in one call, and unconditionally: `when` names a *sibling*
    * property whose effective value decides whether this row appears, and a

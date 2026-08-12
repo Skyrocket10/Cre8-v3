@@ -8112,6 +8112,86 @@ report.group('a value cannot leave its own rule');
   );
 }
 
+report.group('a hook that only sometimes runs');
+
+{
+  /*
+   * The rule React states and no compiler here enforces: a component calls the
+   * same hooks, in the same order, on every render.
+   *
+   * Written because this milestone broke it. `useEditor(…) === 'desktop' &&
+   * !useEditor(…)` reads as one condition and is two hooks with a
+   * short-circuit between them — the second ran on Desktop and nowhere else, so
+   * React's hook list went out of step the instant anybody switched to Tablet
+   * and the whole inspector came down through its error boundary. Nothing
+   * caught it: it type-checks, it renders correctly on the layer everything is
+   * designed on, and the browser suite drove that layer only.
+   *
+   * A textual rule, deliberately. The real check needs a parser, but the
+   * mistake has a shape — a hook call to the right of an operator that can skip
+   * it — and that shape is greppable.
+   */
+  const OPERATORS = /(&&|\|\||\?\?|(?<!\?)\?(?!\.))\s*!*\s*(use[A-Z]\w*)\s*\(/g;
+  const files = [];
+  const offenders = [];
+  const scan = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scan(full);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry.name)) continue;
+      files.push(full);
+      // Comments stripped first, so a sentence *describing* the hazard — the
+      // one three lines above this — is not itself reported as the hazard.
+      const text = readFileSync(full, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      for (const match of text.matchAll(OPERATORS)) {
+        offenders.push(`${path.relative(ROOT, full)}: ${match[2]} after ${match[1]}`);
+      }
+    }
+  };
+  scan(path.join(ROOT, 'src'));
+
+  report.check(
+    'no hook is called on the far side of an operator that can skip it',
+    offenders.length === 0,
+    offenders.join(', ') || `${files.length} files, every hook unconditional`
+  );
+  report.check(
+    'and the scan read the tree it claims to have read',
+    // Without this the rule above passes just as happily on zero files, which
+    // is what a mistyped path gives you. 121 today; the floor is a tripwire for
+    // a path that stops resolving, not a count to keep updating.
+    files.length > 100,
+    `${files.length} components and modules scanned`
+  );
+  report.check(
+    'the rule catches each way of writing it',
+    ['const a = flag && useMemo(() => 1, []);',
+     'const b = flag || useRef(null);',
+     'const c = flag ? useContext(X) : null;',
+     'const d = flag ?? useCallback(fn, []);',
+     'const e = flag && !useStore((s) => s.x);',
+    ].every((line) => {
+      OPERATORS.lastIndex = 0;
+      return OPERATORS.test(line);
+    }) &&
+      // And does not fire on the shapes that are fine, including the optional
+      // chain `?.` that a naive `?` would swallow.
+      ['const ok = useMemo(() => a && b, [a, b]);',
+       'const also = thing?.useCount;',
+       'const fine = flag && other.useLater;',
+      ].every((line) => {
+        OPERATORS.lastIndex = 0;
+        return !OPERATORS.test(line);
+      }),
+    'five spellings caught, three lookalikes left alone'
+  );
+}
+
 report.group('the library uses what the panel can now express');
 
 {

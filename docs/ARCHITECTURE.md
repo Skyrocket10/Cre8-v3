@@ -1551,6 +1551,32 @@ spills sideways, the card is simply twice as tall as the phone needs — which i
 how it would have shipped. Both axes now, a rejection fixture for each, and the
 failure message names the axis, since both spell themselves `span 2`.
 
+**And the fix for the first bug shipped a worse one.** "Is this the base layer?"
+was written as one expression:
+
+```ts
+const base = useEditor((s) => s.breakpoint) === 'desktop' && !useEditor((s) => s.activeRuleId);
+```
+
+`&&` short-circuits. On Desktop both hooks run; anywhere else the first operand
+is false and the second `useEditor` is never called, so the hook count changes
+between renders, React's hook list goes out of step, and **the entire inspector
+came down through its error boundary the moment anybody switched to Tablet**.
+It type-checks. It renders perfectly on the layer everything is designed on.
+Every existing browser check drove that layer, so all of them stayed green over
+a panel that no longer worked.
+
+The rule is now a static check, because the mistake has a shape even though the
+real analysis needs a parser: a hook call to the right of `&&`, `||`, `??` or
+`?:` is greppable, and `?.` has to be excluded or the rule eats every optional
+chain in the tree. It scans 121 files, asserts it read them, and is checked
+against five spellings it must catch and three lookalikes it must not.
+
+That the bug was found at all is the whole argument for the second breakpoint.
+The check written to catch the *first* bug is what fell over, in the run that
+was meant to confirm the fix. Both bugs live in the same blind spot — one
+breakpoint, the widest one, the one a developer never leaves.
+
 Two of the new checks were themselves wrong first, in opposite ways worth
 keeping apart. One read a block spec's shape against *document* nodes, where
 base declarations are keyed by breakpoint under `styles.desktop` — it reported
