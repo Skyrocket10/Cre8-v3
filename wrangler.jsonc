@@ -96,14 +96,26 @@
     // Set to "false" to close signups once your team has accounts.
     "ALLOW_SIGNUP": "true",
 
-    // ── CHANGE THIS ───────────────────────────────────────────────────────
+    // ── SET THIS ONLY ONCE THE SECOND WORKER IS DEPLOYED ──────────────────
     // Apex for published sites. Must match the wildcard route in
     // workers/sites/wrangler.jsonc — these are the only two places it appears.
     //
-    // Projects publish to <subdomain>.<PUBLIC_SITE_DOMAIN>. Leave it empty and
-    // the whole mechanism switches off: no second Worker, and sites stay on
-    // this one at /s/<projectId>/, sandboxed.
-    "PUBLIC_SITE_DOMAIN": "cre8.app"
+    // Projects publish to <subdomain>.<PUBLIC_SITE_DOMAIN>. Empty switches the
+    // whole mechanism off: no second Worker, and sites stay on this one at
+    // /s/<projectId>/, sandboxed.
+    //
+    // Empty is the default because a non-empty value is a *promise this Worker
+    // cannot keep on its own*. It reads the string and hands the editor
+    // `https://<sub>.<domain>/` — it has no way to know whether a zone exists,
+    // whether `cre8-sites` is deployed, or whether the wildcard route is
+    // attached. It said `cre8.app` here for a while with none of the three
+    // true, which is a publish that reports success and links somewhere that
+    // does not resolve. Nothing local can catch that: `wrangler dev` serves
+    // both Workers itself.
+    //
+    // So: deploy the second Worker first (`npm run deploy:sites`), confirm the
+    // wildcard answers, and only then fill this in and redeploy this one.
+    "PUBLIC_SITE_DOMAIN": ""
   }
 
   // `/s/<projectId>/` still works on this Worker whatever PUBLIC_SITE_DOMAIN

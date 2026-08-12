@@ -240,19 +240,45 @@ npx wrangler r2 bucket create cre8-assets
 npx wrangler r2 bucket create cre8-sites
 npm run db:init                              # applies workers/schema.sql
 npx wrangler secret put AUTH_PEPPER          # required; see below
-npm run deploy && npm run deploy:sites
+npm run deploy
 ```
 
-Then set your domain in **two places, and only two**:
+That is the whole of it, and it is a working deployment: sites publish to
+`/s/<projectId>/` on the same Worker, sandboxed by CSP. `PUBLIC_SITE_DOMAIN`
+ships empty and the second Worker is not needed.
+
+**Subdomains, if you want them, are a second step and the order matters.**
 
 | File | Field |
 |---|---|
-| `wrangler.jsonc` | `vars.PUBLIC_SITE_DOMAIN` |
 | `workers/sites/wrangler.jsonc` | the wildcard `route` and its `zone_name` |
+| `wrangler.jsonc` | `vars.PUBLIC_SITE_DOMAIN` |
 
-Both must be a zone on your Cloudflare account — a wildcard route cannot run on
-`workers.dev`. Leave `PUBLIC_SITE_DOMAIN` empty and the second Worker is not
-needed at all: sites stay on the main Worker at `/s/<projectId>/`, sandboxed.
+In that order:
+
+```bash
+# 1. point the second Worker at your zone, then deploy it
+npm run deploy:sites
+# 2. confirm the wildcard answers, e.g. anything.example.com returns a 404
+#    *from the Worker* rather than a DNS failure
+# 3. only now set PUBLIC_SITE_DOMAIN to the same apex, and
+npm run deploy
+```
+
+The domain must be a zone on your Cloudflare account — a wildcard route cannot
+run on `workers.dev`.
+
+The order is not fussiness. `PUBLIC_SITE_DOMAIN` is a promise the editor Worker
+cannot keep by itself: it reads the string and hands the publish dialog
+`https://<sub>.<domain>/`, with no way to find out whether the zone exists,
+whether `cre8-sites` is deployed, or whether the route is attached. Set it
+first and the first publish reports success and links to a hostname with
+nothing behind it. Nothing local catches this, because `wrangler dev` serves
+both Workers itself.
+
+Note also that a hostname is written to KV on first publish, and KV is
+eventually consistent — a brand-new address can take up to a minute to answer
+everywhere even when all three of those are true.
 
 `AUTH_PEPPER` is not optional — the Worker refuses every API request until it
 is set, rather than storing weaker credentials. Use a long random string and

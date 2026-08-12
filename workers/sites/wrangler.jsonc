@@ -21,6 +21,12 @@
   // the only two places the domain appears.
   //
   // A wildcard route needs a zone — this cannot run on workers.dev.
+  //
+  // **Deploy this one first.** The root config's PUBLIC_SITE_DOMAIN ships
+  // empty, because setting it makes the editor advertise an address that only
+  // this Worker can answer, and the editor has no way to find out whether it
+  // is there. Deploying in the other order publishes a site to a hostname with
+  // nothing behind it and reports success.
 
   "name": "cre8-sites",
   "main": "index.ts",
