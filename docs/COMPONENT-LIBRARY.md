@@ -45,8 +45,8 @@ meet that bar or it drags the product down rather than filling it out.
 
 **Since:** 35 primitives (`details`, `select`, `checkbox`, `radio`, `popover`,
 `dialog`, `table`, `tableRow`, `tableCell`, `range`, `file`, `progress`,
-`fieldset` added in B) and 92 blocks across nine categories, held to that bar
-by 2,662 static checks and 23 browser suites.
+`fieldset` added in B) and 93 blocks across nine categories, held to that bar
+by 2,818 static checks and 23 browser suites.
 
 **The status column below was six months out of date and is now not.** It
 said 52 of 109 rows built while 86 blocks shipped, because a row was ticked
@@ -130,7 +130,12 @@ dropdown, tooltip and nearly every form control.
 **(b) A behaviour runtime.** Implement `events` as declarative actions and emit
 a small script only into pages that use one. Needed for tabs, carousels,
 toasts, the monthly/annual pricing toggle, the mobile nav. See §6 — this is the
-decision that has to be made deliberately, not drifted into.
+decision that has to be made deliberately, not drifted into. **Built**, and
+deliberately: one module, ~3.6 KB minified, inlined only into pages that carry
+a control. An action is a record that compiles to an attribute rather than a
+script — see `lib/document/actions.ts` — so a control can name the state it
+drives and run several assignments in one press without the runtime learning
+what a CSS property is.
 
 **(c) A data layer.** Implement `bindings` plus a repeater node. Needed for
 anything driven by a collection: tables with real rows, blog indexes, product
@@ -258,6 +263,7 @@ long as the tab is open.
 | Author byline | B  | ✅ | Author card |
 | Related posts row | B  | ✅ | Related posts |
 | Tag / category chips | B  | ✅ | in Blog header |
+| Index that filters itself | B | ✅ | Filtered index |
 | Pagination | B  | ✅ | Pagination |
 
 ### 4.8 Commerce
@@ -502,7 +508,10 @@ and much harder to see in a screenshot.
    `data-cre8-*` attributes. The canvas and preview import it; the publisher
    inlines the same source into pages that use it. One implementation, three
    surfaces, same rule as `element-model.ts` and `css.ts`. Budget ~3 KB, emitted
-   only when a page actually binds an event.
+   only when a page actually binds an event. *(Done. The budget is a number in
+   `tests/render/behaviour.mjs` and has been raised three times, each with its
+   argument kept beside it, because a budget only means something if raising it
+   costs something.)*
 
 3. **Make design-time state authorable.** An accordion is open or closed; a tab
    set has one panel showing. The inspector needs a state selector that sets

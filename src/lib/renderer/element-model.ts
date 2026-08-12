@@ -8,6 +8,7 @@
  * promise someone has to keep re-checking.
  */
 
+import { actsOnPress, copyTextFor, encodeSets, stateSets } from '../document/actions';
 import { SWITCH_SHOW_ALL, anchorId, resolveTag, slug, splitFragment } from '../document/schema';
 import {
   BREAKPOINT_DEFS,
@@ -347,7 +348,8 @@ function applySwitch(
   const mode = options.mode;
   const props = node.props;
   const key = slug(props.switchKey);
-  const set = slug(props.switchSet);
+  const sets = stateSets(node);
+  const set = encodeSets(sets);
   // Hiding is the stylesheet's job — these attributes exist so the *runtime*
   // can tell a tab's panel from a price that happens to answer to the same
   // value, which it cannot read out of a rule.
@@ -409,7 +411,12 @@ function applySwitch(
     model.attrs[SET_ATTR] = set;
     // A control that moves a stepper on is not a toggle, and announcing it as
     // one ("Next, toggle button, not pressed") is worse than saying nothing.
-    if (props.switchQuiet) model.attrs[QUIET_ATTR] = 'true';
+    //
+    // One flag for the whole control rather than one per assignment, because
+    // `aria-pressed` describes the *button*: a control that sets two states
+    // has no single thing it could be pressed for, so a single quiet
+    // assignment makes the whole control quiet. Any is enough.
+    if (sets.some((one) => one.quiet)) model.attrs[QUIET_ATTR] = 'true';
   }
   /*
    * Only a condition on the *nearest* state gets an attribute, and only these
@@ -729,7 +736,7 @@ function describeBase(
        * is a reasonable thing to build, and the runtime keys on the attribute
        * rather than on the element being a button.
        */
-      const copyText = str(props.copyText);
+      const copyText = copyTextFor(node);
       const scrollTo = node.refs?.scrollTo?.node;
       const rawHref = scrollTo ? `${NODE_HREF_PREFIX}${scrollTo}` : str(props.href);
       // Node-level, not per-variant: what a button opens is structure, and a
@@ -739,6 +746,7 @@ function describeBase(
       const tag = resolveTag(node.type, props, {
         opensPopover: Boolean(popoverTarget),
         scrollsTo: Boolean(scrollTo),
+        acts: actsOnPress(node),
       });
       const target = str(props.target, '_self');
       const attrs: Record<string, AttrValue> = { ...base };

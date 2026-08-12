@@ -345,6 +345,20 @@ CANVAS:
     `switchDesign` selects the state shown in the canvas.
 ```
 
+**"Arbitrary element targeting is deferred" still holds, and a control can
+still say which state it drives.** Those read as a contradiction and are not
+the same statement. Naming a state is naming one of a handful of declared
+things — the runtime resolves it to the nearest ancestor carrying that key, or
+failing that to the one group on the page, and writes an attribute. Naming an
+*element* would mean a control reaching into the tree and changing something
+about a specific node, which is where a second renderer starts.
+
+The distinction is load-bearing in a repeater. A hundred rows publish a hundred
+copies of one group, and ancestors-first resolution means a Close in row three
+closes row three. An element reference would have had to be minted per row, and
+the whole point of the repeater constraint is that nothing scales with the row
+count.
+
 ---
 
 ## What this maps onto

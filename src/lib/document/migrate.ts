@@ -8,6 +8,7 @@
  * is safe to run twice.
  */
 
+import { clickBinding } from './actions';
 import { uid } from './id';
 import { readLegacyVisibility, slug } from './schema';
 import {
@@ -15,6 +16,7 @@ import {
   type Binding,
   type Condition,
   type Cre8Document,
+  type NodeAction,
   type NodeProps,
   type SceneNode,
   type StateStyles,
@@ -177,6 +179,54 @@ function migrateDeclarations(node: SceneNode): void {
   }
 }
 
+/**
+ * `props.switchSet` and `props.copyText` become `events`.
+ *
+ * What a control *does* was a scalar on the node for three releases, and the
+ * two things a scalar cannot express turned out to be the two things a page
+ * needs: which state it drives, and doing more than one thing. `node.events`
+ * holds a list, so both are sayable — see `lib/document/actions.ts`.
+ *
+ * Exported because the factory needs it too, on the same reasoning as
+ * `rulesFromLegacy` above: the props survive as an *authoring shorthand* that
+ * every block in the library is written in, and this is the one place that
+ * knows what they mean. A second implementation in the factory is how the two
+ * spellings would come to disagree about `quiet`.
+ *
+ * By shape, like everything here, and idempotent because the props are
+ * deleted. Actions already on the node win: a document open in two tabs can be
+ * written by the newer build while the older one still holds the props, and
+ * the list is the spelling somebody chose most recently.
+ *
+ * The migrated assignment has **no `state`**, which is the faithful reading
+ * rather than a shortcut. `switchSet` always meant the nearest enclosing
+ * group, so naming one here would change what an existing page does the first
+ * time somebody nests it.
+ */
+export function migrateActions(node: SceneNode): void {
+  const value = slug(node.props.switchSet);
+  const copy = typeof node.props.copyText === 'string' ? node.props.copyText : '';
+  if (node.props.switchSet === undefined && node.props.copyText === undefined) return;
+
+  if (!node.events?.length) {
+    const actions: NodeAction[] = [];
+    if (value) {
+      actions.push({
+        type: 'setState',
+        value,
+        ...(node.props.switchQuiet ? { quiet: true } : {}),
+      });
+    }
+    if (copy) actions.push({ type: 'copy', text: copy });
+    const binding = clickBinding(actions);
+    if (binding) node.events = binding;
+  }
+
+  delete node.props.switchSet;
+  delete node.props.switchQuiet;
+  delete node.props.copyText;
+}
+
 function migrateNode(node: SceneNode): void {
   migrateBindings(node);
   migrateRefs(node);
@@ -184,16 +234,22 @@ function migrateNode(node: SceneNode): void {
 
   const legacy = (node as SceneNode & { states?: StateStyles }).states;
   const hasRetired = RETIRED_PROPS.some((key) => node.props[key] !== undefined);
-  if (!legacy && !hasRetired) return;
+  if (legacy || hasRetired) {
+    const converted = rulesFromLegacy(legacy, node.props);
+    // Appended rather than replacing: a document part-way through the change
+    // could carry both, and the converted ones are the older intent, so they
+    // belong first.
+    node.rules = converted.concat(node.rules ?? []);
 
-  const converted = rulesFromLegacy(legacy, node.props);
-  // Appended rather than replacing: a document part-way through the change
-  // could carry both, and the converted ones are the older intent, so they
-  // belong first.
-  node.rules = converted.concat(node.rules ?? []);
+    delete (node as SceneNode & { states?: StateStyles }).states;
+    for (const key of RETIRED_PROPS) delete node.props[key];
+  }
 
-  delete (node as SceneNode & { states?: StateStyles }).states;
-  for (const key of RETIRED_PROPS) delete node.props[key];
+  // Last, and that is load-bearing: `rulesFromLegacy` reads `props.switchSet`
+  // to know what a `pressed` style was conditioned on, so retiring the prop
+  // before it runs would turn every legacy pressed style into a rule with no
+  // condition — a hover state that is simply always on.
+  migrateActions(node);
 }
 
 export function migrateDocument(doc: Cre8Document): Cre8Document {

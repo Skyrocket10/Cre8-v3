@@ -1330,6 +1330,60 @@ export const switchButton = (text: string, value: string, styles: StyleDecl = {}
 });
 
 /**
+ * A control that puts one or more *named* states into values.
+ *
+ * `switchButton` writes a bare value, which means the group the control sits
+ * inside. That is right for a tab — a tab belongs to its set, and a card
+ * copied into another set should drive the one it lands in — and it is exactly
+ * wrong for anything that has to reach past its own surroundings.
+ *
+ * The two shapes this exists for:
+ *
+ * - **Clearing several filters at once.** Each filter is its own group, and
+ *   "Show everything" has to reach all of them. One press, one gesture, one
+ *   thing to undo.
+ * - **A control acting on a group it is nested inside.** `closest()` answers
+ *   with the innermost, so a button inside a sort switch could never touch the
+ *   topic switch around it, however plainly that is what it meant.
+ *
+ * Quiet by default, and that is the honest announcement rather than a
+ * shortcut: a control that moves two states has nothing single for
+ * `aria-pressed` to describe, and "Show everything, toggle button, not
+ * pressed" describes something the button is not.
+ */
+export const switchReset = (
+  text: string,
+  sets: { state: string; value: string }[],
+  styles: StyleDecl = {}
+): NodeSpec => ({
+  type: 'button',
+  name: `${text} control`,
+  props: { label: text },
+  events: [
+    {
+      event: 'onClick',
+      actions: sets.map(({ state, value }) => ({
+        type: 'setState' as const,
+        state,
+        value,
+        quiet: true,
+      })),
+    },
+  ],
+  styles: {
+    backgroundColor: 'transparent',
+    color: 'var(--c-muted)',
+    fontSize: '13px',
+    fontWeight: '560',
+    ...pad('7px', '13px'),
+    ...radius('var(--r-full)'),
+    ...border('1px', 'var(--c-border)'),
+    ...styles,
+  },
+  states: { hover: { color: 'var(--c-text)', borderColor: 'var(--c-text)' } },
+});
+
+/**
  * A rule that hides a node unless a state holds one of these values.
  *
  * Blocks write the condition rather than an intent: the stored form is always

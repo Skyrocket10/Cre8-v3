@@ -33,6 +33,11 @@ import {
   section,
   splitGrid,
   stack,
+  switchButton,
+  switchCase,
+  switchGroup,
+  switchReset,
+  switchSet,
   tabs,
   textLink,
 } from './kit';
@@ -235,6 +240,170 @@ export function postGridSpec(): NodeSpec {
             )
           ),
           { gap: '24px' }
+        ),
+      ],
+      { gap: '0px' }
+    ),
+  ]);
+}
+
+/* --------------------------------------------------------------------------
+ * Filtered index
+ * ----------------------------------------------------------------------- */
+
+/**
+ * An index that filters itself, with one control that clears the whole thing.
+ *
+ * The block the library could not draw. Every card is in the file and CSS
+ * chooses — the same mechanism a pricing toggle uses — so a crawler sees all
+ * six posts, a visitor with no scripting gets an unfiltered index rather than
+ * a broken one, and nothing is fetched when a chip is pressed.
+ *
+ * What is new is the *control*. Two states are in play, and they nest: `topic`
+ * wraps the whole block and `order` wraps only the two buttons that set it. A
+ * control could previously only drive the group it was innermost inside, so
+ * "Show everything" was unbuildable from anywhere — put it beside the sort
+ * buttons and it could not reach the topic, put it beside the chips and it
+ * could not reach the order. Naming both is one press and one undo.
+ *
+ * `order` does not reorder anything, and that is deliberate rather than a
+ * shortcut: sorting is a property of the data, the data here is six literal
+ * cards, and a control that claimed to sort while doing nothing is the kind of
+ * lie the hover-lift rule exists to stop. It changes the *label* on the list,
+ * which is a true statement about a state, and a real index built on a
+ * collection replaces the cards underneath without touching the control.
+ */
+export function filteredIndexSpec(): NodeSpec {
+  const chips = TOPICS.map((topic) =>
+    switchButton(topic, topic.toLowerCase(), {
+      fontSize: '13px',
+      ...pad('7px', '13px'),
+      ...border('1px', 'transparent'),
+    })
+  );
+
+  const sort = switchGroup(
+    'order',
+    'newest',
+    [
+      /*
+       * What the order actually changes, said in the file rather than done to
+       * the cards.
+       *
+       * Inside the group, so the condition needs no name: the nearest state
+       * above this line is `order`. Both sentences ship and a rule chooses
+       * between them, which is why the caption is right with scripting off and
+       * why a crawler sees a real one instead of an empty element a script was
+       * going to fill in.
+       */
+      switchSet(
+        'read',
+        { text: 'Six posts, most read first.' },
+        // `nowrap` with a wrapping row around it: on a phone the caption takes
+        // a line of its own and the buttons drop below, rather than being
+        // squeezed into a four-word column beside them.
+        label('Six posts, newest first.', {
+          ...CAPTION,
+          color: 'var(--c-muted)',
+          whiteSpace: 'nowrap',
+        })
+      ),
+      stack(
+        'Order options',
+        [
+          switchButton('Newest', 'newest', { fontSize: '13px' }),
+          switchButton('Most read', 'read', { fontSize: '13px' }),
+        ],
+        { gap: '2px', width: 'fit-content', ...pad('3px'), ...radius('var(--r-full)'), backgroundColor: 'var(--c-surface)', ...border('1px', 'var(--c-border)') }
+      ),
+      /*
+       * Inside the `order` group and reaching past it, which is the whole
+       * demonstration: `closest()` finds `order`, and the topic it also has to
+       * clear is two levels further out.
+       */
+      switchReset('Show everything', [
+        { state: 'topic', value: 'all' },
+        { state: 'order', value: 'newest' },
+      ]),
+    ],
+    {
+      display: 'flex',
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: '10px',
+      width: 'fit-content',
+    }
+  );
+
+  return section('Filtered index', [
+    container(
+      [
+        switchGroup(
+          'topic',
+          'all',
+          [
+            column(
+              'Index head',
+              [
+                heading('Everything we have written', 2, {
+                  ...SUBTITLE,
+                  textWrap: 'balance',
+                }, SUBTITLE_RESPONSIVE),
+                stack(
+                  'Controls',
+                  [stack('Topics', chips, { gap: '4px', flexWrap: 'wrap' }), sort],
+                  {
+                    gap: '16px',
+                    width: '100%',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                  }
+                ),
+              ],
+              { gap: '20px', width: '100%' }
+            ),
+            grid(
+              'Posts',
+              3,
+              POSTS.map((post) =>
+                // `all` beside its own topic, so the catch-all needs no rule
+                // of its own and no list to keep in step with the chips.
+                //
+                // Unnamed, because the nearest state above a card *is* `topic`
+                // — the sort group wraps only the two buttons that set it. A
+                // name here would say the same thing and give up the property
+                // that makes a card portable.
+                switchCase(
+                  `all ${post.topic.toLowerCase()}`,
+                  linkCard(
+                    '#',
+                    post.title.slice(0, 28),
+                    [
+                      media(`Cover image for “${post.title}”`, '16 / 10', {
+                        ...radius('var(--r-md)'),
+                        marginBottom: '4px',
+                      }),
+                      label(post.topic, {
+                        ...CAPTION,
+                        fontWeight: '620',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        color: 'var(--c-primary)',
+                      }),
+                      heading(post.title, 3, CARD_TITLE),
+                      paragraph(post.blurb, SMALL),
+                      byline(post.author, post.date, post.read),
+                    ],
+                    { ...pad('18px'), gap: '10px', justifyContent: 'flex-start' }
+                  )
+                )
+              ),
+              { gap: '24px' }
+            ),
+          ],
+          { display: 'flex', flexDirection: 'column', gap: '32px' }
         ),
       ],
       { gap: '0px' }

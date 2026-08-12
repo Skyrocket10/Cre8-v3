@@ -8,7 +8,7 @@
  */
 
 import { uid } from './id';
-import { bindingFrom, migrateDocument, rulesFromLegacy } from './migrate';
+import { bindingFrom, migrateActions, migrateDocument, rulesFromLegacy } from './migrate';
 import { getElement, splitFragment } from './schema';
 import { createDefaultTheme } from './theme';
 import {
@@ -17,6 +17,7 @@ import {
   type Binding,
   type Cre8Document,
   type ElementType,
+  type NodeEventBinding,
   type NodeId,
   type NodeProps,
   type Page,
@@ -104,6 +105,17 @@ export interface NodeSpec {
    */
   bind?: Record<string, string | Binding>;
   /**
+   * What this node does when it is pressed.
+   *
+   * Only needed for what the shorthand cannot say — an assignment naming its
+   * state, or more than one action. `props.switchSet`, `props.switchQuiet` and
+   * `props.copyText` remain the way the library writes the ordinary case, and
+   * are folded into this by the same function that migrates a saved document,
+   * exactly as `states` is folded into `rules`. So a block never has to choose
+   * a spelling: it writes the short one until it needs the long one.
+   */
+  events?: NodeEventBinding[];
+  /**
    * What this node points at, by the *name* of the node it points at.
    *
    * A spec has no ids, so a block writes `{ popover: 'Menu' }` and `buildTree`
@@ -163,6 +175,13 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
   if (spec.meta) node.meta = { ...node.meta, ...spec.meta };
   if (spec.repeat) node.repeat = structuredCloneCompat(spec.repeat);
   if (spec.assign?.length) node.assign = structuredCloneCompat(spec.assign);
+  if (spec.events?.length) node.events = structuredCloneCompat(spec.events);
+  // The action shorthand, folded by the function that migrates a saved
+  // document — so `switchSet` on a spec and `switchSet` in a file from last
+  // month become the same thing, and the props never reach the renderer from
+  // either direction. A spec that wrote `events` itself wins, which is what
+  // the migration already does for a node that carries both.
+  migrateActions(node);
   if (spec.refs) {
     node.refs = Object.fromEntries(
       Object.entries(spec.refs).map(([slot, name]) => [slot, namedRef(name)])

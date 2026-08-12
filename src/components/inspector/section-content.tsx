@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Scissors,
   SquarePen,
+  X,
 } from 'lucide-react';
 import { ICON_NAMES, ICON_PATHS } from '@/lib/renderer/icons';
 import {
@@ -28,7 +29,15 @@ import {
   slug,
   slugList,
 } from '@/lib/document/schema';
-import type { Asset, ElementType, RefSlot, StyleDecl, StyleProp } from '@/lib/document/types';
+import { valuesSetting } from '@/lib/document/actions';
+import type {
+  Asset,
+  ElementType,
+  NodeAction,
+  RefSlot,
+  StyleDecl,
+  StyleProp,
+} from '@/lib/document/types';
 import {
   exposeProperty,
   removeComponentProperty,
@@ -1160,8 +1169,10 @@ function useSwitchCases(groupId: string | undefined): string[] {
     // and what any condition tests for. Read off the tree rather than
     // declared anywhere, so the list cannot fall out of step with the nodes.
     add(s.doc.nodes[groupId]?.props.switchDefault);
+    const key = slug(s.doc.nodes[groupId]?.props.switchKey);
     for (const id of collectSubtree(s.doc.nodes, groupId)) {
-      add(s.doc.nodes[id]?.props.switchSet);
+      const node = s.doc.nodes[id];
+      if (node) add(valuesSetting(node, key).join(' '));
       // Only cases of *this* state, and only positive ones: "shown unless
       // Free" does not make Free a case worth laying out on its own.
       const when = readCase(s.doc.nodes[id]?.rules);
@@ -1346,52 +1357,152 @@ function SwitchGroupContent() {
 }
 
 /**
- * What clicking this element does to a state.
+ * What clicking this element does.
  *
  * All that survives of what used to be the Visibility section. *When* an
  * element is on screen is a rule like any other now and lives in States &
- * conditions, next to hover and everything else that changes with a
- * condition. Putting a state into a value is not a style change at all, so it
- * stays here with the rest of what an element *does*.
+ * conditions, next to hover and everything else that changes with a condition.
+ * Putting a state into a value is not a style change at all, so it stays here
+ * with the rest of what an element *does*.
+ *
+ * A list rather than one row, which is the panel half of the behaviour axis.
+ * The old control offered the values of `states[0]` — the *nearest* state —
+ * and wrote a bare value, so with two states in scope a designer was handed
+ * the wrong menu with nothing saying so, and had no way to reach the outer one
+ * even after noticing. Each row now names the state it drives.
  */
 function SwitchSetterSection() {
-  const set = useNodeProp('switchSet');
-  const quiet = useNodeProp('switchQuiet');
+  const setActions = useEditor((s) => s.setActions);
   // Only states something can actually be put into: a state whose values are
   // unknown offers an empty menu, which reads as broken.
   const states = useStatesInScope().filter((state) => state.values.length > 0);
+  const actions = useEditor((s) => {
+    const node = s.doc.nodes[s.selection[0] ?? ''];
+    return JSON.stringify(node?.events?.find((b) => b.event === 'onClick')?.actions ?? []);
+  });
+  const parsed = useMemo(() => JSON.parse(actions) as NodeAction[], [actions]);
+  const assignments = parsed.filter((a) => a.type === 'setState');
+  const rest = parsed.filter((a) => a.type !== 'setState');
+
   if (states.length === 0) return null;
 
-  const chosen = slug(set.value);
+  /** Rewrite the assignments, keeping every other action where it was. */
+  const write = (next: NodeAction[]) => setActions([...next, ...rest]);
+
+  /*
+   * Which state a row drives, for the menu.
+   *
+   * An assignment with no `state` means the nearest one, and the nearest one
+   * is `states[0]` — so the two spellings pick the same entry and the menu can
+   * show it without the designer having to know there is a difference. What is
+   * written back keeps the distinction: choosing the first option writes no
+   * name, so a control copied into another tab set still drives the set it is
+   * in.
+   */
+  const keyOf = (action: Extract<NodeAction, { type: 'setState' }>) =>
+    slug(action.state) || states[0]!.key;
+  const valuesOf = (key: string) => states.find((s) => s.key === key)?.values ?? [];
 
   return (
     <Section title="Interaction" defaultOpen>
       <InspectorGroup>
-        <StyleRow label="Switches to" hint="Clicking this puts the state into that value">
-          <Select
-            className="flex-1"
-            value={chosen}
-            onChange={(value) => set.set(value || undefined)}
-            options={[
-              { value: '', label: 'Nothing' },
-              ...(states[0]?.values ?? []).map((value) => ({ value, label: value })),
-            ]}
-          />
+        {assignments.length === 0 ? (
+          <p className="px-3 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+            Nothing happens when this is pressed.
+          </p>
+        ) : null}
+
+        {assignments.map((action, index) => {
+          const key = keyOf(action);
+          const rewrite = (patch: Partial<Extract<NodeAction, { type: 'setState' }>>) =>
+            write(assignments.map((a, i) => (i === index ? { ...a, ...patch } : a)));
+          return (
+            <div key={index} className="flex flex-col gap-1">
+              <StyleRow
+                label={index === 0 ? 'Switches' : 'And switches'}
+                hint="Clicking this puts that state into that value"
+              >
+                <div className="flex flex-1 items-center gap-1">
+                  {states.length > 1 ? (
+                    <Select
+                      className="flex-1"
+                      value={key}
+                      onChange={(next) =>
+                        rewrite({
+                          // The nearest state is spelled as no name at all, so
+                          // choosing it back gives up the insistence rather
+                          // than pinning what happened to be nearest today.
+                          state: next === states[0]!.key ? undefined : next,
+                          value: valuesOf(next).includes(action.value)
+                            ? action.value
+                            : (valuesOf(next)[0] ?? ''),
+                        })
+                      }
+                      options={states.map((state) => ({
+                        value: state.key,
+                        label: state.key === states[0]!.key ? `${state.key} (nearest)` : state.key,
+                      }))}
+                    />
+                  ) : null}
+                  <Select
+                    className="flex-1"
+                    value={action.value}
+                    onChange={(next) => rewrite({ value: next })}
+                    options={valuesOf(key).map((value) => ({ value, label: value }))}
+                  />
+                  <IconButton
+                    label="Remove this"
+                    onClick={() => write(assignments.filter((_, i) => i !== index))}
+                  >
+                    <X size={11} />
+                  </IconButton>
+                </div>
+              </StyleRow>
+            </div>
+          );
+        })}
+
+        <StyleRow label="" hint="A control can move more than one state at once">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              write([
+                ...assignments,
+                { type: 'setState', value: states[0]!.values[0] ?? '' },
+              ])
+            }
+          >
+            {assignments.length ? 'Add another' : 'Switch a state'}
+          </Button>
         </StyleRow>
 
-        {chosen && (
+        {assignments.length ? (
           <StyleRow label="Announced as" hint="A toggle says whether it is on; Next and Back do not">
             <Segmented
               full
-              value={quiet.value ? 'quiet' : 'toggle'}
-              onChange={(mode) => quiet.set(mode === 'quiet' ? true : undefined)}
+              value={assignments.some((a) => a.quiet) ? 'quiet' : 'toggle'}
+              onChange={(mode) =>
+                // One flag for the control, because `aria-pressed` describes
+                // the button rather than any one of its assignments.
+                write(
+                  assignments.map((a) => ({
+                    ...a,
+                    ...(mode === 'quiet' ? { quiet: true } : { quiet: undefined }),
+                  }))
+                )
+              }
               options={[
                 { value: 'toggle', label: 'A toggle', title: 'aria-pressed' },
-                { value: 'quiet', label: 'Nothing', title: 'Moves the state without claiming to be a toggle' },
+                {
+                  value: 'quiet',
+                  label: 'Nothing',
+                  title: 'Moves the state without claiming to be a toggle',
+                },
               ]}
             />
           </StyleRow>
-        )}
+        ) : null}
       </InspectorGroup>
     </Section>
   );
@@ -2111,7 +2222,28 @@ function LinkContent({
   const insideForm = useInsideForm();
   const submits = Boolean(submit.value);
   const opensPopover = opensAPopover;
-  const copy = useNodeProp('copyText');
+  /*
+   * The clipboard text, which is an *action* now rather than a prop.
+   *
+   * Read and written through the same list the Interaction section edits, so
+   * a control that copies and switches carries one ordered gesture rather than
+   * a prop and a list that have to be reconciled by whatever reads them next.
+   */
+  const setActions = useEditor((s) => s.setActions);
+  const encoded = useEditor((s) => {
+    const node = s.doc.nodes[s.selection[0] ?? ''];
+    return JSON.stringify(node?.events?.find((b) => b.event === 'onClick')?.actions ?? []);
+  });
+  const actions = useMemo(() => JSON.parse(encoded) as NodeAction[], [encoded]);
+  const copyText = actions.reduce(
+    (found, action) => (action.type === 'copy' && action.text ? action.text : found),
+    ''
+  );
+  const setCopy = (text: string) =>
+    setActions([
+      ...actions.filter((action) => action.type !== 'copy'),
+      ...(text ? [{ type: 'copy' as const, text }] : []),
+    ]);
 
   return (
     <Section title={title}>
@@ -2164,12 +2296,12 @@ function LinkContent({
         <StyleRow label="Copies" hint="Puts this text on the clipboard when pressed">
           <TextInput
             className="flex-1"
-            value={String(copy.value ?? '')}
-            onValueChange={(v) => copy.set(v.trim() || undefined)}
+            value={copyText}
+            onValueChange={(v) => setCopy(v.trim())}
             placeholder="Nothing"
           />
         </StyleRow>
-        {Boolean(copy.value) && (
+        {Boolean(copyText) && (
           <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
             It carries <code>data-cre8-copied</code> for a moment afterwards, so a rule keyed on
             that attribute can say so.

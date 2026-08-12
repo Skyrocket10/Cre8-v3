@@ -12,6 +12,7 @@
  * execute. Either way it drops straight onto a CDN.
  */
 
+import { actsOnPress } from '../document/actions';
 import { describeElement, resolveNodeHref, type AttrValue } from '../renderer/element-model';
 import { variantsOf, type Variant } from '../renderer/variants';
 import { boundProps, repeatRows, type RecordSet } from '../renderer/repeat';
@@ -551,11 +552,17 @@ export function renderPage(
    * two kilobytes of script to every such page for nothing.
    */
   const interactive = nodeIds.some((id) => {
-    const props = doc.nodes[id]?.props;
-    // `copyText` joins the two for the same reason they are here: it is the one
+    const node = doc.nodes[id];
+    if (!node) return false;
+    // A copy joins the two for the same reason they are here: it is the one
     // action in the set with nothing native behind it, so a page that copies
     // needs the runtime and a page that does not still ships nothing.
-    return Boolean(props && (props.switchSet || props.drives || props.copyText));
+    //
+    // `actsOnPress` covers both actions and is the same function that decides
+    // whether a control renders as a `<button>`. Asking two different questions
+    // about the same node is how a page ends up with a button the runtime was
+    // never shipped for.
+    return actsOnPress(node) || Boolean(node.props.drives);
   });
   /*
    * And the Tests that could not be answered here. The table is built once for

@@ -31,6 +31,7 @@ import type {
   Field,
   Cre8Document,
   ElementType,
+  NodeAction,
   NodeId,
   NodeProps,
   StyleDecl,
@@ -321,6 +322,8 @@ interface EditorActions {
   removeRule(ruleId: string): void;
   moveRule(ruleId: string, delta: number): void;
   updateRule(ruleId: string, patch: Partial<Pick<StyleRule, 'when' | 'part' | 'breakpoint'>>): void;
+  /** Replace what the selected control does when it is pressed. */
+  setActions(actions: NodeAction[]): void;
   setPreviewing(on: boolean): void;
   setPreviewDevice(bp: Breakpoint): void;
   toggleRulers(): void;
@@ -1503,6 +1506,19 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     const id = get().selection[0];
     if (!id) return;
     get().transact('Edit condition', (draft) => ops.updateRule(draft, id, ruleId, patch));
+  },
+
+  setActions(actions) {
+    const id = get().selection[0];
+    if (!id) return;
+    /*
+     * One transaction for the whole list, and one undo step.
+     *
+     * Not merged by key with the previous edit, unlike a slider: picking a
+     * different value is a decision rather than a drag, and somebody who
+     * changes their mind twice wants both steps back.
+     */
+    get().transact('Edit what this does', (draft) => ops.setActions(draft, id, actions));
   },
 
   toggleHidden(ids) {

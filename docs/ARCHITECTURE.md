@@ -77,7 +77,7 @@ SceneNode
 ├── styles         { desktop, tablet?, mobile? }   ← desktop-first cascade
 ├── states         { hover?, active?, focus? }
 ├── meta           locked, hidden, componentId
-├── events?        RESERVED — behaviour layer
+├── events?        what it does when pressed — a list of actions
 └── bindings?      RESERVED — data layer
 ```
 
@@ -1113,24 +1113,41 @@ or migrating documents.
 |---|---|---|
 | Presentation | What does it look like? | `node.styles`, `theme` — **built** |
 | Structure | What does it contain? | `node.children`, `components` — **built** |
-| Behaviour | What does it do? | `node.events` — reserved |
+| Behaviour | What does it do? | `node.events` — **built** |
 | Data | What does it store? | `doc.collections` — reserved |
 | Logic | How do things interact? | `doc.actions` — reserved |
 
-Concretely, a future button looks like this, and nothing above it changes:
+Concretely, a button looks like this, and nothing above it changed when it did:
 
 ```
 Button
 ├── styles          ← today
 ├── props           ← today
 ├── events
-│   └── onClick → { type: 'navigate', params: { … } }
+│   └── onClick → [ { setState: billing = annual },
+│                   { setState: nav = shut } ]
 └── bindings
     └── label ← collection.products.title
 ```
 
-`ElementDefinition.events` already lists which events each element will expose,
-so an Interactions tab can be built against the existing registry.
+Behaviour arrived before this field did, as props: `switchSet` put the nearest
+state into a value and `copyText` put a string on the clipboard. Both worked,
+and both stayed because they are still how the library writes the ordinary
+case — they are folded into `events` by the factory, exactly as `states` is
+folded into `rules`.
+
+What a prop could not do was hold two of anything or name what it was aimed at,
+and those are the same limitation seen from two sides. A control drove whatever
+`[data-cre8-switch]` was nearest, so a link inside a mobile nav could not close
+the nav; and "close this and go to Pricing" is two assignments, which two props
+have no order and no shared identity for.
+
+An action is still not a script. Both members of the union compile to
+attributes — `data-cre8-set="nav:shut annual"`, `data-cre8-copy="…"` — and the
+runtime's whole job is still to write an attribute and let CSS draw. That is
+what keeps one implementation across three surfaces, and it is why the union is
+short and will stay short: an action that could not be expressed that way would
+need a second mechanism on each of them.
 
 The Logic and Data axes now have an agreed shape, written down before the code:
 [docs/EXPRESSIONS.md](EXPRESSIONS.md), and all four phases of it are built. A

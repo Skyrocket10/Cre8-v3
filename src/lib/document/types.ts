@@ -520,15 +520,47 @@ export interface Ref {
 export type RefSlot = 'popover' | 'anchorFor' | 'scrollTo';
 
 /**
- * RESERVED — not written by this release.
+ * One thing a control does when its event fires.
  *
- * Behaviour ("what it does") is deliberately modelled as a separate axis from
- * presentation and structure so it can be added without touching the renderer
- * or the document format. See docs/ARCHITECTURE.md.
+ * A tagged union rather than `{ type: string; params: Record<string, unknown> }`,
+ * which is what stood here while the axis was reserved. The loose shape was the
+ * right way to hold a place and the wrong way to hold a feature: nothing could
+ * be checked, so every reader would have had to re-validate, and the two
+ * renderers would each have had their own opinion about a malformed action.
+ *
+ * Both members compile to attributes. That is the constraint the whole
+ * behaviour layer is built on — see `lib/runtime/behaviour.ts` — and it is why
+ * this union is short and will stay short. An action that could not be
+ * expressed as "write an attribute, let CSS draw" would need a second
+ * mechanism on three surfaces, which is the failure ARCHITECTURE §1 exists to
+ * prevent.
+ */
+export type NodeAction =
+  /**
+   * Put a state into a value.
+   *
+   * `state` names which one. Empty means the nearest enclosing group, which is
+   * what a tab button means and what every control meant before this field
+   * existed — so an omitted `state` is not a default, it is a different and
+   * usually more robust statement: a card copied out of one tab set into
+   * another still drives the set it is in.
+   */
+  | { type: 'setState'; state?: string; value: string; quiet?: boolean }
+  /** Put text on the clipboard. The one action with nothing native behind it. */
+  | { type: 'copy'; text: string };
+
+/**
+ * What a node does when something happens to it.
+ *
+ * A *list* of actions, which is the whole reason this exists rather than one
+ * more prop: a link in a mobile nav has to close the nav and move a tab set,
+ * and two props cannot be ordered against each other or reasoned about as one
+ * gesture. `ElementDefinition.events` says which events an element offers.
  */
 export interface NodeEventBinding {
+  /** The only one wired today; `onSubmit` is declared by `form` and unread. */
   event: string;
-  actions: Array<{ type: string; params?: Record<string, unknown> }>;
+  actions: NodeAction[];
 }
 
 /** RESERVED — data bindings for a future CMS / database layer. */

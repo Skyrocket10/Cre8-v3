@@ -21,6 +21,7 @@
 import React, { useMemo } from 'react';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { collectSubtree } from '@/lib/document/tree';
+import { valuesSetting } from '@/lib/document/actions';
 import { slug, slugList } from '@/lib/document/schema';
 import type { Condition, StyleRule } from '@/lib/document/types';
 import { DATA_SOURCES, QUERY_PREFIX, describeSource } from '@/lib/runtime/data';
@@ -92,7 +93,8 @@ export function useStatesInScope(): { key: string; values: string[] }[] {
       };
       add(s.doc.nodes[ownerId]?.props.switchDefault);
       for (const id of collectSubtree(s.doc.nodes, ownerId)) {
-        add(s.doc.nodes[id]?.props.switchSet);
+        const node = s.doc.nodes[id];
+        if (node) add(valuesSetting(node, key).join(' '));
         for (const rule of s.doc.nodes[id]?.rules ?? []) {
           for (const condition of rule.when) {
             if (condition.kind === 'state' && (!condition.key || condition.key === key)) {

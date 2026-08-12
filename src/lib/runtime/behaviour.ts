@@ -358,15 +358,54 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
     }
   }
 
+  /**
+   * The assignments a control carries, as `[state, value]`.
+   *
+   * The attribute is a space-separated list, each part either a bare `value` —
+   * meaning the group the control sits inside, and written with an empty state
+   * here — or `key:value` naming one. Neither separator can occur inside a key
+   * or a value, because both were narrowed to letters, digits, `_` and `-`
+   * before being written, so splitting twice is the whole parser.
+   *
+   * One reader for the two callers below rather than one each. They ask
+   * different questions of the same string, and a grammar with two parsers is
+   * a grammar with two answers.
+   */
+  function sets(setter: Tagged): string[][] {
+    const out: string[][] = [];
+    const raw = (setter.getAttribute('data-cre8-set') || '').split(' ');
+    for (let i = 0; i < raw.length; i++) {
+      const part = raw[i]!;
+      if (!part) continue;
+      const at = part.indexOf(':');
+      out.push(at < 0 ? ['', part] : [part.slice(0, at), part.slice(at + 1)]);
+    }
+    return out;
+  }
+
   /** Everything that changes when the value does. */
   function sync(group: Tagged): void {
     const value = group.getAttribute('data-cre8-value') || '';
     const isTabs = group.hasAttribute('data-cre8-tabs');
+    const key = group.getAttribute('data-cre8-switch') || '';
+    // The controls inside this group. One that reaches in from outside — a
+    // Close in a panel, a Reset in a toolbar — is not announced as pressed,
+    // and does not want to be: it has no on state, only an errand.
     const setters = own(group, '[data-cre8-set]');
     for (let i = 0; i < setters.length; i++) {
       const setter = setters[i]!;
       if (setter.hasAttribute('data-cre8-quiet')) continue;
-      const on = setter.getAttribute('data-cre8-set') === value;
+      // What this one puts *this* group into. A bare assignment means the
+      // group it is inside, and `own` already established that is this one.
+      // A control that touches two states has an answer for each, and only
+      // this group's decides whether it reads as pressed.
+      let mine = null;
+      const list = sets(setter);
+      for (let n = 0; n < list.length; n++) {
+        if (list[n]![0] === '' || list[n]![0] === key) mine = list[n]![1]!;
+      }
+      if (mine === null) continue;
+      const on = mine === value;
       if (isTabs) {
         setter.setAttribute('aria-selected', on ? 'true' : 'false');
         // Roving tabindex: a tab set is one stop, and the arrow keys move
@@ -417,9 +456,32 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
     if (control) drive(control);
   }
 
-  function choose(group: Tagged, setter: Tagged): void {
-    group.setAttribute('data-cre8-value', setter.getAttribute('data-cre8-set') || '');
-    sync(group);
+  /**
+   * Run every assignment this control carries.
+   *
+   * A named group is looked for on the way up first and in the page second.
+   * That order is the whole of what makes naming safe inside a repeater: a
+   * hundred rows publish a hundred copies of one group, and a Close in row
+   * three has to shut row three. Only when no ancestor answers does it mean
+   * the one group somewhere else on the page — which is the case that could
+   * not be expressed at all before, and is what lets a link inside a menu
+   * close the menu.
+   */
+  function choose(setter: Tagged): void {
+    const list = sets(setter);
+    for (let i = 0; i < list.length; i++) {
+      const key = list[i]![0]!;
+      // Interpolating a value read out of the DOM into a selector, which is
+      // safe here for the same reason it is in `upgrade` and `drive`: the
+      // allowlist ran before it was ever written.
+      const group = key
+        ? setter.closest('[data-cre8-switch="' + key + '"]') ||
+          root.querySelector('[data-cre8-switch="' + key + '"]')
+        : setter.closest('[data-cre8-switch]');
+      if (!group) continue;
+      group.setAttribute('data-cre8-value', list[i]![1]!);
+      sync(group);
+    }
   }
 
   /*
@@ -474,12 +536,10 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
 
     const setter = target.closest('[data-cre8-set]');
     if (!setter) return;
-    const group = setter.closest('[data-cre8-switch]');
-    if (!group) return;
     // A setter is a `<button>`, so this is only belt and braces — but a
     // designer can put one inside a form, where the default is a submit.
     event.preventDefault();
-    choose(group, setter);
+    choose(setter);
   }
 
   function onKeyDown(event: Fired): void {
@@ -505,7 +565,7 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
     event.preventDefault();
     // Activated on arrival rather than on Enter. Showing a panel here costs a
     // class flip, so making someone press twice buys nothing.
-    choose(group, tabs[next]!);
+    choose(tabs[next]!);
     tabs[next]!.focus?.();
   }
 

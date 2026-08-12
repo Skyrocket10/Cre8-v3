@@ -119,9 +119,27 @@ panel as **Hidden** rather than as a raw declaration.
 ### What stays a prop
 
 State *declaration* is structural, not presentational, so it stays where it
-is: `switchKey`, `switchDefault`, `switchDesign`, `switchRole` on the owner,
-`switchSet` and `switchQuiet` on a control. Renaming those is cosmetic churn
-and this document does not propose it.
+is: `switchKey`, `switchDefault`, `switchDesign`, `switchRole` on the owner.
+
+**What a control *does* no longer is.** `switchSet` and `switchQuiet` were
+props here too, and the sentence above — "renaming those is cosmetic churn" —
+was right about renaming and wrong about the shape. A prop is one scalar, and
+the two things it could not express turned out to be the two a page needs:
+
+- **which** state a control drives. A bare setter means the nearest enclosing
+  group, which is right for a tab and impossible to override, so a link inside
+  a mobile nav could not close the nav — `closest()` answers with the innermost
+  group and there was nowhere to say otherwise.
+- **how many** it drives. "Close this and go to Pricing" is two assignments,
+  and two props have no order and no shared identity.
+
+So a control carries `events: [{ event: 'onClick', actions: [...] }]`, where an
+action is `setState` (with an optional `state`, an optional `quiet`) or `copy`.
+The props survive as the authoring shorthand the whole block library is written
+in and are folded into the list by the factory, exactly as `states` is folded
+into `rules` — see `lib/document/actions.ts` for the encoding, which is one
+attribute of space-separated `value` or `key:value` parts, unambiguous because
+`slug()` has already narrowed both halves to letters, digits, `_` and `-`.
 
 ---
 

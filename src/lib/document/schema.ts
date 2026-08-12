@@ -1389,7 +1389,7 @@ export function readLegacyVisibility(props: NodeProps): Visibility | null {
 export function resolveTag(
   type: ElementType,
   props: NodeProps,
-  opts: { opensPopover?: boolean; scrollsTo?: boolean } = {}
+  opts: { opensPopover?: boolean; scrollsTo?: boolean; acts?: boolean } = {}
 ): string {
   if (type === 'heading') {
     const level = Number(props.level ?? 2);
@@ -1398,14 +1398,18 @@ export function resolveTag(
   if (type === 'button' || type === 'link') {
     // A popover invoker has to be a `<button>` — `popovertarget` does nothing
     // on an anchor — so opening a panel and going somewhere are exclusive.
-    // A switch setter is a button for a plainer reason: it does not navigate,
-    // and an anchor that goes nowhere is a link a screen reader announces and
-    // a keyboard user follows into nothing. Submitting is the same story: no
-    // element but `<button>` submits a form.
+    // A control that runs an action is a button for a plainer reason: it does
+    // not navigate, and an anchor that goes nowhere is a link a screen reader
+    // announces and a keyboard user follows into nothing. Submitting is the
+    // same story: no element but `<button>` submits a form.
+    //
+    // `acts` is passed in rather than read off `props`, because what a control
+    // does now lives in `node.events` and this function is given props alone.
+    // Keeping the argument narrow is deliberate: `resolveTag` decides a tag
+    // from what it is told, and the caller that has the node is the one that
+    // can answer.
     const goesSomewhere = Boolean(props.href) || Boolean(opts.scrollsTo);
-    return goesSomewhere && !opts.opensPopover && !props.switchSet && !props.submit
-      ? 'a'
-      : 'button';
+    return goesSomewhere && !opts.opensPopover && !opts.acts && !props.submit ? 'a' : 'button';
   }
   if (type === 'tableCell') return props.header ? 'th' : 'td';
   if (RETAGGABLE.has(type)) {

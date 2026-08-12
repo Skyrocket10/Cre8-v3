@@ -187,6 +187,16 @@ try {
    * brought it to 3233, and the rest is structural — string literals and a
    * `querySelectorAll` — so this is what the correct version weighs.
    *
+   * From 3250, when a control learned to say *which* state it sets and to set
+   * more than one. This is the biggest of the three and the argument is the
+   * plainest: without it a setter drives whatever `[data-cre8-switch]` is
+   * nearest, and there is no way at all to reach past it — so a link inside a
+   * mobile nav cannot close the nav, which is the most ordinary interaction a
+   * phone has. It went to 3744 with the grammar read in two places; folding
+   * those into one reader brought it to 3653, and what is left is the parse,
+   * the ancestor-then-page lookup, and the loop that keeps `aria-pressed`
+   * honest for a control that touches two states.
+   *
    * The number still sits just above that, deliberately, so the next thing to
    * grow it trips this immediately and has to make the same argument.
    *
@@ -194,7 +204,7 @@ try {
    * a failure here by deleting comments or shortening names — neither saves
    * anything at all.
    */
-  const RUNTIME_BUDGET = 3250;
+  const RUNTIME_BUDGET = 3680;
   const source = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
   report.check(
     'and it is small enough to be read in one sitting',
@@ -1117,6 +1127,169 @@ try {
         'the form is there; only the flourish is missing'
       );
       await noScript.close();
+    }
+  }
+
+  /*
+   * A control that names the state it drives, and one that drives two.
+   *
+   * The two things a prop could not express, and between them the reason a
+   * link inside a mobile nav could not close the nav: a setter drove whatever
+   * `[data-cre8-switch]` was nearest, and there was nowhere to say which one
+   * was meant. Proved by clicking, because "the attribute is in the file" is a
+   * claim about the generator and this is a claim about the runtime.
+   */
+  {
+    const doc = await getDocument(page, id);
+    const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
+    const root = doc.nodes[home.rootNodeId];
+
+    Object.assign(doc.nodes, {
+      // The outer group: a nav that is open or shut.
+      nav0acts01: node('nav0acts01', 'frame', 'Nav', {
+        parentId: root.id,
+        children: ['pan0acts02'],
+        props: { switchKey: 'nav', switchDefault: 'open' },
+        styles: { desktop: { display: 'flex', flexDirection: 'column', padding: '20px' } },
+      }),
+      // The inner one, nested inside it, which is what `closest()` would find.
+      pan0acts02: node('pan0acts02', 'frame', 'Panel', {
+        parentId: 'nav0acts01',
+        children: ['btn0acts03', 'btn0acts04', 'btn0acts05'],
+        props: { switchKey: 'pane', switchDefault: 'one' },
+        styles: { desktop: { display: 'flex', gap: '8px' } },
+      }),
+      // Reaches past the group it is inside, to the one it names.
+      btn0acts03: node('btn0acts03', 'button', 'Close', {
+        parentId: 'pan0acts02',
+        props: { label: 'Shut the nav' },
+        events: [
+          { event: 'onClick', actions: [{ type: 'setState', state: 'nav', value: 'shut' }] },
+        ],
+      }),
+      // Two states in one press, one named and one nearest.
+      btn0acts04: node('btn0acts04', 'button', 'Go', {
+        parentId: 'pan0acts02',
+        props: { label: 'Go to two and close' },
+        events: [
+          {
+            event: 'onClick',
+            actions: [
+              { type: 'setState', state: 'nav', value: 'shut' },
+              { type: 'setState', value: 'two' },
+            ],
+          },
+        ],
+      }),
+      // The unchanged spelling, beside them, so the common case is measured on
+      // the same page rather than assumed from the other checks.
+      btn0acts05: node('btn0acts05', 'button', 'Show pane one', {
+        parentId: 'pan0acts02',
+        props: { label: 'Show pane one', switchSet: 'one' },
+      }),
+    });
+    root.children.push('nav0acts01');
+
+    const saved = await saveDocument(page, doc);
+    if (report.check('the document with named actions is accepted', saved === 200, `HTTP ${saved}`)) {
+      await publish(page);
+      const actHtml = await (await fetch(`${APP}/s/${id}/`)).text();
+
+      report.check(
+        'a named assignment reaches the file as one',
+        /data-cre8-set="nav:shut"/.test(actHtml) && /data-cre8-set="nav:shut two"/.test(actHtml),
+        [...actHtml.matchAll(/data-cre8-set="([^"]*)"/g)].map((m) => m[1]).join(' | ') || 'none',
+      );
+      report.check(
+        'and the shorthand beside it is still the bare value it always was',
+        /data-cre8-set="one"/.test(actHtml),
+        /data-cre8-set="one"/.test(actHtml) ? 'one' : 'the plain setter changed spelling'
+      );
+
+      const acting = await ctx.newPage();
+      await acting.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      const nav = acting.locator('[data-cre8-switch="nav"]');
+      // Scoped to the group, because the page already carries an inserted
+      // pricing block and a bare role query reaches its buttons too.
+      const inNav = (name) => nav.getByRole('button', { name });
+      const pane = acting.locator('[data-cre8-switch="pane"]');
+
+      report.check(
+        'both groups start where the file put them',
+        (await nav.getAttribute('data-cre8-value')) === 'open' &&
+          (await pane.getAttribute('data-cre8-value')) === 'one',
+        `nav=${await nav.getAttribute('data-cre8-value')} pane=${await pane.getAttribute('data-cre8-value')}`
+      );
+
+      await inNav('Shut the nav').click();
+      await acting.waitForTimeout(120);
+      report.check(
+        'a control inside the inner group can close the outer one it names',
+        (await nav.getAttribute('data-cre8-value')) === 'shut' &&
+          (await pane.getAttribute('data-cre8-value')) === 'one',
+        // The whole point: `closest()` would have found `pane`, and before the
+        // axis existed that was the only group a control could reach.
+        `nav=${await nav.getAttribute('data-cre8-value')} (the named one) ` +
+          `pane=${await pane.getAttribute('data-cre8-value')} (the nearest, untouched)`
+      );
+
+      // Put it back, so the next click is measured from a known place rather
+      // than from whatever the last one left.
+      await inNav('Show pane one').click();
+      await acting.evaluate(() => {
+        document.querySelector('[data-cre8-switch="nav"]').setAttribute('data-cre8-value', 'open');
+      });
+      await inNav('Go to two and close').click();
+      await acting.waitForTimeout(120);
+      report.check(
+        'and one press can move two states at once',
+        (await nav.getAttribute('data-cre8-value')) === 'shut' &&
+          (await pane.getAttribute('data-cre8-value')) === 'two',
+        `nav=${await nav.getAttribute('data-cre8-value')} pane=${await pane.getAttribute('data-cre8-value')}`
+      );
+
+      report.check(
+        'the control that touches two states is still announced against its own',
+        // `aria-pressed` describes the button, and the only state it can
+        // sensibly describe is the one it sits in. A setter whose assignment
+        // for *this* group matches the current value reads as pressed.
+        (await acting
+          .getByRole('button', { name: 'Go to two and close' })
+          .getAttribute('aria-pressed')) === 'true',
+        `aria-pressed=${await inNav('Go to two and close').getAttribute('aria-pressed')}` +
+          `, pane=${await pane.getAttribute('data-cre8-value')}`
+      );
+      report.check(
+        'and the plain setter beside it is announced as not pressed',
+        (await inNav('Show pane one').getAttribute('aria-pressed')) ===
+          'false',
+        // Otherwise the check above proves only that the attribute exists.
+        `aria-pressed=${await inNav('Show pane one').getAttribute('aria-pressed')}`
+      );
+
+      const closeBtn = inNav('Shut the nav');
+      report.check(
+        'a control that only reaches outward claims no pressed state at all',
+        (await closeBtn.getAttribute('aria-pressed')) === null,
+        // It has no on state, only an errand — and "Close, toggle button, not
+        // pressed" describes something the button is not.
+        `aria-pressed=${String(await closeBtn.getAttribute('aria-pressed'))}`
+      );
+      await acting.close();
+
+      const stillWorks = await ctx.newPage({ javaScriptEnabled: false });
+      await stillWorks.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      report.check(
+        'with scripting off both groups are simply what the file said',
+        (await stillWorks
+          .locator('[data-cre8-switch="nav"]')
+          .getAttribute('data-cre8-value')) === 'open' &&
+          (await stillWorks
+            .locator('[data-cre8-switch="pane"]')
+            .getAttribute('data-cre8-value')) === 'one',
+        'the defaults ship in the markup, so a page with no script is a page at rest'
+      );
+      await stillWorks.close();
     }
   }
 } catch (error) {

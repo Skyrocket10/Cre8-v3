@@ -96,6 +96,11 @@ export function loadBlocks() {
     pruneRefs: require(path.join(OUT, 'document/factory.js')).pruneRefs,
     danglingReads: require(path.join(OUT, 'document/factory.js')).danglingReads,
     migrateDocument: require(path.join(OUT, 'document/migrate.js')).migrateDocument,
+    // Actions, on their own. The encoding a control's assignments reach the
+    // markup in is a claim about a function, and the runtime that reads them
+    // back is written in literals and cannot import it — so the two halves are
+    // driven against each other rather than read side by side.
+    actions: require(path.join(OUT, 'document/actions.js')),
     // The generator, so the checks can assert on real compiled selectors
     // rather than on a description of what they are supposed to be.
     buildTree: require(path.join(OUT, 'document/factory.js')).buildTree,

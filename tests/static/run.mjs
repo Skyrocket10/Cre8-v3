@@ -43,6 +43,7 @@ const {
   pruneRefs,
   danglingReads,
   migrateDocument,
+  actions: actionLib,
   buildTree,
   finishDocument,
   resolveNodeHref,
@@ -573,8 +574,70 @@ function checkSwitches(spec) {
     return out;
   };
 
+  /**
+   * Every assignment a control carries, as `{ state, value }`.
+   *
+   * Two spellings reach here and both are current. A block writes
+   * `props.switchSet` for the ordinary case — the nearest state, no name — and
+   * that is folded into an action by the factory, which has not run yet: these
+   * checks read the *spec*. Anything a prop cannot say is written as an action
+   * on the spec directly. Reading only the prop, which is what this did, made
+   * every control built the new way invisible to the check that exists to
+   * catch a button that does nothing.
+   */
+  const setsOf = (node) => {
+    const out = [];
+    if (node.props?.switchSet) out.push({ state: '', value: String(node.props.switchSet) });
+    for (const binding of node.events ?? []) {
+      if (binding.event !== 'onClick') continue;
+      for (const action of binding.actions ?? []) {
+        if (action.type === 'setState' && action.value) {
+          out.push({ state: String(action.state ?? ''), value: String(action.value) });
+        }
+      }
+    }
+    return out;
+  };
+
+  /**
+   * Every state this block declares, and every assignment that names one.
+   *
+   * Collected block-wide rather than during the group walk below, because a
+   * named assignment is *defined* by reaching past whatever encloses the
+   * control — it can sit in a nested group, or in no group at all — and the
+   * walk deliberately stops at each group boundary. Answering "does anything
+   * listen for this value" from inside the enclosing group would therefore
+   * miss exactly the controls the naming exists for.
+   */
+  const declared = new Set();
+  const namedSets = new Map();
+  for (const { node } of walk(spec)) {
+    const key = node.props?.switchKey;
+    if (key) declared.add(String(key));
+  }
+  for (const { node } of walk(spec)) {
+    for (const { state, value } of setsOf(node)) {
+      if (state) {
+        const list = namedSets.get(state) ?? [];
+        list.push({ node, value });
+        namedSets.set(state, list);
+      }
+      if (state && !declared.has(state)) {
+        // A named assignment is the one kind that cannot be caught by the walk
+        // below: it deliberately reaches past whatever encloses the control,
+        // so no enclosing group is the right place to notice a typo in it.
+        bad.push(
+          `${at(node)}: sets "${state}" to "${value}", and this block declares no such state`
+        );
+      }
+    }
+  }
+
   /** Everything a state can be told to be, and every test made against it. */
   const survey = (group) => {
+    // Which state this group *is*, so an assignment naming another one can be
+    // told apart from one naming this.
+    const key = String(group.props?.switchKey ?? '');
     const depends = new Set();
     const negated = new Set();
     const sets = [];
@@ -609,7 +672,12 @@ function checkSwitches(spec) {
     const walk = (node) => {
       for (const child of node.children ?? []) {
         record(child, true);
-        if (child.props?.switchSet) sets.push({ node: child, value: child.props.switchSet });
+        for (const { state, value } of setsOf(child)) {
+          // Bare ones only. A named assignment belongs to the state it names
+          // wherever it sits, so it is collected block-wide instead — counting
+          // it here as well would report one typo twice.
+          if (!state) sets.push({ node: child, value });
+        }
         // A nested state owns everything below it.
         if (!child.props?.switchKey) walk(child);
       }
@@ -632,16 +700,19 @@ function checkSwitches(spec) {
               );
             }
           }
-          if (child.props?.switchSet) {
-            bad.push(`${at(child)}: sets "${child.props.switchSet}", but no state encloses it`);
+          for (const { state, value } of setsOf(child)) {
+            // A named one is checked above and may legitimately reach out.
+            if (!state) bad.push(`${at(child)}: sets "${value}", but no state encloses it`);
           }
         }
         walkGroups(child, enclosed);
         continue;
       }
 
-      const { depends, negated, sets, panelCounts, selfCondition } = survey(child);
+      const { depends, negated, sets: local, panelCounts, selfCondition } = survey(child);
       const known = new Set([...depends, ...negated]);
+      // Plus whatever names this state from somewhere the walk cannot reach.
+      const sets = [...local, ...(namedSets.get(key) ?? [])];
 
       if (known.size === 0) {
         bad.push(`${at(child)}: state "${key}" has nothing that depends on it`);
@@ -5345,8 +5416,32 @@ report.group('the panel is not narrower than the model');
   // Interaction section offering an empty menu.
   report.check(
     'and it still draws nothing when there is no switch above it',
-    /useStatesInScope\(\)[\s\S]{0,200}?if \(states\.length === 0\) return null;/.test(content),
-    'self-hiding'
+    (() => {
+      /*
+       * Scoped to the function rather than measured in characters.
+       *
+       * This used to require the guard within 200 characters of the hook,
+       * which held only while the section was two hooks long. The guard has to
+       * come after *every* hook — a `return` above one breaks the rules of
+       * hooks — so a section that grows pushes them apart, and the check went
+       * red on a section that was still perfectly self-hiding.
+       */
+      const at = content.indexOf('function SwitchSetterSection(');
+      if (at < 0) return false;
+      const body = content.slice(at, content.indexOf('\n}', at));
+      return (
+        body.includes('useStatesInScope()') && /if \(states\.length === 0\) return null;/.test(body)
+      );
+    })(),
+    (() => {
+      const at = content.indexOf('function SwitchSetterSection(');
+      if (at < 0) return 'the section is gone entirely';
+      const body = content.slice(at, content.indexOf('\n}', at));
+      return (
+        (/if \(states\.length === 0\)[^\n]*/.exec(body)?.[0] ?? 'no guard on an empty scope') +
+        (body.includes('useStatesInScope()') ? '' : ', and it never asks what is in scope')
+      );
+    })()
   );
 
   /* --- Multi-selection ---------------------------------------------------- */
@@ -9798,7 +9893,19 @@ report.group('what a press does');
   /* ------------------------------------------------------------- copying */
 
   const copyDoc = wired();
-  copyDoc.button.props.copyText = 'npm i cre8';
+  /*
+   * Written as an action rather than as `props.copyText`, which is what it was
+   * until the behaviour axis landed.
+   *
+   * The prop survives as the shorthand every block in the library is written
+   * in, and is folded into this on the way through the factory — the check
+   * below drives that path. What it no longer is is a thing the renderer reads,
+   * so setting it on an already-built node is setting nothing, and this check
+   * says what the document now holds.
+   */
+  copyDoc.button.events = [
+    { event: 'onClick', actions: [{ type: 'copy', text: 'npm i cre8' }] },
+  ];
   const copied = renderPage(copyDoc.doc, copyDoc.page, { mode: 'publish' });
   const RUNTIME_SOURCE = readFileSync(path.join(ROOT, 'src/lib/runtime/behaviour.ts'), 'utf8');
   const VERBATIM_COPY =
@@ -10148,5 +10255,646 @@ report.group('nothing in the tree reads as binary');
     'NUL, zero-width space, BOM and a stray control byte'
   );
 }
+
+
+/* ==========================================================================
+ * A control can say which state it sets, and set more than one
+ * ======================================================================= */
+
+report.group('a control can say which state it sets, and set more than one');
+
+{
+  /*
+   * The behaviour axis, which was a prop.
+   *
+   * `switchSet` put the *nearest* enclosing state into a value, and a scalar
+   * cannot hold two of anything or name what it is aimed at. Those are the same
+   * limitation from two sides, and between them they are why a link inside a
+   * menu could not close the menu: `closest()` answers with the innermost group,
+   * and there was nowhere to say which one was meant.
+   *
+   * `node.events` is a list, so both are sayable. The props survive as the
+   * authoring shorthand every block is written in and are folded on the way
+   * through the factory — the same arrangement `states` has had since the
+   * beginning.
+   */
+  const { actionsFor, copyTextFor, decodeSets, encodeSets, stateSets, actsOnPress, valuesSetting } =
+    actionLib;
+
+  /** A page with a group and one control in it, built from a spec. */
+  const wiredPage = (buttonSpec) => {
+    const doc = createEmptyDocument('Acts');
+    const page = doc.pages[0];
+    const { rootId } = buildTree(
+      {
+        type: 'frame',
+        name: 'Billing',
+        props: { switchKey: 'billing', switchDefault: 'monthly' },
+        children: [buttonSpec],
+      },
+      doc.nodes,
+      page.rootNodeId
+    );
+    doc.nodes[page.rootNodeId].children.push(rootId);
+    const group = doc.nodes[rootId];
+    const button = doc.nodes[group.children[0]];
+    return { doc, page, group, button };
+  };
+
+  /* ------------------------------------------- the shorthand still folds */
+
+  const short = wiredPage({
+    type: 'button',
+    name: 'Annual',
+    props: { label: 'Annual', switchSet: 'annual' },
+  });
+  report.check(
+    'a block written in the old shorthand comes out as an action',
+    short.button.events?.length === 1 &&
+      short.button.events[0].event === 'onClick' &&
+      short.button.events[0].actions.length === 1 &&
+      short.button.events[0].actions[0].type === 'setState' &&
+      short.button.events[0].actions[0].value === 'annual' &&
+      short.button.events[0].actions[0].state === undefined,
+    // No `state`, which is the faithful reading rather than a shortcut: the
+    // prop always meant the nearest group, and naming one here would change
+    // what an existing page does the first time somebody nests it.
+    JSON.stringify(short.button.events ?? null)
+  );
+  report.check(
+    'and the prop is gone, so nothing downstream can read a second answer',
+    short.button.props.switchSet === undefined && short.button.props.switchQuiet === undefined,
+    `switchSet=${String(short.button.props.switchSet)} switchQuiet=${String(short.button.props.switchQuiet)}`
+  );
+
+  const shortHtml = renderPage(short.doc, short.page, { mode: 'publish' });
+  report.check(
+    'and the published attribute is what it always was',
+    shortHtml.includes('data-cre8-set="annual"'),
+    // The whole point of keeping the bare spelling: every tab, toggle and
+    // stepper in the library publishes the same bytes it did before the axis
+    // existed.
+    /data-cre8-set="[^"]*"/.exec(shortHtml)?.[0] ?? 'no data-cre8-set at all'
+  );
+
+  const quietSpec = wiredPage({
+    type: 'button',
+    name: 'Next',
+    props: { label: 'Next', switchSet: 'two', switchQuiet: true },
+  });
+  const quietHtml = renderPage(quietSpec.doc, quietSpec.page, { mode: 'publish' });
+  report.check(
+    'a quiet setter stays quiet through the fold',
+    quietSpec.button.events?.[0]?.actions?.[0]?.quiet === true &&
+      quietHtml.includes('data-cre8-quiet'),
+    `quiet=${String(quietSpec.button.events?.[0]?.actions?.[0]?.quiet)}, ` +
+      `attribute ${quietHtml.includes('data-cre8-quiet') ? 'present' : 'missing'}`
+  );
+
+  /* ------------------------------------- and a legacy pressed style with it */
+
+  report.check(
+    'a legacy pressed style still finds the value it was conditioned on',
+    (() => {
+      /*
+       * The ordering trap, checked because it is invisible.
+       *
+       * `rulesFromLegacy` reads `props.switchSet` to know what a `pressed`
+       * style meant — there is no other record of it. Retiring the prop before
+       * that ran would turn every one of them into a rule with no condition:
+       * not an error, not a missing style, a *permanent* one. A button stuck
+       * looking pressed.
+       */
+      const legacy = wiredPage({
+        type: 'button',
+        name: 'Annual',
+        props: { label: 'Annual', switchSet: 'annual' },
+        states: { pressed: { color: 'rgb(1, 2, 3)' } },
+      });
+      const rule = (legacy.button.rules ?? []).find((r) => r.apply?.color === 'rgb(1, 2, 3)');
+      const when = rule?.when?.[0];
+      return when?.kind === 'state' && when.op === 'is' && when.values?.join(' ') === 'annual';
+    })(),
+    // Computed from the rule, not asserted beside it: a detail line that says
+    // "conditioned on annual" while the rule has no condition is exactly the
+    // failure this check exists to catch.
+    (() => {
+      const legacy = wiredPage({
+        type: 'button',
+        name: 'Annual',
+        props: { label: 'Annual', switchSet: 'annual' },
+        states: { pressed: { color: 'rgb(1, 2, 3)' } },
+      });
+      const rule = (legacy.button.rules ?? []).find((r) => r.apply?.color === 'rgb(1, 2, 3)');
+      return rule ? `when ${JSON.stringify(rule.when)}` : 'no rule for the pressed style at all';
+    })()
+  );
+
+  /* ------------------------------------------------- naming the state */
+
+  const named = wiredPage({
+    type: 'button',
+    name: 'Close',
+    props: { label: 'Close' },
+    events: [
+      { event: 'onClick', actions: [{ type: 'setState', state: 'nav', value: 'shut' }] },
+    ],
+  });
+  const namedHtml = renderPage(named.doc, named.page, { mode: 'publish' });
+  report.check(
+    'an assignment that names its state says so in the markup',
+    namedHtml.includes('data-cre8-set="nav:shut"'),
+    // The thing the prop could not express, and the reason a link in a menu
+    // could not close the menu.
+    /data-cre8-set="[^"]*"/.exec(namedHtml)?.[0] ?? 'no data-cre8-set at all'
+  );
+
+  const both = wiredPage({
+    type: 'button',
+    name: 'Close and switch',
+    props: { label: 'Pricing' },
+    events: [
+      {
+        event: 'onClick',
+        actions: [
+          { type: 'setState', state: 'nav', value: 'shut' },
+          { type: 'setState', value: 'annual' },
+        ],
+      },
+    ],
+  });
+  const bothHtml = renderPage(both.doc, both.page, { mode: 'publish' });
+  report.check(
+    'two assignments travel in one attribute, in the order they were written',
+    bothHtml.includes('data-cre8-set="nav:shut annual"'),
+    /data-cre8-set="[^"]*"/.exec(bothHtml)?.[0] ?? 'no data-cre8-set at all'
+  );
+
+  /* ------------------------------------------------ the grammar round-trips */
+
+  report.check(
+    'every shape of assignment survives being written and read back',
+    (() => {
+      const cases = [
+        [{ state: '', value: 'annual' }],
+        [{ state: 'nav', value: 'shut' }],
+        [
+          { state: 'nav', value: 'shut' },
+          { state: '', value: 'annual' },
+          { state: 'step', value: 'two' },
+        ],
+      ];
+      return cases.every(
+        (one) => JSON.stringify(decodeSets(encodeSets(one))) === JSON.stringify(one)
+      );
+    })(),
+    // Both separators are safe because `slug` narrowed each half to letters,
+    // digits, `_` and `-` before either was written — so the round trip is the
+    // claim, and the allowlist is why it holds.
+    encodeSets([
+      { state: 'nav', value: 'shut' },
+      { state: '', value: 'annual' },
+    ])
+  );
+
+  report.check(
+    'the runtime reads that grammar with the same two separators',
+    (() => {
+      /*
+       * The runtime is serialised with `toString()` and may not import, so it
+       * carries a second reader written in literals. This is the only way to
+       * hold the two in step at build time; the browser suite proves the click.
+       */
+      const src = readFileSync(path.join(ROOT, 'src/lib/runtime/behaviour.ts'), 'utf8');
+      const body = src.slice(src.indexOf('function sets('), src.indexOf('function sync('));
+      return /\.split\(' '\)/.test(body) && /indexOf\(':'\)/.test(body);
+    })(),
+    (() => {
+      const src = readFileSync(path.join(ROOT, 'src/lib/runtime/behaviour.ts'), 'utf8');
+      const body = src.slice(src.indexOf('function sets('), src.indexOf('function sync('));
+      return (
+        (/const raw = [^;]*;/.exec(body)?.[0] ?? 'nothing splits the attribute') +
+        ' / ' +
+        (/const at = [^;]*;/.exec(body)?.[0] ?? 'nothing splits a part on its colon')
+      );
+    })()
+  );
+
+  /* ------------------------------------------------------------- the tag */
+
+  report.check(
+    'a control that acts is a button even when it carries a destination',
+    (() => {
+      const acting = wiredPage({
+        type: 'link',
+        name: 'Pricing',
+        props: { text: 'Pricing', href: 'https://example.com' },
+        events: [{ event: 'onClick', actions: [{ type: 'setState', state: 'nav', value: 'shut' }] }],
+      });
+      const html = renderPage(acting.doc, acting.page, { mode: 'publish' });
+      return /<button[^>]*data-cre8-set="nav:shut"/.test(html);
+    })(),
+    // An `<a>` whose default the runtime cancels is a link that goes nowhere,
+    // announced as a link. The tag rule used to read `props.switchSet` and had
+    // to learn where the answer moved to.
+    (() => {
+      const acting = wiredPage({
+        type: 'link',
+        name: 'Pricing',
+        props: { text: 'Pricing', href: 'https://example.com' },
+        events: [{ event: 'onClick', actions: [{ type: 'setState', state: 'nav', value: 'shut' }] }],
+      });
+      const html = renderPage(acting.doc, acting.page, { mode: 'publish' });
+      return /<(a|button)[^>]*data-cre8-set/.exec(html)?.[0]?.slice(0, 60) ?? 'neither tag carries it';
+    })()
+  );
+
+  /* --------------------------------------------------------- the runtime */
+
+  report.check(
+    'a page whose only interaction is a named assignment still ships the script',
+    /<script/i.test(namedHtml),
+    // The interactivity test used to read `props.switchSet` too, and a page
+    // that shipped a setter with no runtime is a control that does nothing.
+    `${(namedHtml.match(/<script/g) ?? []).length} script(s)`
+  );
+  const plain = wiredPage({ type: 'button', name: 'Plain', props: { label: 'Plain' } });
+  const plainHtml = renderPage(plain.doc, plain.page, { mode: 'publish' });
+  report.check(
+    'and a page with a group nobody can operate still ships nothing to execute',
+    !/<script/i.test(plainHtml),
+    // Otherwise the check above proves only that a script exists somewhere.
+    // The group is here and the control is here; only the assignment is gone.
+    `${(plainHtml.match(/<script/g) ?? []).length} script(s) beside a real switchKey`
+  );
+
+  /* ------------------------------------------------- reading them back */
+
+  report.check(
+    'a named assignment is attributed to the state it names and no other',
+    valuesSetting(both.button, 'nav').join(' ') === 'shut annual' &&
+      valuesSetting(both.button, 'billing').join(' ') === 'annual' &&
+      valuesSetting(named.button, 'billing').length === 0,
+    // A bare assignment counts for whichever group is being asked about,
+    // because the walk that asks is already inside it. A named one does not.
+    `nav=[${valuesSetting(both.button, 'nav')}] ` +
+      `billing=[${valuesSetting(both.button, 'billing')}] ` +
+      `close/billing=[${valuesSetting(named.button, 'billing')}]`
+  );
+
+  report.check(
+    'a copy is one action among the others rather than a prop beside them',
+    (() => {
+      const mixed = wiredPage({
+        type: 'button',
+        name: 'Copy and close',
+        props: { label: 'Copy' },
+        events: [
+          {
+            event: 'onClick',
+            actions: [
+              { type: 'copy', text: 'npm i cre8' },
+              { type: 'setState', state: 'nav', value: 'shut' },
+            ],
+          },
+        ],
+      });
+      const html = renderPage(mixed.doc, mixed.page, { mode: 'publish' });
+      return (
+        copyTextFor(mixed.button) === 'npm i cre8' &&
+        html.includes('data-cre8-copy="npm i cre8"') &&
+        html.includes('data-cre8-set="nav:shut"')
+      );
+    })(),
+    // Its own attribute, because a copy text can hold a space or a colon and
+    // the grammar above is only unambiguous while its operands cannot.
+    'the two attributes are independent, and one node carries both'
+  );
+
+  /* ----------------------------------------------------- the migration */
+
+  report.check(
+    'a saved document written in props reads back as actions',
+    (() => {
+      const doc = createEmptyDocument('Old');
+      const page = doc.pages[0];
+      const node = createPage ? null : null;
+      const { rootId } = buildTree(
+        { type: 'frame', name: 'Group', props: { switchKey: 'billing' } },
+        doc.nodes,
+        page.rootNodeId
+      );
+      doc.nodes[page.rootNodeId].children.push(rootId);
+      // Written after the build, which is how it arrives from a file.
+      doc.nodes[rootId].props.switchSet = 'annual';
+      doc.nodes[rootId].props.switchQuiet = true;
+      migrateDocument(doc);
+      const one = doc.nodes[rootId].events?.[0]?.actions?.[0];
+      return (
+        one?.type === 'setState' &&
+        one.value === 'annual' &&
+        one.quiet === true &&
+        doc.nodes[rootId].props.switchSet === undefined
+      );
+    })(),
+    'the props are the format of every document saved before this'
+  );
+
+  report.check(
+    'a saved document keeps the condition under its legacy pressed style too',
+    (() => {
+      /*
+       * The same trap as above, one path over.
+       *
+       * `buildSubtree` and `migrateNode` both fold the shorthand and both run
+       * `rulesFromLegacy` first, and each had to be ordered by hand. A check
+       * on one of them says nothing about the other, which is how half a fix
+       * ships.
+       */
+      const doc = createEmptyDocument('Old pressed');
+      const page = doc.pages[0];
+      const { rootId } = buildTree(
+        { type: 'button', name: 'B', props: { label: 'B' } },
+        doc.nodes,
+        page.rootNodeId
+      );
+      doc.nodes[page.rootNodeId].children.push(rootId);
+      // Written after the build, which is how both arrive from a file.
+      doc.nodes[rootId].props.switchSet = 'annual';
+      doc.nodes[rootId].states = { pressed: { color: 'rgb(4, 5, 6)' } };
+      migrateDocument(doc);
+      const rule = (doc.nodes[rootId].rules ?? []).find((r) => r.apply?.color === 'rgb(4, 5, 6)');
+      const when = rule?.when?.[0];
+      return when?.kind === 'state' && when.op === 'is' && when.values?.join(' ') === 'annual';
+    })(),
+    (() => {
+      const doc = createEmptyDocument('Old pressed');
+      const page = doc.pages[0];
+      const { rootId } = buildTree(
+        { type: 'button', name: 'B', props: { label: 'B' } },
+        doc.nodes,
+        page.rootNodeId
+      );
+      doc.nodes[page.rootNodeId].children.push(rootId);
+      doc.nodes[rootId].props.switchSet = 'annual';
+      doc.nodes[rootId].states = { pressed: { color: 'rgb(4, 5, 6)' } };
+      migrateDocument(doc);
+      const rule = (doc.nodes[rootId].rules ?? []).find((r) => r.apply?.color === 'rgb(4, 5, 6)');
+      return rule ? `when ${JSON.stringify(rule.when)}` : 'no rule for the pressed style at all';
+    })()
+  );
+
+  report.check(
+    'and running it twice changes nothing the second time',
+    (() => {
+      const doc = createEmptyDocument('Old');
+      const page = doc.pages[0];
+      const { rootId } = buildTree(
+        { type: 'button', name: 'B', props: { label: 'B', switchSet: 'annual' } },
+        doc.nodes,
+        page.rootNodeId
+      );
+      doc.nodes[page.rootNodeId].children.push(rootId);
+      migrateDocument(doc);
+      const once = JSON.stringify(doc.nodes[rootId].events);
+      migrateDocument(doc);
+      return once === JSON.stringify(doc.nodes[rootId].events);
+    })(),
+    'idempotent by construction: the prop is deleted, so a second pass finds nothing'
+  );
+
+  report.check(
+    'a document part-way through keeps the newer spelling',
+    (() => {
+      const doc = createEmptyDocument('Both');
+      const page = doc.pages[0];
+      const { rootId } = buildTree(
+        { type: 'button', name: 'B', props: { label: 'B' } },
+        doc.nodes,
+        page.rootNodeId
+      );
+      doc.nodes[page.rootNodeId].children.push(rootId);
+      doc.nodes[rootId].props.switchSet = 'monthly';
+      doc.nodes[rootId].events = [
+        { event: 'onClick', actions: [{ type: 'setState', value: 'annual' }] },
+      ];
+      migrateDocument(doc);
+      return (
+        doc.nodes[rootId].events?.[0]?.actions?.[0]?.value === 'annual' &&
+        doc.nodes[rootId].props.switchSet === undefined
+      );
+    })(),
+    // Two tabs, one build each. The list is what somebody chose most recently,
+    // and the prop is dropped rather than left to be read by something older.
+    'the list wins and the prop is retired'
+  );
+
+  /* ------------------------------ and each of those, handed a wrong answer */
+
+  report.check(
+    'the encoding refuses a value the allowlist would not have produced',
+    (() => {
+      const dirty = wiredPage({
+        type: 'button',
+        name: 'Dirty',
+        props: { label: 'Dirty' },
+        events: [
+          {
+            event: 'onClick',
+            actions: [{ type: 'setState', state: 'na v', value: 'sh"ut' }],
+          },
+        ],
+      });
+      const html = renderPage(dirty.doc, dirty.page, { mode: 'publish' });
+      // Slugged on the way out, so neither separator and no quote survives —
+      // which is what keeps the grammar parseable and the selector closed.
+      return html.includes('data-cre8-set="na-v:sh-ut"') && !html.includes('"sh"ut"');
+    })(),
+    // A document can be hand-edited or arrive from an older release, and both
+    // halves land in a stylesheet selector as well as an attribute.
+    'a space and a quote are narrowed before either reaches the markup'
+  );
+
+  const halfEmpty = wiredPage({
+    type: 'button',
+    name: 'Half',
+    props: { label: 'Half' },
+    events: [
+      {
+        event: 'onClick',
+        actions: [
+          { type: 'setState', value: '' },
+          { type: 'setState', value: 'annual' },
+        ],
+      },
+    ],
+  });
+  const halfHtml = renderPage(halfEmpty.doc, halfEmpty.page, { mode: 'publish' });
+  report.check(
+    'an assignment with no value is dropped rather than written empty',
+    (() => {
+      const alone = wiredPage({
+        type: 'button',
+        name: 'Empty',
+        props: { label: 'Empty' },
+        events: [{ event: 'onClick', actions: [{ type: 'setState', value: '' }] }],
+      });
+      const aloneHtml = renderPage(alone.doc, alone.page, { mode: 'publish' });
+      /*
+       * Two fixtures, because one of them cannot see the mistake.
+       *
+       * On its own an empty value encodes to an empty string, and the
+       * attribute is written only when the string says something — so the
+       * *outcome* is right even if the drop never happened, and a check
+       * holding only this one passes on code that lost it. Beside a real
+       * assignment the difference is visible: a dropped one leaves `annual`,
+       * a kept one leaves a separator with nothing on one side of it.
+       */
+      return (
+        !aloneHtml.includes('data-cre8-set') &&
+        !/<script/i.test(aloneHtml) &&
+        halfHtml.includes('data-cre8-set="annual"')
+      );
+    })(),
+    // An empty part would make the runtime clear the state on click, which is
+    // not something anybody asked for.
+    /data-cre8-set="[^"]*"/.exec(halfHtml)?.[0] ?? 'no attribute beside the real assignment'
+  );
+
+  report.check(
+    'an action under an event nothing listens for reaches nothing',
+    (() => {
+      const other = wiredPage({
+        type: 'button',
+        name: 'Later',
+        props: { label: 'Later' },
+        events: [{ event: 'onHover', actions: [{ type: 'setState', value: 'annual' }] }],
+      });
+      const html = renderPage(other.doc, other.page, { mode: 'publish' });
+      return (
+        stateSets(other.button).length === 0 &&
+        actionsFor(other.button).length === 0 &&
+        !actsOnPress(other.button) &&
+        !html.includes('data-cre8-set')
+      );
+    })(),
+    // The event is a field rather than an assumption, so a binding for
+    // something the runtime does not implement is inert instead of firing on
+    // click by accident.
+    'onClick is the only event read, and the filter is by name'
+  );
+}
+
+
+
+/* ==========================================================================
+ * Nothing on a node is unreachable from a block
+ * ======================================================================= */
+
+report.group('nothing on a node is unreachable from a block');
+
+{
+  /*
+   * The generalisation of the bug P2 found, written as a rule.
+   *
+   * `assign` had been on `SceneNode` for two releases and the renderer had read
+   * it the whole time. What could not reach it was the *spec*: `buildSubtree`
+   * copied props, styles, rules, meta, repeat, refs and bindings and dropped
+   * that one silently. The symptom was not an error — it was a repeater that
+   * drew one shape, and a feature that looked built from every side except the
+   * one somebody would use.
+   *
+   * The shape of that mistake is a field on the node model with no way in, so
+   * that is what this checks. It is a source comparison rather than a runtime
+   * one because the question is about two type declarations, and a runtime
+   * probe would need a value for every field to notice a missing one.
+   *
+   * Falsified by *adding* a field to `SceneNode`, which is the only way in.
+   * Deleting one that a spec already carries is a compile error long before it
+   * reaches here — which is a perfectly good guard, and a different one. This
+   * covers the case the compiler cannot see: a field arriving on the node with
+   * nothing on the authoring side to miss.
+   */
+  const fieldsOf = (source, declaration) => {
+    const at = source.indexOf(declaration);
+    if (at < 0) return null;
+    // To the closing brace at column zero, which is where an interface ends.
+    const body = source.slice(at, source.indexOf('\n}', at));
+    return new Set([...body.matchAll(/^ {2}(\w+)\??:/gm)].map((m) => m[1]));
+  };
+
+  const nodeFields = fieldsOf(
+    readFileSync(path.join(ROOT, 'src/lib/document/types.ts'), 'utf8'),
+    'export interface SceneNode {'
+  );
+  const specFields = fieldsOf(
+    readFileSync(path.join(ROOT, 'src/lib/document/factory.ts'), 'utf8'),
+    'export interface NodeSpec {'
+  );
+
+  /**
+   * Fields a spec is right not to carry, each for a reason.
+   *
+   * Kept as a list with the reasons attached rather than as a count, because
+   * the next field to be added will be added by somebody who has to decide
+   * which side of this line it falls on.
+   */
+  const SUPPLIED = {
+    id: 'minted by the builder',
+    parentId: 'the builder knows where it is putting the node',
+    children: 'a spec nests specs, and the builder turns them into ids',
+    overrides: 'set on an instance by the editor, never authored',
+    vars: 'written by the renderer from a mapped Value, never authored',
+    bindings: 'RESERVED — the data axis, and nothing reads it yet',
+  };
+
+  const missing = [...(nodeFields ?? [])].filter(
+    (field) => !specFields?.has(field) && !(field in SUPPLIED)
+  );
+
+  report.check(
+    'every field a node can hold is one a block can write',
+    Boolean(nodeFields?.size) && Boolean(specFields?.size) && missing.length === 0,
+    missing.length
+      ? `${missing.join(', ')} — on SceneNode, absent from NodeSpec, and not excused`
+      : `${nodeFields.size} fields on the node, ${specFields.size} on the spec, ` +
+        `${Object.keys(SUPPLIED).length} supplied by the builder`
+  );
+
+  report.check(
+    'and buildSubtree actually copies each of the ones it can',
+    (() => {
+      const factory = readFileSync(path.join(ROOT, 'src/lib/document/factory.ts'), 'utf8');
+      const at = factory.indexOf('function buildSubtree(');
+      const body = factory.slice(at, factory.indexOf('\n}', at));
+      // `states` is folded into `rules` and `bind` is renamed on the way in, so
+      // both are named in the body under their own names anyway.
+      return [...(specFields ?? [])].every((field) => body.includes(`spec.${field}`));
+    })(),
+    (() => {
+      const factory = readFileSync(path.join(ROOT, 'src/lib/document/factory.ts'), 'utf8');
+      const at = factory.indexOf('function buildSubtree(');
+      const body = factory.slice(at, factory.indexOf('\n}', at));
+      const dropped = [...(specFields ?? [])].filter((f) => !body.includes(`spec.${f}`));
+      // Computed from the body, because "declared and never read" is exactly
+      // the failure mode, and a fixed string here would hide it.
+      return dropped.length
+        ? `${dropped.join(', ')} — declared on NodeSpec and never read`
+        : `all ${specFields.size} read`;
+    })()
+  );
+
+  report.check(
+    'the comparison is reading two real declarations',
+    (nodeFields?.has('assign') ?? false) &&
+      (nodeFields?.has('events') ?? false) &&
+      (specFields?.has('assign') ?? false) &&
+      (specFields?.has('events') ?? false),
+    // The two the rule was written for. If the parse silently returned an
+    // empty set the check above would pass for the worst possible reason.
+    `node: ${[...(nodeFields ?? [])].length} fields, spec: ${[...(specFields ?? [])].length}`
+  );
+}
+
 
 report.finish();

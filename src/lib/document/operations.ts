@@ -27,6 +27,7 @@ import {
   structuredCloneCompat,
   type NodeSpec,
 } from './factory';
+import { CLICK, stateSets } from './actions';
 import { uid, slugify } from './id';
 import { fieldsRead } from '../renderer/test';
 import { SWITCH_SHOW_ALL, anchorId, canContain, getElement, readCase, slug } from './schema';
@@ -49,6 +50,7 @@ import type {
   ElementType,
   Field,
   FieldType,
+  NodeAction,
   NodeId,
   NodeProps,
   Page,
@@ -674,6 +676,33 @@ export function removeAssign(doc: Cre8Document, id: NodeId, assignId: string): v
   }
   node.assign = node.assign.filter((rule) => rule.id !== assignId);
   if (!node.assign.length) delete node.assign;
+}
+
+/**
+ * Replace what a control does when it is pressed.
+ *
+ * One operation for the whole list rather than add/remove/reorder, because the
+ * list is short, it is edited as a unit in one panel, and every alternative
+ * splits an edit somebody thinks of as one thing across several undo steps.
+ *
+ * An empty list removes the field: an element carrying `events: []` publishes
+ * exactly as one carrying nothing, and a document where the two are different
+ * is a document with a difference nobody can see.
+ */
+export function setActions(doc: Cre8Document, id: NodeId, actions: NodeAction[]): void {
+  const node = doc.nodes[id];
+  if (!node) return;
+  const kept = actions.filter(
+    (action) =>
+      (action.type === 'setState' && slug(action.value)) || (action.type === 'copy' && action.text)
+  );
+  // Bindings for other events are left alone. There are none today, and a
+  // panel that silently dropped the ones it does not draw is the reason to
+  // write the filter now rather than when the second event arrives.
+  const others = (node.events ?? []).filter((binding) => binding.event !== CLICK);
+  const events = [...others, ...(kept.length ? [{ event: CLICK, actions: kept }] : [])];
+  if (events.length) node.events = events;
+  else delete node.events;
 }
 
 export function addRule(doc: Cre8Document, id: NodeId, rule: StyleRule): string | null {
@@ -1481,13 +1510,26 @@ export function revealSwitchPath(doc: Cre8Document, nodeId: NodeId): boolean {
   };
 
   // Selecting a tab is the most direct way of saying which panel to work on.
-  const set = slug(node.props.switchSet);
-  if (set) {
-    const group = ownerOf(node, '');
-    // A setter inside the group it drives, not the group itself.
-    const target = group === node ? ownerOf(doc.nodes[node.parentId ?? ''] ?? node, '') : group;
-    if (target && target.props.switchDesign !== SWITCH_SHOW_ALL && valueOf(target) !== set) {
-      target.props.switchDesign = set;
+  //
+  // Every assignment the control carries, not just one, so a link that closes
+  // a menu *and* moves a tab set reveals both halves of what it does. Each is
+  // resolved the way the runtime resolves it — ancestors first, then the page
+  // — because a control whose effect the canvas cannot show is a control the
+  // designer has to publish to understand.
+  for (const { state, value } of stateSets(node)) {
+    const nearest = ownerOf(node, state);
+    // A setter inside the group it drives, not the group itself. Only for a
+    // bare assignment: one that names a key means that key even when it is
+    // the control's own.
+    const group =
+      !state && nearest === node ? ownerOf(doc.nodes[node.parentId ?? ''] ?? node, '') : nearest;
+    const target =
+      group ??
+      (state
+        ? Object.values(doc.nodes).find((one) => slug(one.props.switchKey) === state)
+        : undefined);
+    if (target && target.props.switchDesign !== SWITCH_SHOW_ALL && valueOf(target) !== value) {
+      target.props.switchDesign = value;
       changed = true;
     }
   }
