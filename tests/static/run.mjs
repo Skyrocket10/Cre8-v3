@@ -8670,6 +8670,32 @@ report.group('what a press does');
   const copyDoc = wired();
   copyDoc.button.props.copyText = 'npm i cre8';
   const copied = renderPage(copyDoc.doc, copyDoc.page, { mode: 'publish' });
+  const RUNTIME_SOURCE = readFileSync(path.join(ROOT, 'src/lib/runtime/behaviour.ts'), 'utf8');
+  const VERBATIM_COPY =
+    /writeText\(\s*copier\.getAttribute\(\s*['"]data-cre8-copy['"]\s*\)\s*\|\|\s*['"]{2}\s*\)/;
+  report.check(
+    /*
+     * And what the runtime does with that attribute, pinned at the source.
+     *
+     * The browser suite cannot read the clipboard back — `readText()` needs the
+     * document focused and stops settling after the click in that arrangement,
+     * so what it can prove is that the write *resolved*, not what was written.
+     * This is the other half: the value handed to `writeText` is the attribute
+     * read verbatim, with no transform between them. Between the two, "the
+     * advertised text is the copied text" stays covered.
+     */
+    'the runtime copies the attribute verbatim, with nothing in between',
+    VERBATIM_COPY.test(RUNTIME_SOURCE),
+    // Quoting what is actually there, because a fixed string here is the
+    // failure this file has now been caught making four times: the check goes
+    // red and the line under it reports success.
+    // `clip.` and not a bare `writeText(`, or this quotes the `WithClipboard`
+    // interface declaration higher up the file and reports the type signature
+    // as though it were the call.
+    (/clip\.writeText\([^;]*\)/.exec(RUNTIME_SOURCE)?.[0] ?? 'no clip.writeText call at all')
+      .replace(/\s+/g, ' ')
+      .slice(0, 90)
+  );
   report.check(
     'a control that copies carries the text and the script to do it',
     copied.includes('data-cre8-copy="npm i cre8"') && /<script/i.test(copied),

@@ -1656,6 +1656,44 @@ node need never have come from the library at all.
 `#` is exempt and has to be — a button's `defaultProps` supply one, so every
 jump button in a document carries a vestigial `href="#"` under a working jump.
 
+### Three checks that never ran
+
+The copy checks in `press.mjs` went nine runs across as many sessions without
+producing a line anybody read. Not failing — **hanging**, which is why. Three
+separate faults were stacked, and each one hid the next.
+
+`navigator.clipboard.readText()` requires the document focused and does not
+reject when it is not: it never settles. So `evaluate` waited forever and the
+suite sat there until something killed it. No output, no failure, nothing to
+read. A deadline on the read turned the hang into a failure, and the failure
+turned out to be informative immediately.
+
+Underneath it, **the attribute was read five seconds after a mark that lasts
+1.4**. The runtime removes `data-cre8-copied` after 1400ms; the check for it ran
+after the clipboard read. Even with a working clipboard that check could never
+have passed — and "and stops saying so" was passing all along by asking whether
+a mark that never arrived had gone away. Reading the mark first fixed one and
+made the other honest: it now requires the mark to have existed.
+
+Underneath *that*, the read genuinely cannot be made to work in this
+arrangement. Focus is true before the click and false after, through
+`bringToFront`, a real mouse gesture, closing the editor page, and giving the
+acting page a browser of its own. The same read works against the SaaS template
+in a one-context probe, so it is the harness rather than the product.
+
+So the read was demoted to a logged value and the assertion moved to what is
+actually observable. That is not a consolation prize: the runtime sets the mark
+**inside `writeText().then()`**, so the mark is the platform confirming the
+write resolved. The one thing it does not prove — that the string written is the
+string advertised — is pinned in the static suite instead, against the source:
+the value handed to `writeText` is `getAttribute('data-cre8-copy')` with nothing
+in between. Put a `.trim()` there and it fails, quoting the line.
+
+Worth naming the pattern separately, because it showed up **four times** in this
+work: a check whose detail is a fixed string reports success while failing. The
+summary line says look here and the line under it says nothing is wrong. Every
+detail in the new checks is computed from the same values the assertion tests.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

@@ -271,7 +271,30 @@ try {
   await page.waitForTimeout(1200);
   await publish(page);
 
-  const pressed = await browser.newContext({ viewport: { width: 1200, height: 700 } });
+  /*
+   * The editor is finished with, and it has to actually go.
+   *
+   * `navigator.clipboard.writeText` rejects on an unfocused document, and the
+   * runtime only marks the button inside that promise's success path — so an
+   * unfocused page copies nothing and says nothing, which is correct product
+   * behaviour and an invisible test failure. The editor page kept the focus
+   * even after `bringToFront()` on the acting page, so it is closed rather
+   * than out-competed. `document.hasFocus()` is asserted below rather than
+   * assumed, because this is the second thing to quietly decide these three
+   * checks would never run.
+   */
+  await page.close();
+  /*
+   * A browser of its own, not just a context of its own.
+   *
+   * `navigator.clipboard.readText()` needs the document focused, and inside one
+   * headless Chromium the editor's window kept winning that even after the page
+   * was closed and the acting page was brought to front and clicked. Focus is a
+   * browser-level notion; two contexts share one. A second browser has nothing
+   * to lose focus to.
+   */
+  const pressBrowser = await launch();
+  const pressed = await pressBrowser.newContext({ viewport: { width: 1200, height: 700 } });
   await pressed.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: APP });
   const acting = await pressed.newPage();
   await acting.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
@@ -308,33 +331,124 @@ try {
   }
 
   await acting.evaluate(() => window.scrollTo(0, 0));
-  await acting.locator('button:has-text("Copy command")').click();
-  await acting.waitForTimeout(400);
-  const clip = await acting.evaluate(() => navigator.clipboard.readText());
+  /*
+   * Focus first, and this is the whole reason these three checks had never
+   * been seen to run.
+   *
+   * `navigator.clipboard.readText()` does not reject when the document is
+   * unfocused — it never settles. The editor page lives in the other browser
+   * context and holds focus, so the read below hung, `evaluate` waited on it
+   * forever, and the suite sat there until something killed it. Nine attempts
+   * across as many sessions, no output, no failure, nothing to read.
+   */
+  await acting.bringToFront();
   report.check(
-    'a control that copies puts its text on the clipboard',
-    clip === 'npm i cre8',
-    JSON.stringify(clip)
+    'the page doing the copying has the focus the clipboard requires',
+    await acting.evaluate(() => document.hasFocus()),
+    // Not a property of the product — a precondition of testing it. Stated as
+    // a check so the next failure says "unfocused" instead of "unreadable".
+    'document.hasFocus()'
   );
+  await acting.locator('button:has-text("Copy command")').click();
+  await acting.waitForTimeout(300);
+
+  /*
+   * The mark is read *first*, and that ordering is the second thing that kept
+   * these checks from ever passing.
+   *
+   * The runtime removes `data-cre8-copied` after 1400ms. Reading it after the
+   * clipboard — which now waits up to four seconds, and before that waited
+   * forever — asked whether a 1.4-second mark was still there five seconds
+   * later. It never could have been. So even with a working clipboard the
+   * attribute check was guaranteed to fail, and "and stops saying so" was
+   * guaranteed to pass without ever seeing the mark it claims to watch
+   * disappear.
+   */
   const marked = await acting.evaluate(() =>
     Boolean(document.querySelector('[data-cre8-copied]'))
   );
+  /*
+   * A deadline on the read, because a check that hangs is worse than one that
+   * fails: a failure names itself, and a hang looks exactly like a slow machine
+   * right up until somebody gives up on the whole suite.
+   */
+  /*
+   * The clipboard is read for the log, not for a verdict, and that is a
+   * deliberate retreat worth explaining.
+   *
+   * `readText()` requires the document focused and does not reject when it is
+   * not — it never settles. Here it stops settling the moment the button is
+   * clicked, and stays that way through `bringToFront`, a real mouse gesture,
+   * closing the editor page, and giving the acting page a browser of its own.
+   * The same read works fine against the SaaS template in a one-context probe,
+   * so it is this arrangement rather than the product.
+   *
+   * What is asserted instead is the mark, and that is not a consolation prize.
+   * The runtime sets `data-cre8-copied` *inside* `writeText().then()`, so the
+   * mark existing is the platform confirming the write resolved — and what was
+   * written is `getAttribute('data-cre8-copy')` verbatim, which the static
+   * suite pins at the source. The read would add one thing: that the string in
+   * the attribute is the string in the clipboard. It is reported when the
+   * environment allows it and never turned into a check that cannot fail.
+   */
+  await acting.bringToFront();
+  const clip = await acting.evaluate(
+    () =>
+      Promise.race([
+        navigator.clipboard.readText(),
+        new Promise((resolve) => setTimeout(() => resolve('unreadable here'), 2500)),
+      ])
+  );
+  /*
+   * What the page actually looked like, gathered whether or not the copy
+   * worked. These checks went nine runs without producing a line anybody read,
+   * so the detail has to carry enough to diagnose the next failure from the log
+   * alone rather than from a fresh probe.
+   */
+  const scene = await acting.evaluate(() => {
+    const el = document.querySelector('[data-cre8-copy]');
+    return {
+      tag: el?.tagName.toLowerCase() ?? null,
+      scripts: document.querySelectorAll('script').length,
+      focused: document.hasFocus(),
+    };
+  });
   report.check(
-    'and says so through an attribute, rather than wording it itself',
+    'a control that copies writes, and says so through an attribute',
+    /*
+     * One check, because there is one fact: the mark is set inside
+     * `writeText().then()`, so the attribute being there *is* the platform
+     * confirming the write resolved. Splitting it into "it copied" and "it said
+     * so" would have been two readings of the same boolean and two checks where
+     * the suite has one thing to report.
+     *
+     * An attribute rather than a word is the product's own choice: the rules
+     * panel has expressed attribute conditions since stage 2, so "say Copied
+     * for a second" is a rule the designer writes and styles like any other
+     * state, and the runtime has no opinion about the wording.
+     */
     marked,
-    // An attribute condition is something the rules panel has expressed since
-    // stage 2, so "say Copied for a second" is a rule the designer writes and
-    // styles like any other state. The runtime has no opinion about the words.
-    marked ? 'data-cre8-copied is set' : 'nothing marked'
+    `${marked ? 'data-cre8-copied is set' : 'nothing marked'} · ${JSON.stringify(scene)} · read back: ${JSON.stringify(clip)}`
   );
   await acting.waitForTimeout(1600);
+  const stillMarked = await acting.evaluate(() =>
+    Boolean(document.querySelector('[data-cre8-copied]'))
+  );
   report.check(
     'and stops saying so',
-    !(await acting.evaluate(() => Boolean(document.querySelector('[data-cre8-copied]')))),
+    // `marked &&` is what stops this passing on a page where the mark was never
+    // set: "it is gone now" is trivially true of something that never arrived,
+    // and this check spent its whole life green for exactly that reason.
+    marked && !stillMarked,
     // Otherwise the mark is not feedback, it is a permanent change of state.
-    'the mark is removed again'
+    marked
+      ? stillMarked
+        ? 'the mark is still there'
+        : 'the mark is removed again'
+      : 'there was never a mark to remove'
   );
   await pressed.close();
+  await pressBrowser.close();
 } catch (error) {
   report.check('press suite completed', false, error.message);
 } finally {

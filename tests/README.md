@@ -209,6 +209,15 @@ on is named somewhere in it. That second rule reported exactly one gap when it
 was written, `transition`, and naming it was the point rather than an
 oversight; it reports none now.
 
+The copy checks in `press.mjs` are the cautionary tale for the whole two-tier
+arrangement. They hung rather than failed — `navigator.clipboard.readText()`
+never settles on an unfocused document — so nine runs produced no line at all,
+and behind the hang sat a check reading a 1.4-second attribute five seconds
+after it was set, and a third that passed by asking whether a mark that never
+arrived had gone away. A deadline on the read exposed the second; reading the
+mark first exposed the third. **A check that hangs is worse than one that
+fails**, because a failure names itself and a hang looks like a slow machine.
+
 What none of that can check is whether the row *works*, so the browser suite
 drives three control kinds that were unreachable before — a switch, a menu and
 the grid span — and asserts each writes the document. It earned its place
