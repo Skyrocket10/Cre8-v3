@@ -7003,6 +7003,7 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
   const brokenLinks = [];
   const rawColour = [];
   const unnamed = [];
+  const droppedSet = [];
   const placeholder = [];
   const skippedHeading = [];
   const noHeading = [];
@@ -7063,6 +7064,35 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
         for (let i = node.children.length - 1; i >= 0; i--) stack.push(node.children[i]);
 
         if (!String(node.name ?? '').trim()) unnamed.push(`${where}: a node`);
+
+        /*
+         * A `set` the expansion will silently drop.
+         *
+         * `variantsOf` only expands content along a *state* or *data* axis,
+         * because those are the two that guarantee mutual exclusion and keep
+         * the expansion linear. Anything else — an `attr` condition, a pointer
+         * pseudo — is skipped, and skipped means the rule still looks like it
+         * works in the source and does nothing in the output.
+         *
+         * The block library has been checked for this since stage 2. Templates
+         * had not been, so a rule that blocks were forbidden to ship could ship
+         * from a template instead — which is exactly how the first version of
+         * the copy button here claimed to change its own word.
+         */
+        for (const rule of node.rules ?? []) {
+          if (!rule.set || !Object.keys(rule.set).some((prop) => SETTABLE.has(prop))) continue;
+          const only = rule.when?.length === 1 ? rule.when[0] : null;
+          const expands =
+            only &&
+            (only.kind === 'state' || only.kind === 'data') &&
+            only.op === 'is' &&
+            only.values?.length &&
+            !rule.part &&
+            !rule.breakpoint;
+          if (!expands) {
+            droppedSet.push(`${where}: content varies on "${only?.kind ?? 'several conditions'}"`);
+          }
+        }
 
         if (node.type === 'image') {
           imagesSwept++;
@@ -7445,6 +7475,11 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
     rawColour.slice(0, 4).join(' | ') || 'tokens throughout'
   );
   report.check('every node is named for the layer tree', unnamed.length === 0, unnamed.slice(0, 3).join(' | '));
+  report.check(
+    'no template ships a content rule the expansion will drop',
+    droppedSet.length === 0,
+    droppedSet.slice(0, 3).join(' | ') || 'every set expands on a state or a data source'
+  );
   report.check(
     'no template ships filler copy',
     placeholder.length === 0,
@@ -8299,6 +8334,61 @@ report.group('the library uses what the panel can now express');
     'and the block being read is the one that was rebuilt',
     Boolean(bento) && cells.length > 0,
     bento ? `${cells.length} spanning cards found` : 'no Bento grid block'
+  );
+
+  /*
+   * The actions, read out of the published markup rather than the document.
+   *
+   * Both of these existed and worked for months while no template used one,
+   * which is the same gap the spans had. The difference here is that the
+   * document says almost nothing useful: a `scrollTo` ref that failed to
+   * resolve is *deleted*, so the only way to tell a working jump from a
+   * silently dropped one is to look at the href that came out the other end.
+   */
+  const saasHome = (() => {
+    const doc = TEMPLATES.find((one) => one.id === 'saas')?.build();
+    if (!doc) return '';
+    return generateSite(doc).files.find((file) => file.path === 'index.html')?.contents ?? '';
+  })();
+
+  const jump = /<a [^>]*href="(#[^"]*)"[^>]*>See what you get/.exec(saasHome);
+  report.check(
+    'the template jumps to a section rather than linking at one',
+    jump?.[1] === '#features' && /id="features"/.test(saasHome),
+    // `#` would mean the reference was dropped and the button fell back to a
+    // button's default href, which looks identical in the document.
+    `href ${jump?.[1] ?? 'none'}, and the target ${/id="features"/.test(saasHome) ? 'carries the id' : 'has no id'}`
+  );
+
+  const copy = /<(\w+)[^>]*data-cre8-copy="([^"]*)"/.exec(saasHome);
+  report.check(
+    'and something on it copies, as a button rather than a link',
+    copy?.[1] === 'button' && Boolean(copy?.[2]),
+    // An `<a>` here is the failure that shipped first: a button's default href
+    // is `#`, and any href at all makes `resolveTag` emit an anchor — a link to
+    // nowhere that a screen reader announces and a keyboard user follows.
+    `<${copy?.[1] ?? 'nothing'}> carrying ${JSON.stringify(copy?.[2] ?? null)}`
+  );
+  /*
+   * The runtime is on the page that copies and not on the one that does not.
+   * A jump costs nothing anywhere, being an anchor.
+   *
+   * Both halves are computed into the detail rather than described, because a
+   * fixed string here fails the way this file has already been caught failing
+   * twice: the check goes red and the line under it says everything is fine.
+   */
+  const scriptOn = (needle) => {
+    const doc = TEMPLATES.find((one) => one.id === 'saas')?.build();
+    const file = (doc ? generateSite(doc).files : []).find((one) => one.path.includes(needle));
+    return /<script/.test(file?.contents ?? '');
+  };
+  const homeRuns = /<script/.test(saasHome);
+  const pricingRuns = scriptOn('pricing');
+  report.check(
+    'and the page still ships nothing to execute where nothing needs it',
+    homeRuns && !pricingRuns,
+    `home ${homeRuns ? 'carries the copy runtime' : 'carries nothing'}, ` +
+      `pricing ${pricingRuns ? 'carries one too' : 'carries none'}`
   );
 }
 

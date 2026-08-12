@@ -24,6 +24,10 @@
 
 import type { NodeSpec } from '../../document/factory';
 import type { NodeProps, ResponsiveStyles, StyleDecl } from '../../document/types';
+// The attribute the copy runtime sets, imported rather than spelled again:
+// the rule below and the handler that satisfies it have to agree exactly, and
+// two string literals in two files is how they stop agreeing.
+import { COPIED_ATTR } from '../../runtime/behaviour';
 
 /* --------------------------------------------------------------------------
  * Links
@@ -40,6 +44,14 @@ import type { NodeProps, ResponsiveStyles, StyleDecl } from '../../document/type
 export interface BlockLink {
   label: string;
   href?: string;
+  /**
+   * Scroll to a section instead of going somewhere, named by the node's name.
+   *
+   * Exclusive with `href`, and the renderer treats them that way — a control
+   * that both jumps and navigates is two answers to one press. `linkButton`
+   * is what enforces it, so a block cannot set both by accident.
+   */
+  jumpTo?: string;
 }
 
 export const asLink = (link: string | BlockLink): BlockLink =>
@@ -419,6 +431,112 @@ export const button = (
       ? { hover: { backgroundColor: 'var(--c-secondary)' } }
       : { hover: { backgroundColor: 'var(--c-surface)' } },
 });
+
+/**
+ * A button from a `BlockLink`, going wherever the link says to go.
+ *
+ * The one place that decides between an href and a jump, so `jumpTo` wins and
+ * `href` is *removed* rather than left alongside it. Leaving both would ship a
+ * control with two answers to one press, and the static suite rejects it —
+ * correctly, but a rule that fires on something a helper could have made
+ * impossible is a rule doing somebody else's job.
+ */
+export const linkButton = (
+  link: BlockLink,
+  variant: 'primary' | 'secondary' | 'ghost' = 'primary'
+): NodeSpec => {
+  const base = button(link.label, variant, link.href ?? '#');
+  if (!link.jumpTo) return base;
+  const { href: _navigatesInstead, ...props } = base.props ?? {};
+  // By name: a spec has no ids, and `buildTree` turns the name into a real
+  // reference once the page exists. Which is per *page*, not per section —
+  // see `makeDocument`, where that scope had to be widened for this to work
+  // across two blocks at all.
+  return { ...base, props, refs: { scrollTo: link.jumpTo } };
+};
+
+/**
+ * A command with a button that copies it.
+ *
+ * Copying is the one press that costs a visitor a script, so the feedback is
+ * kept to what the platform can already say: the runtime sets an attribute for
+ * a moment, and a rule keyed on that attribute restyles the button.
+ *
+ * It does *not* change the word, and that was worth finding out rather than
+ * assuming. A rule carrying `set` renders the node as one element per
+ * condition, which would put "Copied" in the markup and let CSS choose — but
+ * `variantsOf` only expands along a **state** or **data** axis, because those
+ * are the two that guarantee mutual exclusion and keep the expansion linear.
+ * An `attr` condition has no such guarantee, so the `set` is skipped: it reads
+ * as working and does nothing. A colour change is the honest limit of what the
+ * copied attribute can drive today.
+ */
+export const commandRow = (command: string, label = 'Copy'): NodeSpec =>
+  stack(
+    'Install command',
+    [
+      {
+        type: 'text',
+        name: 'Command',
+        props: { text: `$ ${command}` },
+        styles: {
+          // The theme's mono token, not the stack itself: a template that
+          // spells a font out cannot be restyled from the Theme panel, which
+          // is the whole point of the tokens.
+          fontFamily: 'var(--f-mono)',
+          fontSize: '13.5px',
+          color: 'var(--c-text)',
+          whiteSpace: 'nowrap',
+          overflowX: 'auto',
+        },
+      },
+      {
+        ...button(label, 'ghost'),
+        name: 'Copy command',
+        /*
+         * `href: ''` is doing real work. A button's `defaultProps` supply
+         * `href: '#'`, and `resolveTag` reads any href at all as "this goes
+         * somewhere" and emits an `<a>` — so a copy button would ship as a link
+         * to nowhere, which a screen reader announces and a keyboard user
+         * follows into nothing. Omitting the key is not enough; the default
+         * fills it back in. This is the first control in the library that
+         * genuinely goes nowhere, which is why nothing had needed to say so.
+         */
+        props: { label, copyText: command, href: '' },
+        styles: {
+          backgroundColor: 'transparent',
+          color: 'var(--c-muted)',
+          fontSize: '12.5px',
+          fontWeight: '600',
+          ...pad('5px', '10px'),
+          ...radius('var(--r-sm)'),
+          flexShrink: '0',
+        },
+        states: { hover: { backgroundColor: 'var(--c-surface-2)', color: 'var(--c-text)' } },
+        rules: [
+          {
+            // Named, not blank: the variant expansion keys a rule's `apply` by
+            // its id, so an empty one has nothing to key on.
+            id: 'r-copied',
+            // The attribute the runtime sets, and the empty string is the value
+            // it sets it to — a bare `[data-cre8-copied]` is a different
+            // selector from the one the generator writes for this condition.
+            when: [{ kind: 'attr', name: COPIED_ATTR, op: 'is', values: [''] }],
+            apply: { backgroundColor: 'var(--c-primary)', color: 'var(--c-inverse)' },
+          },
+        ],
+      },
+    ],
+    {
+      gap: '10px',
+      alignItems: 'center',
+      ...pad('6px', '8px', '6px', '14px'),
+      ...radius('var(--r-md)'),
+      ...border('1px', 'var(--c-border)'),
+      backgroundColor: 'var(--c-background)',
+      maxWidth: '100%',
+    }
+  );
 
 export const textLink = (text: string, href = '#', styles: StyleDecl = {}): NodeSpec => ({
   type: 'link',

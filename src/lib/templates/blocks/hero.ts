@@ -11,6 +11,7 @@ import {
   LEAD_RESPONSIVE,
   border,
   button,
+  commandRow,
   column,
   container,
   frame,
@@ -18,6 +19,7 @@ import {
   heading,
   icon,
   label,
+  linkButton,
   pad,
   paragraph,
   radius,
@@ -28,7 +30,7 @@ import {
 } from './kit';
 
 export function heroSectionSpec(
-  actions: { primary?: BlockLink; secondary?: BlockLink } = {}
+  actions: { primary?: BlockLink; secondary?: BlockLink; install?: string } = {}
 ): NodeSpec {
   const primary = actions.primary ?? { label: 'Start building free' };
   const secondary = actions.secondary ?? { label: 'Book a demo' };
@@ -83,13 +85,15 @@ export function heroSectionSpec(
 
               stack(
                 'Hero actions',
-                [
-                  button(primary.label, 'primary', primary.href ?? '#'),
-                  button(secondary.label, 'secondary', secondary.href ?? '#'),
-                ],
+                [linkButton(primary, 'primary'), linkButton(secondary, 'secondary')],
                 { gap: '12px', marginTop: '8px' },
                 { mobile: { flexDirection: 'column', alignItems: 'stretch', width: '100%' } }
               ),
+
+              // Only where a product has one. A hero is shared across eight
+              // templates and an agency site has no install command, so this
+              // is absent rather than a placeholder somebody has to delete.
+              ...(actions.install ? [commandRow(actions.install)] : []),
 
               stack(
                 'Hero note',

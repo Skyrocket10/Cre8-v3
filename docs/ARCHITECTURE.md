@@ -1587,6 +1587,46 @@ failing check whose detail read `4 cards restate both axes`. A check that fails
 while reporting success is worse than one that never fires: the summary line
 says look here, and the line under it says nothing is wrong.
 
+### The actions, used
+
+Jumping and copying had worked for months and no template used either. Putting
+them in the SaaS page took three fixes, and each one was a different way of
+failing quietly.
+
+**A reference could not leave its own section.** A block names what it points
+at — `refs: { scrollTo: 'Bento features' }` — and `buildTree` turns the name
+into an id once the nodes exist. But a page is built one section at a time, and
+each `buildTree` call resolved names against *its own section only*, so a name
+naming anything else matched nothing. A name matching nothing is **deleted**,
+by design and for good reasons in a block. The effect at template scale was
+that a hero could not point at the features band, and got no error saying so.
+Resolution now happens once per page, in `finishTree`, which `buildTree` calls
+for the single-block case and `makeDocument` calls after all the sections are
+built. Not a missing feature — a scope one level too narrow, and silent.
+
+**A copy button shipped as a link to nowhere.** A button's `defaultProps`
+include `href: '#'`, and `resolveTag` reads any href at all as "this goes
+somewhere" and emits an `<a>`. Every button in the library had a real
+destination, so nothing had ever exercised the case; the copy control is the
+first thing in the codebase that genuinely goes nowhere. Omitting the key does
+not help — the default fills it back in — so it sets `href: ''` explicitly.
+
+**And the word could not change.** The first version keyed a rule on the copied
+attribute and gave it `set: { label: 'Copied' }`, which should render the node
+once per condition and let CSS choose between them. `variantsOf` expands only
+along a **state** or **data** axis, because those are the two that guarantee
+mutual exclusion and keep the expansion linear; an `attr` condition has neither
+guarantee, so the `set` is skipped. Skipped, not rejected — it reads as working
+and does nothing. The feedback is a colour change, which is the honest limit of
+what that attribute can drive.
+
+That last one is the interesting failure, because **the rule against it already
+existed**: `checkContentRules` has refused exactly this since stage 2. It runs
+over the *block library*. Templates were never passed through it, so a rule
+blocks are forbidden to ship could ship from a template instead. Same shape as
+`checkColumnSpans` guarding one axis, and as the browser suite driving one
+breakpoint: a guard as wide as the road that existed when it was written.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

@@ -9,6 +9,7 @@
 
 import {
   buildTree,
+  finishTree,
   createEmptyDocument,
   createPage,
   pageRef,
@@ -150,12 +151,24 @@ function makeDocument(input: TemplateInput): Cre8Document {
 
     const sections =
       typeof spec.sections === 'function' ? spec.sections(collectionIds) : spec.sections;
+    /*
+     * One map for the whole page, and references resolved once at the end.
+     *
+     * Each section used to be built and resolved on its own, which quietly
+     * decided that a template could never wire one section to another: a name
+     * that matched nothing in its own section was dropped without a word. That
+     * is why no template had a jump link — the hero could not name the section
+     * it wanted to scroll to, so nobody tried twice.
+     */
+    // Seeded with the page root so `attachChild` can find the parent; the same
+    // object as the one already in `doc.nodes`, so writing it back is a no-op.
+    const pageNodes: NodeMap = { ...nodes };
     for (const section of sections) {
-      const subtree: NodeMap = {};
-      const { rootId } = buildTree(section, subtree, page.rootNodeId);
-      Object.assign(doc.nodes, subtree);
-      attachChild(doc.nodes, page.rootNodeId, rootId);
+      const { rootId } = buildTree(section, pageNodes, page.rootNodeId, { defer: true });
+      attachChild(pageNodes, page.rootNodeId, rootId);
     }
+    finishTree(pageNodes);
+    Object.assign(doc.nodes, pageNodes);
   });
 
   shareRepeatedSections(doc);
@@ -388,7 +401,18 @@ const saas: TemplateDefinition = {
             northwindNav(),
             heroSectionSpec({
               primary: { label: 'Start building free', href: pageRef('contact') },
-              secondary: { label: 'Book a demo', href: pageRef('contact') },
+              /*
+               * A jump rather than a link, and the first one any template has
+               * had. It names the node it scrolls to; `makeDocument` resolves
+               * that name across the whole page, which is what makes a
+               * reference from the hero into the features section possible at
+               * all. Safe to point at a section on *this* page because the
+               * hero is not one of the shared ones — the navbar is, and a jump
+               * baked into a shared navbar would land nowhere on the other
+               * three pages.
+               */
+              secondary: { label: 'See what you get', jumpTo: 'Bento features' },
+              install: 'npm create northwind@latest',
             }),
             logoCloudSpec(),
             anchored(bentoFeaturesSpec(), 'features'),

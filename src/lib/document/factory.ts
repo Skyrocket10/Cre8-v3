@@ -100,13 +100,33 @@ export interface NodeSpec {
 export function buildTree(
   spec: NodeSpec,
   into: NodeMap = {},
-  parentId: NodeId | null = null
+  parentId: NodeId | null = null,
+  options: { defer?: boolean } = {}
 ): { rootId: NodeId; nodes: NodeMap } {
   const rootId = buildSubtree(spec, into, parentId);
   // Only once the whole tree exists do the referenced nodes have ids.
-  resolveRefs(into);
-  defaultAnchors(into);
+  if (!options.defer) finishTree(into);
   return { rootId, nodes: into };
+}
+
+/**
+ * Turn authored names into references, and give unanchored panels an anchor.
+ *
+ * Separate from `buildTree` so a caller can widen the scope a name resolves
+ * in. One block is the right scope for a block — a name matching nothing there
+ * is a mistake in the block — but a *page* is built one section at a time, and
+ * a name resolved per section can only ever point inside the section that
+ * wrote it. That is why no template had a jump link: not a missing feature,
+ * a resolution scope one level too narrow, and the failure is silent because
+ * an unresolved name is dropped.
+ *
+ * The order matters and is not interchangeable: `defaultAnchors` matches an
+ * invoker to its panel by comparing `refs.popover.node` against an *id*, so it
+ * has nothing to compare until the names are gone.
+ */
+export function finishTree(nodes: NodeMap): void {
+  resolveRefs(nodes);
+  defaultAnchors(nodes);
 }
 
 function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): NodeId {
