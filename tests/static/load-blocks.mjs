@@ -100,6 +100,7 @@ export function loadBlocks() {
     buildTree: require(path.join(OUT, 'document/factory.js')).buildTree,
     generateNodeCss: require(path.join(OUT, 'renderer/css.js')).generateNodeCss,
     generateStylesheet: require(path.join(OUT, 'renderer/css.js')).generateStylesheet,
+    parseCustomDeclarations: require(path.join(OUT, 'renderer/css.js')).parseCustomDeclarations,
     APPEAR_EFFECTS: require(path.join(OUT, 'renderer/css.js')).APPEAR_EFFECTS,
     // The whole site, not just a page: D3's gate is that the Worker's output
     // matches this one's byte for byte, and a site is sitemap and robots too.

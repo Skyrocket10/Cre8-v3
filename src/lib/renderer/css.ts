@@ -181,14 +181,61 @@ const UNSAFE_IN_VALUE = /[<>{};]/;
  * an element missing one declaration is a great deal better than a page running
  * somebody else's script.
  */
+/**
+ * What can be a property name: an ordinary one, a vendor prefix, or a variable.
+ *
+ * Whitelisted rather than filtered, for the reason selectors always have been.
+ * A name is an identifier and identifiers are a small, closed shape — there is
+ * no legitimate property containing a bracket, a quote or a space, so saying
+ * what one *is* is both shorter and safer than listing what it must not be.
+ */
+const CSS_PROPERTY = /^(--[a-zA-Z0-9-]+|-?[a-zA-Z][a-zA-Z0-9-]*)$/;
+
+/**
+ * `mask-image: url(a.svg); mix-blend-mode: hard-light` → pairs.
+ *
+ * Split on top-level semicolons and then on the first colon, which is all the
+ * grammar a declaration list has. Exported because the panel parses the same
+ * text to say how many of the declarations it will actually use: a typo that
+ * silently disappears is the worst thing an escape hatch can do, since the
+ * whole reason somebody is here is that the panel had no control for what they
+ * wanted.
+ */
+export function parseCustomDeclarations(text: string): [string, string][] {
+  const out: [string, string][] = [];
+  for (const part of text.split(';')) {
+    const at = part.indexOf(':');
+    if (at < 0) continue;
+    const name = part.slice(0, at).trim();
+    const value = part.slice(at + 1).trim();
+    if (!name || !value) continue;
+    if (!CSS_PROPERTY.test(name) || UNSAFE_IN_VALUE.test(value)) continue;
+    out.push([name, value]);
+  }
+  return out;
+}
+
 function safePairs(styles: StyleDecl): [string, string][] {
   const pairs: [string, string][] = [];
   for (const [prop, value] of Object.entries(styles)) {
     if (value === undefined || value === null || value === '') continue;
+    const text = String(value);
+
+    /*
+     * The escape hatch is a *list*, so the guard applies to each declaration in
+     * it rather than to the whole string — the semicolons between them are the
+     * one legitimate use of a character it otherwise forbids. Its pairs skip
+     * `expand()` because they are already CSS: nobody typing `mask-image` means
+     * the two-word properties this document format invented.
+     */
+    if (prop === 'custom') {
+      for (const pair of parseCustomDeclarations(text)) pairs.push(pair);
+      continue;
+    }
+
     // The property too. It is a key of `StyleDecl` in anything the editor
     // writes, but a document is JSON and arrives from disk.
     if (UNSAFE_IN_VALUE.test(prop)) continue;
-    const text = String(value);
     if (UNSAFE_IN_VALUE.test(text)) continue;
     for (const [name, resolved] of expand(prop, text)) pairs.push([name, resolved]);
   }

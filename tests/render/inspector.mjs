@@ -816,6 +816,62 @@ try {
       rows: await rowFor('Over').count(),
     })
   );
+  /* ------------------ 10. a way through when the panel has none ----------- */
+
+  /*
+   * The escape hatch, at the only place it can be judged. The static suite
+   * proves the emitter turns declarations into CSS and refuses everything else;
+   * what it cannot say is whether a person can reach the field, whether what
+   * they type lands on the element they were looking at, and whether the panel
+   * tells them when part of it will not be used.
+   */
+  await selectLayer('Second');
+  await page.locator('aside').last().locator('button:has-text("Advanced")').first().click();
+  await page.waitForTimeout(400);
+
+  const cssBox = page.locator('aside').last().locator('textarea').last();
+  report.check(
+    'there is somewhere to write a property the panel has no control for',
+    (await cssBox.count()) === 1,
+    `${await cssBox.count()} field(s)`
+  );
+
+  if (await cssBox.count()) {
+    await cssBox.fill('mask-image: linear-gradient(black, transparent); nonsense');
+    await cssBox.press('Tab');
+    await page.waitForTimeout(700);
+
+    report.check(
+      'and what is written there reaches the element',
+      (await styleOf('headingtwo')).custom?.includes('mask-image') === true,
+      JSON.stringify((await styleOf('headingtwo')).custom ?? null)
+    );
+
+    const said = (await page.locator('aside').last().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    report.check(
+      'and the panel says how much of it will actually be used',
+      /1 of 2 will be used/.test(said),
+      /*
+       * The failure this is really for. An escape hatch exists because the
+       * panel had nothing for what somebody wanted — so "it did nothing and
+       * said nothing" is the one outcome that leaves them with no move at all.
+       */
+      /\d+ (of \d+ )?declaration|\d+ of \d+ will be used/.exec(said)?.[0] ?? 'said nothing'
+    );
+
+    /* Each of the above, handed something it must reject. */
+    await cssBox.fill('mask-image: linear-gradient(black, transparent)');
+    await cssBox.press('Tab');
+    await page.waitForTimeout(700);
+    const clean = (await page.locator('aside').last().innerText().catch(() => '')).replace(/\s+/g, ' ');
+    report.check(
+      'and stays quiet when all of it is fine',
+      /1 declaration, applied/.test(clean) && !/will be used/.test(clean),
+      // A warning that is on whenever the field is is not a warning, it is a
+      // label — and the next person to see a real one will read past it.
+      /\d+ declaration[^.]*/.exec(clean)?.[0] ?? 'said nothing'
+    );
+  }
 } catch (error) {
   report.check('inspector suite completed', false, error.message);
 } finally {

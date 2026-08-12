@@ -45,6 +45,7 @@ const {
   buildTree,
   generateNodeCss,
   generateStylesheet,
+  parseCustomDeclarations,
   APPEAR_EFFECTS,
   renderPage,
   generateSite,
@@ -8089,6 +8090,123 @@ report.group('a value cannot leave its own rule');
       return offenders.length === 0;
     })(),
     'no legitimate declaration needs one of those characters'
+  );
+}
+
+report.group('a way through when the panel has none');
+
+{
+  /*
+   * Every table of controls needs a way to admit it does not cover something.
+   * Without one the coverage it claims is only true of the list it wrote
+   * itself, and the first property nobody thought of is a wall — the audit that
+   * started this work found thirty-five of those and no way through any.
+   *
+   * So the interesting claims are the two it has to hold at once: what somebody
+   * writes reaches the page, and it cannot reach anything else.
+   */
+  const styled = (custom) => {
+    const doc = createEmptyDocument('Hatch');
+    const page = doc.pages[0];
+    const nodes = {};
+    const { rootId } = buildTree({ type: 'section', name: 'S', styles: { custom } }, nodes, page.rootNodeId);
+    Object.assign(doc.nodes, nodes);
+    doc.nodes[page.rootNodeId].children.push(rootId);
+    return renderPage(doc, page, { mode: 'publish' });
+  };
+
+  const written = styled('mask-image: linear-gradient(black, transparent); mix-blend-mode: hard-light');
+  report.check(
+    'what somebody writes by hand reaches the page',
+    /mask-image:\s*linear-gradient\(black,\s*transparent\)/.test(written) &&
+      /mix-blend-mode:\s*hard-light/.test(written),
+    // Two declarations, one of them a property the model has never heard of —
+    // which is the whole point of the field existing.
+    /mask-image:[^;}]*/.exec(written)?.[0] ?? 'nothing emitted'
+  );
+  report.check(
+    'and a custom property does too, because a variable is a declaration',
+    /--card-tilt:\s*3deg/.test(styled('--card-tilt: 3deg')),
+    /--card-tilt:[^;}]*/.exec(styled('--card-tilt: 3deg'))?.[0] ?? 'nothing emitted'
+  );
+
+  report.check(
+    'it cannot end the rule and start another',
+    !/body\s*\{\s*display\s*:\s*none/.test(styled('color: red } body { display: none')),
+    /*
+     * The reason the escape hatch could not be built before the emitter was
+     * fixed: this field is the one place a person is *invited* to type CSS, so
+     * it is the shortest path to every hole the generator has. It is safe
+     * because the value never becomes text — it becomes pairs, and each pair is
+     * checked the same way every other declaration is.
+     */
+    /body\s*\{\s*display\s*:\s*none[^}]*/.exec(styled('color: red } body { display: none'))?.[0] ??
+      'nothing escaped'
+  );
+  report.check(
+    'and cannot end the stylesheet',
+    !/<script>alert/.test(styled('color: red</style><script>alert(1)</script>; opacity: 1')),
+    /<script>alert[^<]*/.exec(styled('color: red</style><script>alert(1)</script>; opacity: 1'))?.[0] ??
+      'nothing escaped'
+  );
+  report.check(
+    'and cannot escape through the property name either',
+    (() => {
+      /*
+       * The half the first version of these checks never reached. Splitting on
+       * the *first* colon puts everything before it in the name, so
+       * `color} body {background: red` is a name carrying two braces and a
+       * value that is perfectly clean — removing the name whitelist broke
+       * nothing, because every fixture happened to smuggle its payload through
+       * the value.
+       */
+      const out = styled('color} body {background: red');
+      return !/body\s*\{\s*background/.test(out);
+    })(),
+    /body\s*\{\s*background[^}]*/.exec(styled('color} body {background: red'))?.[0] ??
+      'the name is an identifier or it is nothing'
+  );
+  report.check(
+    'and cannot write a selector or an at-rule, only declarations',
+    (() => {
+      const out = styled('@media print { color: red }');
+      return !out.includes('@media print');
+    })(),
+    // No selectors is a design decision rather than a safety one: what is
+    // written here lands in this element's own rule, so it cascades and
+    // responds to breakpoints like everything else. A block would let rules
+    // exist that the editor cannot see, undo or reason about.
+    'declarations only'
+  );
+
+  /* Each of the above, handed something it must reject. */
+  // Every way a fragment can fail to be a declaration, in one string: no colon
+  // at all, a value that would end the rule, an empty value, and an empty name.
+  // The first version stopped at the first two, so the guard against a half
+  // with nothing in it was never reached by anything.
+  const messy = 'a: 1; b: 2; nonsense; c: }; d: ; : red';
+  report.check(
+    'the panel can say how many of them will be used',
+    parseCustomDeclarations(messy).length === 2,
+    /*
+     * An escape hatch that silently ate a typo would be the worst version of
+     * this: the reason somebody is here at all is that the panel had nothing
+     * for what they wanted, so "it did nothing and said nothing" is the one
+     * outcome that leaves them with no move.
+     */
+    parseCustomDeclarations(messy).map(([k, v]) => `${k}:${v}`).join(' · ') || 'nothing survived'
+  );
+  report.check(
+    'and a trailing semicolon is not counted as a mistake',
+    parseCustomDeclarations('color: red;').length === 1,
+    // Everybody writes one. A panel that warned about it would be wrong more
+    // often than right.
+    `${parseCustomDeclarations('color: red;').length} declaration`
+  );
+  report.check(
+    'a page with nothing custom on it is unchanged by any of this',
+    !styled('').includes('undefined'),
+    'the empty case writes nothing'
   );
 }
 

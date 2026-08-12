@@ -35,6 +35,7 @@ import {
   SpacingSection,
 } from './sections-layout';
 import {
+  AdvancedSection,
   BorderSection,
   EffectsSection,
   FillSection,
@@ -243,6 +244,7 @@ function SingleSelection() {
       <MotionSection />
       <FlexChildSection />
       <PositionSection />
+      <AdvancedSection />
       <div className="h-8" />
     </div>
   );
@@ -289,6 +291,7 @@ function MultiSelection() {
       <MotionSection />
       <FlexChildSection />
       <PositionSection />
+      <AdvancedSection />
       <div className="h-8" />
     </div>
   );

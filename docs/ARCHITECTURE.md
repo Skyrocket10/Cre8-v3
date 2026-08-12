@@ -1467,6 +1467,37 @@ Dropping is only safe if nothing real needs those characters, so the whole block
 library is swept for them rather than argued about, and that sweep is a check:
 the rule cannot start quietly deleting design from a template.
 
+### A way through when the panel has none
+
+Every table of controls needs a way to admit it does not cover something.
+Without one, the coverage it claims is only true of the list it wrote itself,
+and the first property nobody thought of is a wall — the audit that started this
+work found thirty-five of those and no way through any of them.
+
+So: **declarations, not a block.** No selectors, no at-rules. What somebody
+writes lands in that element's own rule, which means it cascades, responds to
+breakpoints, and works inside a state exactly like every control above it. A raw
+CSS block would let rules exist that the editor cannot see, undo, or reason
+about, and the whole design rests on there being one description of what an
+element looks like.
+
+It could not have been built before the emitter was fixed. This field is the one
+place a person is *invited* to type CSS, so it is the shortest path to every
+hole the generator has — and it is safe now for a structural reason rather than
+a filtering one: the text never becomes CSS. It becomes pairs, and each pair
+goes through the same guard as every other declaration. Property names are
+whitelisted as identifiers rather than filtered, for the reason selectors always
+have been.
+
+The count beside it is not decoration. An escape hatch exists because the panel
+had nothing for what somebody wanted, so "it did nothing and said nothing" is
+the one outcome that leaves them with no move at all. The first version counted
+only fragments containing a colon, which meant a line like `nonsense` was
+dropped *and* uncounted — the panel said "1 declaration" and stayed silent about
+the line it had just thrown away. It counts everything non-empty now; trimming
+is what keeps the trailing semicolon everybody writes from being reported as a
+mistake.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

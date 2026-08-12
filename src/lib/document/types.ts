@@ -223,6 +223,22 @@ export interface StyleDecl {
    */
   appear?: string;
 
+  /**
+   * Declarations the panel has no control for, written out by hand.
+   *
+   * The escape hatch, and deliberately a list of *declarations* rather than a
+   * block of CSS. No selectors: what somebody writes here lands in this node's
+   * own rule, so it cascades, responds to breakpoints and works inside a
+   * `StyleRule` exactly like every other declaration. A raw block would let
+   * rules exist that the editor cannot see, undo, or reason about — and the
+   * whole design rests on there being one description of what an element looks
+   * like.
+   *
+   * Each declaration is validated on its way out; the ones that are not
+   * declarations are dropped, and the panel says how many.
+   */
+  custom?: string;
+
   /* Media */
   objectFit?: string;
   objectPosition?: string;

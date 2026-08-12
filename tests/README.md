@@ -92,6 +92,26 @@ reading a control *inside* the element that owns it, which works at runtime and
 which the picker does not offer; answer the label from the offer list alone and
 a working rule reads as broken while the warning correctly stays quiet.
 
+The escape hatch has to hold two things at once, so it is checked for both:
+what somebody writes reaches the page — including a custom property, since a
+variable is a declaration — and it cannot reach anything else. Three routes out
+are tried, and the third only exists because falsification found it: splitting
+on the *first* colon puts everything before it in the property name, so
+`color} body {background: red` carries its payload in the name and leaves the
+value spotless. Removing the name whitelist broke nothing until that case
+existed.
+
+The count the panel shows is checked the same way, with a string containing
+every way a fragment can fail to be a declaration — no colon, a value that would
+end the rule, an empty value, an empty name. The first version stopped at the
+first two, so the guard against a half with nothing in it was never reached.
+
+In the browser: the field exists, what is typed lands on the element, the panel
+says `1 of 2 will be used` when part of it is thrown away, and says nothing of
+the sort when all of it is fine — a warning that is on whenever the field is is
+not a warning, it is a label, and the next person to see a real one reads past
+it.
+
 That a style value cannot leave its own rule is checked against a published
 page rather than against the emitter, because the failure is an escape and an
 escape is only visible in the finished file. Three ways out — ending the style

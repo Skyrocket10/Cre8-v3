@@ -33,6 +33,7 @@ import { Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives
 import { TokenField } from '../ui/token-field';
 import { FieldPair, IconToggles, InspectorGroup, StyleRow } from './controls';
 import { StyleFields } from './style-field';
+import { parseCustomDeclarations } from '@/lib/renderer/css';
 import {
   EASINGS,
   TRANSITION_DEFAULT,
@@ -857,6 +858,88 @@ export function MotionSection() {
               />
             </FieldPair>
           </StyleRow>
+        )}
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Advanced
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The properties the panel has no control for.
+ *
+ * Every table of controls needs a way to admit it does not cover something.
+ * Without one, the coverage it claims is only true of the list it wrote itself,
+ * and the first property somebody wants that nobody thought of is a wall — the
+ * audit that started this work found thirty-five of those and no way through
+ * any of them.
+ *
+ * Declarations, not a block: no selectors, no at-rules. What is written here
+ * lands in this element's own rule, so it cascades, responds to breakpoints and
+ * works inside a state exactly like everything above it. A raw block would let
+ * rules exist that the editor cannot see, undo, or reason about, and the whole
+ * design rests on there being one description of what an element looks like.
+ *
+ * The count is the important part. Anything that is not a declaration is
+ * dropped on the way out, and an escape hatch that silently ate a typo would be
+ * the worst possible version of this — the reason somebody is here at all is
+ * that the panel had nothing for what they wanted.
+ */
+export function AdvancedSection() {
+  const custom = useStyleProp('custom');
+  const text = custom.value ?? '';
+  const used = parseCustomDeclarations(text);
+  /*
+   * Every fragment that has anything in it — not every fragment with a colon.
+   *
+   * The colon version was wrong in the one direction that matters: `nonsense`
+   * on its own has no colon, so it was not counted as attempted, so the panel
+   * reported "1 declaration" and said nothing at all about the line that had
+   * just been thrown away. That is precisely the silence this count exists to
+   * prevent. Trimming is what keeps the trailing semicolon everybody writes
+   * from being reported as a mistake.
+   */
+  const attempted = text.split(';').filter((part) => part.trim()).length;
+
+  return (
+    <Section title="Advanced" defaultOpen={false}>
+      <InspectorGroup>
+        <StyleRow
+          styleProps={['custom']}
+          menuLabel="Custom CSS"
+          label="CSS"
+          align="start"
+          hint="Declarations for anything the panel has no control for"
+          overridden={custom.overridden}
+          onReset={custom.clear}
+        >
+          <textarea
+            value={text}
+            onChange={(e) => custom.set(e.target.value || undefined)}
+            onKeyDown={(e) => e.stopPropagation()}
+            spellCheck={false}
+            rows={3}
+            placeholder={'mask-image: linear-gradient(#000, transparent);'}
+            className="scroll-thin w-full min-w-0 resize-y rounded-md bg-[var(--field)] px-2 py-1.5 font-mono text-[10.5px] leading-relaxed text-[var(--text)] outline-none transition-colors hover:bg-[var(--field-hover)] focus:ring-1 focus:ring-[var(--accent)] focus:ring-inset placeholder:text-[var(--text-faint)]"
+          />
+        </StyleRow>
+
+        {attempted > 0 && (
+          <p
+            className={cn(
+              'text-[10px] leading-relaxed',
+              used.length === attempted
+                ? 'text-[var(--text-faint)]'
+                : 'text-[var(--warning,#d97706)]'
+            )}
+          >
+            {used.length === attempted
+              ? `${used.length} declaration${used.length === 1 ? '' : 's'}, applied to this element at this breakpoint.`
+              : `${used.length} of ${attempted} will be used — the rest are not declarations, or hold characters that would end the rule.`}
+          </p>
         )}
       </InspectorGroup>
     </Section>

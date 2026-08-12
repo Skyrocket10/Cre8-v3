@@ -56,7 +56,8 @@ export type StyleSection =
   | 'position'
   | 'parent'
   | 'content'
-  | 'table';
+  | 'table'
+  | 'advanced';
 
 export interface StyleChoice {
   value: string;
@@ -613,6 +614,18 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     hint: 'Off lets clicks pass straight through to whatever is behind',
     section: 'effects',
     control: { kind: 'switch', on: 'none', label: 'Let clicks pass through' },
+  },
+  /*
+   * The escape hatch, and `bespoke` because it is the one entry that is not a
+   * property with a control — it is a field for the properties that have none.
+   * A table of controls needs a way to admit it does not cover something, or
+   * the coverage it claims is only true of the list it wrote itself.
+   */
+  custom: {
+    label: 'Custom CSS',
+    hint: 'Declarations for anything the panel has no control for',
+    section: 'advanced',
+    control: { kind: 'bespoke' },
   },
   listStyleType: {
     label: 'Bullets',
