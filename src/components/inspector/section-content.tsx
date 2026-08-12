@@ -37,6 +37,7 @@ import {
 } from '@/lib/document/operations';
 import { exposableTargets, targetKey } from '@/lib/document/components';
 import { collectSubtree } from '@/lib/document/tree';
+import * as ops from '@/lib/document/operations';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { ColorField } from '../ui/color-field';
@@ -311,6 +312,43 @@ function useAnchors(): { id: string; name: string; anchor: string }[] {
     return encoded.split(ENTRY).map((entry) => {
       const [id = '', name = '', anchor = ''] = entry.split(FIELD);
       return { id, name, anchor };
+    });
+  }, [encoded]);
+}
+
+/**
+ * Everything on this page worth jumping to, by layer name.
+ *
+ * Wider than `useAnchors`, and that difference is the point: the old Section
+ * picker offered only elements that *already had* an anchor, so linking to a
+ * band meant selecting it, finding Semantics, and typing a name — after which
+ * you came back and found it in the list. A page with nothing named showed a
+ * paragraph explaining the homework. Naming the target is arranged by
+ * `setScrollTarget` when the reference is made, so the list is what a person
+ * would expect it to be: the sections and headings that are there.
+ *
+ * Containers and headings only. Every span and icon on the page would be a
+ * menu nobody can choose from, and neither is a thing anybody means by "scroll
+ * to".
+ */
+function useJumpTargets(): { id: string; name: string }[] {
+  const encoded = useEditor((s) => {
+    const rootId = activeRootId(s);
+    if (!rootId) return '';
+    const mine = s.selection[0];
+    return collectSubtree(s.doc.nodes, rootId)
+      .filter((id) => id !== mine && id !== rootId)
+      .map((id) => s.doc.nodes[id])
+      .filter((node) => node && (getElement(node.type).container || node.type === 'heading'))
+      .map((node) => `${node!.id}${FIELD}${node!.name}`)
+      .join(ENTRY);
+  });
+
+  return useMemo(() => {
+    if (!encoded) return [];
+    return encoded.split(ENTRY).map((entry) => {
+      const [id = '', name = ''] = entry.split(FIELD);
+      return { id, name };
     });
   }, [encoded]);
 }
@@ -1872,16 +1910,30 @@ function LinkContent({
    * link where it was rather than silently claiming to point somewhere.
    */
   const isSectionLink = current.length > 1 && current.startsWith('#');
-  const anchors = useAnchors();
-  /*
-   * Picking Section on a page with nothing named cannot write an href — there
-   * is no fragment to write — so the choice is remembered here instead, long
-   * enough to explain itself. Held against the node it was made on rather than
-   * as a bare flag, so selecting something else does not inherit it.
-   */
   const nodeId = useEditor((s) => s.selection[0]);
+  /*
+   * Where this jumps to, as a reference rather than a fragment.
+   *
+   * The fragment version is still read — a document written before this, or a
+   * hand-typed `#pricing`, is a real link and stays one — but nothing writes a
+   * new one. A fragment is a *name*, and a name goes stale the moment somebody
+   * renames the section: silently, into a link that scrolls nowhere.
+   */
+  const jumpsTo = useEditor((s) => (nodeId ? (s.doc.nodes[nodeId]?.refs?.scrollTo?.node ?? '') : ''));
+  const jumpTargets = useJumpTargets();
+  /*
+   * Picking Section before a target is chosen writes nothing, so the choice is
+   * remembered here long enough to show the picker. Held against the node it
+   * was made on rather than as a bare flag, so selecting something else does
+   * not inherit it.
+   */
   const [sectionFor, setSectionFor] = useState<string | undefined>(undefined);
-  const mode = isPageLink ? 'page' : isSectionLink || sectionFor === nodeId ? 'section' : 'url';
+  const mode = isPageLink
+    ? 'page'
+    : jumpsTo || isSectionLink || sectionFor === nodeId
+      ? 'section'
+      : 'url';
+  const copy = useNodeProp('copyText');
 
   return (
     <Section title={title}>
@@ -1927,12 +1979,16 @@ function LinkContent({
                 value={mode}
                 onChange={(value) => {
                   setSectionFor(value === 'section' ? nodeId : undefined);
+                  if (value !== 'section' && nodeId) {
+                    useEditor.getState().transact('Change where a link goes', (draft) => {
+                      ops.setScrollTarget(draft, nodeId, null);
+                    });
+                  }
                   if (value === 'page') href.set(`page:${pages[0]?.id ?? ''}`);
                   else if (value === 'url') href.set('#');
-                  // Section with nothing named leaves the link alone: a link
-                  // quietly emptied because a panel had no answer is worse
-                  // than one that stayed where it was.
-                  else if (anchors[0]) href.set(`#${anchors[0].anchor}`);
+                  // Section picks nothing on its own. The row below is the
+                  // choice, and guessing at the first candidate would be a link
+                  // pointing somewhere nobody asked for.
                 }}
                 options={[
                   { value: 'page', label: 'Page' },
@@ -1962,24 +2018,25 @@ function LinkContent({
 
             {/* A page with nothing named on it has nowhere to point, and an
                 empty dropdown does not say why. */}
-            {isSectionLink &&
-              (anchors.length ? (
-                <StyleRow label="Section">
+            {mode === 'section' &&
+              (jumpTargets.length ? (
+                <StyleRow label="Scrolls to" hint="Somewhere on this page">
                   <Select
                     className="flex-1"
-                    value={current.slice(1)}
-                    onChange={(value) => href.set(`#${value}`)}
-                    options={anchors.map((one) => ({
-                      value: one.anchor,
-                      label: one.name,
-                      hint: `#${one.anchor}`,
-                    }))}
+                    value={jumpsTo}
+                    placeholder={isSectionLink ? current : 'Pick a section'}
+                    onChange={(value) =>
+                      nodeId &&
+                      useEditor.getState().transact('Scroll to a section', (draft) => {
+                        ops.setScrollTarget(draft, nodeId, value || null);
+                      })
+                    }
+                    options={jumpTargets.map((one) => ({ value: one.id, label: one.name }))}
                   />
                 </StyleRow>
               ) : (
                 <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
-                  Nothing on this page is named yet. Select the section you want to link to and
-                  give it an Anchor, under Semantics.
+                  There is nothing on this page to scroll to yet.
                 </p>
               ))}
 
@@ -2007,6 +2064,28 @@ function LinkContent({
               />
             </StyleRow>
           </>
+        )}
+
+        {/*
+          The one thing a press can do that the platform has no element for, so
+          the only one that costs a visitor a script — and it costs them nothing
+          unless a page uses it. Offered here rather than in a section of its
+          own because it is a thing this control *does*, which is what everything
+          above it is too.
+        */}
+        <StyleRow label="Copies" hint="Puts this text on the clipboard when pressed">
+          <TextInput
+            className="flex-1"
+            value={String(copy.value ?? '')}
+            onValueChange={(v) => copy.set(v.trim() || undefined)}
+            placeholder="Nothing"
+          />
+        </StyleRow>
+        {Boolean(copy.value) && (
+          <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+            It carries <code>data-cre8-copied</code> for a moment afterwards, so a rule keyed on
+            that attribute can say so.
+          </p>
         )}
       </InspectorGroup>
     </Section>

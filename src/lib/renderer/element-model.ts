@@ -30,6 +30,7 @@ import {
   RANGE_ATTR,
   RANGE_VAR_PREFIX,
   SET_ATTR,
+  COPY_ATTR,
   SWITCH_ATTR,
   TABS_ATTR,
   TEST_ATTR,
@@ -118,6 +119,18 @@ export interface ElementModel {
 
 /** Internal page links are stored as `page:<id>` so renaming a page can't break them. */
 export const PAGE_HREF_PREFIX = 'page:';
+/**
+ * An href that names a *node* rather than a place.
+ *
+ * The spelling a scroll-to reference takes on its way to the markup. The
+ * element carrying it holds a `Ref`, which survives a rename and is cleared
+ * when its target is deleted; the renderer cannot look the target up — it is
+ * handed an empty document and memoised per node — so it writes the id down
+ * and the href resolver, which does have the document, turns it into the
+ * fragment. Exactly the arrangement `page:` already uses, for exactly the same
+ * reason.
+ */
+export const NODE_HREF_PREFIX = 'node:';
 
 /**
  * The DOM id a popover answers to.
@@ -180,10 +193,38 @@ const READABLE = new Set<string>([
   'file',
 ]);
 
+/**
+ * A jump to somewhere on this page, or `null` if that is not what this is.
+ *
+ * Separate and exported because there are three href resolvers — the default
+ * here, the publisher's, and the canvas's — and the first version of this
+ * taught only one of them. The published button came out as
+ * `href="node:h1rburoayr"`, which is a link to a page called `node:h1rburoayr`.
+ * A resolver that does not recognise a scheme has to be able to *ask*, rather
+ * than each of them growing its own copy of the answer.
+ *
+ * The fragment is minted from the target's own anchor name rather than stored
+ * on the link, so renaming the section moves the link with it. A target that
+ * has lost its anchor resolves to the empty string — the renderer's "nowhere to
+ * go" signal, which hides the link — rather than to `#`, which looks fine and
+ * scrolls nowhere.
+ */
+export function resolveNodeHref(doc: Cre8Document, href: string): string | null {
+  const [target] = splitFragment(href);
+  if (!target.startsWith(NODE_HREF_PREFIX)) return null;
+  const node = doc.nodes[target.slice(NODE_HREF_PREFIX.length)];
+  const anchor = anchorId(node?.props.anchor);
+  return anchor ? `#${anchor}` : '';
+}
+
 export function resolveHref(doc: Cre8Document, href: string | undefined, mode: RenderMode): string {
   if (!href) return mode === 'publish' ? '#' : '#';
   // A fragment on its own is a scroll on this page and needs no resolving.
   const [target, fragment] = splitFragment(href);
+
+  const jump = resolveNodeHref(doc, href);
+  if (jump !== null) return jump;
+
   if (!target.startsWith(PAGE_HREF_PREFIX)) return href;
 
   const pageId = target.slice(PAGE_HREF_PREFIX.length);
@@ -624,14 +665,34 @@ function describeBase(
 
     case 'button':
     case 'link': {
-      const rawHref = str(props.href);
+      /*
+       * A scroll-to reference outranks a typed href, because it is the newer
+       * and more specific statement of the same intent — and the two cannot
+       * both be honoured by one attribute. The panel offers them as one choice,
+       * so a node holding both is a document that has been hand-edited or
+       * half-migrated, not something the editor produces.
+       */
+      /*
+       * The one action with nothing native behind it, so it is an attribute the
+       * runtime reads rather than a tag the browser understands. Emitted on the
+       * node whatever it turns out to be: a copy button that also opens a panel
+       * is a reasonable thing to build, and the runtime keys on the attribute
+       * rather than on the element being a button.
+       */
+      const copyText = str(props.copyText);
+      const scrollTo = node.refs?.scrollTo?.node;
+      const rawHref = scrollTo ? `${NODE_HREF_PREFIX}${scrollTo}` : str(props.href);
       // Node-level, not per-variant: what a button opens is structure, and a
       // variant that changed it would be a different element rather than the
       // same one saying something else.
       const popoverTarget = node.refs?.popover?.node ?? '';
-      const tag = resolveTag(node.type, props, { opensPopover: Boolean(popoverTarget) });
+      const tag = resolveTag(node.type, props, {
+        opensPopover: Boolean(popoverTarget),
+        scrollsTo: Boolean(scrollTo),
+      });
       const target = str(props.target, '_self');
       const attrs: Record<string, AttrValue> = { ...base };
+      if (copyText) attrs[COPY_ATTR] = copyText;
       if (tag === 'a') {
         const resolved = options.hrefResolver
           ? options.hrefResolver(rawHref, options.record ?? null)

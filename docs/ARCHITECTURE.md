@@ -1389,6 +1389,53 @@ green every afternoon for months. Both ends of the condition are now pinned
 with a fixed clock, and the same pinning went into the block sweep, which had
 the same shape of hole.
 
+### What a press does
+
+Everything a control can do on a press is a thing the platform already has an
+element for, with exactly one exception. A link goes somewhere, `popovertarget`
+opens a panel, a submit button submits, the switch attribute moves a state — so
+the page ships nothing to execute for any of them, works with scripting off, and
+the editor's job is to say it in words rather than to build a mechanism.
+
+**Jumping to a section** was the one that read as an editor asking for
+homework. The picker offered only elements that *already had* an anchor, so
+linking to a band meant selecting it, finding Semantics, typing a name, and
+coming back — and a page with nothing named showed a paragraph explaining that.
+Naming the target is now part of making the reference: `setScrollTarget` writes
+the anchor if the target has none, taking it from the layer name, which is what
+somebody would have typed.
+
+It is a `Ref` rather than a fragment, and that is the same argument as
+`popover`: a fragment is a *name*, and a name goes stale the moment somebody
+renames the section — silently, into a link that scrolls nowhere. A reference
+survives the rename and is cleared by `pruneRefs` when the target is deleted.
+What reaches the markup is still an ordinary `href`; the reference is spelled
+`node:<id>` on the way there and resolved by the same hook that turns `page:<id>`
+into a path.
+
+That hook is where this went wrong first. **There are three href resolvers** —
+the default in `element-model`, the publisher's, and the canvas's — and the
+first version taught one. The published button came out as
+`href="node:h1rburoayr"`, a link to a page by that name, while the static suite
+passed because it used the default and the publisher uses its own. One exported
+function answers it now and all three ask; a structural check names all three,
+because a fourth is a thing somebody adds and it will be wrong the same way.
+
+**Copying** is the exception: no element does it, so it is the one action that
+costs a visitor a script, and the page still ships nothing unless something on
+it copies. Feedback is an attribute — `data-cre8-copied`, set for a moment and
+removed — rather than a string the runtime decides. An attribute condition is
+something the rules panel has expressed since stage 2, so "say Copied for a
+second" is a rule the designer writes and styles like any other state.
+
+What is deliberately not here: making an arbitrary container clickable. It would
+mean the renderer changing an element's tag from the actions panel and enforcing
+the no-nested-interactive rule as it did so, which is a real piece of work rather
+than a row. Putting a state on any element already works — `SwitchSetterSection`
+appears on anything with a switch above it, whatever its type — so the gap is
+narrower than it looks: it is navigation and copying that still need a button or
+a link around them.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

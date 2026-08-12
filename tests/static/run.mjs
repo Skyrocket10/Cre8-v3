@@ -7997,6 +7997,172 @@ report.group('what moves, and how it gets there');
   );
 }
 
+report.group('what a press does');
+
+{
+  /*
+   * Every action but one is something the platform already has an element for:
+   * a link goes somewhere, `popovertarget` opens a panel, a submit button
+   * submits, and the switch attribute moves a state. So the interesting claims
+   * are about what reaches the markup and what does *not* — a page that copies
+   * nothing must still ship nothing to execute.
+   */
+  const wired = () => {
+    const doc = createEmptyDocument('Press');
+    const page = doc.pages[0];
+    const nodes = {};
+    const { rootId } = buildTree(
+      {
+        type: 'section',
+        name: 'Page',
+        children: [
+          { type: 'button', name: 'Jump', props: { label: 'See pricing' } },
+          { type: 'section', name: 'Pricing table', children: [{ type: 'text', name: 'T', props: { text: 'x' } }] },
+        ],
+      },
+      nodes,
+      page.rootNodeId
+    );
+    Object.assign(doc.nodes, nodes);
+    doc.nodes[page.rootNodeId].children.push(rootId);
+    const byName = {};
+    for (const node of Object.values(doc.nodes)) byName[node.name] = node;
+    return { doc, page, button: byName.Jump, band: byName['Pricing table'] };
+  };
+
+  /* ------------------------------------------------- scrolling to a section */
+
+  const { doc, page, button, band } = wired();
+  report.check(
+    'a section with no anchor is still offered as somewhere to jump to',
+    !band.props.anchor,
+    // The old picker offered only elements that already had one, so linking to
+    // a band meant going and naming it first and coming back. A panel that
+    // sets homework is a form.
+    'nothing named yet'
+  );
+
+  ops.setScrollTarget(doc, button.id, band.id);
+  report.check(
+    'pointing a control at one names it, so there is an id to land on',
+    button.refs?.scrollTo?.node === band.id && anchorId(band.props.anchor) === 'pricing-table',
+    // A fragment can only point at an `id`, and the id is minted from the
+    // anchor name — so a target without one is a jump that resolves to nothing.
+    JSON.stringify({ ref: button.refs?.scrollTo?.node === band.id, anchor: band.props.anchor })
+  );
+
+  const html = renderPage(doc, page, { mode: 'publish' });
+  report.check(
+    'and the published link is an anchor to that id',
+    html.includes('href="#pricing-table"') && / id="pricing-table"/.test(html),
+    // Both halves: the reference resolves to a fragment, and the target emits
+    // the id the fragment names. Either alone is a link to nowhere.
+    /<a[^>]*href="#[^"]*"/.exec(html)?.[0] ?? 'no anchor'
+  );
+  report.check(
+    'a button that jumps is rendered as a link, not a button',
+    /<a[^>]*href="#pricing-table"/.test(html),
+    // `resolveTag` decided that from `props.href`, which a reference does not
+    // set — so a control that jumped stayed a `<button>` and dropped the href
+    // on the floor until the tag rule learned about the reference too.
+    /<(a|button)[^>]*href="#pricing-table"/.exec(html)?.[0] ?? 'neither'
+  );
+
+  report.check(
+    'renaming the section moves the link with it',
+    (() => {
+      band.name = 'Plans and pricing';
+      band.props.anchor = 'Plans and pricing';
+      const again = renderPage(doc, page, { mode: 'publish' });
+      return again.includes('href="#plans-and-pricing"') && !again.includes('#pricing-table');
+    })(),
+    // The whole reason it is a reference. A stored fragment would still say
+    // `#pricing-table`, silently, and scroll nowhere.
+    'the fragment is minted from the target, not stored on the link'
+  );
+
+  report.check(
+    'and deleting it clears the jump rather than leaving one that goes nowhere',
+    (() => {
+      const fresh = wired();
+      ops.setScrollTarget(fresh.doc, fresh.button.id, fresh.band.id);
+      ops.removeNodes(fresh.doc, [fresh.band.id]);
+      return !fresh.button.refs?.scrollTo;
+    })(),
+    'pruneRefs walks the slot, because it is a slot'
+  );
+
+  /* ------------------------------------------------------------- copying */
+
+  const copyDoc = wired();
+  copyDoc.button.props.copyText = 'npm i cre8';
+  const copied = renderPage(copyDoc.doc, copyDoc.page, { mode: 'publish' });
+  report.check(
+    'a control that copies carries the text and the script to do it',
+    copied.includes('data-cre8-copy="npm i cre8"') && /<script/i.test(copied),
+    // The one action with nothing native behind it, so the one that costs a
+    // visitor anything.
+    /data-cre8-copy="[^"]*"/.exec(copied)?.[0] ?? 'no attribute'
+  );
+
+  /* Each of the above, handed something it must reject. */
+  const quiet = wired();
+  report.check(
+    'a page that copies nothing still ships nothing to execute',
+    !/<script/i.test(renderPage(quiet.doc, quiet.page, { mode: 'publish' })),
+    // Otherwise the check above proves only that a script exists somewhere,
+    // which it would whether or not copying had anything to do with it.
+    'no runtime on a page with no runtime work'
+  );
+  report.check(
+    'clearing the jump leaves the anchor name alone',
+    (() => {
+      const fresh = wired();
+      ops.setScrollTarget(fresh.doc, fresh.button.id, fresh.band.id);
+      ops.setScrollTarget(fresh.doc, fresh.button.id, null);
+      return !fresh.button.refs?.scrollTo && fresh.band.props.anchor === 'Pricing table';
+    })(),
+    // The name is the target's own identity by then, and other links may use
+    // it. Removing it to tidy up would break them.
+    'the target keeps its name'
+  );
+  report.check(
+    'every href resolver asks the one function what a node reference means',
+    (() => {
+      /*
+       * There are three, and the first version of this taught one. The
+       * published button came out as `href="node:h1rburoayr"` — a link to a
+       * page by that name — while the static suite passed, because the check
+       * used the default resolver and the publisher uses its own.
+       *
+       * Structural because it is a claim about which functions exist: a fourth
+       * resolver is a thing somebody adds, and it will be wrong in exactly the
+       * same way unless something notices.
+       */
+      const readFile = (file) => readFileSync(path.join(ROOT, file), 'utf8');
+      const resolvers = [
+        'src/lib/publishing/html.ts',
+        'src/lib/renderer/render.tsx',
+        'src/lib/renderer/element-model.ts',
+      ];
+      return resolvers.every((file) => readFile(file).includes('resolveNodeHref('));
+    })(),
+    'the publisher, the canvas and the default'
+  );
+  report.check(
+    'and a jump does not also leave a typed href behind it',
+    (() => {
+      const fresh = wired();
+      fresh.button.props.href = 'https://example.com';
+      ops.setScrollTarget(fresh.doc, fresh.button.id, fresh.band.id);
+      return fresh.button.props.href === undefined;
+    })(),
+    // One attribute cannot honour both, and the reference is the one just
+    // chosen. A node holding each is a document nothing in the editor produces.
+    'the two ways of going somewhere stay exclusive'
+  );
+}
+
 report.group('arriving as you scroll to it');
 
 {

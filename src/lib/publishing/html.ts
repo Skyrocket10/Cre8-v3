@@ -12,7 +12,7 @@
  * execute. Either way it drops straight onto a CDN.
  */
 
-import { describeElement, type AttrValue } from '../renderer/element-model';
+import { describeElement, resolveNodeHref, type AttrValue } from '../renderer/element-model';
 import { variantsOf, type Variant } from '../renderer/variants';
 import { boundProps, repeatRows, type RecordSet } from '../renderer/repeat';
 import { behaviourRuntimeSource, testRuntimeSource } from '../runtime/behaviour';
@@ -333,6 +333,10 @@ function hrefResolverFor(doc: Cre8Document, from: Output, all: Output[]) {
     if (href.startsWith('page@')) return '#';
     if (href === 'series:prev') return seriesAt(-1);
     if (href === 'series:next') return seriesAt(1);
+    // A jump to somewhere on this page resolves the same way wherever it is
+    // asked, so it is asked rather than answered again here.
+    const jump = resolveNodeHref(doc, href);
+    if (jump !== null) return jump;
     // A page reference may name a section of that page — the fragment is not
     // this function's business beyond carrying it to the end.
     const [wanted, fragment] = splitFragment(href);
@@ -540,7 +544,10 @@ export function renderPage(
    */
   const interactive = nodeIds.some((id) => {
     const props = doc.nodes[id]?.props;
-    return Boolean(props && (props.switchSet || props.drives));
+    // `copyText` joins the two for the same reason they are here: it is the one
+    // action in the set with nothing native behind it, so a page that copies
+    // needs the runtime and a page that does not still ships nothing.
+    return Boolean(props && (props.switchSet || props.drives || props.copyText));
   });
   /*
    * And the Tests that could not be answered here. The table is built once for

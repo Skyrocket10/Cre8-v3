@@ -169,11 +169,25 @@ try {
   report.check('a page with a switch carries exactly one', scripts.length === 1, `${scripts.length}`);
   report.check('the published markup is still balanced', unbalanced(html).length === 0);
 
+  /*
+   * What the runtime is allowed to cost, as a number rather than a feeling.
+   *
+   * Raised once, from 3000, when copying to the clipboard arrived — the one
+   * action in the set with no element behind it, and therefore the only one
+   * that can only be done here. Written down because raising a budget you have
+   * just broken is how a budget stops meaning anything: the number sits just
+   * above what the runtime actually weighs, so the next thing that grows it
+   * trips this immediately and has to make the same argument.
+   *
+   * The published copy is minified, which is worth knowing before trying to
+   * fix a failure here by deleting comments — that saves nothing at all.
+   */
+  const RUNTIME_BUDGET = 3200;
   const source = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
   report.check(
     'and it is small enough to be read in one sitting',
-    source.length > 0 && source.length < 3000,
-    `${source.length} bytes`
+    source.length > 0 && source.length < RUNTIME_BUDGET,
+    `${source.length} bytes of ${RUNTIME_BUDGET}`
   );
   report.check(
     'it is inline, so there is no second request and nothing to cache-bust',
@@ -1259,6 +1273,116 @@ try {
     JSON.stringify(unscrollable)
   );
   await tall.close();
+  /* --------------------------- 10. what a press does ---------------------- */
+
+  /*
+   * Two actions, and they sit at opposite ends of the same question. Jumping to
+   * a section is a link — nothing to execute, works with scripting off, and the
+   * only new thing is that the fragment is minted from a reference instead of
+   * typed. Copying has no element behind it at all, so it is the one action
+   * that costs a visitor a script.
+   */
+  const pressDoc = await getDocument(page, id);
+  {
+    const home = pressDoc.pages.find((p) => p.isHome) ?? pressDoc.pages[0];
+    const root = pressDoc.nodes[home.rootNodeId];
+    pressDoc.nodes.jumpbtn = node('jumpbtn', 'button', 'Jump', {
+      parentId: home.rootNodeId,
+      props: { label: 'See pricing' },
+      refs: { scrollTo: { node: 'pricingband' } },
+    });
+    pressDoc.nodes.copybtn = node('copybtn', 'button', 'Copy', {
+      parentId: home.rootNodeId,
+      props: { label: 'Copy command', copyText: 'npm i cre8' },
+    });
+    pressDoc.nodes.filler = node('filler', 'section', 'Filler', {
+      parentId: home.rootNodeId,
+      styles: { desktop: { minHeight: '1800px' } },
+    });
+    /*
+     * Tall enough that the browser can actually bring it to the top. At 400px
+     * on a 700px viewport it is the last thing on the page, so the scroll runs
+     * out and the band settles 300px down — correct behaviour, and a check
+     * asserting "near the top" then fails for a reason that has nothing to do
+     * with the link.
+     */
+    pressDoc.nodes.pricingband = node('pricingband', 'section', 'Pricing band', {
+      parentId: home.rootNodeId,
+      props: { anchor: 'Pricing band' },
+      styles: { desktop: { minHeight: '900px', backgroundColor: '#123' } },
+    });
+    root.children = ['jumpbtn', 'copybtn', 'filler', 'pricingband'];
+  }
+  await saveDocument(page, pressDoc);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 60000 });
+  await page.waitForTimeout(1200);
+  await publish(page);
+
+  const pressed = await browser.newContext({ viewport: { width: 1200, height: 700 } });
+  await pressed.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: APP });
+  const acting = await pressed.newPage();
+  await acting.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+  await acting.waitForTimeout(500);
+
+  const jump = acting.locator('a:has-text("See pricing")');
+  report.check(
+    'a control that jumps is a link, so it works with no scripting at all',
+    (await jump.count()) === 1,
+    // `resolveTag` decided that from `props.href`, which a reference does not
+    // set, so it stayed a `<button>` and dropped the href until the tag rule
+    // learned about the reference too.
+    `${await jump.count()} link(s) for the jump`
+  );
+  if (await jump.count()) {
+    await jump.click();
+    await acting.waitForTimeout(1200);
+    const landed = await acting.evaluate(() => {
+      const band = document.getElementById('pricing-band');
+      return {
+        scrolled: window.scrollY,
+        top: band ? Math.round(band.getBoundingClientRect().top) : null,
+      };
+    });
+    report.check(
+      'and pressing it lands on the section',
+      landed.scrolled > 200 && landed.top !== null && landed.top >= 0 && landed.top < 150,
+      // Both halves: the page moved, and it moved to the right place. Either
+      // alone passes for a link that scrolls to the wrong section. The upper
+      // bound allows the 96px `scroll-margin-top` the reset gives every id, so
+      // a heading does not end up under a sticky header.
+      JSON.stringify(landed)
+    );
+  }
+
+  await acting.evaluate(() => window.scrollTo(0, 0));
+  await acting.locator('button:has-text("Copy command")').click();
+  await acting.waitForTimeout(400);
+  const clip = await acting.evaluate(() => navigator.clipboard.readText());
+  report.check(
+    'a control that copies puts its text on the clipboard',
+    clip === 'npm i cre8',
+    JSON.stringify(clip)
+  );
+  const marked = await acting.evaluate(() =>
+    Boolean(document.querySelector('[data-cre8-copied]'))
+  );
+  report.check(
+    'and says so through an attribute, rather than wording it itself',
+    marked,
+    // An attribute condition is something the rules panel has expressed since
+    // stage 2, so "say Copied for a second" is a rule the designer writes and
+    // styles like any other state. The runtime has no opinion about the words.
+    marked ? 'data-cre8-copied is set' : 'nothing marked'
+  );
+  await acting.waitForTimeout(1600);
+  report.check(
+    'and stops saying so',
+    !(await acting.evaluate(() => Boolean(document.querySelector('[data-cre8-copied]')))),
+    // Otherwise the mark is not feedback, it is a permanent change of state.
+    'the mark is removed again'
+  );
+  await pressed.close();
 } catch (error) {
   report.check('behaviour suite completed', false, error.message);
 } finally {

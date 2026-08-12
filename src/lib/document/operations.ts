@@ -29,7 +29,7 @@ import {
 } from './factory';
 import { uid, slugify } from './id';
 import { fieldsRead } from '../renderer/test';
-import { SWITCH_SHOW_ALL, canContain, getElement, readCase, slug } from './schema';
+import { SWITCH_SHOW_ALL, anchorId, canContain, getElement, readCase, slug } from './schema';
 import {
   canReparent,
   collectSubtree,
@@ -167,6 +167,56 @@ export function anchorOf(doc: Cre8Document, panelId: NodeId): NodeId | null {
     if (node.refs?.anchorFor?.node === panelId) return node.id;
   }
   return null;
+}
+
+/**
+ * "Jump to that section when this is clicked."
+ *
+ * Two edits in one action, because they are one sentence: the control gets a
+ * reference to the target, and the target gets an anchor name if it has none.
+ * The second is not a detail — a fragment can only point at an `id`, the id is
+ * minted from the anchor name, and a target without one is a jump that resolves
+ * to nothing. Asking somebody to name a section *before* they are allowed to
+ * link to it is a form, not an editor.
+ *
+ * The name is taken from the layer name, which is what they would have typed.
+ * Left alone if the target already has one, since that is a decision somebody
+ * made and may be linked to from elsewhere.
+ *
+ * `null` clears the jump and leaves the anchor where it is: the name is now
+ * part of the target's own identity, other links may use it, and removing it
+ * here would break them to tidy up something nobody asked to tidy.
+ */
+export function setScrollTarget(
+  doc: Cre8Document,
+  id: NodeId,
+  targetId: NodeId | null
+): void {
+  const node = doc.nodes[id];
+  if (!node) return;
+
+  if (!targetId) {
+    if (node.refs) {
+      delete node.refs.scrollTo;
+      if (!Object.keys(node.refs).length) delete node.refs;
+    }
+    return;
+  }
+
+  const target = doc.nodes[targetId];
+  if (!target) return;
+  if (!anchorId(target.props.anchor)) target.props.anchor = target.name;
+
+  node.refs = { ...node.refs, scrollTo: { node: targetId } };
+  // The two ways of saying "go somewhere" cannot share one `href`, and the
+  // reference is the one just chosen.
+  delete node.props.href;
+}
+
+/** Where this control jumps to, if anywhere. */
+export function scrollTargetOf(doc: Cre8Document, id: NodeId): NodeId | null {
+  const target = doc.nodes[id]?.refs?.scrollTo?.node;
+  return target && doc.nodes[target] ? target : null;
 }
 
 /**

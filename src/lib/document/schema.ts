@@ -1329,14 +1329,15 @@ export function readLegacyVisibility(props: NodeProps): Visibility | null {
 }
 
 /**
- * @param opts `opensPopover` cannot be read off props any more: what a button
- *   opens is a `Ref`, and props hold primitives. The caller that knows passes
- *   it; the two that call this for a heading or a plain container do not care.
+ * @param opts Neither flag can be read off props any more: what a button opens
+ *   and where it jumps to are both `Ref`s, and props hold primitives. The
+ *   caller that knows passes them; the two that call this for a heading or a
+ *   plain container do not care.
  */
 export function resolveTag(
   type: ElementType,
   props: NodeProps,
-  opts: { opensPopover?: boolean } = {}
+  opts: { opensPopover?: boolean; scrollsTo?: boolean } = {}
 ): string {
   if (type === 'heading') {
     const level = Number(props.level ?? 2);
@@ -1349,7 +1350,8 @@ export function resolveTag(
     // and an anchor that goes nowhere is a link a screen reader announces and
     // a keyboard user follows into nothing. Submitting is the same story: no
     // element but `<button>` submits a form.
-    return props.href && !opts.opensPopover && !props.switchSet && !props.submit
+    const goesSomewhere = Boolean(props.href) || Boolean(opts.scrollsTo);
+    return goesSomewhere && !opts.opensPopover && !props.switchSet && !props.submit
       ? 'a'
       : 'button';
   }

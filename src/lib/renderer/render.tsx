@@ -37,7 +37,7 @@ import type {
   NodeId,
   SceneNode,
 } from '../document/types';
-import { describeElement, toReactAttrs, type RenderMode } from './element-model';
+import { describeElement, resolveNodeHref, toReactAttrs, type RenderMode } from './element-model';
 import { boundProps, repeatRows } from './repeat';
 import { activeVariant, variantsOf, type Variant } from './variants';
 
@@ -673,6 +673,11 @@ export function createSnapshotEngine(
 
 function defaultHref(doc: Cre8Document, href: string, mode: RenderMode): string {
   if (!href) return '#';
+  // The canvas resolves a jump the same way the publisher does, and asks the
+  // same function — the renderer here is handed an empty document, but this
+  // closure is not, which is the whole reason the hook exists.
+  const jump = resolveNodeHref(doc, href);
+  if (jump !== null) return jump;
   if (!href.startsWith('page:')) return href;
   const page = doc.pages.find((p) => p.id === href.slice(5));
   if (!page) return '#';

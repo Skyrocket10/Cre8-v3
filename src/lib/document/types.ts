@@ -483,6 +483,15 @@ export interface Ref {
  *
  * - `popover` — a button naming the panel it opens.
  * - `anchorFor` — an element naming the panel positioned against it.
+ * - `scrollTo` — a control naming the part of the page it jumps to.
+ *
+ * The third is a reference for the reason the first was: the alternative is a
+ * fragment string, and a fragment string is a name that goes stale the moment
+ * somebody renames the section — silently, into a link that scrolls nowhere.
+ * A reference survives the rename and is cleared by `pruneRefs` when the target
+ * is deleted, so the two ways a jump can rot are both closed. What reaches the
+ * markup is still an ordinary `href`, resolved against the document by the same
+ * hook that turns `page:<id>` into a path.
  *
  * The second is stored the way the *renderer* needs it rather than the way a
  * person says it. Somebody means "this menu opens next to that button", but the
@@ -492,7 +501,7 @@ export interface Ref {
  * keeps every read local; the inspector does the one scan needed to show it the
  * right way round, because the inspector has the document and the time.
  */
-export type RefSlot = 'popover' | 'anchorFor';
+export type RefSlot = 'popover' | 'anchorFor' | 'scrollTo';
 
 /**
  * RESERVED — not written by this release.

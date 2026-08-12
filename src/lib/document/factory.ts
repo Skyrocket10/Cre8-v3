@@ -176,6 +176,10 @@ export const namedRef = (name: string): Ref => ({ node: `${NAME_REF}${name}` });
 const REF_SCOPE: Record<RefSlot, (node: SceneNodeType) => boolean> = {
   popover: (node) => node.type === 'popover' || node.type === 'dialog',
   anchorFor: () => true,
+  // Anything with a name can be jumped to. What it needs is an id in the
+  // markup, and that is arranged when the reference is made rather than
+  // required of the target in advance.
+  scrollTo: () => true,
 };
 
 function resolveRefs(nodes: NodeMap): void {

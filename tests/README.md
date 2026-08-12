@@ -92,6 +92,26 @@ reading a control *inside* the element that owns it, which works at runtime and
 which the picker does not offer; answer the label from the offer list alone and
 a working rule reads as broken while the warning correctly stays quiet.
 
+What a press does is checked mostly as output, because most of it is markup the
+platform understands. A jump resolves to a fragment, the target emits the id that
+fragment names — either alone is a link to nowhere — and the control renders as
+an `<a>`, which it did not until the tag rule learned that a reference counts as
+going somewhere. Renaming the target moves the link with it, which is the whole
+reason it is a reference; deleting the target clears the jump, because a slot is
+something `pruneRefs` walks. Clearing the jump leaves the anchor name alone,
+since by then it is the target's own identity and other links may use it.
+
+One structural rule names all three href resolvers. The first version of the
+jump taught one of them, so the published button came out as
+`href="node:h1rburoayr"` while the static suite passed — it used the default
+resolver and the publisher uses its own.
+
+Copying is checked at both ends of the cost it carries: a page that copies ships
+the runtime, and a page that does not still ships nothing to execute. The
+browser then presses both controls — the page lands on the section, the
+clipboard holds the text, and the attribute that says so appears and goes away
+again.
+
 A reveal is checked at both ends of what the platform does not guarantee. The
 generated stylesheet must tie the animation to the scrollport, fill backwards,
 carry keyframes for every effect the menu offers — and carry them *outside* the

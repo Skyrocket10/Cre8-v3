@@ -80,6 +80,19 @@ interface Host {
   removeEventListener(type: string, handler: (event: Fired) => void): void;
 }
 
+/**
+ * The one browser API this runtime calls by name rather than through `Host`.
+ *
+ * Reached through `globalThis` and declared here for the same reason `Tagged`
+ * exists: the runtime is compiled by the Worker's tsconfig too, which has no
+ * DOM lib, so `navigator.clipboard` is a name that does not typecheck there
+ * even though it is the only thing that could possibly satisfy this at run
+ * time. Naming the one member it touches keeps that honest in both places.
+ */
+interface WithClipboard {
+  clipboard?: { writeText(text: string): Promise<void> };
+}
+
 /** The two events it listens for, and the only members it reads off them. */
 interface Fired {
   readonly target: unknown;
@@ -174,6 +187,37 @@ export const TEST_ATTR = 'data-cre8-test';
  * runtime cannot derive one from a node id.
  */
 export const EL_ATTR = 'data-cre8-el';
+/**
+ * Text a control puts on the clipboard when it is pressed.
+ *
+ * The one action in the set that cannot be done without a script — every other
+ * one is a link, a `popovertarget`, a submit or the switch attribute — so it is
+ * the only one that costs a visitor anything, and it costs them nothing unless
+ * a page uses it.
+ */
+export const COPY_ATTR = 'data-cre8-copy';
+/**
+ * Set for a moment after a copy, and then removed.
+ *
+ * Feedback without inventing a mechanism for it: this is an ordinary attribute,
+ * and an attribute condition is something the rules panel has been able to
+ * express since stage 2. So "say Copied for a second" is a rule the designer
+ * writes, styled like any other state, rather than a string this runtime has an
+ * opinion about.
+ */
+export const COPIED_ATTR = 'data-cre8-copied';
+/*
+ * The prose for both of those lives here rather than beside the handler, and
+ * that is not tidiness: `toString()` keeps comments, so two lines explaining
+ * the copy inside `onClick` were two lines shipped to every visitor of every
+ * page that copies. The size check caught it at 74 bytes over — which is the
+ * budget doing its job on the exact mistake this file's own docblock warns
+ * about, committed anyway.
+ *
+ * What they said: the attribute is set and then removed so a rule keyed on it
+ * can say "Copied" and stop saying it, and a refused clipboard is the
+ * browser's decision rather than a fault to handle.
+ */
 /**
  * The record values this instance's Tests read. Raw, never formatted.
  *
@@ -381,6 +425,25 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
   function onClick(event: Fired): void {
     const target = event.target as Tagged | null;
     if (!target || !target.closest) return;
+
+    const copier = target.closest('[data-cre8-copy]');
+    if (copier) {
+      event.preventDefault();
+      const clip = (globalThis as { navigator?: WithClipboard }).navigator?.clipboard;
+      if (clip && clip.writeText) {
+        clip.writeText(copier.getAttribute('data-cre8-copy') || '').then(
+          function () {
+            copier.setAttribute('data-cre8-copied', '');
+            setTimeout(function () {
+              copier.removeAttribute('data-cre8-copied');
+            }, 1400);
+          },
+          function () {}
+        );
+      }
+      return;
+    }
+
     const setter = target.closest('[data-cre8-set]');
     if (!setter) return;
     const group = setter.closest('[data-cre8-switch]');
