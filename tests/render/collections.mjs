@@ -15,7 +15,16 @@
  * get their field rename back, not lose the post.
  */
 
-import { APP, createReport, launch, openProject, publish, READY_TIMEOUT, signUp } from './harness.mjs';
+import {
+  APP,
+  createReport,
+  launch,
+  openInspectorTab,
+  openProject,
+  publish,
+  READY_TIMEOUT,
+  signUp,
+} from './harness.mjs';
 
 const report = createReport();
 const browser = await launch();
@@ -160,10 +169,17 @@ try {
   await heading.click();
   await page.waitForTimeout(400);
 
+  /*
+   * On the Content tab, and the element's own Text field is the evidence that
+   * we are looking at it. An absence read off the wrong tab is green whatever
+   * the panel does — the same trap the link-fields check in `native` fell into.
+   */
+  await openInspectorTab(page, 'Content');
+  const onContent = (await inspector().locator('textarea').count()) > 0;
   report.check(
     'the inspector offers no binding until something is repeating',
-    (await inspector().locator('text=Inside Posts').count()) === 0,
-    'no scope yet'
+    onContent && (await inspector().locator('text=Inside Posts').count()) === 0,
+    onContent ? 'no scope yet' : 'not looking at the tab the binding would be on'
   );
 
   // Walk up to a container and make it a repeater.
@@ -172,6 +188,7 @@ try {
   await grid.click();
   await page.waitForTimeout(400);
 
+  await openInspectorTab(page, 'Content');
   const hasData = (await inspector().locator('text=Data').count()) > 0;
   report.check('a container offers a Data section once a collection exists', hasData);
   if (hasData) {
@@ -190,6 +207,7 @@ try {
   await inner.click();
   await page.waitForTimeout(400);
 
+  await openInspectorTab(page, 'Content');
   const bindable = (await inspector().locator('text=Inside Posts').count()) > 0;
   report.check('a child of the repeater is told which record it is inside', bindable);
   if (bindable) {

@@ -8,7 +8,7 @@
  * thing that actually has to work.
  */
 
-import { APP, launch, openProject, publish, READY_TIMEOUT } from './harness.mjs';
+import { APP, launch, openInspectorTab, openProject, publish, READY_TIMEOUT } from './harness.mjs';
 import { createReport } from '../report.mjs';
 
 const report = createReport();
@@ -110,6 +110,8 @@ try {
   const row = (label) =>
     page.locator(`label:text-is("${label}")`).locator('xpath=ancestor::div[.//button][1]');
 
+  // The Form section is on the Content tab; the panel opens to Style.
+  await openInspectorTab(page, 'Content');
   const sendsTo = row('Sends to');
   const hasRow = await sendsTo.isVisible().catch(() => false);
   report.check(

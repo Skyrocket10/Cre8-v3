@@ -1,7 +1,14 @@
 
 /** Per-side border widths: set in the inspector, honoured on canvas and in the published file. */
 
-import { APP, ARTIFACTS, launch, PUBLISH_TIMEOUT, READY_TIMEOUT } from './harness.mjs';
+import {
+  APP,
+  ARTIFACTS,
+  launch,
+  openInspectorSection,
+  PUBLISH_TIMEOUT,
+  READY_TIMEOUT,
+} from './harness.mjs';
 
 const results = [];
 let failed = 0;
@@ -52,9 +59,7 @@ try {
 
   /* ------------------------------------------------- open Border, unlink sides */
 
-  const borderHeader = page.locator('button:has(.panel-title:text-is("Border"))').first();
-  await borderHeader.click();
-  await page.waitForTimeout(500);
+  check('the Border section is reachable', await openInspectorSection(page, 'Border'));
 
   check('the Border section has its own Style row', (await page.locator('label:text-is("Style")').count()) > 0);
 

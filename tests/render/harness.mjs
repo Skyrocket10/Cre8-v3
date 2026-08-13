@@ -92,6 +92,59 @@ export async function openProject(page, templateLabel) {
 }
 
 /**
+ * Switch the inspector to one of its four tabs.
+ *
+ * Needed where a check is about a control *not* being there: a row that is
+ * absent because the wrong tab is open proves nothing, and reads exactly like
+ * the row correctly standing down. Returns whether the tab was there at all,
+ * since with nothing — or several things — selected there are no tabs.
+ */
+export async function openInspectorTab(page, name) {
+  const button = page.locator('aside').last().locator(`button:text-is("${name}")`).first();
+  if (!(await button.count())) return false;
+  await button.click();
+  await page.waitForTimeout(300);
+  return true;
+}
+
+/**
+ * Open an inspector section by name, whichever tab holds it.
+ *
+ * The panel is four tabs — Content, Style, Rules, Actions — and a suite whose
+ * subject is not the inspector should not have to know which one owns a
+ * section. That is the `inspector` suite's claim to make, in one place, where
+ * it can be read; everywhere else the question is "can I get to the Semantics
+ * rows", and this answers it.
+ *
+ * The current tab is tried first, so a section already on screen costs no
+ * clicks. Opening is idempotent — `aria-expanded` says whether the accordion
+ * is already open, and clicking a section that is open closes it.
+ *
+ * Returns whether the section was found, so a check can say so rather than
+ * timing out thirty seconds later on a click into nothing.
+ */
+export async function openInspectorSection(page, title) {
+  const panel = page.locator('aside').last();
+  const header = () => panel.locator(`button:has(.panel-title:text-is("${title}"))`).first();
+
+  for (const tab of ['', 'Content', 'Style', 'Rules', 'Actions']) {
+    if (tab) {
+      const button = panel.locator(`button:text-is("${tab}")`).first();
+      if (!(await button.count())) continue;
+      await button.click();
+      await page.waitForTimeout(300);
+    }
+    if (!(await header().count())) continue;
+    if ((await header().getAttribute('aria-expanded')) !== 'true') {
+      await header().click();
+      await page.waitForTimeout(300);
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Publish, and wait long enough that a slow write is not read as a failure.
  *
  * Three minutes, which is absurd for a request that normally takes two

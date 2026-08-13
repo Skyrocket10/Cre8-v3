@@ -15,7 +15,15 @@
  * published deliberately differ, so it is checked in both directions.
  */
 
-import { APP, launch, openProject, publish, READY_TIMEOUT } from './harness.mjs';
+import {
+  APP,
+  launch,
+  openInspectorSection,
+  openInspectorTab,
+  openProject,
+  publish,
+  READY_TIMEOUT,
+} from './harness.mjs';
 import { createReport } from '../report.mjs';
 
 const report = createReport();
@@ -173,10 +181,13 @@ try {
   await insert('Section');
   await page.waitForTimeout(600);
 
-  // Same pattern the borders suite uses: the header is a button wrapping a
-  // `.panel-title`, and the section is collapsed by default, so its controls
-  // are not in the DOM until it is opened.
-  await page.locator('button:has(.panel-title:text-is("Semantics"))').first().click();
+  // Collapsed by default, and on the Content tab rather than the one the panel
+  // opens to — the helper finds it either way, so this suite stays about
+  // markup rather than about where the inspector files things.
+  report.check(
+    'the Semantics section is reachable',
+    await openInspectorSection(page, 'Semantics')
+  );
   await page.waitForTimeout(500);
   // The inspector's Select is a popover of buttons, not a native <select>, so
   // this drives it the way a person would: open it, then pick the option.
@@ -429,8 +440,16 @@ try {
   );
   report.check('and none of them is an anchor', wired.anchors === 0);
 
-  // The URL field is gone rather than sitting there doing nothing: a link and
-  // a popover trigger are the same control in two mutually exclusive states.
+  /*
+   * The URL field is gone rather than sitting there doing nothing: a link and
+   * a popover trigger are the same control in two mutually exclusive states.
+   *
+   * On the Content tab deliberately, and this is the whole point of saying so:
+   * the row lives there, and a check for its absence run against any other tab
+   * is green whatever the panel does — the strongest kind of vacuous check,
+   * because it looks like the control correctly standing down.
+   */
+  report.check('the panel offers Content to look in', await openInspectorTab(page, 'Content'));
   const urlRow = page.locator('label.field-label:text-is("URL")');
   report.check('the link fields step aside', (await urlRow.count()) === 0);
 

@@ -23,6 +23,7 @@ import {
   getDocument,
   launch,
   node,
+  openInspectorSection,
   openProject,
   publish,
   saveDocument,
@@ -398,8 +399,7 @@ try {
   await page.locator('[data-layer-row]:has-text("billing switch")').first().click();
   await page.waitForTimeout(500);
 
-  const editing = page.locator('button:has(.panel-title:text-is("Switch"))').first();
-  report.check('the group offers a switch panel', (await editing.count()) === 1);
+  report.check('the group offers a switch panel', await openInspectorSection(page, 'Switch'));
   await page.locator('button:text-is("annual")').last().click();
   await page.waitForTimeout(700);
 
@@ -789,10 +789,7 @@ try {
   await groupRow.click();
   await page.waitForTimeout(600);
 
-  report.check(
-    'and offers a switch panel',
-    (await page.locator('button:has(.panel-title:text-is("Switch"))').count()) === 1
-  );
+  report.check('and offers a switch panel', await openInspectorSection(page, 'Switch'));
   await page.locator('button:text-is("All")').last().click();
   await page.waitForTimeout(700);
 
