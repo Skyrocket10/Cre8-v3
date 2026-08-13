@@ -35,6 +35,7 @@ import {
   getDocument,
   launch,
   node,
+  openInspectorSection,
   openProject,
   publish,
   PUBLISH_TIMEOUT,
@@ -60,6 +61,16 @@ const REPUBLISH_TIMEOUT = Number(process.env.CRE8_REPUBLISH_TIMEOUT ?? 60_000);
 
 /** Long enough that a republish would certainly have happened, if one were coming. */
 const PAST_THE_WINDOW = 20_000;
+
+/**
+ * The ceiling for "the alarm worked first time".
+ *
+ * Four times the quiet window, which is enough slack for a `wrangler dev`
+ * writing D1 and R2 on one thread and nowhere near the retry backoff a failing
+ * alarm produces. Raise it with `CRE8_FIRST_ATTEMPT_SECONDS` on a slow machine
+ * rather than deleting the check.
+ */
+const FIRST_ATTEMPT_SECONDS = Number(process.env.CRE8_FIRST_ATTEMPT_SECONDS ?? 20);
 
 /** Poll until `check` is happy, or give up and return what it last saw. */
 async function until(check, timeout = REPUBLISH_TIMEOUT) {
@@ -414,7 +425,113 @@ try {
     shipped.html.includes('48px') ? 'shipped' : 'still missing'
   );
 
-  /* ------------------------------------------------ 9. and the dialog says so */
+  /* ------- 9. a design edited in the editor, and then a record write ------ */
+
+  /*
+   * The sequence a person performs every day, and the one nothing here had
+   * ever performed: edit a published project *in the editor*, then write a
+   * record and let the alarm republish it.
+   *
+   * Everything above seeds through the API, which hands the room a freshly
+   * parsed object. An edit made in the editor arrives as a patch over the
+   * socket instead — autosave is deliberately suspended while a room is live,
+   * so patches are the only route — and the room's copy is then whatever immer
+   * last produced, which is deeply frozen.
+   *
+   * That distinction had never mattered because every other way into
+   * publishing crosses an HTTP boundary and re-parses on the way. The alarm is
+   * the one caller holding the live object, and hydration repaired documents
+   * by writing to them: `Cannot assign to read only property 'rules'`. The
+   * alarm caught it, could not classify it, and retried forever — so the site
+   * simply stopped following its records, with nothing on screen to say why.
+   */
+  await page.goto(`${APP}/editor?p=${id}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForSelector('header >> text=Live', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+
+  // Through the layer tree and the inspector, because the point is that the
+  // edit travels the socket — an API write would put the room back on a parsed
+  // object and prove nothing.
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+  await page.locator('[data-layer-row]:has-text("Post list")').first().click();
+  await page.waitForTimeout(400);
+  /*
+   * Gap is hand-written rather than a labelled row, so it is found by the name
+   * it gives a screen reader — and the prefix matters: a flex parent calls it
+   * "Gap between items" and a grid calls it "Gap". Asking for the grid's
+   * spelling on a flex stack found nothing, skipped the edit, and reported the
+   * unchanged value, which reads exactly like a write that failed.
+   */
+  await openInspectorSection(page, 'Layout');
+  const gap = page.locator('aside').last().locator('input[aria-label^="Gap"]').first();
+  const gapRows = await gap.count();
+  if (gapRows) {
+    await gap.fill('37');
+    await gap.press('Enter');
+    await page.waitForTimeout(1200);
+  }
+  const written = (await getDocument(page, id)).nodes.rpt0listaa?.styles?.desktop?.gap;
+  report.check(
+    'a design edit reaches the room over the socket',
+    gapRows === 1 && written === '37px',
+    // Read back through the API, which reads the room: if the patch never
+    // landed, the rest of this section is testing nothing. The two ways this
+    // fails are told apart, because they look identical in the document.
+    gapRows === 1 ? `the room says ${written}` : `${gapRows} gap controls on screen`
+  );
+
+  /*
+   * A slug nothing above has used. The first version of this reached for
+   * `fourth-wall`, which section 6 had already published — so the poll below
+   * found it on the page immediately and passed without a republish ever
+   * happening. The record write 409ed, and the check that should have caught
+   * that was the one being fooled.
+   */
+  const late = await addRecord(id, 'fifth-column', 'Fifth column', 9);
+  report.check('a record is written after that edit', late.status === 200, `HTTP ${late.status}`);
+
+  const askedAt = Date.now();
+  const followed = await until(async () => {
+    const html = (await site(id)).html;
+    return { ok: html.includes('Fifth column'), detail: html.includes('Fifth column') ? 'listed' : 'not yet' };
+  });
+  const took = Math.round((Date.now() - askedAt) / 1000);
+  report.check(
+    'and the site still follows its records once the editor has touched the design',
+    followed.ok,
+    `${followed.detail} after ${took}s`
+  );
+  /*
+   * Separately, because the two fail for different reasons and only one of
+   * them is about a slow machine.
+   *
+   * The alarm waits five seconds for the edits to stop and then publishes, so
+   * a first attempt that works lands at about five. When hydration threw, the
+   * alarm rethrew — silently, because an unclassifiable error is treated as
+   * transient — and the platform retried with backoff until a reset room
+   * happened to reload an unfrozen document from D1. It got there in the end,
+   * which is why every check above passed while the bug was in: measured at
+   * 39s against 5s, on the same machine, minutes apart. That gap is the only
+   * outward sign the failure ever happened.
+   */
+  report.check(
+    'and it does so on the first attempt rather than after a retry storm',
+    followed.ok && took <= FIRST_ATTEMPT_SECONDS,
+    `${took}s, against a ${FIRST_ATTEMPT_SECONDS}s ceiling and a 5s quiet window`
+  );
+  report.check(
+    'and the republish carried the design edit with it',
+    (await site(id)).html.includes('gap:37px') || (await site(id)).html.includes('gap: 37px'),
+    // The alarm renders the room's document, so the edit that made it frozen
+    // is also the edit that proves the render used it.
+    /gap:\s*37px/.test((await site(id)).html) ? 'the gap is on the live page' : 'the live page has the old gap'
+  );
+
+  /* ----------------------------------------------- 10. and the dialog says so */
 
   /*
    * The counts above are read from the API. What a person sees is the dialog,

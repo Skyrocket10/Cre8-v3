@@ -252,6 +252,16 @@ function migrateNode(node: SceneNode): void {
   migrateActions(node);
 }
 
+/**
+ * Upgrade a document in place.
+ *
+ * In place deliberately, and worth saying out loud: every migration here is a
+ * repair — a prop deleted and re-expressed, a binding rewritten — and doing
+ * that to a copy would mean deciding, per field, what to carry over. The
+ * caller owns the copy. `hydrateDocument` makes one before it gets here, which
+ * is what lets this stay simple; hand it a frozen document directly and it
+ * will throw, as it should.
+ */
 export function migrateDocument(doc: Cre8Document): Cre8Document {
   for (const node of Object.values(doc.nodes)) migrateNode(node);
   doc.version = DOCUMENT_VERSION;

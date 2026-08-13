@@ -5053,6 +5053,36 @@ report.group('there is one way to publish and one way to trigger it');
    */
   const code = roomSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const patchCase = code.slice(code.indexOf("case 'patch':"), code.indexOf('async webSocketClose('));
+  /*
+   * A retry nobody records is a failure nobody can find.
+   *
+   * The alarm classifies what it catches and rethrows anything it cannot,
+   * which is right — the platform's backoff is the correct answer to R2 having
+   * a moment. What was wrong is that the rethrow said nothing, so a republish
+   * that failed four times and succeeded on the fifth was indistinguishable
+   * from one that worked, and the bug underneath it survived a full browser
+   * suite. Only the wall clock knew: 39 seconds against 5.
+   */
+  const alarmCatch = code.slice(code.indexOf('catch (error) {', code.indexOf('publishSite(this.env')));
+  /*
+   * The transient branch alone, up to its `throw`. Scoped that tightly because
+   * the first version allowed 400 characters of anything before the log it was
+   * looking for — and the *permanent* branch has one, so deleting the transient
+   * one left the check green. A window wide enough to reach the next statement
+   * is a window wide enough to read the wrong answer.
+   */
+  const transient = alarmCatch.slice(
+    alarmCatch.indexOf('if (!permanent(error)) {'),
+    alarmCatch.indexOf('throw error;')
+  );
+  report.check(
+    'an alarm that retries says what it is retrying after',
+    /console\.error/.test(transient),
+    /console\.error\([\s\S]{0,90}/
+      .exec(transient)?.[0]
+      ?.replace(/\s+/g, ' ') ?? 'rethrows in silence'
+  );
+
   report.check(
     'a patch is never applied to a document the room does not have',
     /applyPatches\(this\.doc,/.test(patchCase) && !/applyPatches\(this\.doc \?\?/.test(patchCase),
@@ -5146,6 +5176,90 @@ report.group('there is one way to publish and one way to trigger it');
  * never be recorded. The two live in different files and nothing connects
  * them, so the connection is made here.
  * ----------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+ * Hydration does not touch what it is handed
+ *
+ * Driven rather than read: the failure is a `TypeError` at runtime, on one
+ * kind of input, from a function whose source looks entirely reasonable.
+ * ----------------------------------------------------------------------- */
+
+report.group('a document can be hydrated without being altered');
+
+{
+  /**
+   * Every object reachable from `value`, frozen — which is what immer does to
+   * anything it produces, and therefore what a Durable Object holds the moment
+   * one patch has arrived over a socket.
+   */
+  const deepFreeze = (value, seen = new Set()) => {
+    if (!value || typeof value !== 'object' || seen.has(value)) return value;
+    seen.add(value);
+    for (const child of Object.values(value)) deepFreeze(child, seen);
+    return Object.freeze(value);
+  };
+
+  const saas = TEMPLATES.find((t) => t.id === 'saas');
+  const built = saas.build();
+  /*
+   * A legacy prop on one node, because that is the branch the reported crash
+   * came from: `migrateNode` converts it and writes `node.rules`, which on a
+   * frozen node is `Cannot assign to read only property 'rules'`. Without it
+   * the throw still happens — one line earlier, on `children` — and the check
+   * would be proving something narrower than the bug.
+   */
+  const victim = Object.values(built.nodes).find((n) => n.type === 'heading');
+  victim.props.switchCase = 'annual';
+
+  const frozen = deepFreeze(structuredClone(built));
+  let hydrated = null;
+  let threw = '';
+  try {
+    hydrated = hydrateDocument(frozen);
+  } catch (error) {
+    threw = String(error.message ?? error).slice(0, 120);
+  }
+
+  report.check(
+    'a frozen document hydrates rather than throwing',
+    Boolean(hydrated),
+    threw || `${Object.keys(hydrated?.nodes ?? {}).length} nodes through`
+  );
+
+  /*
+   * And the half that says why it survived. A hydrate that quietly caught its
+   * own error, or returned the input unrepaired, would pass the check above.
+   */
+  report.check(
+    'and the legacy prop it carried is repaired on the way out',
+    hydrated?.nodes[victim.id]?.props.switchCase === undefined &&
+      (hydrated?.nodes[victim.id]?.rules?.length ?? 0) > 0,
+    JSON.stringify({
+      switchCase: hydrated?.nodes[victim.id]?.props.switchCase ?? null,
+      rules: hydrated?.nodes[victim.id]?.rules?.length ?? 0,
+    })
+  );
+  /*
+   * "And the frozen document is unchanged" was here, and it is gone because it
+   * could not fail: `Object.freeze` already guarantees it, and every attempt to
+   * break the fix left it green. A check that asserts what the language
+   * enforces is worse than no check — it reads like coverage.
+   *
+   * The claim it was reaching for is below, where nothing is frozen and the
+   * rule has to be kept rather than imposed. "Does not mutate" is the rule; the
+   * freeze is only what made breaking it fatal. A hydrate that copied only when
+   * handed something frozen — the tempting shortcut, and the one that costs
+   * nothing on the common path — passes everything above and fails here.
+   */
+  const thawed = structuredClone(built);
+  const before = JSON.stringify(thawed);
+  hydrateDocument(thawed);
+  report.check(
+    'and an unfrozen one is left alone too, which is the actual rule',
+    JSON.stringify(thawed) === before,
+    JSON.stringify(thawed) === before ? 'byte-identical after hydration' : 'hydration edited its input'
+  );
+}
 
 report.group('a version is a design somebody published');
 

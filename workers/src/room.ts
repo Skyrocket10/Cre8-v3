@@ -303,8 +303,22 @@ export class ProjectRoom implements DurableObject {
       });
     } catch (error) {
       if (!permanent(error)) {
-        // Transient — R2 or D1 having a moment. Leave the pending state where
-        // it is and let the platform retry the alarm with backoff.
+        /*
+         * Transient — R2 or D1 having a moment. Leave the pending state where
+         * it is and let the platform retry the alarm with backoff.
+         *
+         * Said out loud before rethrowing, which it was not. A retry that
+         * eventually succeeds leaves no trace of the ones that did not, so a
+         * republish that took four attempts and forty seconds looked exactly
+         * like one that took five — and the bug underneath it (hydration
+         * throwing on a frozen document) survived a full browser suite
+         * because the retry after the room reset happened to work. An error
+         * nobody records is an error nobody can find.
+         */
+        console.error(
+          `[room] ${pending.projectId} republish failed, retrying: ` +
+            (error instanceof Error ? error.message : String(error))
+        );
         throw error;
       }
       // Not transient. The document asks for something that will be refused

@@ -1977,6 +1977,56 @@ rather than handed a null and encouraged to keep typing into it.
 The general shape: a cache flag that means "we tried" is not the same as one
 that means "we have it", and hibernation turns that distinction into data loss.
 
+### A normaliser that scribbled on the thing it was normalising
+
+Reported as *"a frozen document in the Durable Object throws on republish"*, with
+one line of evidence: `Cannot assign to read only property 'rules'`.
+
+`hydrateDocument` repairs a document in place. It filters `children` that point
+at nothing, re-derives `parentId` from the children arrays, turns a retired prop
+into a rule, deletes the prop. Fifteen or so writes, all onto the object it was
+handed — which is fine when the caller is `JSON.parse` and fatal exactly once.
+
+Immer deep-freezes what it produces, so a room that has applied a single patch
+holds a frozen tree. Every other route into publishing crosses an HTTP boundary
+and re-parses on the way — `liveDocument` reads the room over `fetch` and gets a
+fresh object — so the alarm is the only caller in the system holding the live
+one. And the alarm is reached only by the sequence a person performs every day
+and no suite ever had: edit a published project **in the editor**, where
+autosave is deliberately suspended and patches are the only route, then write a
+record.
+
+So: `const source = structuredClone(input)`, and the repairs run on the copy.
+`structuredClone` rather than a hand-written walk because the two levels a copy
+could plausibly miss — a rule's `apply`, a style layer — are exactly the levels
+the repairs reach into. Measured at 2.6ms on a 364-node template and 5.5ms at
+1,456 nodes, on paths that run when a document is opened, resynced or published
+rather than as somebody types.
+
+**It healed itself, which is why it survived everything.** The alarm classifies
+what it catches, cannot classify a `TypeError`, and rethrows for the platform to
+retry — and the rethrow logged nothing. Retries eventually hit a reset room that
+had reloaded from D1, where the document is parsed and unfrozen, and the publish
+went through. A browser check driving the whole route passed with the bug in
+place. The only outward difference was the clock: **39 seconds against 5**, on
+the same machine, minutes apart.
+
+Which is now the check. `republish` makes the edit in the editor, writes a
+record, and asserts twice — that the site follows the record at all, and that it
+does so inside 20 seconds rather than after a retry storm. Two checks because
+they fail for different reasons and only one of them is about a slow machine.
+The transient branch also says what it is retrying after, which it never did: an
+error nobody records is an error nobody can find, and this one hid behind its
+own recovery for as long as it existed.
+
+The static half is the exact one: deep-freeze a real template, hydrate it, and
+assert it comes back repaired. A fourth check went in beside it and came
+straight back out — "and the frozen document is unchanged" cannot fail, because
+`Object.freeze` already guarantees it. Every attempt to break the fix left it
+green. The claim it was reaching for is made against an *unfrozen* document
+instead, where the rule has to be kept rather than imposed — which is also the
+one that catches the tempting shortcut of copying only what is frozen.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

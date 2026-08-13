@@ -640,27 +640,49 @@ export function createEmptyDocument(name = 'Untitled project'): Cre8Document {
  * Normalise anything loaded from storage or a template so the rest of the app
  * can rely on required fields existing. Cheap insurance against hand-edited
  * JSON and older documents.
+ *
+ * **It does not touch what it is given.** Everything below repairs in place —
+ * `node.children` is filtered, `node.parentId` is re-derived, a legacy prop is
+ * deleted and re-expressed as a rule — and until this copy existed all of that
+ * landed on the caller's own object. That is wrong on its own terms: a
+ * normaliser is asked "what does this document mean", not handed something to
+ * scribble on. It also crashed the one caller that could not survive it.
+ *
+ * Immer freezes what it produces, so a Durable Object that has applied a
+ * single patch holds a deeply frozen tree — and a republish, which hydrates
+ * before it renders, died on `Cannot assign to read only property 'rules'`.
+ * Not on the first save: on the first save after an edit arrived over a
+ * socket. A room that had only ever loaded from D1 held plain parsed JSON and
+ * published perfectly, which is why this looked like a long-lived room going
+ * bad rather than a function with a side effect.
+ *
+ * `structuredClone` rather than a hand-written walk: a document is plain data,
+ * and the two places a copy could miss a level — a rule's `apply`, a style
+ * layer — are exactly the levels the repairs reach into. Measured at 2.6ms for
+ * a 364-node template and 5.5ms at 1,456 nodes, on paths that run when a
+ * document is opened, resynced or published rather than as somebody types.
  */
 export function hydrateDocument(input: Partial<Cre8Document> & { nodes?: NodeMap }): Cre8Document {
-  const base = createEmptyDocument(input.name ?? 'Untitled project');
+  const source = structuredClone(input);
+  const base = createEmptyDocument(source.name ?? 'Untitled project');
   const doc: Cre8Document = {
     ...base,
-    ...input,
+    ...source,
     // Whatever version came in is kept until `migrateDocument` below has
     // earned the new one. Stamping it here — which this used to do — made the
     // field a decoration: every document claimed to be current the moment it
     // was read, whatever shape it was actually in.
-    version: input.version ?? 1,
-    theme: { ...base.theme, ...(input.theme ?? {}) },
-    settings: { ...base.settings, ...(input.settings ?? {}) },
-    nodes: input.nodes ?? base.nodes,
-    pages: input.pages?.length ? input.pages : base.pages,
-    assets: input.assets ?? [],
-    components: input.components ?? [],
+    version: source.version ?? 1,
+    theme: { ...base.theme, ...(source.theme ?? {}) },
+    settings: { ...base.settings, ...(source.settings ?? {}) },
+    nodes: source.nodes ?? base.nodes,
+    pages: source.pages?.length ? source.pages : base.pages,
+    assets: source.assets ?? [],
+    components: source.components ?? [],
     // Absent on every document written before collections existed, and on
     // every document that never uses one — so it stays optional rather than
     // adding an empty array to a hundred stored projects.
-    ...(input.collections?.length ? { collections: input.collections } : {}),
+    ...(source.collections?.length ? { collections: source.collections } : {}),
   };
 
   for (const node of Object.values(doc.nodes)) {
