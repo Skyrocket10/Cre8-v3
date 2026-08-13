@@ -1100,6 +1100,28 @@ function describeBase(
       };
 
     case 'page':
+      /*
+       * No `lang` here, and the reason is worth recording because the obvious
+       * version of it took the editor down.
+       *
+       * The document's language matters to rendering: `hyphens: auto` breaks a
+       * German compound by German rules and an English one by English rules,
+       * and the canvas has no `<html>` of its own — it draws inside the editor,
+       * which says `en` because the editor is in English. So the two surfaces
+       * hyphenated differently, and putting `lang` on this element looked like
+       * the fix.
+       *
+       * It is not, because this renderer is handed an *empty document* on the
+       * canvas: `EMPTY_DOC` in `render.tsx` is `{ pages: [] }` cast into shape,
+       * so `doc.settings` is undefined and reading through it threw on every
+       * page node. The static suite passed throughout — it renders strings from
+       * real documents — and the canvas came down through its error boundary.
+       *
+       * `lang` inherits, so the frame each surface already draws is the right
+       * place: `canvas.tsx` and `preview.tsx` set it from the store, and the
+       * published shell sets it on `<html>`. Same effect, one subscription
+       * apiece rather than one per node, and nothing here has to know.
+       */
       return {
         tag: 'div',
         attrs: { ...base, 'data-cre8-root': true },

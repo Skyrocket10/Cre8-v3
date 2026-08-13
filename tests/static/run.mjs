@@ -53,6 +53,7 @@ const {
   generateStylesheet,
   parseCustomDeclarations,
   APPEAR_EFFECTS,
+  DOCUMENT_RESET,
   renderPage,
   generateSite,
   renderNodeToHtml,
@@ -8504,6 +8505,314 @@ report.group('an expression is described in one place');
     // three readers are regexes over source — exactly the thing that goes quiet
     // when a file is reformatted rather than when it is wrong.
     `${offered.length} effects, ${declared.length} declared, ${Object.keys(vocab).length} in the table`
+  );
+}
+
+report.group('text that does not fit has somewhere to go');
+
+{
+  /*
+   * The first gap the stress template found, closed.
+   *
+   * `templates/stress.ts` measured 732px of sideways scroll at 390px from a
+   * single seventy-four-character word, and nothing in the hundred and two
+   * properties the vocabulary had at the time could touch it. These check the
+   * five that can, and the two the generator has to translate rather than pass
+   * through. `tests/render/stress.mjs` measures the same word in a browser.
+   */
+  /*
+   * One node, and no parent to wrap it in. The first version of this put the
+   * text inside a frame and read the whole sheet, which meant every `display`
+   * check was also reading the frame's own `display: flex` — two values for
+   * one property, from two rules, and a check that looked like it had found
+   * the bug it was written for.
+   */
+  const css = (styles) => {
+    const { nodes } = buildTree({ type: 'text', name: 'T', props: { text: 'x' }, styles });
+    return generateNodeCss(nodes, { mode: 'media' });
+  };
+  /** Every value a property is given in the sheet, in the order they appear. */
+  const valuesOf = (sheet, name) =>
+    [...sheet.matchAll(new RegExp(`(?:^|[;{\\s])${name}:\\s*([^;}]+)`, 'g'))].map((one) =>
+      one[1].trim()
+    );
+
+  const clamped = css({ lineClamp: '2' });
+  const wanted = [
+    ['display', '-webkit-box'],
+    ['-webkit-box-orient', 'vertical'],
+    ['-webkit-line-clamp', '2'],
+    ['line-clamp', '2'],
+    ['overflow', 'hidden'],
+  ];
+  const missing = wanted.filter(([name, value]) => !valuesOf(clamped, name).includes(value));
+  report.check(
+    'a clamp is the whole incantation, not the one declaration that names it',
+    missing.length === 0,
+    // `-webkit-line-clamp` on its own does nothing at all: it is a property of
+    // a twenty-year-old box model, and without the display, the orientation
+    // and the hidden overflow the text simply runs on. A row that wrote only
+    // the line count would look right in the panel and change nothing.
+    missing.length
+      ? `no ${missing.map(([name, value]) => `${name}: ${value}`).join(', ')}`
+      : wanted.map(([name]) => name).join(', ')
+  );
+
+  const unclamped = css({ lineClamp: 'none' });
+  report.check(
+    'and “no limit” lifts it without guessing what the display used to be',
+    valuesOf(unclamped, '-webkit-line-clamp').includes('none') &&
+      valuesOf(unclamped, 'line-clamp').includes('none') &&
+      valuesOf(unclamped, 'display').length === 0,
+    /*
+     * The value exists so a narrower breakpoint can say "not clamped here",
+     * where clearing the row would inherit the wider layer's clamp instead —
+     * the same reason every switch in the vocabulary carries an off value.
+     * Restoring a display it never knew would be wrong wherever the guess was.
+     */
+    `display: ${valuesOf(unclamped, 'display').join(' / ') || 'untouched'}, ` +
+      `line-clamp: ${valuesOf(unclamped, 'line-clamp').join(' / ') || 'absent'}`
+  );
+
+  /*
+   * The ordering, which is the half nothing else would catch.
+   *
+   * Two properties expand onto ground another property owns — a clamp writes
+   * `display`, a gradient writes `color` — and until this was fixed the winner
+   * was whichever key sat later in the style object. That is insertion order:
+   * the property the designer touched most recently. Same document, same
+   * renderer, different CSS depending on the order of two clicks.
+   */
+  const clampFirst = css({ lineClamp: '2', display: 'flex' });
+  const clampLast = css({ display: 'flex', lineClamp: '2' });
+  report.check(
+    'a clamp beside a display resolves the same way whichever was set first',
+    valuesOf(clampFirst, 'display').join() === '-webkit-box' &&
+      valuesOf(clampLast, 'display').join() === '-webkit-box',
+    // One declaration, not two: `display: flex; display: -webkit-box` renders
+    // correctly and reads like a bug to anybody opening the stylesheet.
+    `clamp first → display: ${valuesOf(clampFirst, 'display').join(' / ') || 'none'}; ` +
+      `display first → display: ${valuesOf(clampLast, 'display').join(' / ') || 'none'}`
+  );
+
+  const gradient = 'linear-gradient(90deg, #6366f1, #ec4899)';
+  const gradientFirst = css({ textGradient: gradient, color: '#ffffff' });
+  const gradientLast = css({ color: '#ffffff', textGradient: gradient });
+  report.check(
+    'and so does a gradient beside a text colour, which is where this shipped broken',
+    valuesOf(gradientFirst, 'color').join() === 'transparent' &&
+      valuesOf(gradientLast, 'color').join() === 'transparent',
+    // Not a new hazard: `textGradient` has expanded to `color: transparent`
+    // since it was added, so a gradient set before a colour has silently lost
+    // to it for months. Found by asking the same question of the new property.
+    `gradient first → color: ${valuesOf(gradientFirst, 'color').join(' / ') || 'none'}; ` +
+      `colour first → color: ${valuesOf(gradientLast, 'color').join(' / ') || 'none'}`
+  );
+
+  const hyphenated = css({ hyphens: 'auto' });
+  report.check(
+    'hyphenation ships the spelling Safari 16 needs beside the one it does not',
+    valuesOf(hyphenated, '-webkit-hyphens').includes('auto') &&
+      valuesOf(hyphenated, 'hyphens').includes('auto'),
+    `${valuesOf(hyphenated, '-webkit-hyphens').join() || 'no prefix'} / ${
+      valuesOf(hyphenated, 'hyphens').join() || 'no standard property'
+    }`
+  );
+
+  /*
+   * Which value the menu offers, and it is not a detail. `break-word` wraps
+   * the letters but leaves the box's min-content width as the whole word, so a
+   * grid column sized from its contents is still blown out — the text wraps
+   * and the layout does not. `anywhere` is the value that measured 0.
+   */
+  const wrapOptions = vocabulary.STYLE_VOCABULARY.overflowWrap.control.options ?? [];
+  report.check(
+    'the long-words menu offers the value that actually narrows the box',
+    wrapOptions.some((option) => option.value === 'anywhere'),
+    wrapOptions.map((option) => `${option.label} → ${option.value}`).join(', ') || 'no options'
+  );
+
+  report.check(
+    'the clamp checks are reading real declarations rather than an empty sheet',
+    clamped.length > 40 && valuesOf(clamped, 'line-clamp').length > 0,
+    // Every check above is a substring search over generated CSS, which passes
+    // for the wrong reason the moment the generator returns nothing.
+    `${clamped.length} characters of CSS for one clamped node`
+  );
+
+  /*
+   * The language, which is what makes `hyphens: auto` mean the same thing on
+   * every surface.
+   *
+   * A browser hyphenates by the nearest declared language, and only one of the
+   * three surfaces has an `<html>` of its own. The canvas and preview draw
+   * inside the editor, whose root says `en` because the editor is in English,
+   * so a German document hyphenated as English there and as German once
+   * published.
+   *
+   * The obvious fix — `lang` on the page node, so one renderer says it once —
+   * is the one that does not work, and the second check below is there to say
+   * why. `render.tsx` hands that renderer an *empty document*, deliberately, so
+   * every page node threw on `doc.settings` and the canvas came down through
+   * its error boundary. Nothing in this suite noticed: it renders strings from
+   * real documents. The browser suites went red on the first run after.
+   *
+   * So each surface declares it on the frame it already draws, `lang` inherits,
+   * and these check that all three say it somewhere.
+   */
+  const pageOf = (language) => {
+    const doc = createEmptyDocument();
+    doc.settings = { ...doc.settings, language };
+    return generateSite(doc).files.find((file) => file.path === 'index.html')?.contents ?? '';
+  };
+  report.check(
+    'the published shell declares the document language',
+    /<html lang="de"/.test(pageOf('de')) && /<html lang="en"/.test(pageOf('en')),
+    /<html [^>]*>/.exec(pageOf('de'))?.[0] ?? 'no html element'
+  );
+  report.check(
+    'and the page node does not, because that renderer has no document to ask',
+    !/data-cre8-root[^>]*lang=/.test(pageOf('de')),
+    // Reading `doc.settings` there is a crash rather than a style preference:
+    // on the canvas the document is `{ pages: [] }` cast into shape.
+    /<div[^>]*data-cre8-root[^>]*>/.exec(pageOf('de'))?.[0] ?? 'no root element'
+  );
+  const frames = ['src/components/canvas/canvas.tsx', 'src/components/preview/preview.tsx'];
+  const silent = frames.filter(
+    (file) =>
+      !/lang=\{[^}]*settings\.language/.test(
+        readFileSync(path.join(ROOT, file), 'utf8')
+      )
+  );
+  report.check(
+    'and the two surfaces drawing inside the editor say it on their own frame',
+    silent.length === 0,
+    // A scrape, because the claim is that a component passes a prop and there
+    // is no compiled artefact to ask. Whether it works is the browser suites'
+    // question; this is what stops it being quietly dropped.
+    silent.length ? `no lang on: ${silent.join(', ')}` : `${frames.length} frames carry it`
+  );
+}
+
+report.group('the layout long tail the stress template asked for');
+
+{
+  const css = (styles, rules) => {
+    const { nodes } = buildTree({ type: 'text', name: 'T', props: { text: 'x' }, styles, rules });
+    return generateNodeCss(nodes, { mode: 'media', includeStates: true });
+  };
+  const valuesOf = (sheet, name) =>
+    [...sheet.matchAll(new RegExp(`(?:^|[;{\\s])${name}:\\s*([^;}]+)`, 'g'))].map((one) =>
+      one[1].trim()
+    );
+
+  /*
+   * A shorthand and its longhands, which the panel now shows as three rows.
+   *
+   * `place-items` covers both axes; `align-items` and `justify-items` cover
+   * one each. As a pass-through the three fought, and which one a designer saw
+   * obeyed came down to the order the keys sat in the object — so the panel
+   * could show `Place items: centre` and `Align: start` with the second having
+   * no effect, and nothing anywhere would say so.
+   */
+  const shorthandFirst = css({ placeItems: 'center', alignItems: 'start' });
+  const longhandFirst = css({ alignItems: 'start', placeItems: 'center' });
+  const reads = (sheet) =>
+    `${valuesOf(sheet, 'align-items').join('/') || '–'} across ${
+      valuesOf(sheet, 'justify-items').join('/') || '–'
+    }`;
+  report.check(
+    'a longhand refines the shorthand above it, whichever order they were set in',
+    reads(shorthandFirst) === 'start across center' && reads(longhandFirst) === 'start across center',
+    // The shorthand goes down first and the longhand refines it, which is how
+    // anybody writing this by hand would order the two lines.
+    `shorthand first → ${reads(shorthandFirst)}; longhand first → ${reads(longhandFirst)}`
+  );
+  const both = css({ placeItems: 'start end' });
+  report.check(
+    'and the shorthand still means both axes on its own',
+    reads(css({ placeItems: 'center' })) === 'center across center' &&
+      reads(both) === 'start across end',
+    // Two values are block then inline, which is the shorthand's own order —
+    // reading them the other way round is a silent transposition.
+    `one value → ${reads(css({ placeItems: 'center' }))}; two → ${reads(both)}`
+  );
+
+  /*
+   * The properties whose CSS value is a bare number, and the field that would
+   * quietly ruin them. `NumberField` appends its first unit to whatever is
+   * typed, so a count row left on the default writes `2px` into `column-count`
+   * — valid CSS to the generator, meaningless to a browser, and invisible to
+   * the compiler. That happened once and was found by clicking the row.
+   */
+  const bareCounts = ['columnCount', 'order', 'scale'];
+  const withUnits = bareCounts.filter(
+    (prop) => (vocabulary.STYLE_VOCABULARY[prop].control.units ?? ['px']).length > 0
+  );
+  report.check(
+    'the rows whose value is a bare number offer no unit to append',
+    withUnits.length === 0,
+    withUnits.length
+      ? `${withUnits.join(', ')} would write a length into a count`
+      : `${bareCounts.join(', ')} are unitless`
+  );
+
+  /*
+   * What the individual transforms are *for*, demonstrated against the thing
+   * they replace rather than asserted. `transform` is a list, so a hover rule
+   * that lifts a card has to restate the base layer's scale or lose it; the
+   * separate properties compose through the cascade instead.
+   */
+  const hover = (apply) => [
+    { id: 'r-hover', when: [{ kind: 'pointer', pseudo: 'hover' }], apply },
+  ];
+  const composed = css({ scale: '1.02' }, hover({ translate: '0 -4px' }));
+  const listed = css({ transform: 'scale(1.02)' }, hover({ transform: 'translateY(-4px)' }));
+  report.check(
+    'a rule can nudge one axis without restating the rest of the transform',
+    valuesOf(composed, 'scale').join() === '1.02' &&
+      valuesOf(composed, 'translate').join() === '0 -4px' &&
+      // The base's scale is in a rule of its own, so the hover rule adding a
+      // translate leaves it standing. Two declarations, both live.
+      composed.split('scale: 1.02').length === 2,
+    `separate: ${valuesOf(composed, 'scale').join()} + ${valuesOf(composed, 'translate').join()}`
+  );
+  report.check(
+    'which is the thing one transform property cannot do',
+    // The comparison is the evidence: the hover rule's `transform` replaces the
+    // base's outright, so the card stops being scaled the moment it is hovered
+    // unless the author remembers to write the scale again.
+    valuesOf(listed, 'transform').join(' then ') === 'scale(1.02) then translateY(-4px)',
+    `one property: ${valuesOf(listed, 'transform').join(' then ')} — the scale is gone on hover`
+  );
+
+  /*
+   * The jump offset, whose whole claim is about specificity. The reset gives
+   * everything with an id 96px; a node that sets its own has to beat that, and
+   * does only because the reset is wrapped in `:where()` at (0,0,1) while a
+   * node rule is a class at (0,1,0). A browser measures it in `tests/render`;
+   * this checks the two halves are still shaped the way that argument needs.
+   */
+  const resetRule = /:where\(\[data-cre8-root\]\) \[id\] \{ scroll-margin-top: (\d+)px/.exec(
+    DOCUMENT_RESET
+  );
+  const own = css({ scrollMarginTop: '140px' });
+  report.check(
+    'a section can say where a jump to it stops, and outrank the default that exists',
+    Boolean(resetRule) &&
+      /^\.c-[a-z0-9]+ \{$/m.test(own.split('\n')[0]) &&
+      valuesOf(own, 'scroll-margin-top').join() === '140px',
+    // If the reset ever loses its `:where()` it climbs to (0,1,1) and beats
+    // every node rule, and the row goes quietly dead.
+    `reset ${resetRule?.[1] ?? '?'}px at :where(), node ${valuesOf(own, 'scroll-margin-top').join()} on ${
+      own.split(' ')[0]
+    }`
+  );
+
+  report.check(
+    'these are reading generated CSS rather than empty strings',
+    composed.length > 40 && shorthandFirst.length > 40 && DOCUMENT_RESET.length > 500,
+    `${composed.length} + ${shorthandFirst.length} characters, ${DOCUMENT_RESET.length} of reset`
   );
 }
 

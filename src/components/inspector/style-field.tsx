@@ -197,6 +197,7 @@ export function StyleField({ prop }: { prop: StyleProp }) {
           value={style.value}
           placeholder={control.placeholder ?? '–'}
           units={control.units}
+          step={control.step}
           /*
            * Empty rather than `px` when the property has no units, and this is
            * not a nicety: `NumberField` appends its default unit to whatever is

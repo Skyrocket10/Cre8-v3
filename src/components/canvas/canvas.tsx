@@ -473,6 +473,20 @@ export function Canvas() {
           <div
             ref={frameRef}
             {...(dataTokens ? { [DATA_ATTR]: dataTokens } : {})}
+            /*
+             * The same argument as the data tokens above, for the same reason:
+             * the published page hangs `lang` off `<html>` and the frame is the
+             * equivalent ancestor here.
+             *
+             * It is not decoration. A browser hyphenates by the nearest
+             * declared language, so `hyphens: auto` broke a German compound by
+             * English rules on the canvas and by German rules once published —
+             * the editor's own root says `en`, because the editor is in
+             * English. Here rather than on the page node because the renderer
+             * is handed an empty document, and because `lang` inherits: one
+             * subscription instead of one per node.
+             */
+            lang={settings.language || 'en'}
             className={cn(
               'cre8-frame cre8-doc cre8-editing relative overflow-hidden bg-white',
               showOutlines && 'cre8-outlines'

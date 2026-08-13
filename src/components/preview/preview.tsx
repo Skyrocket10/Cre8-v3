@@ -251,6 +251,9 @@ function PreviewSurface({
       <div
         ref={frameRef}
         {...(dataTokens ? { [DATA_ATTR]: dataTokens } : {})}
+        // The third surface, and it has to say the same thing as the other two
+        // or preview stops being what publishing will do. See `canvas.tsx`.
+        lang={doc.settings.language || 'en'}
         className={cn(
           'cre8-frame mx-auto bg-white',
           !isDesktop && 'overflow-hidden rounded-xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.5)]'

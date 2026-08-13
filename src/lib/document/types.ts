@@ -85,7 +85,27 @@ export interface StyleDecl {
   gridAutoRows?: string;
   gridColumn?: string;
   gridRow?: string;
+  /**
+   * Both axes of a grid's cell alignment at once.
+   *
+   * A shorthand over `alignItems` and `justifyItems`, and the generator writes
+   * it out as those two rather than passing it through — otherwise which of
+   * the three rows won depended on the order their keys sat in the object.
+   */
   placeItems?: string;
+  /** Where every cell's contents sit *across* the cell. */
+  justifyItems?: string;
+  /** Where this one sits across its own cell, overriding the grid's answer. */
+  justifySelf?: string;
+  /**
+   * Moves this earlier or later than its place in the layer list.
+   *
+   * The reason it is worth having: an arrangement that differs by width —
+   * picture above the copy at 390, beside it at 1440 — otherwise has to be
+   * built twice and hidden once, which doubles the layer tree for what is
+   * purely a layout decision. A number here at one breakpoint does it.
+   */
+  order?: string;
 
   /* Position */
   position?: string;
@@ -123,6 +143,16 @@ export interface StyleDecl {
   overflowY?: string;
   /** `hidden` empties the box without taking its space. */
   visibility?: string;
+  /**
+   * How much room a link into this section leaves above it.
+   *
+   * The document reset already sets 96px on everything with an id, which is
+   * what makes a jump land below the navbars this app produces rather than
+   * behind them. That is a default, not an answer: a site with a taller header
+   * needs a bigger number and had no way to say one. Set here it beats the
+   * reset, which is written at (0,0,1) precisely so a node can.
+   */
+  scrollMarginTop?: string;
 
   /* Size */
   width?: string;
@@ -159,6 +189,54 @@ export interface StyleDecl {
   textDecoration?: string;
   textWrap?: string;
   whiteSpace?: string;
+
+  /**
+   * What a word too long for its line is allowed to do.
+   *
+   * Two values wrap it and they are not interchangeable, which is the whole
+   * reason this needs a menu rather than a tickbox. `break-word` wraps the
+   * text but leaves the element's *min-content* width as the whole word, so a
+   * grid column or a flex item sized from its contents is still blown out —
+   * the letters wrap and the layout does not. `anywhere` shrinks the
+   * min-content contribution to a single character, which is the value that
+   * actually puts a column back.
+   */
+  overflowWrap?: string;
+  /**
+   * Whether a line may break *inside* a word that would have fitted.
+   *
+   * The opposite question to `overflowWrap`, which is about last resorts.
+   * `break-all` fills every line to the edge and splits words wherever they
+   * land; `keep-all` is for Chinese, Japanese and Korean, where the breaks a
+   * browser would take by default fall inside words.
+   */
+  wordBreak?: string;
+  /**
+   * `auto` breaks words at syllables and prints the hyphen.
+   *
+   * Hyphenation is per-language, and the language the browser uses is the one
+   * on the nearest ancestor that declares one — which is why the page root
+   * carries `lang` on both surfaces rather than only in the published shell.
+   * Without that the canvas would hyphenate a German site by English rules.
+   */
+  hyphens?: string;
+  /**
+   * Cut the text off after this many lines, with an ellipsis.
+   *
+   * A count, or `none`. The generator expands it, because what a browser wants
+   * for this is four declarations in an old flexbox mode — and `none` exists
+   * so a narrower breakpoint can say "not here", which clearing the row cannot:
+   * absence means "whatever the wider layer said".
+   */
+  lineClamp?: string;
+  /**
+   * The ellipsis on a single line that is cut off horizontally.
+   *
+   * Overlaps `lineClamp: 1` and is here for the case that cannot use it: a
+   * table cell, or anything else whose `display` is load-bearing, where
+   * switching to `-webkit-box` would take the element out of its layout role.
+   */
+  textOverflow?: string;
   /** `tabular-nums` is what stops a column of figures jittering as it changes. */
   fontVariantNumeric?: string;
   color?: string;
@@ -192,6 +270,19 @@ export interface StyleDecl {
   filter?: string;
   backdropFilter?: string;
   transform?: string;
+  /**
+   * One axis each, and the reason they exist beside `transform`.
+   *
+   * `transform` is a list, so anything that wants to nudge a card two pixels
+   * on hover has to restate whatever scale and rotation the base layer already
+   * set — and a rule that forgets one silently undoes it. These are separate
+   * properties: a hover rule can write `translate` alone and the `scale` from
+   * the base layer survives, which is what makes them composable at all. The
+   * browser applies all three before `transform`.
+   */
+  rotate?: string;
+  scale?: string;
+  translate?: string;
   transformOrigin?: string;
   mixBlendMode?: string;
   transition?: string;

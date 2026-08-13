@@ -76,8 +76,108 @@ function expand(prop: string, value: string): [string, string][] {
       ['color', 'transparent'],
     ];
   }
+  if (prop === 'placeItems') {
+    /*
+     * Written as its longhands rather than passed through.
+     *
+     * `place-items` is a shorthand over `align-items` and `justify-items`, and
+     * all three are rows in the panel. As a shorthand it wipes whichever
+     * longhand was set before it and loses to whichever was set after, so
+     * which of the three rows a designer sees obeyed depended on the order the
+     * keys happened to sit in — the same hazard as a clamp beside a display,
+     * and invisible for the same reason.
+     *
+     * Expanded here it is just two declarations, `lastWins` picks the later,
+     * and the panel's three rows describe one state. One value covers both
+     * axes; two are `align` then `justify`, which is the shorthand's order.
+     */
+    const [block = value, inline = block] = value.trim().split(/\s+/);
+    return [
+      ['align-items', block],
+      ['justify-items', inline],
+    ];
+  }
+  if (prop === 'hyphens') {
+    // Both spellings, for the same reason `background-clip` above has both:
+    // Safari only dropped the prefix in 17, and a hyphen that appears on one
+    // browser and not another is a line-break difference, not a nicety.
+    return [
+      ['-webkit-hyphens', value],
+      ['hyphens', value],
+    ];
+  }
+  if (prop === 'lineClamp') {
+    /*
+     * Truncation, which no browser will do from one declaration.
+     *
+     * `-webkit-line-clamp` is a twenty-year-old property that only works
+     * inside `display: -webkit-box` with a vertical box orientation and a
+     * hidden overflow, and the standard `line-clamp` that finally replaces it
+     * is too new to rely on alone. So the document holds the number a designer
+     * thinks in and the generator writes the incantation, which is the same
+     * bargain `appear` and `textGradient` make.
+     *
+     * `none` is the way to say "not clamped *here*" at a narrower breakpoint,
+     * where clearing the row inherits the wider layer instead. It deliberately
+     * does not restore `display`: guessing what the element was before would
+     * be wrong wherever the guess is wrong, and an unclamped `-webkit-box`
+     * lays a run of text out exactly like a block anyway.
+     */
+    if (value === 'none') {
+      return [
+        ['-webkit-line-clamp', 'none'],
+        ['line-clamp', 'none'],
+        ['overflow', 'visible'],
+      ];
+    }
+    const lines = Math.round(Number(value));
+    if (!Number.isFinite(lines) || lines < 1) return [];
+    return [
+      ['display', '-webkit-box'],
+      ['-webkit-box-orient', 'vertical'],
+      ['-webkit-line-clamp', String(lines)],
+      ['line-clamp', String(lines)],
+      ['overflow', 'hidden'],
+    ];
+  }
   return [[cssProp(prop), value]];
 }
+
+/**
+ * The three properties that expand onto ground another property owns, and
+ * where each has to sit so the collision resolves the same way every time.
+ *
+ * `textGradient` writes `background-image` and `color`; `lineClamp` writes
+ * `display` and `overflow`; `placeItems` writes `align-items` and
+ * `justify-items`. Every other expansion invents its own declarations —
+ * `appear` is the only user of `animation`, `hyphens` of `hyphens` — so this is
+ * the whole list, and it wants to stay that way.
+ *
+ * Left alone the winner is whichever key happens to sit later in the style
+ * object, which is insertion order: the property the designer touched most
+ * recently, or in a hand-authored template the order somebody typed the keys
+ * in. Both surfaces would agree with each other and neither would agree with
+ * the panel, which is the worst shape a bug can take here. This shipped
+ * unnoticed in `textGradient`, where a gradient set beside a text colour
+ * worked or did not depending on which was set second.
+ *
+ * The two directions are not a wrinkle, they are the two kinds of expansion:
+ *
+ * - **Last** for the ones that are inert if they lose. A clamp without its
+ *   `display` does nothing at all and a gradient under a real `color` cannot
+ *   be seen, so a designer who sets both has asked for two things that cannot
+ *   both happen and the invisible one should not be the survivor. A `display`
+ *   that lost is at least a layout you can look at.
+ * - **First** for a shorthand, because a longhand beside it is a refinement.
+ *   `placeItems: center` then `alignItems: start` reads in the panel as "both
+ *   centred, except vertically", and that only works if the shorthand goes
+ *   down first — which is exactly how a stylesheet would be written by hand.
+ */
+const EXPANSION_ORDER: Record<string, -1 | 1> = {
+  placeItems: -1,
+  textGradient: 1,
+  lineClamp: 1,
+};
 
 /**
  * Four-sided properties, and the order a shorthand writes them in.
@@ -217,7 +317,12 @@ export function parseCustomDeclarations(text: string): [string, string][] {
 
 function safePairs(styles: StyleDecl): [string, string][] {
   const pairs: [string, string][] = [];
-  for (const [prop, value] of Object.entries(styles)) {
+  // A stable sort, so everything not in the table keeps the order it arrived
+  // in and the only declarations that move are the ones that had to.
+  const ordered = Object.entries(styles).sort(
+    ([a], [b]) => (EXPANSION_ORDER[a] ?? 0) - (EXPANSION_ORDER[b] ?? 0)
+  );
+  for (const [prop, value] of ordered) {
     if (value === undefined || value === null || value === '') continue;
     const text = String(value);
 
@@ -242,8 +347,36 @@ function safePairs(styles: StyleDecl): [string, string][] {
   return pairs;
 }
 
+/**
+ * One declaration per property, keeping the last.
+ *
+ * An expansion that lands on ground another property owns produces two
+ * declarations for one property — `display: flex; display: -webkit-box`. Both
+ * are correct CSS and the second wins, so the page is right either way; what
+ * is wrong is the stylesheet, which now says a thing and then unsays it, and
+ * anybody reading it has to work out which line is live.
+ *
+ * Last wins because that is what the cascade already does, so this changes
+ * nothing about what renders. It would matter if the generator ever emitted a
+ * *deliberate* pair — `color: #fff` followed by a `color-mix()` for browsers
+ * that understand it — and it never does: every fallback here is a pair of
+ * differently-named properties (`-webkit-hyphens` and `hyphens`), which this
+ * leaves alone. Anyone adding a same-property fallback has to come here first.
+ */
+function lastWins(pairs: [string, string][]): [string, string][] {
+  const seen = new Map<string, number>();
+  for (const [name] of pairs) seen.set(name, (seen.get(name) ?? 0) + 1);
+  if (pairs.length === seen.size) return pairs;
+  const remaining = new Map(seen);
+  return pairs.filter(([name]) => {
+    const left = (remaining.get(name) ?? 1) - 1;
+    remaining.set(name, left);
+    return left === 0;
+  });
+}
+
 export function declarationsToCss(styles: StyleDecl, indent = '  '): string {
-  const pairs = safePairs(styles);
+  const pairs = lastWins(safePairs(styles));
   return collapseFourSided(pairs)
     .map(([name, value]) => `${indent}${name}: ${value};`)
     .join('\n');

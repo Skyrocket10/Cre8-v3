@@ -116,6 +116,9 @@ export function loadBlocks() {
     generateStylesheet: require(path.join(OUT, 'renderer/css.js')).generateStylesheet,
     parseCustomDeclarations: require(path.join(OUT, 'renderer/css.js')).parseCustomDeclarations,
     APPEAR_EFFECTS: require(path.join(OUT, 'renderer/css.js')).APPEAR_EFFECTS,
+    // The baseline every surface loads. Read here because two of its rules
+    // are load-bearing arguments about specificity rather than about looks.
+    DOCUMENT_RESET: require(path.join(OUT, 'renderer/css.js')).DOCUMENT_RESET,
     // The whole site, not just a page: D3's gate is that the Worker's output
     // matches this one's byte for byte, and a site is sitemap and robots too.
     generateSite: require(path.join(OUT, 'publishing/html.js')).generateSite,

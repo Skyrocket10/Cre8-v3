@@ -94,8 +94,15 @@ export type StyleControl =
    * on mobile.
    */
   | { kind: 'switch'; on: string; off: string; label: string }
-  /** A number with a unit. Pass no units for a bare count. */
-  | { kind: 'length'; units: string[]; placeholder?: string }
+  /**
+   * A number with a unit. Pass no units for a bare count.
+   *
+   * `step` is what a drag or an arrow key moves by, and it defaults to 1
+   * because that is right for a length in pixels and for a count. It is wrong
+   * for the properties that live around 1: a hover scale is `1.02`, and a
+   * field that scrubs in whole numbers can only offer twice the size or none.
+   */
+  | { kind: 'length'; units: string[]; placeholder?: string; step?: number }
   /**
    * How many grid tracks an item covers.
    *
@@ -232,7 +239,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
   },
   placeItems: {
     label: 'Place items',
-    hint: 'Aligns every cell’s contents at once',
+    hint: 'Aligns every cell’s contents at once, both ways',
     section: 'layout',
     control: {
       kind: 'choice',
@@ -244,6 +251,46 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
       ],
     },
     when: { prop: 'display', is: ['grid', 'inline-grid'] },
+  },
+  justifyItems: {
+    label: 'Place across',
+    hint: 'One axis of the row above — where cell contents sit left to right',
+    section: 'layout',
+    control: {
+      kind: 'choice',
+      options: [
+        { value: 'stretch', label: 'Stretch' },
+        { value: 'start', label: 'Start' },
+        { value: 'center', label: 'Centre' },
+        { value: 'end', label: 'End' },
+      ],
+    },
+    when: { prop: 'display', is: ['grid', 'inline-grid'] },
+  },
+  justifySelf: {
+    label: 'Place self across',
+    hint: 'Overrides the grid’s answer for this one item',
+    section: 'parent',
+    control: {
+      kind: 'choice',
+      options: [
+        { value: 'stretch', label: 'Stretch' },
+        { value: 'start', label: 'Start' },
+        { value: 'center', label: 'Centre' },
+        { value: 'end', label: 'End' },
+      ],
+    },
+  },
+  order: {
+    label: 'Order',
+    hint: 'Moves it earlier or later than the layer list says — the way to reorder on a phone without building the layout twice',
+    section: 'parent',
+    /*
+     * Signed, and the negative half is most of the point: `-1` puts an item
+     * first without touching anything else, where getting there positively
+     * means numbering every sibling.
+     */
+    control: { kind: 'length', units: [], placeholder: '0' },
   },
 
   /* ----------------------------------------------------------- position -- */
@@ -288,6 +335,15 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     hint: 'Hidden empties the box but keeps its space, so nothing else moves',
     section: 'position',
     control: { kind: 'switch', on: 'hidden', off: 'visible', label: 'Keep its space, but empty' },
+  },
+  scrollMarginTop: {
+    label: 'Jump stops at',
+    hint: 'Room left above this when a link jumps to it. Raise it to clear a taller sticky header',
+    section: 'position',
+    // 96px is what every element with an id already gets from the reset, so
+    // the placeholder is the value in force rather than an invented default —
+    // a field reading `–` would suggest there is no offset at all.
+    control: { kind: 'length', units: ['px', 'rem'], placeholder: '96' },
   },
 
   /* --------------------------------------------------------------- size -- */
@@ -356,6 +412,82 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
         { value: 'pre-line', label: 'Breaks only', title: 'Honours line breaks, collapses runs of spaces' },
       ],
     },
+  },
+  overflowWrap: {
+    label: 'Long words',
+    hint: 'What a word too long for its box does — a hash, a product code, a German compound',
+    section: 'typography',
+    control: {
+      kind: 'choice',
+      options: [
+        {
+          value: 'anywhere',
+          label: 'Break it',
+          title: 'Breaks the word and lets the box get narrower than it — the one that puts a blown-out column back',
+        },
+        {
+          value: 'break-word',
+          label: 'Break, keep the width',
+          title: 'Wraps the letters, but the box still asks for the whole word’s width',
+        },
+      ],
+    },
+  },
+  wordBreak: {
+    label: 'Breaking',
+    hint: 'Whether a line may break inside a word that would have fitted',
+    section: 'typography',
+    control: {
+      kind: 'choice',
+      options: [
+        {
+          value: 'break-all',
+          label: 'Anywhere',
+          title: 'Fills every line to the edge, splitting words wherever they land',
+        },
+        {
+          value: 'keep-all',
+          label: 'Not inside a word',
+          title: 'For Chinese, Japanese and Korean, where the default breaks fall mid-word',
+        },
+      ],
+    },
+  },
+  hyphens: {
+    label: 'Hyphenate',
+    hint: 'Breaks words at syllables — what stops justified text opening rivers',
+    section: 'typography',
+    control: { kind: 'switch', on: 'auto', off: 'manual', label: 'Hyphenate long words' },
+  },
+  lineClamp: {
+    label: 'Cut off after',
+    hint: 'Truncates to a fixed number of lines, so a card grid stops being as tall as its longest item',
+    section: 'typography',
+    control: {
+      kind: 'choice',
+      options: [
+        { value: '1', label: 'One line' },
+        { value: '2', label: 'Two lines' },
+        { value: '3', label: 'Three lines' },
+        { value: '4', label: 'Four lines' },
+        { value: '5', label: 'Five lines' },
+        { value: '6', label: 'Six lines' },
+        {
+          value: 'none',
+          label: 'No limit',
+          // The counterpart to a switch's off value, and needed for the same
+          // reason: at a narrower breakpoint, clearing the row inherits the
+          // wider layer's clamp rather than removing it.
+          title: 'Says "not clamped here" at a narrower breakpoint, where Default would inherit the wider one',
+        },
+      ],
+    },
+  },
+  textOverflow: {
+    label: 'Trim with …',
+    hint: 'An ellipsis where one line is cut off. Needs Line breaks set to One line',
+    section: 'typography',
+    control: { kind: 'switch', on: 'ellipsis', off: 'clip', label: 'Show an ellipsis' },
   },
   fontVariantNumeric: {
     label: 'Figures',
@@ -480,6 +612,34 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
 
   /* ------------------------------------------------------------- motion -- */
   transform: { label: 'Transform', section: 'motion', control: { kind: 'bespoke' } },
+  /*
+   * The three that compose. `transform` is a list, so a hover rule that wants
+   * to lift a card two pixels has to restate the scale and the rotation the
+   * base layer set, and one that forgets undoes them. These are separate
+   * properties: a rule writes the one axis it cares about and the other two
+   * survive. Below `transform` in the table because it is still the row most
+   * people reach for, and above `transformOrigin` because all four share one.
+   */
+  translate: {
+    label: 'Nudge',
+    hint: 'Moves it without disturbing anything around it, e.g. 0 -4px',
+    asEffect: 'where it sits',
+    section: 'motion',
+    control: { kind: 'text', placeholder: '0 0' },
+  },
+  scale: {
+    label: 'Scale',
+    hint: '1 is unchanged. Two numbers scale the axes separately',
+    asEffect: 'how big it is',
+    section: 'motion',
+    control: { kind: 'length', units: [], placeholder: '1', step: 0.02 },
+  },
+  rotate: {
+    label: 'Rotate',
+    asEffect: 'how far it is turned',
+    section: 'motion',
+    control: { kind: 'length', units: ['deg', 'turn'], placeholder: '0deg' },
+  },
   transformOrigin: {
     label: 'Anchored at',
     hint: 'The point a scale or rotation happens around',
