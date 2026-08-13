@@ -94,6 +94,17 @@ interface PendingRepublish {
 
 const PENDING = 'republish';
 
+/**
+ * Which project this room is for, kept where hibernation cannot lose it.
+ *
+ * The object is addressed by `idFromName(projectId)` and there is no way back
+ * from the id to the name, so anything that wakes a hibernated room without a
+ * request behind it — an alarm, a message on a hibernated socket — starts with
+ * no idea which project it is. The alarm has always carried its own copy; the
+ * socket path had none, and woke up believing the project had no document.
+ */
+const PROJECT_ID = 'project';
+
 interface Peer {
   connectionId: string;
   userId: string;
@@ -123,7 +134,13 @@ export class ProjectRoom implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    this.projectId = url.searchParams.get('project') ?? this.projectId;
+    const named = url.searchParams.get('project');
+    if (named && named !== this.projectId) {
+      this.projectId = named;
+      // Written once per instance, and the only place it can be learnt from:
+      // every other way into this object arrives without a URL.
+      await this.ctx.storage.put(PROJECT_ID, named);
+    }
 
     if (url.pathname.endsWith('/socket')) return this.handleUpgrade(request);
     if (url.pathname.endsWith('/document')) return this.handleDocument(request);
@@ -135,20 +152,31 @@ export class ProjectRoom implements DurableObject {
 
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
+
+    // A hibernated room wakes on a socket message with no URL to read, so the
+    // id comes back from storage. Without this the query below asked for a
+    // project called "", found nothing, and cached "this project has no
+    // document" — after which every read of a perfectly good project 404ed and
+    // every patch was applied to an empty object.
+    if (!this.projectId) this.projectId = (await this.ctx.storage.get<string>(PROJECT_ID)) ?? '';
+    if (!this.projectId) return;
+
     const row = await this.env.DB.prepare(
       `SELECT document, version FROM projects WHERE id = ?1`
     )
       .bind(this.projectId)
       .first<{ document: string; version: number }>();
 
-    if (row) {
-      try {
-        this.doc = JSON.parse(row.document);
-      } catch {
-        this.doc = null;
-      }
-      this.version = row.version;
+    // Nothing to remember. Asking again on the next message costs one query;
+    // caching a load that did not happen costs the document.
+    if (!row) return;
+
+    try {
+      this.doc = JSON.parse(row.document);
+    } catch {
+      this.doc = null;
     }
+    this.version = row.version;
     this.loaded = true;
   }
 
@@ -188,6 +216,9 @@ export class ProjectRoom implements DurableObject {
     if (!body.document) return new Response('Missing document', { status: 400 });
 
     this.doc = body.document;
+    // A whole-document write *is* a load, and saying so stops the next read
+    // from going back to D1 and overwriting it with the older copy there.
+    this.loaded = true;
     this.version += 1;
     this.persist();
 
@@ -366,6 +397,27 @@ export class ProjectRoom implements DurableObject {
 
         if (!Array.isArray(message.patches) || message.patches.length > MAX_PATCHES) return;
 
+        /*
+         * No document, no patching.
+         *
+         * This used to read `applyPatches(this.doc ?? {}, …)`, which invents an
+         * empty document and edits that. A patch into `{}` usually throws — and
+         * the room then answered `resync` with a null document, which is how a
+         * live editing session ended up being told its project did not exist.
+         * The patches that *don't* throw are worse: `persist()` would write the
+         * invented object straight over the real one.
+         */
+        if (!this.doc) {
+          console.error('[room] patch with no document loaded', this.projectId || '(no id)');
+          ws.send(
+            JSON.stringify({
+              t: 'denied',
+              reason: 'Lost track of this project — reload the page to keep editing.',
+            })
+          );
+          return;
+        }
+
         // The fence. A stale base means someone else's change landed first, so
         // this one is refused and the client is brought up to date instead.
         if (message.baseVersion !== this.version) {
@@ -374,7 +426,7 @@ export class ProjectRoom implements DurableObject {
         }
 
         try {
-          this.doc = applyPatches(this.doc ?? {}, message.patches) as Record<string, unknown>;
+          this.doc = applyPatches(this.doc, message.patches) as Record<string, unknown>;
         } catch (error) {
           console.error('[room] bad patch', error);
           ws.send(JSON.stringify({ t: 'resync', version: this.version, doc: this.doc }));

@@ -1942,6 +1942,41 @@ is not looking at the screen. It also makes "open this section" idempotent for
 the suite, which matters because sections remember their own state — two checks
 reaching for the same accordion had been closing it for each other.
 
+### A room that woke up not knowing which project it was
+
+Found from the outside, by a browser suite, while it was doing something else
+entirely: a live editing session started answering **"Project not found"** for a
+project sitting intact in D1.
+
+`ProjectRoom` is addressed by `idFromName(projectId)`, and there is no way back
+from a Durable Object id to the name it was derived from. The alarm path already
+knew that — it writes the project id into storage, with a comment saying why.
+The socket path did not. A room that hibernates and is woken by a message on a
+hibernated socket comes back with *no request behind it*: no URL, no query
+string, `projectId` an empty string. `ensureLoaded` then asked D1 for a project
+called `""`, found nothing, and set `loaded = true` anyway.
+
+From that moment the object was certain a document that existed did not:
+
+- every read returned `document: null`, and the route turned that into a 404
+  for a project the caller owns;
+- every patch went to `applyPatches(this.doc ?? {}, …)` — an *invented* empty
+  document. Most throw, and the room answered the throw with `resync` carrying
+  `doc: null`, which the client accepts as "you are up to date". The ones that
+  don't throw are worse: `persist()` would have written the invented object
+  straight over the real one.
+
+Three changes, and the third is the one worth keeping in mind. The id goes to
+storage the first time a request carries it, and comes back from storage when
+the field is empty — the same fix the alarm has had all along. A load that found
+no row is no longer remembered as a load: `loaded` is what stops the retry, so
+setting it on a miss is what made one unlucky wake permanent. And **a patch is
+refused outright when there is no document** — the client is told to reload
+rather than handed a null and encouraged to keep typing into it.
+
+The general shape: a cache flag that means "we tried" is not the same as one
+that means "we have it", and hibernation turns that distinction into data loss.
+
 ### Why an AI can drive this later
 
 Everything the editor can do is a document operation, and the document is JSON.

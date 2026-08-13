@@ -5000,6 +5000,81 @@ report.group('there is one way to publish and one way to trigger it');
     /\b(roomUrl|liveDocument)\b/.exec(roomSource)?.[0] ?? 'reads this.doc directly'
   );
 
+  /* --- A woken room still knows which project it is ----------------------- */
+
+  /*
+   * Found in a browser, from the outside in: a live editing session started
+   * answering "Project not found" for a project that was fine in D1.
+   *
+   * The room is addressed by `idFromName(projectId)` and there is no way back
+   * from the id to the name, so anything that wakes it without a request —
+   * an alarm, a message on a hibernated socket — starts with no project id.
+   * `ensureLoaded` then asked D1 for a project called "", got nothing, and set
+   * `loaded` anyway. From that moment the object held `doc: null` for a
+   * document that existed: reads 404ed, and patches were applied to an
+   * invented empty object and persisted over the real one.
+   *
+   * Scoped to the function rather than the file, because the file mentions the
+   * id constantly and a check that only asked "is it in here somewhere" would
+   * be green against every version of this bug.
+   */
+  const loader = roomSource.slice(
+    roomSource.indexOf('private async ensureLoaded('),
+    roomSource.indexOf('private persist(')
+  );
+  report.check(
+    'a room woken with no request behind it reads its project id back from storage',
+    /this\.projectId\s*=\s*\(await this\.ctx\.storage\.get<string>\(PROJECT_ID\)\)/.test(loader),
+    /this\.projectId\s*=[^;\n]*/.exec(loader)?.[0]?.trim() ?? 'never recovered'
+  );
+  report.check(
+    'and a load that found nothing is not remembered as a load',
+    // `loaded` is what stops the retry, so setting it on the miss is what made
+    // one unlucky wake permanent.
+    /if \(!row\) return;/.test(loader) &&
+      loader.indexOf('this.loaded = true') > loader.indexOf('if (!row) return;'),
+    /if \(!row\)[^\n]*/.exec(loader)?.[0] ?? 'no guard — a miss is cached',
+  );
+  report.check(
+    'and the id is written where a woken room can find it',
+    /await this\.ctx\.storage\.put\(PROJECT_ID,/.test(roomSource),
+    /storage\.put\(PROJECT_ID[^)]*\)/.exec(roomSource)?.[0] ?? 'never stored'
+  );
+
+  /*
+   * The other half, and the one that could have cost somebody their site: a
+   * patch applied to `this.doc ?? {}` edits an empty object when the document
+   * is missing, and `persist()` writes it back.
+   */
+  /*
+   * Comments stripped first, and not as tidiness: the first version of the
+   * check below read the sentence in the comment that *describes* the old
+   * code and reported the fix as missing. A source scrape has to read code.
+   */
+  const code = roomSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const patchCase = code.slice(code.indexOf("case 'patch':"), code.indexOf('async webSocketClose('));
+  report.check(
+    'a patch is never applied to a document the room does not have',
+    /applyPatches\(this\.doc,/.test(patchCase) && !/applyPatches\(this\.doc \?\?/.test(patchCase),
+    /applyPatches\([^,]*,/.exec(patchCase)?.[0] ?? 'no applyPatches in the patch case'
+  );
+  {
+    // The refusal *after* the guard: the patch case opens with the view-only
+    // denial, so the first `denied` in it is somebody else's.
+    const guard = patchCase.indexOf('if (!this.doc) {');
+    const refusal = guard < 0 ? -1 : patchCase.indexOf("t: 'denied'", guard);
+    const fence = patchCase.indexOf('baseVersion !== this.version');
+    report.check(
+      'and the client is told to reload rather than handed a null document',
+      // The old answer was `resync` carrying `doc: this.doc` — null — which the
+      // client accepted as "you are up to date" and carried on editing into.
+      guard >= 0 && refusal > guard && refusal < fence,
+      guard < 0
+        ? 'no guard on a missing document'
+        : (/reason: '[^']*'/.exec(patchCase.slice(guard))?.[0] ?? 'no refusal after the guard')
+    );
+  }
+
   /* --- Every record write says so ---------------------------------------- */
 
   /**
@@ -5465,11 +5540,18 @@ report.group('the panel is not narrower than the model');
     /type === '\w+' \|\| type === '\w+'\) && <SwitchSetterSection/.exec(content)?.[0] ??
       'ungated'
   );
-  // And the thing that makes ungating safe: it draws nothing when there is no
-  // switch above it. Without that, every element in the library would grow an
-  // Interaction section offering an empty menu.
+  /*
+   * And the thing that makes ungating safe.
+   *
+   * As a subsection of Content it drew *nothing* when no switch existed above
+   * it, or every element in the library would have grown an Interaction
+   * heading offering an empty menu. As a tab of its own it cannot do that — a
+   * tab somebody clicked and got a blank panel from is worse than the noise —
+   * so it explains itself instead. The claim is unchanged: it still reads the
+   * scope and still branches on finding nothing.
+   */
   report.check(
-    'and it still draws nothing when there is no switch above it',
+    'and it still says so when there is no switch above it',
     (() => {
       /*
        * Scoped to the function rather than measured in characters.
@@ -5480,19 +5562,22 @@ report.group('the panel is not narrower than the model');
        * hooks — so a section that grows pushes them apart, and the check went
        * red on a section that was still perfectly self-hiding.
        */
-      const at = content.indexOf('function SwitchSetterSection(');
+      const at = content.indexOf('export function ActionsSection(');
       if (at < 0) return false;
       const body = content.slice(at, content.indexOf('\n}', at));
       return (
-        body.includes('useStatesInScope()') && /if \(states\.length === 0\) return null;/.test(body)
+        body.includes('useStatesInScope()') &&
+        /if \(states\.length === 0\) \{/.test(body) &&
+        // Says what is missing and where to get one, rather than sitting blank.
+        /no switch on this page/.test(body)
       );
     })(),
     (() => {
-      const at = content.indexOf('function SwitchSetterSection(');
+      const at = content.indexOf('export function ActionsSection(');
       if (at < 0) return 'the section is gone entirely';
       const body = content.slice(at, content.indexOf('\n}', at));
       return (
-        (/if \(states\.length === 0\)[^\n]*/.exec(body)?.[0] ?? 'no guard on an empty scope') +
+        (/if \(states\.length === 0\)[^\n]*/.exec(body)?.[0] ?? 'no branch on an empty scope') +
         (body.includes('useStatesInScope()') ? '' : ', and it never asks what is in scope')
       );
     })()
@@ -5510,34 +5595,53 @@ report.group('the panel is not narrower than the model');
     const body = source.slice(at, source.indexOf('\n}', at));
     return new Set([...body.matchAll(/<(\w+Section) \/>/g)].map((m) => m[1]));
   };
-  const single = sectionsIn(inspector, 'function SingleSelection(');
-  const multi = sectionsIn(inspector, 'function MultiSelection(');
-  const wanted = ['LayoutSection', 'FlexChildSection', 'PositionSection'];
+  /*
+   * Both selections render the same `StyleTab`, so "does a multi-selection get
+   * the layout controls" is now a question about that one component rather
+   * than about two lists staying in step. The three sections are still named,
+   * because the point of the check is that these specific ones are reachable —
+   * `PlacementSection` is where growing and pinning both went.
+   */
+  const styleSections = sectionsIn(inspector, 'function StyleTab(');
+  const selectedOnly = sectionsIn(inspector, 'function SelectedTab(');
+  const multi = inspector.slice(
+    inspector.indexOf('function MultiSelection('),
+    inspector.indexOf('\n}', inspector.indexOf('function MultiSelection('))
+  );
+  const wanted = ['LayoutSection', 'PlacementSection'];
 
   report.check(
     'a multi-selection can lay out, grow and pin — the three it is for',
-    wanted.every((name) => multi.has(name)),
-    wanted.filter((name) => !multi.has(name)).join(', ') || wanted.join(', ')
+    multi.includes('<StyleTab />') && wanted.every((name) => styleSections.has(name)),
+    // One component now, rendered by both selections, so the two lists cannot
+    // drift apart — which is what the first version of this was written to
+    // catch. Growing and pinning both live in Placement.
+    multi.includes('<StyleTab />')
+      ? wanted.filter((name) => !styleSections.has(name)).join(', ') ||
+        `${styleSections.size} drawing sections, shared`
+      : 'a multi-selection does not render the style tab at all'
   );
   /*
-   * Four sections are single-selection by nature, and they share a criterion
-   * rather than being four separate exceptions: each writes to one node's own
-   * content or contract — its text, its binding, its conditions, the props it
-   * lets an instance change — rather than to how it is drawn. Everything that
-   * describes *drawing* applies to any number of nodes at once, and that is
-   * what this check is for.
+   * Five sections are single-selection by nature, and they share a criterion
+   * rather than being five separate exceptions: each writes to one node's own
+   * content or contract — its text, its binding, its conditions, what happens
+   * when it is pressed, the props it lets an instance change — rather than to
+   * how it is drawn. Everything that describes *drawing* applies to any number
+   * of nodes at once, and that is what this check is for.
    */
   const OWN_CONTRACT = [
     'ContentSection',
     'DataSection',
     'RulesSection',
+    'ActionsSection',
     'ComponentPropertySection',
   ];
-  const singleOnly = [...single].filter((name) => !multi.has(name) && !OWN_CONTRACT.includes(name));
+  const singleOnly = [...selectedOnly].filter((name) => !OWN_CONTRACT.includes(name));
   report.check(
     'and there is nothing left that only one element can be given',
     singleOnly.length === 0,
-    singleOnly.join(', ') || `${multi.size} sections, ${single.size} for one`
+    singleOnly.join(', ') ||
+      `${styleSections.size} drawing sections shared, ${selectedOnly.size} about one element`
   );
 
   /*
