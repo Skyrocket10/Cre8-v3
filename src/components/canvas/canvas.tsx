@@ -87,11 +87,36 @@ const RESET = `${DOCUMENT_RESET}\n${PLACEHOLDER_CSS}`;
  * selector reaches for an ancestor uses that ancestor's *class*, which comes
  * from its id, and an id does not change when a style does.
  */
-function useNodeSetCss(nodes: NodeMap, ids: readonly string[], prelude = ''): string {
-  const cache = useRef<{ ids: readonly string[]; seen: unknown[]; css: string } | null>(null);
+function useNodeSetCss(
+  nodes: NodeMap,
+  ids: readonly string[],
+  /*
+   * Which way the document reads, and it has to be *both* an argument and part
+   * of the cache key.
+   *
+   * The canvas builds its own stylesheet rather than calling
+   * `generateStylesheet` — it splits the document into a cold set and a hot one
+   * so an edit reprints a handful of rules instead of a thousand — so it is the
+   * one surface the document's direction does not reach on its own. Without the
+   * argument the frame carries `dir="rtl"` over CSS that still says `left`, and
+   * a designer sees an unmirrored page made of mirrored markup. Without the key
+   * the cache hands back the previous direction's rules until every node
+   * happens to change, which is worse: it works, eventually, for no visible
+   * reason.
+   */
+  direction: 'ltr' | 'rtl',
+  prelude = ''
+): string {
+  const cache = useRef<{
+    ids: readonly string[];
+    seen: unknown[];
+    direction: string;
+    css: string;
+  } | null>(null);
   const previous = cache.current;
 
-  let unchanged = previous !== null && previous.ids.length === ids.length;
+  let unchanged =
+    previous !== null && previous.ids.length === ids.length && previous.direction === direction;
   if (unchanged && previous) {
     for (let i = 0; i < ids.length; i++) {
       if (previous.ids[i] !== ids[i] || previous.seen[i] !== nodes[ids[i]!]) {
@@ -103,10 +128,15 @@ function useNodeSetCss(nodes: NodeMap, ids: readonly string[], prelude = ''): st
   if (unchanged && previous) return previous.css;
 
   const generated = ids.length
-    ? generateNodeCss(nodes, { mode: 'container', nodeIds: ids as string[], includeStates: false })
+    ? generateNodeCss(nodes, {
+        mode: 'container',
+        nodeIds: ids as string[],
+        includeStates: false,
+        direction,
+      })
     : '';
   const css = prelude ? `${prelude}\n${generated}` : generated;
-  cache.current = { ids, seen: ids.map((id) => nodes[id]), css };
+  cache.current = { ids, seen: ids.map((id) => nodes[id]), direction, css };
   return css;
 }
 
@@ -236,8 +266,11 @@ export function Canvas() {
   // The same reset the preview and the published file get. Without it the
   // canvas would be styled by whatever the editor app's own stylesheet happens
   // to reset, and the three surfaces would only agree by coincidence.
-  const coldCss = useNodeSetCss(nodes, coldIds, RESET);
-  const hotCss = useNodeSetCss(nodes, hotIds);
+  // Its own subscription, because `settings` is read further down and the
+  // stylesheet is built here — one string, and it changes about never.
+  const reads = useEditor((s) => (s.doc.settings.direction === 'rtl' ? 'rtl' : 'ltr'));
+  const coldCss = useNodeSetCss(nodes, coldIds, reads, RESET);
+  const hotCss = useNodeSetCss(nodes, hotIds, reads);
 
   const themeVars = useMemo(() => themeToStyleObject(theme), [theme]);
 
@@ -487,6 +520,10 @@ export function Canvas() {
              * subscription instead of one per node.
              */
             lang={settings.language || 'en'}
+            // And which way it reads. The generator has already rewritten the
+            // sided properties as logical ones; this is what tells the browser
+            // which way round those resolve, so the two halves have to agree.
+            dir={settings.direction === 'rtl' ? 'rtl' : undefined}
             className={cn(
               'cre8-frame cre8-doc cre8-editing relative overflow-hidden bg-white',
               showOutlines && 'cre8-outlines'

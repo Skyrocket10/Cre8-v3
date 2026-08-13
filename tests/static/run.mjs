@@ -8458,6 +8458,23 @@ report.group('an expression is described in one place');
    * never offered it. That false positive is why the first pass of this audit
    * had to be run twice.
    */
+  const effectOnly = Object.entries(vocab).filter(([, entry]) => entry.control.kind === 'effect');
+  report.check(
+    'a property with no row of its own is offered to a rule instead',
+    effectOnly.length > 0 && effectOnly.every(([, entry]) => Boolean(entry.asEffect)),
+    /*
+     * The third answer to "where is this edited", and the one that could
+     * quietly become "nowhere". `bespoke` promises a hand-written row and is
+     * checked against the panel below; `effect` promises the rules panel, and
+     * the picker only offers a property that has a phrase — so an entry with
+     * this kind and no `asEffect` is unreachable from anywhere at all, which is
+     * the exact hole this whole table was built to close.
+     */
+    effectOnly.length
+      ? effectOnly.map(([prop, entry]) => `${prop} → ${entry.asEffect ?? 'nothing'}`).join(', ')
+      : 'nothing uses it'
+  );
+
   const bespokeWithoutRow = Object.entries(vocab)
     .filter(([, entry]) => entry.control.kind === 'bespoke')
     .map(([prop]) => prop)
@@ -8769,6 +8786,189 @@ report.group('text that does not fit has somewhere to go');
   );
 }
 
+report.group('a document can read right to left');
+
+{
+  /*
+   * Gap 6, and the one the stress template called the largest by effort: every
+   * spacing decision in the library is *physical*. Ninety-three blocks say
+   * `paddingLeft`, and `padding-left` is the left of the screen whichever way
+   * the writing runs — so an Arabic site built from them has its indents, its
+   * icon gaps and its borders all on the wrong side, and the fix available was
+   * to rewrite every block.
+   *
+   * Instead the generator rewrites the sided properties as flow-relative ones
+   * when the document says `rtl`. `padding-inline-start` is the left in English
+   * and the right in Arabic, so the whole library mirrors and nothing in it
+   * changed. The two checks that matter are that it happens at all, and that it
+   * happens to *nobody else*.
+   */
+  const sheetFor = (direction, styles) => {
+    const doc = createEmptyDocument();
+    doc.settings = { ...doc.settings, ...(direction === 'rtl' ? { direction } : {}) };
+    const home = doc.pages.find((one) => one.isHome) ?? doc.pages[0];
+    const { nodes } = buildTree({ type: 'text', name: 'T', props: { text: 'x' }, styles });
+    const [id] = Object.keys(nodes);
+    doc.nodes[id] = { ...nodes[id], parentId: home.rootNodeId };
+    doc.nodes[home.rootNodeId].children = [id];
+    return generateStylesheet(doc, { mode: 'media' });
+  };
+  const has = (sheet, declaration) => sheet.includes(declaration);
+
+  const sided = {
+    paddingLeft: '10px',
+    marginRight: '20px',
+    left: '4px',
+    borderLeftWidth: '2px',
+    borderTopLeftRadius: '6px',
+    textAlign: 'left',
+  };
+  const mirrored = sheetFor('rtl', sided);
+  const plain = sheetFor('ltr', sided);
+
+  const wanted = [
+    'padding-inline-start: 10px',
+    'margin-inline-end: 20px',
+    'inset-inline-start: 4px',
+    'border-inline-start-width: 2px',
+    'border-start-start-radius: 6px',
+    'text-align: start',
+  ];
+  const absent = wanted.filter((one) => !has(mirrored, one));
+  report.check(
+    'a right-to-left document says its sides the way round that mirrors',
+    absent.length === 0,
+    absent.length ? `missing: ${absent.join(', ')}` : wanted.map((d) => d.split(':')[0]).join(', ')
+  );
+  report.check(
+    'and stops saying them the way that does not',
+    !/(?:^|[;{\s])(?:padding-left|margin-right|left|border-left-width|border-top-left-radius):/.test(
+      mirrored
+    ),
+    // A page carrying both is a page where whichever came last wins, which is
+    // worse than not mirroring at all: it would depend on declaration order.
+    /(?:^|[;{\s])(padding-left|margin-right|left|border-left-width|border-top-left-radius):/.exec(
+      mirrored
+    )?.[1] ?? 'no physical sides left'
+  );
+
+  /*
+   * The other half, and the more important one. Every site already published
+   * is left-to-right, and the byte-identical gate is only worth having if the
+   * bytes did not move underneath it.
+   */
+  const untouched = ['padding-left: 10px', 'margin-right: 20px', 'text-align: left'];
+  const changed = untouched.filter((one) => !has(plain, one));
+  /*
+   * Scoped to the node's own rule rather than the whole sheet, because the
+   * *reset* is flow-relative for everybody now and always should have been: a
+   * list indented with `padding-left` indents on the wrong side of an Arabic
+   * page, and a `padding-inline-start` of the same length is the identical
+   * pixel in English. That is a fix rather than an exception, and the first
+   * version of this check called it a failure.
+   */
+  const nodeRule = /\.c-[a-z0-9]+ \{([^}]*)\}/.exec(plain)?.[1] ?? '';
+  report.check(
+    'a left-to-right document emits exactly what it always did',
+    changed.length === 0 && !nodeRule.includes('inline-start'),
+    changed.length
+      ? `no longer says: ${changed.join(', ')}`
+      : `${untouched.length} physical declarations on the node, no logical ones`
+  );
+
+  /*
+   * What is deliberately *not* mirrored, because a list of what a rule covers
+   * is only trustworthy beside the list of what it leaves alone. A two-pixel
+   * nudge is a visual adjustment to one design rather than a statement about
+   * reading order, and a photograph's focal point does not swap sides because
+   * the words did.
+   */
+  const kept = sheetFor('rtl', {
+    translate: '4px 0',
+    transform: 'translateX(4px)',
+    backgroundPosition: 'left center',
+    top: '8px',
+  });
+  report.check(
+    'and leaves alone the things that are not about reading order',
+    has(kept, 'translate: 4px 0') &&
+      has(kept, 'transform: translateX(4px)') &&
+      has(kept, 'background-position: left center') &&
+      has(kept, 'top: 8px'),
+    'transform, translate, background-position and the block axis are untouched'
+  );
+
+  report.check(
+    'the published shell says which way it reads, and only when it is unusual',
+    (() => {
+      const shell = (direction) => {
+        const doc = createEmptyDocument();
+        doc.settings = { ...doc.settings, ...(direction ? { direction } : {}) };
+        const html = generateSite(doc).files.find((f) => f.path === 'index.html')?.contents ?? '';
+        return /<html[^>]*>/.exec(html)?.[0] ?? '';
+      };
+      return /dir="rtl"/.test(shell('rtl')) && !/dir=/.test(shell(undefined));
+    })(),
+    // `dir="ltr"` on every page in the world is bytes spent saying what the
+    // browser already assumed.
+    'rtl writes the attribute, ltr writes nothing'
+  );
+
+  /*
+   * Both halves, on both surfaces, and the second half is here because it was
+   * missing and nothing said so.
+   *
+   * The canvas and preview do not call `generateStylesheet` — each builds its
+   * own sheet from `generateNodeCss`, the canvas because it splits the document
+   * into a cold set and a hot one so an edit reprints a handful of rules rather
+   * than a thousand. So the document's direction reaches the publisher for free
+   * and reaches neither of them, and the first version of this shipped a frame
+   * carrying `dir="rtl"` over CSS that still said `left`: markup that turned
+   * around and a layout that did not, which reads as the feature being broken
+   * rather than as one argument missing. Found by hand, an hour after the check
+   * below said the surfaces were covered.
+   */
+  const frames = [
+    ['src/components/canvas/canvas.tsx', /dir=\{[^}]*direction === 'rtl'/],
+    ['src/components/preview/preview.tsx', /dir=\{[^}]*direction === 'rtl'/],
+  ];
+  const missingAttr = frames
+    .filter(([file, pattern]) => !pattern.test(readFileSync(path.join(ROOT, file), 'utf8')))
+    .map(([file]) => file);
+  const missingCss = frames
+    .filter(([file]) => {
+      const source = readFileSync(path.join(ROOT, file), 'utf8');
+      /*
+       * Inside the call, not anywhere in the file. The first spelling of this
+       * looked for the word `direction` in the source and found it in the
+       * helper's own parameter list — so removing it from the `generateNodeCss`
+       * arguments, which is the bug, left the check green.
+       */
+      return (
+        /generateNodeCss\(/.test(source) && !/generateNodeCss\([^)]*\bdirection\b/s.test(source)
+      );
+    })
+    .map(([file]) => file);
+  report.check(
+    'and so do the two surfaces that draw inside the editor, in the markup',
+    missingAttr.length === 0,
+    missingAttr.length ? `no dir on: ${missingAttr.join(', ')}` : `${frames.length} frames carry it`
+  );
+  report.check(
+    'and in the stylesheet each of them builds for itself',
+    missingCss.length === 0,
+    missingCss.length
+      ? `builds CSS without a direction: ${missingCss.join(', ')}`
+      : `${frames.length} generators told which way round`
+  );
+
+  report.check(
+    'these are reading real stylesheets rather than empty strings',
+    mirrored.length > 400 && plain.length > 400,
+    `${mirrored.length} characters mirrored, ${plain.length} plain`
+  );
+}
+
 report.group('the layout long tail the stress template asked for');
 
 {
@@ -8821,9 +9021,13 @@ report.group('the layout long tail the stress template asked for');
    * the compiler. That happened once and was found by clicking the row.
    */
   const bareCounts = ['columnCount', 'order', 'scale'];
-  const withUnits = bareCounts.filter(
-    (prop) => (vocabulary.STYLE_VOCABULARY[prop].control.units ?? ['px']).length > 0
-  );
+  const withUnits = bareCounts.filter((prop) => {
+    // Only a `length` row can append anything. `scale` is set from a rule
+    // rather than a row, so it has no field to put a unit in — reading a
+    // missing `units` as the default `px` called that a failure.
+    const control = vocabulary.STYLE_VOCABULARY[prop].control;
+    return control.kind === 'length' && control.units.length > 0;
+  });
   report.check(
     'the rows whose value is a bare number offer no unit to append',
     withUnits.length === 0,
@@ -10605,8 +10809,14 @@ report.group('a group of fields does not restyle what is in it');
     /font-size:\s*13px/.test(legendRule) && /font-weight:\s*580/.test(legendRule),
     legendRule.trim() || 'no legend rule in the sheet'
   );
-  const padded = /padding-left:\s*(-?\d+)px/.exec(legendRule)?.[1];
-  const pulled = /margin-left:\s*(-?\d+)px/.exec(legendRule)?.[1];
+  /*
+   * `padding-inline` and `margin-inline`, not `padding-left` and `margin-left`.
+   * The reset says both sides flow-relatively now, so a right-to-left fieldset
+   * lines its legend up with its fields the same way — the claim below is
+   * unchanged, and only its spelling moved.
+   */
+  const padded = /padding-inline:\s*(-?\d+)px/.exec(legendRule)?.[1];
+  const pulled = /margin-inline:\s*(-?\d+)px/.exec(legendRule)?.[1];
   report.check(
     'its padding is cancelled by a margin, so the words line up with the fields',
     padded === '6' && pulled === '-6',

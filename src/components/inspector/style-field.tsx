@@ -80,7 +80,9 @@ export function StyleField({ prop }: { prop: StyleProp }) {
   );
   const style = useStyleProp(prop);
 
-  if (entry.control.kind === 'bespoke') return null;
+  // Neither of these draws a row: `bespoke` defers to a hand-written one, and
+  // `effect` is set from a rule rather than from the panel at all.
+  if (entry.control.kind === 'bespoke' || entry.control.kind === 'effect') return null;
   if (!types.length) return null;
   if (entry.only && !types.every((type) => entry.only!.includes(type))) return null;
   if (gateProp && entry.when) {

@@ -12,7 +12,7 @@ import React from 'react';
 import { updatePage } from '@/lib/document/operations';
 import { useEditor } from '@/lib/editor/store';
 import { ColorField } from '../ui/color-field';
-import { Section, Switch, TextInput } from '../ui/primitives';
+import { Section, Segmented, Switch, TextInput } from '../ui/primitives';
 import { InspectorGroup, StyleRow } from './controls';
 import { PageRouteControls } from './section-data';
 
@@ -135,6 +135,39 @@ export function PagePanel() {
                   draft.settings.language = value || 'en';
                 })
               }
+            />
+          </StyleRow>
+          <StyleRow
+            label="Reads"
+            /*
+             * Beside Language, because it is the other half of the same
+             * answer, and a document setting rather than a style because it is
+             * not a decision made per box: Arabic does not become English
+             * halfway down a page.
+             *
+             * What it does is larger than the attribute it writes. Every block
+             * in the library is authored in physical sides — `paddingLeft` and
+             * friends — so the generator rewrites them as their flow-relative
+             * equivalents while this is on, and the whole library mirrors
+             * without a line of it changing. The panel keeps saying "left",
+             * because on an English page that is what it is.
+             */
+            hint="Right to left mirrors every padding, margin, border and alignment in the document"
+          >
+            <Segmented
+              full
+              value={settings.direction === 'rtl' ? 'rtl' : 'ltr'}
+              onChange={(value) =>
+                useEditor.getState().transact('Set reading direction', (draft) => {
+                  // Stored only when it is not the default, so a document that
+                  // never touched this reads and publishes exactly as before.
+                  draft.settings.direction = value === 'rtl' ? 'rtl' : undefined;
+                })
+              }
+              options={[
+                { value: 'ltr', label: 'Left to right' },
+                { value: 'rtl', label: 'Right to left' },
+              ]}
             />
           </StyleRow>
           <StyleRow label="Favicon">

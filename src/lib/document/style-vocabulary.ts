@@ -76,6 +76,26 @@ export interface StyleChoice {
 export type StyleControl =
   /** A hand-written row owns this. Declared for its words and for coverage. */
   | { kind: 'bespoke' }
+  /**
+   * Set by a rule, not by a row — the effect picker offers it and the panel
+   * does not.
+   *
+   * A third answer to "where is this edited", and it earns its place because
+   * the other two were both wrong for the individual transforms. A row of
+   * their own put a second field called Scale beside the Transform control's,
+   * and `bespoke` is a promise that a hand-written row exists, which for these
+   * would be a promise nothing keeps.
+   *
+   * What they are actually for is a *rule*: `transform` is a list, so a hover
+   * that lifts a card has to restate its scale, while `translate` on its own
+   * leaves the scale standing. That is a thing you say in the rules panel, and
+   * this is the entry saying so out loud rather than by omission.
+   *
+   * An entry using this must carry `asEffect`, or it is not reachable at all —
+   * checked, because "offered somewhere else" is exactly the sentence behind
+   * every hole this table was built to close.
+   */
+  | { kind: 'effect' }
   /** One of a fixed set. Renders as a menu, or as a segmented row when short. */
   | { kind: 'choice'; options: StyleChoice[]; segmented?: boolean }
   /**
@@ -613,32 +633,47 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
   /* ------------------------------------------------------------- motion -- */
   transform: { label: 'Transform', section: 'motion', control: { kind: 'bespoke' } },
   /*
-   * The three that compose. `transform` is a list, so a hover rule that wants
-   * to lift a card two pixels has to restate the scale and the rotation the
-   * base layer set, and one that forgets undoes them. These are separate
-   * properties: a rule writes the one axis it cares about and the other two
-   * survive. Below `transform` in the table because it is still the row most
-   * people reach for, and above `transformOrigin` because all four share one.
+   * The three that compose, and the reason they have no row of their own.
+   *
+   * `transform` is a list, so a rule that wants to lift a card two pixels on
+   * hover has to restate whatever scale and rotation the base layer set, and
+   * one that forgets undoes them. These are separate properties: a rule writes
+   * the one axis it cares about and the other two survive. That is worth
+   * having, and it is worth having *in a rule*, which is where the effect
+   * picker offers them — each carries an `asEffect` phrase and no control.
+   *
+   * `bespoke` rather than a row, because the hand-written Transform control
+   * above already asks for a move, a scale and a rotation, and adding these as
+   * rows put two fields called Scale in a 280px panel. That is the mistake the
+   * Tiling label exists to record, and the browser suite caught this one the
+   * same way — by counting the inputs in a row and finding three.
+   *
+   * The tidy end state is one control that writes these three instead of the
+   * list, so the panel has one Transform and the cascade gets composability
+   * for free. It is a migration rather than a rename: `parseTransform` and
+   * every document already holding a `transform` string would have to be read
+   * on the way in and written the new way on the way out, and half-doing that
+   * would leave a card that is visibly rotated with an empty Rotate field.
    */
   translate: {
     label: 'Nudge',
     hint: 'Moves it without disturbing anything around it, e.g. 0 -4px',
     asEffect: 'where it sits',
     section: 'motion',
-    control: { kind: 'text', placeholder: '0 0' },
+    control: { kind: 'effect' },
   },
   scale: {
     label: 'Scale',
     hint: '1 is unchanged. Two numbers scale the axes separately',
     asEffect: 'how big it is',
     section: 'motion',
-    control: { kind: 'length', units: [], placeholder: '1', step: 0.02 },
+    control: { kind: 'effect' },
   },
   rotate: {
     label: 'Rotate',
     asEffect: 'how far it is turned',
     section: 'motion',
-    control: { kind: 'length', units: ['deg', 'turn'], placeholder: '0deg' },
+    control: { kind: 'effect' },
   },
   transformOrigin: {
     label: 'Anchored at',
@@ -834,7 +869,12 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
  */
 export function tabled(section: StyleSection): StyleProp[] {
   return (Object.entries(STYLE_VOCABULARY) as [StyleProp, StyleEntry][])
-    .filter(([, entry]) => entry.section === section && entry.control.kind !== 'bespoke')
+    .filter(
+      ([, entry]) =>
+        entry.section === section &&
+        entry.control.kind !== 'bespoke' &&
+        entry.control.kind !== 'effect'
+    )
     .map(([prop]) => prop);
 }
 

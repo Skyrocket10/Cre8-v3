@@ -1236,6 +1236,27 @@ export interface ProjectSettings {
   customHead?: string;
   language: string;
   /**
+   * Which way the writing runs. `ltr` unless it says otherwise.
+   *
+   * A property of the document rather than of an element, because it is not a
+   * design decision made per box — it is what language the site is in, and
+   * Arabic does not become English halfway down a page.
+   *
+   * What it costs is more than a `dir` attribute, and the reason is that this
+   * library is written in *physical* properties: ninety-three blocks say
+   * `paddingLeft`, and a left padding stays on the left when the page turns
+   * around. So the generator rewrites the sided properties as their logical
+   * equivalents when this is `rtl` — `padding-left` becomes
+   * `padding-inline-start`, which is the left in English and the right in
+   * Arabic. One setting mirrors the whole library, and nothing had to be
+   * rewritten to get it.
+   *
+   * Only when it is `rtl`. An `ltr` document emits exactly the bytes it
+   * emitted before this existed, so every site already published is untouched
+   * and the byte-identical gate still has something to be identical about.
+   */
+  direction?: 'ltr' | 'rtl';
+  /**
    * Per data source: what the file ships with, and what the canvas shows.
    *
    * The same pair a switch has — `switchDefault` and `switchDesign` — for the

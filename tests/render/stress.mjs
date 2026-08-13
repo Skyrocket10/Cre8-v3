@@ -54,6 +54,27 @@ for (const file of site.files) {
 }
 const pageOf = (slug) => `file://${path.join(OUT, slug, 'index.html')}`;
 
+/*
+ * The same document, built again reading the other way.
+ *
+ * One setting, and the generator rewrites every sided property as its
+ * flow-relative equivalent — so the comparison below is not "does this page
+ * mirror" but "does the *same page* mirror", which is the only version of the
+ * question worth asking. Written beside the first rather than over it so both
+ * are on disk at once and a failure can be looked at.
+ */
+const RTL_OUT = path.join(ARTIFACTS, 'stress-rtl');
+{
+  const doc = template.build();
+  doc.settings = { ...doc.settings, direction: 'rtl' };
+  for (const file of generateSite(doc, { records: {} }).files) {
+    const target = path.join(RTL_OUT, file.path);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, file.contents);
+  }
+}
+const rtlPageOf = (slug) => `file://${path.join(RTL_OUT, slug, 'index.html')}`;
+
 const browser = await launch();
 const context = await browser.newContext();
 const page = await context.newPage();
@@ -439,6 +460,203 @@ report.group('a jump can stop somewhere other than 96px');
           landed.plain.atBottom ? 'the end of the page' : 'mid-document'
         }`
       : 'no second jump link'
+  );
+}
+
+/* ------------------------------------------------- and the other way round */
+
+report.group('the same document, read right to left');
+
+{
+  /*
+   * Gap 6, and the last of the seven. Every spacing decision in this library is
+   * physical — ninety-three blocks say `paddingLeft` — so an Arabic site built
+   * from them had its indents, borders and alignment all on the wrong side, and
+   * the only fix on offer was to rewrite every block.
+   *
+   * The measurement is the same box in the same document, built twice.
+   */
+  const lopsided = () => {
+    const box = [...document.querySelectorAll('div')].find(
+      (el) => Math.round(parseFloat(getComputedStyle(el).borderLeftWidth || '0')) === 4 ||
+        Math.round(parseFloat(getComputedStyle(el).borderRightWidth || '0')) === 4
+    );
+    if (!box) return null;
+    const style = getComputedStyle(box);
+    return {
+      padLeft: Math.round(parseFloat(style.paddingLeft)),
+      padRight: Math.round(parseFloat(style.paddingRight)),
+      borderLeft: Math.round(parseFloat(style.borderLeftWidth)),
+      borderRight: Math.round(parseFloat(style.borderRightWidth)),
+      align: style.textAlign,
+      dir: getComputedStyle(document.body).direction,
+    };
+  };
+
+  const plain = await at(1440, pageOf('layout'), lopsided);
+  const mirrored = await at(1440, rtlPageOf('layout'), lopsided);
+
+  report.check(
+    'the box is lopsided to begin with, or there is nothing to mirror',
+    plain?.padLeft === 48 && plain?.borderLeft === 4 && plain?.padRight === 10,
+    plain ? `${plain.padLeft}px indent and a ${plain.borderLeft}px rule, both on the left` : 'no box'
+  );
+  report.check(
+    'and the same box in the same document, read the other way, is lopsided the other way',
+    mirrored?.padRight === 48 &&
+      mirrored?.borderRight === 4 &&
+      mirrored?.padLeft === 10 &&
+      mirrored?.borderLeft === 0,
+    mirrored
+      ? `${mirrored.padRight}px indent and a ${mirrored.borderRight}px rule, both on the right`
+      : 'no box'
+  );
+  report.check(
+    'the browser knows which way it is reading, not just what the CSS says',
+    mirrored?.dir === 'rtl' && plain?.dir === 'ltr',
+    // Both halves or neither: the generator renames the properties and the
+    // attribute is what decides which side `inline-start` resolves to. One
+    // without the other is a page of mirrored CSS that does not mirror.
+    `${plain?.dir ?? '?'} then ${mirrored?.dir ?? '?'}`
+  );
+  /*
+   * Where the glyphs are, not what `text-align` computes to.
+   *
+   * The first version asked for a computed value of `right` and got `start`,
+   * which is the correct answer to a question about the wrong thing: `start`
+   * *is* the right in a right-to-left box, and a computed value cannot say
+   * whether anything moved. Measuring the line's own rectangle against its
+   * container's content edges can.
+   */
+  const flush = async (url) =>
+    at(1440, url, () => {
+      const box = [...document.querySelectorAll('div')].find(
+        (el) =>
+          Math.round(parseFloat(getComputedStyle(el).borderLeftWidth || '0')) === 4 ||
+          Math.round(parseFloat(getComputedStyle(el).borderRightWidth || '0')) === 4
+      );
+      const line = box?.querySelector('span');
+      if (!line) return null;
+      const range = document.createRange();
+      range.selectNodeContents(line);
+      const text = range.getBoundingClientRect();
+      const style = getComputedStyle(box);
+      const inner = box.getBoundingClientRect();
+      return {
+        fromStart: Math.round(
+          text.left - (inner.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth))
+        ),
+        fromEnd: Math.round(
+          inner.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth) - text.right
+        ),
+      };
+    });
+  const leftward = await flush(pageOf('layout'));
+  const rightward = await flush(rtlPageOf('layout'));
+  report.check(
+    'and the words themselves sit against the other edge',
+    Math.abs(leftward?.fromStart ?? -1) <= 1 &&
+      (leftward?.fromEnd ?? 0) > 20 &&
+      Math.abs(rightward?.fromEnd ?? -1) <= 1 &&
+      (rightward?.fromStart ?? 0) > 20,
+    `left to right: ${leftward?.fromStart}px from the left edge; ` +
+      `right to left: ${rightward?.fromEnd}px from the right`
+  );
+
+  /*
+   * The leverage claim, measured against documents nobody edited for it: doing
+   * the rewrite in the generator rather than in the blocks is only worth
+   * anything if the whole library comes along.
+   *
+   * The gallery, not the flagship, and the swap is the point.
+   *
+   * `saas` is one page of one design and came out with two lopsided boxes in
+   * two hundred and forty-seven elements — true, and far too small a sample to
+   * say anything about a library. The gallery holds every block in the
+   * registry, so a category page of it is the widest real document there is.
+   */
+  const gallery = TEMPLATES.find((one) => one.id === 'gallery');
+  const widest = gallery
+    .build()
+    .pages.map((one) => one.slug)
+    .filter((slug) => slug.startsWith('blocks/'));
+  const build = (direction) => {
+    const doc = gallery.build();
+    doc.settings = { ...doc.settings, ...(direction === 'rtl' ? { direction } : {}) };
+    const out = path.join(ARTIFACTS, `gallery-${direction}`);
+    for (const file of generateSite(doc, { records: {} }).files) {
+      const target = path.join(out, file.path);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, file.contents);
+    }
+    return (slug) => `file://${path.join(out, slug, 'index.html')}`;
+  };
+
+  /*
+   * Every element on a page, in document order, with the four numbers and the
+   * one keyword that have a side. Matched by position across the two builds
+   * rather than by class, because a build mints fresh node ids and therefore
+   * fresh class names — the structure is what is identical, and the structure
+   * is what is being compared.
+   */
+  const sides = () =>
+    [...document.querySelectorAll('*')].map((el) => {
+      const style = getComputedStyle(el);
+      return [
+        Math.round(parseFloat(style.paddingLeft)),
+        Math.round(parseFloat(style.paddingRight)),
+        Math.round(parseFloat(style.borderLeftWidth)),
+        Math.round(parseFloat(style.borderRightWidth)),
+        style.textAlign,
+      ];
+    });
+
+  const ltrPage = build('ltr');
+  const rtlPage = build('rtl');
+  let elements = 0;
+  let boxes = 0;
+  let aligned = 0;
+  let stuck = 0;
+  const mismatched = [];
+
+  /*
+   * Every category page, not one of them. The first version of this measured
+   * the flagship template — two lopsided boxes in two hundred and forty-seven
+   * elements, which is true and far too small a sample to say anything about a
+   * library. Then one gallery page, which came back with none at all. This
+   * library is *mostly* symmetric horizontally, so the only honest way to ask
+   * is to ask all of it.
+   */
+  for (const slug of widest) {
+    const before = await at(1440, ltrPage(slug), sides);
+    const after = await at(1440, rtlPage(slug), sides);
+    if (before.length !== after.length) {
+      mismatched.push(`${slug}: ${before.length} vs ${after.length}`);
+      continue;
+    }
+    elements += before.length;
+    for (const [i, [pl, pr, bl, br, align]] of before.entries()) {
+      const [rl, rr, rbl, rbr, ralign] = after[i];
+      if (pl !== pr || bl !== br) boxes += 1;
+      if (align === 'left' || align === 'right') aligned += 1;
+      if (rl !== pr || rr !== pl || rbl !== br || rbr !== bl) {
+        stuck += 1;
+      } else if (
+        (align === 'left' || align === 'right') &&
+        (ralign === 'left' || ralign === 'right')
+      ) {
+        stuck += 1;
+      }
+    }
+  }
+
+  report.check(
+    'every page of the block library mirrors too, with nothing in it rewritten',
+    mismatched.length === 0 && stuck === 0 && boxes + aligned > 0,
+    mismatched.length
+      ? `different element counts on ${mismatched.join('; ')}`
+      : `${elements} elements across ${widest.length} pages: ${boxes} with a lopsided box and ` +
+        `${aligned} with a side to their text, ${stuck} that did not turn round`
   );
 }
 

@@ -179,6 +179,81 @@ const EXPANSION_ORDER: Record<string, -1 | 1> = {
   lineClamp: 1,
 };
 
+/* --------------------------------------------------------------------------
+ * Right to left
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The physical properties, and the flow-relative property that means the same
+ * thing on a page that reads the other way.
+ *
+ * This library is written in physical sides. Ninety-three blocks say
+ * `paddingLeft`, and `padding-left` is the left of the screen whichever
+ * direction the writing runs — so an Arabic site built from them has its
+ * indents, its icon gaps and its borders all on the wrong side, and the only
+ * fix available was to rewrite every block. That is the shape of gap the
+ * stress template called the largest by effort.
+ *
+ * `padding-inline-start` is the left in English and the right in Arabic. So
+ * the rewrite happens once, here, at the moment a declaration is printed, and
+ * every block mirrors without being touched. What a designer typed still says
+ * "left" in the panel and in the file, because on an English page it *is* the
+ * left; only the emitted CSS knows the difference.
+ *
+ * Applied **only** to a document that says it is `rtl`. Emitting logical
+ * properties for everybody would be tidier and would change the bytes of every
+ * site already published, break the four-sided shorthand collapsing — `padding`
+ * has no single logical spelling — and put a modern-CSS dependency in the path
+ * of pages that have no use for it.
+ *
+ * Not in the list, deliberately:
+ *
+ * - **`transform` and `translate`.** A nudge of two pixels is a visual
+ *   adjustment to a specific design, not a statement about reading order, and
+ *   a browser offers nothing flow-relative to map them onto anyway.
+ * - **`background-position`.** Mostly a photograph's focal point, which does
+ *   not swap sides because the words do.
+ * - **`float` and `clear`.** No node emits either.
+ *
+ * The escape hatch is mirrored along with everything else, because it runs
+ * over the finished pairs and a hand-written `padding-left` is a padding like
+ * any other. Surprising if somebody meant it physically, and the alternative —
+ * one part of a document that does not turn round with the rest — is worse.
+ */
+const MIRRORED: Record<string, string> = {
+  'padding-left': 'padding-inline-start',
+  'padding-right': 'padding-inline-end',
+  'margin-left': 'margin-inline-start',
+  'margin-right': 'margin-inline-end',
+  left: 'inset-inline-start',
+  right: 'inset-inline-end',
+  'border-left-width': 'border-inline-start-width',
+  'border-right-width': 'border-inline-end-width',
+  'border-top-left-radius': 'border-start-start-radius',
+  'border-top-right-radius': 'border-start-end-radius',
+  'border-bottom-right-radius': 'border-end-end-radius',
+  'border-bottom-left-radius': 'border-end-start-radius',
+};
+
+/**
+ * The values that name a side, on the properties where they do.
+ *
+ * `text-align: left` is as physical as `padding-left` and mirrors the same way.
+ * The others are left alone: `float` nothing emits, and `background-position`
+ * is a focal point rather than a reading direction.
+ */
+const MIRRORED_VALUES: Record<string, Record<string, string>> = {
+  'text-align': { left: 'start', right: 'end' },
+  clear: { left: 'inline-start', right: 'inline-end' },
+};
+
+function mirror(pairs: [string, string][]): [string, string][] {
+  return pairs.map(([name, value]) => [
+    MIRRORED[name] ?? name,
+    MIRRORED_VALUES[name]?.[value] ?? value,
+  ]);
+}
+
 /**
  * Four-sided properties, and the order a shorthand writes them in.
  *
@@ -375,9 +450,21 @@ function lastWins(pairs: [string, string][]): [string, string][] {
   });
 }
 
-export function declarationsToCss(styles: StyleDecl, indent = '  '): string {
+export function declarationsToCss(
+  styles: StyleDecl,
+  indent = '  ',
+  direction: 'ltr' | 'rtl' = 'ltr'
+): string {
   const pairs = lastWins(safePairs(styles));
-  return collapseFourSided(pairs)
+  /*
+   * Mirrored before collapsing, which costs an RTL page a few bytes and is the
+   * only order that is correct. `padding: 10px 20px 10px 30px` is physical —
+   * top right bottom left — so a page that turns around cannot use it, and
+   * once the sides are renamed `collapseFourSided` no longer recognises them
+   * and leaves the four longhands alone. Doing it the other way round would
+   * produce a shorthand that quietly does not mirror.
+   */
+  return collapseFourSided(direction === 'rtl' ? mirror(pairs) : pairs)
     .map(([name, value]) => `${indent}${name}: ${value};`)
     .join('\n');
 }
@@ -421,20 +508,35 @@ interface NodeRules {
  * the edit rather than the size of the document.
  */
 const ruleCache = new WeakMap<SceneNode, NodeRules>();
+/*
+ * A second cache, because the same node can be printed two ways.
+ *
+ * Direction changes what a declaration is *called*, so a node cached while the
+ * document read left to right is the wrong answer the moment somebody turns it
+ * around — and a single cache would hand it back, with the editor showing
+ * mirrored markup and unmirrored CSS until every node happened to change.
+ * Two maps rather than a composite key so the common direction pays nothing.
+ */
+const mirroredRuleCache = new WeakMap<SceneNode, NodeRules>();
 
-function rulesFor(node: SceneNode, selectorPrefix: string): NodeRules {
-  const cached = ruleCache.get(node);
+function rulesFor(
+  node: SceneNode,
+  selectorPrefix: string,
+  direction: 'ltr' | 'rtl' = 'ltr'
+): NodeRules {
+  const cache = direction === 'rtl' ? mirroredRuleCache : ruleCache;
+  const cached = cache.get(node);
   if (cached) return cached;
 
   const selector = `${selectorPrefix}.${nodeClass(node.id)}`;
-  const baseBody = declarationsToCss(node.styles.desktop ?? {});
+  const baseBody = declarationsToCss(node.styles.desktop ?? {}, '  ', direction);
 
   const responsive: Partial<Record<Breakpoint, Emitted>> = {};
   for (const bp of BREAKPOINT_ORDER) {
     if (bp === 'desktop') continue;
     const layer = node.styles[bp];
     if (!layer || Object.keys(layer).length === 0) continue;
-    const body = declarationsToCss(layer, '    ');
+    const body = declarationsToCss(layer, '    ', direction);
     if (body) responsive[bp] = { selector, body };
   }
 
@@ -442,7 +544,7 @@ function rulesFor(node: SceneNode, selectorPrefix: string): NodeRules {
     base: baseBody ? { selector, body: baseBody } : null,
     responsive,
   };
-  ruleCache.set(node, rules);
+  cache.set(node, rules);
   return rules;
 }
 
@@ -645,6 +747,11 @@ export interface GenerateCssOptions {
   scope?: string;
   /** Emit hover/active/focus rules. Off inside the editor canvas. */
   includeStates?: boolean;
+  /**
+   * Rewrite the sided properties as logical ones, for a document that reads
+   * right to left. Absent or `ltr` emits exactly what it always did.
+   */
+  direction?: 'ltr' | 'rtl';
 }
 
 export function generateNodeCss(
@@ -678,7 +785,7 @@ export function generateNodeCss(
   for (const id of ids) {
     const node = nodes[id];
     if (!node) continue;
-    const cached = rulesFor(node, prefix);
+    const cached = rulesFor(node, prefix, options.direction);
     if (cached.base) baseRules.push(cached.base);
     for (const bp of BREAKPOINT_ORDER) {
       const chunk = cached.responsive[bp];
@@ -706,7 +813,7 @@ export function generateNodeCss(
           prefix,
           variantClass(node.id, variant.key)
         );
-        const body = selector && declarationsToCss(variant.hide.apply);
+        const body = selector && declarationsToCss(variant.hide.apply, '  ', options.direction);
         if (selector && body) ruleChunks.push(`${selector} {\n${body}\n}`);
       }
     }
@@ -727,11 +834,11 @@ export function generateNodeCss(
       if (!selector) continue;
 
       if (rule.breakpoint && rule.breakpoint !== 'desktop') {
-        const body = declarationsToCss(rule.apply, '    ');
+        const body = declarationsToCss(rule.apply, '    ', options.direction);
         if (body) (conditionalResponsive[rule.breakpoint] ??= []).push({ selector, body });
         continue;
       }
-      const body = declarationsToCss(rule.apply);
+      const body = declarationsToCss(rule.apply, '  ', options.direction);
       if (body) ruleChunks.push(`${selector} {\n${body}\n}`);
     }
   }
@@ -854,7 +961,7 @@ export const DOCUMENT_RESET = `
 *, *::before, *::after { box-sizing: border-box; }
 :where([data-cre8-root]), :where([data-cre8-root]) *, :where([data-cre8-root]) *::before, :where([data-cre8-root]) *::after { margin: 0; padding: 0; border: 0 solid; }
 :where([data-cre8-root]) { font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-:where([data-cre8-root]) :is(ul, ol) { padding-left: 1.25em; }
+:where([data-cre8-root]) :is(ul, ol) { padding-inline-start: 1.25em; }
 :where([data-cre8-root]) :is(img, video, svg) { max-width: 100%; }
 :where([data-cre8-root]) :is(img, video) { display: block; }
 :where([data-cre8-root]) a { color: inherit; text-decoration: none; }
@@ -871,7 +978,7 @@ export const DOCUMENT_RESET = `
 :where([data-cre8-root]) summary { display: list-item; }
 
 /* Controls whose parts the page cannot otherwise reach. */
-:where([data-cre8-root]) input[type="file"]::file-selector-button { font: inherit; font-size: 0.92em; font-weight: 550; margin-right: 12px; padding: 6px 12px; border: 0; border-radius: var(--r-sm); background: var(--c-primary); color: var(--c-on-primary); cursor: pointer; }
+:where([data-cre8-root]) input[type="file"]::file-selector-button { font: inherit; font-size: 0.92em; font-weight: 550; margin-inline-end: 12px; padding: 6px 12px; border: 0; border-radius: var(--r-sm); background: var(--c-primary); color: var(--c-on-primary); cursor: pointer; }
 :where([data-cre8-root]) progress { appearance: none; -webkit-appearance: none; display: block; }
 :where([data-cre8-root]) progress::-webkit-progress-bar { background: transparent; }
 :where([data-cre8-root]) progress::-webkit-progress-value { background: currentColor; }
@@ -896,7 +1003,7 @@ export const DOCUMENT_RESET = `
  * every other child does nothing above the first one, and the group's title
  * sits directly on top of its first field.
  */
-:where([data-cre8-root]) legend { padding-left: 6px; padding-right: 6px; margin-left: -6px; margin-right: -6px; margin-bottom: 10px; font-size: 13px; font-weight: 580; }
+:where([data-cre8-root]) legend { padding-inline: 6px; margin-inline: -6px; margin-bottom: 10px; font-size: 13px; font-weight: 580; }
 :where([data-cre8-root]) caption { text-align: inherit; padding-bottom: 10px; }
 
 /* Not :where() — see above. This one has to outrank the node's own display. */
@@ -1030,7 +1137,17 @@ export function generateStylesheet(
   if (options.themeVars) {
     parts.unshift(`${options.rootSelector ?? ':root'} {\n${options.themeVars}\n}`);
   }
-  parts.push(generateNodeCss(doc.nodes, options));
+  /*
+   * The direction comes from the document, and every caller therefore gets it
+   * right by doing nothing. Three surfaces build a stylesheet — canvas,
+   * preview, publisher — and asking each to remember one more option is asking
+   * for exactly one of them to forget, which is the divergence this file
+   * exists to prevent. An explicit option still wins, for the checks that need
+   * to print a node both ways.
+   */
+  parts.push(
+    generateNodeCss(doc.nodes, { ...options, direction: options.direction ?? doc.settings.direction })
+  );
   return parts.filter(Boolean).join('\n\n');
 }
 

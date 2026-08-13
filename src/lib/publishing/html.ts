@@ -590,7 +590,11 @@ export function renderPage(
   // the resolver runs, and for ever if they have no scripting — so they are a
   // real design decision, made in the inspector, not a placeholder.
   const shipped = fallbackTokens(doc.settings, dataSources);
-  const root = `<html lang="${lang}"${shipped ? ` ${DATA_ATTR}="${escapeAttr(shipped)}"` : ''}>`;
+  // `dir` beside `lang`, and only when it is not the default: an `ltr`
+  // attribute on every page in the world is bytes saying what the browser
+  // already assumed.
+  const rtl = doc.settings.direction === 'rtl' ? ' dir="rtl"' : '';
+  const root = `<html lang="${lang}"${rtl}${shipped ? ` ${DATA_ATTR}="${escapeAttr(shipped)}"` : ''}>`;
 
   const html = options.pretty
     ? `<!doctype html>

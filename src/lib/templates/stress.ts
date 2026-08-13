@@ -523,6 +523,31 @@ export function layoutPage(): NodeSpec[] {
           ),
         ]
       ),
+      /*
+       * Deliberately lopsided, and the only case here that is. Everything else
+       * on these pages is symmetric — `pad('14px')` — which mirrors to itself
+       * and proves nothing. `tests/render/stress.mjs` builds this document
+       * twice, once each way round, and measures this box in both.
+       */
+      case_(
+        'Lopsided, so it can be seen to turn around',
+        'A 48px indent and a 4px rule, both on the left. Set the document to read right to left in Site settings and both move to the right — this box, and every block in the library, without a line of any of them changing.',
+        [
+          frame(
+            'Lopsided',
+            [label('Indented, with a rule down one side.', { fontSize: '13px' })],
+            {
+              paddingLeft: '48px',
+              paddingTop: '10px',
+              paddingBottom: '10px',
+              paddingRight: '10px',
+              ...borderSide('Left', '4px', 'var(--c-primary)'),
+              textAlign: 'left',
+              backgroundColor: 'var(--c-surface)',
+            }
+          ),
+        ]
+      ),
       case_(
         'The three transforms that compose',
         'Rotated, scaled and nudged as separate properties, so a rule can change one and leave the others standing.',

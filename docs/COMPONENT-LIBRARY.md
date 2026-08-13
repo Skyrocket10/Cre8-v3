@@ -275,9 +275,9 @@ columns on a phone, an empty string, nine hundred words, and every value of
 every enumerated property side by side. It exists to answer a question the
 gallery cannot — *what can the element model not say?*
 
-Seven gaps. **Five are now closed**, by twelve properties the vocabulary did
-not have; two are still open, and one of those is much larger than the other
-five put together.
+Seven gaps. **Six are now closed** — twelve properties the vocabulary did not
+have, and one document setting that turns the whole library around. The
+seventh is a coverage note rather than a hole.
 
 Everything below is measured rather than argued. `tests/render/stress.mjs`
 generates the site and reads it back through a browser, so each finding has the
@@ -285,7 +285,7 @@ same number behind it that it had as a gap, with the opposite expected value —
 which is worth strictly more than asserting that a declaration reached the
 stylesheet. It needs no Worker:
 
-    node tests/render/stress.mjs        19/19
+    node tests/render/stress.mjs        24/24
 
 ### Closed, with the measurement
 
@@ -357,21 +357,61 @@ layer set, and a rule that forgets silently undoes it. These are three separate
 properties that compose through the cascade: a rule writes the one axis it cares
 about and the other two survive.
 
+Offered by the *rules* panel rather than as rows of their own, and that took two
+attempts. As rows they sat beside the hand-written Transform control, which
+already asks for a move, a scale and a rotation — two fields called Scale in a
+280px panel, which the `inspector` suite caught by counting the inputs in a row
+and finding three. The vocabulary has a third answer to "where is this edited"
+now: `effect`, meaning a rule offers it and the panel does not, which is exactly
+where composing one axis without restating the others matters. An entry using it
+must carry a phrase for the picker or it is reachable from nowhere, and that is
+checked. The tidy end state is one Transform control that writes these three
+instead of the list — a migration rather than a rename, because every document
+already holding a `transform` string would have to be read on the way in.
+
+**6. Nothing for internationalisation.** A document can be set to read right to
+left, in Site settings, and the whole library turns around with it.
+
+The reason that is one setting rather than a rewrite is where the change lives.
+Every block here is authored in *physical* sides — ninety-three of them say
+`paddingLeft` — and `padding-left` is the left of the screen whichever way the
+writing runs, so an Arabic site built from them had its indents, borders and
+alignment all on the wrong side. The fix on offer was to mirror every block by
+hand, which is why this was called the largest gap by effort.
+
+Instead the generator rewrites the sided properties as their flow-relative
+equivalents at the moment a declaration is printed. `padding-inline-start` is
+the left in English and the right in Arabic, so nothing in the library changed
+and all of it mirrors. What a designer typed still says "left" in the panel and
+in the file, because on an English page it *is* the left; only the emitted CSS
+knows the difference.
+
+Measured on the same document built twice: a box with a 48px indent and a 4px
+rule down its left has both **on the right** when the document reads the other
+way, and its text sits **0px from the right edge** where it sat 0px from the
+left. Then measured across every category page of the gallery, which is every
+block in the registry: **3698 elements, 4 with a lopsided box, 108 with a side
+to their text, 0 that did not turn round.**
+
+Two things that fell out of it. The **document reset** was physical too —
+`padding-left: 1.25em` on lists, a `margin-right` on the file button, the
+legend's cancelling margins — so lists indented on the wrong side of an RTL
+page. It is flow-relative now for everybody, which renders identically in
+English and correctly in Arabic. And `hyphens: auto` hyphenates by the nearest
+declared language, so the page root already had to carry `lang` on all three
+surfaces; `dir` sits beside it, on the same three.
+
+What is deliberately *not* mirrored: `transform` and `translate`, because a
+two-pixel nudge is an adjustment to one design rather than a statement about
+reading order; and `background-position`, which is a photograph's focal point.
+A list of what a rule covers is only trustworthy beside the list of what it
+leaves alone.
+
+Left to right emits exactly what it always did, byte for byte. That is not
+politeness to old documents — it is what keeps the byte-identical gate meaning
+something.
+
 ### Still open
-
-**6. Nothing for internationalisation.** No `direction`, no logical properties
-(`padding-inline`, `margin-block`). Every spacing decision in the library is
-physical, so a right-to-left site would need every one of them mirrored by hand.
-This is the largest gap by effort and the least likely to be noticed — and it is
-what the other five were cheap in comparison to. The properties are a day; the
-ninety-three blocks written in the physical ones are not.
-
-One piece of it landed anyway, for a different reason. `hyphens: auto`
-hyphenates by the nearest declared language, and only one of the three surfaces
-has an `<html>` of its own — the canvas and preview draw inside the editor,
-whose root says `en` because the editor is in English. So a German document was
-hyphenated as English while being designed and as German once published. Each
-surface now declares the document's language on the frame it already draws.
 
 **7. Four primitives nothing exercises**, now covered by the stress template:
 `richtext` (no block uses it at all), `spacer`, and `page`/`instance`, which are

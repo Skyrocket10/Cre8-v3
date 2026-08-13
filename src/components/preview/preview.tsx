@@ -151,7 +151,15 @@ function PreviewSurface({
     return [
       DOCUMENT_RESET,
       PLACEHOLDER_CSS,
-      generateNodeCss(doc.nodes, { mode: 'container', nodeIds: ids, includeStates: true }),
+      // The third surface that builds a stylesheet by hand, and therefore the
+      // third that has to be told which way the document reads. `dir` on the
+      // frame without this is markup that turned around over CSS that did not.
+      generateNodeCss(doc.nodes, {
+        mode: 'container',
+        nodeIds: ids,
+        includeStates: true,
+        direction: doc.settings.direction,
+      }),
     ].join('\n');
   }, [doc, page]);
 
@@ -254,6 +262,7 @@ function PreviewSurface({
         // The third surface, and it has to say the same thing as the other two
         // or preview stops being what publishing will do. See `canvas.tsx`.
         lang={doc.settings.language || 'en'}
+        dir={doc.settings.direction === 'rtl' ? 'rtl' : undefined}
         className={cn(
           'cre8-frame mx-auto bg-white',
           !isDesktop && 'overflow-hidden rounded-xl shadow-[0_20px_60px_-20px_rgba(0,0,0,0.5)]'
