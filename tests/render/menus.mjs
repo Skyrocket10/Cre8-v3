@@ -20,6 +20,7 @@ import {
   getDocument,
   launch,
   node,
+  openInspectorSection,
   READY_TIMEOUT,
   saveDocument,
   signUp,
@@ -639,6 +640,13 @@ try {
    */
   await selectLayer('Holder');
   await page.waitForTimeout(400);
+  /*
+   * Spacing is one of a container's essentials, so this is a no-op here — and
+   * it is written anyway, because the same row is reached on a heading below
+   * where it is not, and a gesture that only works on half the elements it is
+   * used on is a gesture waiting to be debugged.
+   */
+  await openInspectorSection(page, 'Spacing');
 
   const padding = page.locator('[data-style-props][data-style-label="Padding"]').first();
   await padding.waitFor({ state: 'visible', timeout: 6000 });
@@ -690,6 +698,7 @@ try {
   /* --- Copy one value, not the whole element ------------------------------ */
 
   await selectLayer('Holder');
+  await openInspectorSection(page, 'Spacing');
   const gapRow = page.locator('[data-style-props][data-style-label="Padding"]').first();
   const box2 = await gapRow.boundingBox();
   await page.mouse.click(box2.x + 6, box2.y + 6, { button: 'right' });
@@ -698,6 +707,9 @@ try {
 
   await selectLayer('Box A');
   await page.waitForTimeout(400);
+  // A heading with no padding, so Spacing is not on screen until it is asked
+  // for — which is the panel working, not a missing row.
+  await openInspectorSection(page, 'Spacing');
   const target = page.locator('[data-style-props][data-style-label="Padding"]').first();
   const box3 = await target.boundingBox();
   await page.mouse.click(box3.x + 6, box3.y + 6, { button: 'right' });
