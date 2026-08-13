@@ -27,7 +27,6 @@ import {
   getDocument,
   launch,
   node,
-  openInspectorTab,
   PUBLISH_TIMEOUT,
   READY_TIMEOUT,
   saveDocument,
@@ -317,7 +316,6 @@ try {
   await page.click('.cre8-frame.cre8-editing h3 >> nth=1');
   await page.waitForTimeout(400);
 
-  await openInspectorTab(page, 'Content');
   const shownName = await page
     .locator('aside label:text-is("Title")')
     .first()
@@ -347,7 +345,6 @@ try {
   // is itself the check that the panel noticed.
   await page.click('.cre8-frame.cre8-editing h3 >> nth=2');
   await page.waitForTimeout(400);
-  await openInspectorTab(page, 'Content');
   const variantShown = await page
     .locator('aside label:text-is("Variant")')
     .first()

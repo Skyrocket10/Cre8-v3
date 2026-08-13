@@ -24,7 +24,6 @@ import {
   SEMANTIC_TAGS,
   SWITCH_SHOW_ALL,
   anchorId,
-  getElement,
   readCase,
   slug,
   slugList,
@@ -67,6 +66,15 @@ import { StyleFields } from './style-field';
 import { useRangesInScope, useStatesInScope } from './section-rules';
 import { useNodeProp, useStyleProp, useStyleReset, useStyleWriter } from './use-style';
 
+/**
+ * What this element says and shows — and nothing else.
+ *
+ * It used to carry four passengers: a layout box got Link, Semantics, Switch
+ * and Continuous value whether or not it used any of them, which is four
+ * accordions on every frame in the document. They are sections in their own
+ * right now, offered by Add and shown when they hold something. See
+ * `sections.ts`; this stayed the per-type content it was named for.
+ */
 export function ContentSection() {
   const type = useEditor((s) => {
     const id = s.selection[0];
@@ -74,21 +82,41 @@ export function ContentSection() {
   });
 
   if (!type) return null;
-  const def = getElement(type);
 
   return (
     <>
       <ContentModeNote />
       {typeContent(type)}
-      {/* Anything that can hold children can be a switch. Collapsed, like
-          Semantics, because it is structural rather than something you reach
-          for on every element. */}
-      {def.container && !def.internal && <SwitchGroupContent />}
-      {/* Same gate as the switch, for the same reason: a value has to live on
-          something the things reading it sit inside. */}
-      {def.container && !def.internal && <RangeGroupContent />}
     </>
   );
+}
+
+/**
+ * Does this element have content of its own?
+ *
+ * Mirrors the switch below, and has to: `applies` deciding differently would
+ * put an empty Content heading on every frame, or leave a heading with no way
+ * to change its words.
+ */
+export function hasOwnContent(type: ElementType): boolean {
+  return typeContent(type) !== null;
+}
+
+/** A box that can be made clickable, on the five types where that is a choice. */
+export function LinkableSection() {
+  return <ContainerContent />;
+}
+
+export function SemanticsSection() {
+  return <SemanticContent />;
+}
+
+export function SwitchSection() {
+  return <SwitchGroupContent />;
+}
+
+export function ContinuousValueSection() {
+  return <RangeGroupContent />;
 }
 
 /**
@@ -149,17 +177,18 @@ function typeContent(type: ElementType) {
      * could no longer be named for a link to point at, on precisely the
      * elements that most need to be.
      */
+    /*
+     * The layout boxes have no content of their own — their words are the
+     * elements inside them. What they used to show here, a Link row and a tag
+     * choice, are sections now: a box that is not a link and has not been
+     * retagged says so by not having them.
+     */
     case 'frame':
     case 'section':
     case 'container':
     case 'stack':
     case 'grid':
-      return (
-        <>
-          <ContainerContent />
-          <SemanticContent />
-        </>
-      );
+      return null;
     case 'popover':
       return <PopoverContent />;
     case 'dialog':

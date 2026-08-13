@@ -92,56 +92,48 @@ export async function openProject(page, templateLabel) {
 }
 
 /**
- * Switch the inspector to one of its four tabs.
+ * Make an inspector section visible, adding it if the element has not used it.
  *
- * Needed where a check is about a control *not* being there: a row that is
- * absent because the wrong tab is open proves nothing, and reads exactly like
- * the row correctly standing down. Returns whether the tab was there at all,
- * since with nothing — or several things — selected there are no tabs.
- */
-export async function openInspectorTab(page, name) {
-  const button = page.locator('aside').last().locator(`button:text-is("${name}")`).first();
-  if (!(await button.count())) return false;
-  await button.click();
-  await page.waitForTimeout(300);
-  return true;
-}
-
-/**
- * Open an inspector section by name, whichever tab holds it.
+ * The panel shows a section because it is essential to that kind of element or
+ * because the element holds something in it; everything else is behind Add. So
+ * "open the Border section" is two different gestures depending on the element
+ * in front of you, and a suite whose subject is not the inspector should not
+ * have to know which — it wants the rows.
  *
- * The panel is four tabs — Content, Style, Rules, Actions — and a suite whose
- * subject is not the inspector should not have to know which one owns a
- * section. That is the `inspector` suite's claim to make, in one place, where
- * it can be read; everywhere else the question is "can I get to the Semantics
- * rows", and this answers it.
- *
- * The current tab is tried first, so a section already on screen costs no
- * clicks. Opening is idempotent — `aria-expanded` says whether the accordion
- * is already open, and clicking a section that is open closes it.
- *
- * Returns whether the section was found, so a check can say so rather than
- * timing out thirty seconds later on a click into nothing.
+ * Three steps, each skipped when it is already true: add it, expand it, done.
+ * Returns whether the section ended up on screen, so a check can say that
+ * rather than time out thirty seconds later inside a click.
  */
 export async function openInspectorSection(page, title) {
   const panel = page.locator('aside').last();
   const header = () => panel.locator(`button:has(.panel-title:text-is("${title}"))`).first();
 
-  for (const tab of ['', 'Content', 'Style', 'Rules', 'Actions']) {
-    if (tab) {
-      const button = panel.locator(`button:text-is("${tab}")`).first();
-      if (!(await button.count())) continue;
-      await button.click();
-      await page.waitForTimeout(300);
+  if (!(await header().count())) {
+    const add = panel.locator('button:has-text("Add")').last();
+    if (!(await add.count())) return false;
+    await add.click();
+    await page.waitForTimeout(300);
+    const offer = page
+      .locator('.anim-pop')
+      .last()
+      .locator(`button:has(span:text-is("${title}"))`)
+      .first();
+    if (!(await offer.count())) {
+      await page.keyboard.press('Escape');
+      return false;
     }
-    if (!(await header().count())) continue;
-    if ((await header().getAttribute('aria-expanded')) !== 'true') {
-      await header().click();
-      await page.waitForTimeout(300);
-    }
-    return true;
+    await offer.click();
+    await page.waitForTimeout(400);
   }
-  return false;
+
+  if (!(await header().count())) return false;
+  // Idempotent: sections remember whether they are open, and clicking one that
+  // is already open closes it.
+  if ((await header().getAttribute('aria-expanded')) !== 'true') {
+    await header().click();
+    await page.waitForTimeout(300);
+  }
+  return true;
 }
 
 /**

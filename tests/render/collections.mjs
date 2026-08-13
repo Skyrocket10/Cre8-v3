@@ -19,7 +19,7 @@ import {
   APP,
   createReport,
   launch,
-  openInspectorTab,
+  openInspectorSection,
   openProject,
   publish,
   READY_TIMEOUT,
@@ -170,16 +170,15 @@ try {
   await page.waitForTimeout(400);
 
   /*
-   * On the Content tab, and the element's own Text field is the evidence that
-   * we are looking at it. An absence read off the wrong tab is green whatever
-   * the panel does — the same trap the link-fields check in `native` fell into.
+   * The element's own Text field is the evidence that the panel is populated
+   * at all. An absence read off an empty panel is green whatever the editor
+   * does — the same trap the link-fields check in `native` fell into.
    */
-  await openInspectorTab(page, 'Content');
-  const onContent = (await inspector().locator('textarea').count()) > 0;
+  const populated = (await inspector().locator('textarea').count()) > 0;
   report.check(
     'the inspector offers no binding until something is repeating',
-    onContent && (await inspector().locator('text=Inside Posts').count()) === 0,
-    onContent ? 'no scope yet' : 'not looking at the tab the binding would be on'
+    populated && (await inspector().locator('text=Inside Posts').count()) === 0,
+    populated ? 'no scope yet' : 'the panel is showing nothing to read an absence from'
   );
 
   // Walk up to a container and make it a repeater.
@@ -188,8 +187,9 @@ try {
   await grid.click();
   await page.waitForTimeout(400);
 
-  await openInspectorTab(page, 'Content');
-  const hasData = (await inspector().locator('text=Data').count()) > 0;
+  // A container can always start repeating, so Data is offered rather than
+  // shown until it does — `openInspectorSection` adds it either way.
+  const hasData = await openInspectorSection(page, 'Data');
   report.check('a container offers a Data section once a collection exists', hasData);
   if (hasData) {
     await choose(inspector(), 'Repeat', 'Posts');
@@ -207,7 +207,7 @@ try {
   await inner.click();
   await page.waitForTimeout(400);
 
-  await openInspectorTab(page, 'Content');
+  await openInspectorSection(page, 'Data');
   const bindable = (await inspector().locator('text=Inside Posts').count()) > 0;
   report.check('a child of the repeater is told which record it is inside', bindable);
   if (bindable) {

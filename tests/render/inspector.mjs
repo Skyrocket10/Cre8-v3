@@ -31,6 +31,7 @@ import {
   getDocument,
   launch,
   node,
+  openInspectorSection,
   READY_TIMEOUT,
   saveDocument,
   signUp,
@@ -58,7 +59,22 @@ function seed(doc) {
       styles: { desktop: { color: '#111827', fontSize: '28px' } },
     }),
   });
-  root.children = ['headingone', 'headingtwo'];
+  /*
+   * Two more that nothing else in this file touches.
+   *
+   * Section 12 asks what an *untouched* element shows, and by the time it runs
+   * the two above have been made into a component, given a transform, a
+   * transition, a border-span and a line of custom CSS. Measuring the short
+   * panel on those would measure the suite rather than the editor.
+   */
+  Object.assign(doc.nodes, {
+    headingthree: node('headingthree', 'heading', 'Third', {
+      parentId: home.rootNodeId,
+      props: { text: 'Third heading', level: 2 },
+    }),
+    emptybox: node('emptybox', 'frame', 'Empty box', { parentId: home.rootNodeId }),
+  });
+  root.children = ['headingone', 'headingtwo', 'headingthree', 'emptybox'];
   return doc;
 }
 
@@ -187,20 +203,6 @@ const showLayers = async () => {
   await page.waitForTimeout(300);
 };
 
-/**
- * Which tab the panel is on.
- *
- * The inspector used to render all fifteen of its sections at once, so a check
- * could reach for any control the moment something was selected. It is four
- * tabs now, and every one of these gestures is a person's gesture — the tab
- * click is part of what a designer actually does to get to the row, so it
- * belongs in the check rather than being routed around.
- */
-const openTab = async (name) => {
-  await page.locator('aside').last().locator(`button:text-is("${name}")`).first().click();
-  await page.waitForTimeout(350);
-};
-
 const selectLayer = async (name) => {
   await showLayers();
   await page.locator(`[data-layer-row]:has-text("${name}")`).first().click();
@@ -208,25 +210,13 @@ const selectLayer = async (name) => {
 };
 
 /**
- * Open an accordion, whether or not it is already open.
+ * Make a section visible, adding it first if this element has not used it.
  *
- * Sections remember their own state in `localStorage`, so "click the heading"
- * and "make sure it is open" are different instructions — two checks reaching
- * for the same section closed it for the second one, and the row it wanted
- * reported a count of zero. `aria-expanded` is what the button already tells a
- * screen reader.
+ * The harness owns this because every suite needs it and none of them should
+ * have to know whether a given element gets Border for free. Kept as a local
+ * name so the gestures below read as gestures.
  */
-const openSection = async (title) => {
-  const button = page
-    .locator('aside')
-    .last()
-    .locator(`button:has(.panel-title:text-is("${title}"))`)
-    .first();
-  if ((await button.getAttribute('aria-expanded')) !== 'true') {
-    await button.click();
-    await page.waitForTimeout(350);
-  }
-};
+const openSection = (title) => openInspectorSection(page, title);
 
 /**
  * Deselect the way a person does: click the workspace, off the page.
@@ -311,8 +301,6 @@ try {
   const textField = () => page.locator('aside textarea').first();
 
   await selectLayer('First');
-  // The tab row only exists once something is selected.
-  await openTab('Content');
   await textField().click();
   await textField().fill('Applied straight away');
   await textField().press('Tab');
@@ -364,8 +352,8 @@ try {
   /* --------------------------------- 3. a style write is targeted too ----- */
 
   await selectLayer('Second');
-  // Typography's Size row — Appearance, on the Style tab.
-  await openTab('Style');
+  // Typography's Size row. A heading is textual, so Typography is essential
+  // and already on screen.
   const fontField = page
     .locator('aside')
     .locator('label:text-is("Size")')
@@ -600,8 +588,8 @@ try {
    */
   const dataSection = async (layer) => {
     await selectLayer(layer);
-    // Data sits with Content — what an element says, and where it says it from.
-    await openTab('Content');
+    // Every badge below carries a rule that reads a record, so Data is in use
+    // and on screen without being asked for.
     const section = page
       .locator('aside')
       .last()
@@ -694,7 +682,6 @@ try {
    * template's grid uniform.
    */
   await selectLayer('Second');
-  await openTab('Style');
   await page.waitForTimeout(300);
 
   const layerOf = async (nodeId, layer) =>
@@ -799,7 +786,6 @@ try {
 
   // Spans across — the control the whole grid gap comes down to. A number on
   // screen, `span 2` in the document.
-  await openTab('Style');
   await openSection('Placement');
   const span = rowFor('Spans across').locator('input').first();
   report.check(
@@ -864,15 +850,13 @@ try {
   await page.waitForTimeout(1500);
 
   // Both calls to `<StyleFields section="table" />` are inside the per-type
-  // Content section, so the gate is judged on the Content tab.
+  // Content section, which every element gets.
   await selectLayer('Price table');
-  await openTab('Content');
   const onTable = {
     widths: await rowFor('Widths').count(),
     vertically: await rowFor('Vertically').count(),
   };
   await selectLayer('First cell');
-  await openTab('Content');
   const onCell = {
     widths: await rowFor('Widths').count(),
     vertically: await rowFor('Vertically').count(),
@@ -900,7 +884,6 @@ try {
    * browser can say is whether four fields and a menu actually compose one.
    */
   await selectLayer('Second');
-  await openTab('Style');
   await openSection('Placement');
 
   const yField = rowFor('Move').locator('input').nth(1);
@@ -972,9 +955,8 @@ try {
    * tells them when part of it will not be used.
    */
   await selectLayer('Second');
-  await openTab('Style');
-  // "Advanced" is the group heading now and is not clickable; the accordion
-  // under it is called Custom CSS.
+  // Nothing has written custom CSS here, so this adds the section as well as
+  // opening it — which is the gesture being checked as much as the field is.
   await openSection('Custom CSS');
 
   const cssBox = page.locator('aside').last().locator('textarea').last();
@@ -1020,181 +1002,229 @@ try {
       /\d+ declaration[^.]*/.exec(clean)?.[0] ?? 'said nothing'
     );
   }
-  /* ----------------------- 12. four tabs, and what is under each ---------- */
+  /* -------------- 12. a panel as long as what the element uses ------------ */
 
   /*
-   * The panel used to be one scroll of fifteen accordions filed in import
-   * order. It is four tabs now, named for the question somebody arrived with,
-   * and the Style tab is grouped in words that are not CSS.
+   * The claim, in one sentence: a section is on screen because it is essential
+   * to this kind of element, or because the element holds something in it.
+   * Everything else is behind Add.
    *
-   * Checked in a browser because every part of the claim is about what renders:
-   * a tab that exists but shows the wrong sections, or a label clipped by a
-   * panel 288px wide, is invisible to a typechecker and to a source scrape.
+   * Checked in a browser because every part of it is about what renders. The
+   * registry can be read; whether a heading actually arrives with three
+   * sections instead of fifteen, and whether the row Add promises turns up when
+   * you press it, cannot.
    */
-  await selectLayer('First');
-  const tabBar = page.locator('aside').last();
+  const inspector = page.locator('aside').last();
 
-  const TABS = ['Content', 'Style', 'Rules', 'Actions'];
-  const present = [];
-  for (const name of TABS) {
-    if (await tabBar.locator(`button:text-is("${name}")`).first().isVisible().catch(() => false)) {
-      present.push(name);
-    }
-  }
-  report.check(
-    'a selected element offers the four tabs',
-    present.length === 4,
-    present.join(' · ') || 'no tab row'
-  );
-
-  /*
-   * Clipping, which is the failure a 288px panel invites and which no source
-   * check can see. `scrollWidth` against `clientWidth` per button, because a
-   * label lost to `text-overflow` still reports its full text content.
-   */
-  const clipped = await page.evaluate((names) => {
-    const aside = [...document.querySelectorAll('aside')].pop();
-    return [...aside.querySelectorAll('button')]
-      .filter((el) => names.includes(el.textContent.trim()))
-      .filter((el) => el.scrollWidth > el.clientWidth + 1)
-      .map((el) => el.textContent.trim());
-  }, TABS);
-  report.check(
-    'and none of the four is cut off at the panel’s own width',
-    clipped.length === 0,
-    clipped.length ? `clipped: ${clipped.join(', ')}` : 'all four fit'
-  );
-
-  /**
-   * The headings one tab is showing — group names and section names, and
-   * nothing else.
-   *
-   * Headings only, which took a false failure to get right. A leaf sweep of
-   * the whole column also picks up every option label in it, and the Size row
-   * offers "Fill" — so a check that the old section name *Fill* was gone read
-   * a Segmented button and reported the rename as incomplete. Both headings
-   * carry a class of their own, so ask for those.
-   */
-  const headingsOn = async (tab) => {
-    await tabBar.locator(`button:text-is("${tab}")`).first().click();
-    await page.waitForTimeout(400);
-    return page.evaluate(() => {
+  /** Every section heading on screen, in the order they are drawn. */
+  const onScreen = () =>
+    page.evaluate(() => {
       const aside = [...document.querySelectorAll('aside')].pop();
-      return [...aside.querySelectorAll('.panel-title, .panel-group')].map((el) =>
-        el.textContent.trim()
-      );
+      return [...aside.querySelectorAll('.panel-title')].map((el) => el.textContent.trim());
     });
+
+  /** What Add is offering, grouped. Opens the menu and closes it again. */
+  const addOffers = async () => {
+    const add = inspector.locator('button:has-text("Add")').last();
+    if (!(await add.count())) return { groups: [], titles: [] };
+    await add.click();
+    await page.waitForTimeout(350);
+    const found = await page.evaluate(() => {
+      const pop = [...document.querySelectorAll('.anim-pop')].pop();
+      if (!pop) return { groups: [], titles: [] };
+      return {
+        groups: [...pop.querySelectorAll('.panel-group')].map((el) => el.textContent.trim()),
+        titles: [...pop.querySelectorAll('button span:first-child')].map((el) =>
+          el.textContent.trim()
+        ),
+      };
+    });
+    /*
+     * Closed by pressing the trigger again rather than by Escape, and waited
+     * for. A popover left open is a fixed overlay across the panel, so the next
+     * gesture in the suite spent thirty seconds being told that a hint string
+     * "intercepts pointer events" — which reads as the control underneath being
+     * broken.
+     */
+    await add.click();
+    await page
+      .locator('.anim-pop')
+      .last()
+      .waitFor({ state: 'detached', timeout: 5000 })
+      .catch(() => {});
+    return found;
   };
 
-  const style = await headingsOn('Style');
-  const GROUPS = ['Arrangement', 'Appearance', 'Motion', 'Advanced'];
-  /*
-   * Layout is not here: it is a container's section — a heading has nothing
-   * inside it to arrange — and it is checked on a container below. Asking a
-   * heading for it reported the regroup as broken when what it had found was
-   * a section correctly declining to appear.
-   */
-  const SECTIONS = [
-    'Size',
-    'Spacing',
-    'Placement',
-    'Typography',
-    'Background',
-    'Border',
-    'Shadow & blur',
-    'Animation',
-    'Transition',
-    'Custom CSS',
-  ];
-  const missingGroups = GROUPS.filter((one) => !style.includes(one));
-  const missingSections = SECTIONS.filter((one) => !style.includes(one));
+  await selectLayer('Third');
+  const onHeading = await onScreen();
   report.check(
-    'the style tab is grouped in words that are not CSS',
-    missingGroups.length === 0 && missingSections.length === 0,
-    missingGroups.length || missingSections.length
-      ? `missing ${[...missingGroups, ...missingSections].join(', ')}`
-      : `${GROUPS.join(' · ')} over ${SECTIONS.length} sections`
-  );
-  const OLD_WORDS = ['Fill', 'Effects', 'In parent', 'Position', 'Advanced CSS'];
-  const survivors = OLD_WORDS.filter((word) => style.includes(word));
-  // Motion is a group now, and the section that used to carry that name was
-  // split into Animation and Transition. Once, not twice: a group and a
-  // section reading the same is the exact shape of a half-finished rename.
-  const motions = style.filter((one) => one === 'Motion').length;
-  report.check(
-    'and the words it replaced are gone rather than duplicated',
-    survivors.length === 0 && motions === 1,
-    survivors.length || motions !== 1
-      ? `still showing: ${[...survivors, ...(motions === 1 ? [] : [`Motion ×${motions}`])].join(', ')}`
-      : `${OLD_WORDS.join(', ')} — none, and Motion only as a group`
-  );
-
-  const actions = await headingsOn('Actions');
-  report.check(
-    'what happens on a press has a tab rather than a subsection of Content',
-    actions.includes('When pressed'),
-    // It used to render at the bottom of Content, under a heading called
-    // Interaction, and only when a switch existed somewhere above it.
-    actions.join(' · ') || 'no headings'
+    'a heading arrives with the two sections a heading is about',
+    onHeading.join('·') === 'Content·Typography',
+    // Not Size: a heading is sized by its words, and a width set by hand on
+    // one is rare enough to be worth a press. Not Spacing, Background, Border
+    // or the other nine either.
+    onHeading.join(' · ') || 'nothing on screen'
   );
 
   /*
-   * Layout and Data, on the elements that have them.
-   *
-   * A section is either in its group or it is somewhere else, and the only way
-   * to tell the difference is to look where it should be — so a container for
-   * Layout, and an element inside a repeater for Data. Neither is a weaker
-   * check than the heading was; they are the same check, addressed correctly.
+   * The number, because "shorter" is the whole point and a heading that gained
+   * two sections back would still pass the check above by accident. Fifteen was
+   * what every element used to show, whatever it was.
    */
-  await selectLayer('Signup list');
-  const container = await headingsOn('Style');
   report.check(
-    'a container gets Layout, in the group about arrangement',
-    container.includes('Layout') &&
-      container.indexOf('Arrangement') < container.indexOf('Layout') &&
-      container.indexOf('Layout') < container.indexOf('Appearance'),
-    container.slice(0, 6).join(' · ') || 'no headings'
+    'which is a fraction of what every element used to show',
+    onHeading.length <= 5,
+    `${onHeading.length} sections, against 15 before`
   );
 
-  const content = await headingsOn('Content');
+  const offered = await addOffers();
   report.check(
-    'and the data binding sits with the content it fills in',
-    content.includes('Data'),
-    content.join(' · ') || 'no headings'
+    'and Add offers the rest, in the words the headings used',
+    ['Size', 'Spacing', 'Background', 'Border', 'Shadow & blur', 'Custom CSS'].every((one) =>
+      offered.titles.includes(one)
+    ),
+    offered.titles.join(' · ') || 'nothing offered'
+  );
+  report.check(
+    'grouped, so a name nobody has met is still findable',
+    offered.groups.length >= 3 && offered.groups.every((g) => /^[A-Z]/.test(g)),
+    offered.groups.join(' · ') || 'no groups'
+  );
+  /*
+   * The half that keeps the list honest. Layout cannot apply to a heading —
+   * there is nothing inside it to arrange — so offering it would be a control
+   * that does nothing when pressed. Typography is already on screen, so
+   * offering it would be a second route to one set of rows.
+   */
+  report.check(
+    'and offers nothing that cannot apply, or is already there',
+    !offered.titles.includes('Layout') && !offered.titles.includes('Typography'),
+    offered.titles.filter((one) => one === 'Layout' || one === 'Typography').join(', ') ||
+      'neither'
+  );
+
+  /* --- Add puts it on screen, and Remove takes it and its values away ----- */
+
+  const added = await openSection('Border');
+  report.check('adding a section puts it on screen', added, added ? 'Border added' : 'never arrived');
+
+  const width = inspector.locator('label:text-is("Width")').locator('xpath=../..').locator('input').first();
+  if (await width.count()) {
+    await width.fill('3');
+    await width.press('Enter');
+    await page.waitForTimeout(700);
+  }
+  report.check(
+    'and what is typed into it reaches the element',
+    (await styleOf('headingthree')).borderTopWidth === '3px' ||
+      (await styleOf('headingthree')).borderWidth === '3px',
+    JSON.stringify({
+      borderWidth: (await styleOf('headingthree')).borderWidth ?? null,
+      top: (await styleOf('headingthree')).borderTopWidth ?? null,
+    })
   );
 
   /*
-   * Two selected, which is where a tab row would start lying.
-   *
-   * Only the style controls can work across a mixed selection — what an
-   * element *says* is its own — so a Content tab on a multi-selection is a
-   * control that does nothing when pressed. The panel drops the tabs and says
-   * what it is instead, and the breakpoint strip stays because styles are
-   * still what is being written.
+   * A section holding a value stays without being asked for, which is the half
+   * that makes hiding safe: a border set on Tablet and nowhere else must not
+   * vanish because the panel is showing the base layer.
    */
-  await selectLayer('First');
+  await selectLayer('Second');
+  await selectLayer('Third');
+  report.check(
+    'a section holding a value is there next time without being asked',
+    (await onScreen()).includes('Border'),
+    (await onScreen()).join(' · ')
+  );
+
+  await inspector.locator('button[aria-label="Remove Border"]').first().click();
+  await page.waitForTimeout(900);
+  const afterRemove = await styleOf('headingthree');
+  report.check(
+    'removing it takes the section and the declarations together',
+    !(await onScreen()).includes('Border') &&
+      afterRemove.borderWidth === undefined &&
+      afterRemove.borderTopWidth === undefined,
+    JSON.stringify({
+      showing: (await onScreen()).join(' · '),
+      borderWidth: afterRemove.borderWidth ?? null,
+    })
+  );
+
+  /*
+   * And it is one undo, not several. Removing a shadow and getting half of it
+   * back would be worse than not offering the button.
+   */
+  await page.keyboard.press('Control+z');
+  // Polled rather than waited out: the undo is a patch travelling to the room,
+  // and a fixed sleep cannot tell "has not arrived" from "was never restored".
+  let undone = {};
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(400);
+    undone = await styleOf('headingthree');
+    if (undone.borderTopWidth === '3px' || undone.borderWidth === '3px') break;
+  }
+  report.check(
+    'and one undo brings both back',
+    (undone.borderTopWidth === '3px' || undone.borderWidth === '3px') &&
+      (await onScreen()).includes('Border'),
+    JSON.stringify({
+      showing: (await onScreen()).includes('Border'),
+      desktop: undone,
+    }).slice(0, 220)
+  );
+
+  /* --- A container is about different things than a heading -------------- */
+
+  await selectLayer('Empty box');
+  const container = await onScreen();
+  report.check(
+    'a container arrives with the sections a container is about',
+    ['Layout', 'Size', 'Spacing'].every((one) => container.includes(one)) &&
+      !container.includes('Typography'),
+    container.join(' · ')
+  );
+  /*
+   * The four that used to ride along on every container — a Link row, a tag
+   * choice, a switch and a continuous value — printed whether or not the box
+   * was any of those things. Four accordions per frame, on a panel whose whole
+   * problem was length.
+   */
+  report.check(
+    'and none of the four questions a container used to be asked on sight',
+    !['Link', 'Semantics', 'Switch', 'Continuous value'].some((one) => container.includes(one)),
+    ['Link', 'Semantics', 'Switch', 'Continuous value']
+      .filter((one) => container.includes(one))
+      .join(', ') || 'none of them'
+  );
+  const containerOffers = await addOffers();
+  report.check(
+    'though every one of them is still one press away',
+    ['Link', 'Semantics', 'Switch', 'Continuous value'].every((one) =>
+      containerOffers.titles.includes(one)
+    ),
+    containerOffers.titles.join(' · ') || 'nothing offered'
+  );
+
+  /* --- Several selected, and nothing selected ----------------------------- */
+
+  await selectLayer('Third');
   await page.locator('[data-layer-row]:has-text("Second")').first().click({ modifiers: ['Shift'] });
   await page.waitForTimeout(450);
   const multi = await page.evaluate(() => {
     const aside = [...document.querySelectorAll('aside')].pop();
+    if (!aside) return { text: '(no inspector on screen)', headings: [] };
     return {
       text: aside.innerText.replace(/\s+/g, ' '),
-      tabs: [...aside.querySelectorAll('button')].filter((el) =>
-        ['Content', 'Rules', 'Actions'].includes(el.textContent.trim())
-      ).length,
+      headings: [...aside.querySelectorAll('.panel-title')].map((el) => el.textContent.trim()),
     };
   });
   report.check(
-    'several selected drops the tabs rather than offering three that do nothing',
-    multi.tabs === 0 &&
-      /2 elements selected/.test(multi.text) &&
-      // The style controls are still there, and still say which layer. Matched
-      // case-insensitively: the group heading is uppercased in CSS, and
-      // `innerText` reports what is on the screen rather than what is in the
-      // markup.
-      /arrangement/i.test(multi.text) &&
-      /desktop/i.test(multi.text),
-    `${multi.tabs} inert tab(s) · ${multi.text.slice(0, 70)}`
+    'several selected keeps the style controls and drops the per-element ones',
+    /2 elements selected/.test(multi.text) &&
+      multi.headings.includes('Typography') &&
+      !multi.headings.includes('Content'),
+    `${multi.headings.join(' · ')} · ${multi.text.slice(0, 40)}`
   );
 
   await deselect();
@@ -1204,9 +1234,7 @@ try {
   });
   report.check(
     'and page settings are what the panel shows with nothing selected',
-    /Nothing selected/.test(deselected) && /Slug/.test(deselected) && !/\bStyle\b/.test(deselected),
-    // Which is why the old `Design | Page` toggle could go: it led to the panel
-    // the empty state was already showing, and cost half the header to do it.
+    /Nothing selected/.test(deselected) && /Slug/.test(deselected),
     deselected.slice(0, 90)
   );
 

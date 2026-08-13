@@ -13,17 +13,25 @@
  */
 
 import React from 'react';
-import { EyeOff, Layers2, MousePointer2, Monitor, Smartphone, Tablet } from 'lucide-react';
+import { EyeOff, Layers2, Minus, MousePointer2, Monitor, Plus, Smartphone, Tablet } from 'lucide-react';
 import { getElement } from '@/lib/document/schema';
 import { BREAKPOINT_DEFS } from '@/lib/document/types';
 import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
-import { Segmented, TextInput, Tooltip } from '../ui/primitives';
-import { ActionsSection, ComponentPropertySection, ContentSection } from './section-content';
+import { Popover, TextInput, Tooltip } from '../ui/primitives';
+import {
+  ActionsSection,
+  ComponentPropertySection,
+  ContentSection,
+  ContinuousValueSection,
+  LinkableSection,
+  SemanticsSection,
+  SwitchSection,
+} from './section-content';
 import { forgetInspectorTarget, rememberInspectorTarget } from './use-style';
 import { openContextMenu } from '../ui/context-menu';
-import type { StyleProp } from '@/lib/document/types';
+import type { SceneNode, StyleProp } from '@/lib/document/types';
 
 import { DataSection } from './section-data';
 import { RulesSection, describeRule } from './section-rules';
@@ -38,6 +46,12 @@ import {
   TypographySection,
 } from './sections-style';
 import { PagePanel } from './page-panel';
+import {
+  bulkSectionsFor,
+  SECTION_GROUPS,
+  sectionsFor,
+  type SectionSpec,
+} from './sections';
 
 /**
  * Turn a right-click somewhere in the panel into a subject for the menu.
@@ -111,8 +125,6 @@ export function Inspector() {
  * ----------------------------------------------------------------------- */
 
 function InspectorHeader() {
-  const tab = useEditor((s) => s.inspectorTab);
-  const setTab = useEditor((s) => s.setInspectorTab);
   const breakpoint = useEditor((s) => s.breakpoint);
   const selectionCount = useEditor((s) => s.selection.length);
 
@@ -125,30 +137,15 @@ function InspectorHeader() {
         One slot, saying what the panel is about: page settings, one element,
         or several.
 
-        Tabs only for a single selection. With nothing selected the panel is
-        page settings, so a tab row would be four dead controls above one live
-        panel; with several selected only the style controls can work at all —
-        what an element *says* is per element — so the other three would be
-        tabs that do nothing when clicked. The old header spent half its width
-        on a `Design | Page` toggle that led to the same page settings the
-        empty state already showed.
+        This held four tabs for a while — Content, Style, Rules, Actions — and
+        they were the wrong shape. Style carried ten sections and the other
+        three carried one apiece, so it was a navigation control where three of
+        four destinations were nearly empty, charging a click on every edit to
+        reach the ten. The panel is one scroll again; what made it long was
+        never that it was one scroll, it was that it showed everything at full
+        weight whether or not the element used any of it.
       */}
-      {selectionCount === 1 ? (
-        <div className="flex h-9 items-center gap-1 px-2">
-          <Segmented
-            full
-            size="xs"
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: 'content', label: 'Content' },
-              { value: 'style', label: 'Style' },
-              { value: 'rules', label: 'Rules' },
-              { value: 'actions', label: 'Actions' },
-            ]}
-          />
-        </div>
-      ) : selectionCount > 1 ? (
+      {selectionCount > 1 ? (
         <div className="flex h-9 items-center gap-2 px-3">
           <span className="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] bg-[var(--accent-subtle)] text-[10px] font-semibold text-[var(--accent)]">
             {selectionCount}
@@ -157,20 +154,18 @@ function InspectorHeader() {
             elements selected
           </span>
         </div>
-      ) : (
+      ) : selectionCount === 0 ? (
         <div className="flex h-9 items-center px-3 text-[11px] font-medium text-[var(--text-secondary)]">
           Page
         </div>
-      )}
+      ) : null}
 
       {/*
         The width and state strip, which only means anything where styles are
-        being written. Content and Actions write props and events — neither
-        varies by breakpoint — so showing it there would say a design decision
-        is scoped when it is not. A multi-selection is style-only, so it always
-        gets the strip.
+        being written — which, with one scroll, is any time an element is
+        selected.
       */}
-      {(selectionCount > 1 || (selectionCount === 1 && (tab === 'style' || tab === 'rules'))) && (
+      {selectionCount > 0 && (
         <div className="flex items-center gap-1.5 border-t border-[var(--border-soft)] px-2 py-1.5">
           <Tooltip
             content={
@@ -255,99 +250,170 @@ function SingleSelection() {
         </button>
       )}
 
-      <SelectedTab />
+      <SelectedSections node={node} />
       <div className="h-8" />
     </div>
   );
 }
 
 /**
- * What each tab holds, and why the split falls where it does.
+ * Everything this element is showing, and one way to ask for more.
  *
- * The panel used to render all fifteen of these at once, in the order they are
- * imported. That order is a reasonable one for a stylesheet and a poor one for
- * a person: it put *where this box sits* eleven sections below *what colour it
- * is*, and it filed the three halves of "when does this change" — a rule, a
- * binding, a press — under three unrelated headings.
+ * The panel draws a section for three reasons and no others: it is essential
+ * to this kind of element, the element holds something in it, or somebody just
+ * asked for it. Add offers the rest — grouped in the same plain words, each
+ * with a line saying what it is for, so a name nobody has met is still a
+ * choice rather than a guess.
  *
- * Four tabs, named for the question somebody arrived with:
- *
- *   Content   what it says and shows, including where the words come from
- *   Style     what it looks like
- *   Rules     when it looks different
- *   Actions   what happens when it is pressed
- *
- * Nothing is invented here and nothing is removed. Two things move: the data
- * binding joins the content it fills in, and the press actions come out from
- * under Content, where they were a subsection of a subsection and only
- * appeared at all if a switch existed somewhere above them.
+ * `SECTIONS` decides all of that; this only draws it. That split matters more
+ * than it looks: "what is showing", "what can Add offer" and "what does Remove
+ * take away" have to be three readings of one list, and a component that
+ * answered each where it happened to be convenient would drift within a month.
  */
-function SelectedTab() {
-  const tab = useEditor((s) => s.inspectorTab);
+function SelectedSections({ node }: { node: SceneNode }) {
+  const doc = useEditor((s) => s.doc);
+  const pageCollection = useEditor(
+    (s) => s.doc.pages.find((page) => page.id === s.activePageId)?.dynamic?.collection
+  );
+  const opened = useEditor((s) => s.openSections);
 
-  if (tab === 'content') {
-    return (
-      <>
-        <ContentSection />
-        {/* Exposing a property is a decision about the component's shape, so it
-            belongs next to the content it is about. */}
-        <ComponentPropertySection />
-        <DataSection />
-      </>
-    );
-  }
-  if (tab === 'rules') return <RulesSection />;
-  if (tab === 'actions') return <ActionsSection />;
-  return <StyleTab />;
-}
+  const { showing, offered } = sectionsFor(node, doc, opened, pageCollection);
 
-/**
- * The Style tab, in four groups rather than eleven sections in a row.
- *
- * The groups are the ones a designer would name, and none of them is a CSS
- * word: what shape it is and where it sits, what it looks like, how it moves,
- * and the escape hatch. Inside each, the accordions keep their own state — so
- * somebody who lives in Typography still opens the panel to Typography open.
- */
-function StyleTab() {
   return (
     <>
-      <Group title="Arrangement">
-        <LayoutSection />
-        <SizeSection />
-        <SpacingSection />
-        <PlacementSection />
-      </Group>
-      <Group title="Appearance">
-        <TypographySection />
-        <BackgroundSection />
-        <BorderSection />
-        <ShadowSection />
-      </Group>
-      <Group title="Motion">
-        <AnimationSection />
-        <TransitionSection />
-      </Group>
-      <Group title="Advanced">
-        <AdvancedSection />
-      </Group>
+      {showing.map((section) => (
+        <SectionSlot key={section.id} section={section} />
+      ))}
+      <AddSection offered={offered} />
     </>
   );
 }
 
+/** The component a section id draws, and the only place that mapping lives. */
+const RENDERERS: Record<string, () => React.JSX.Element | null> = {
+  content: ContentSection,
+  linkable: LinkableSection,
+  semantics: SemanticsSection,
+  switch: SwitchSection,
+  value: ContinuousValueSection,
+  component: ComponentPropertySection,
+  layout: LayoutSection,
+  size: SizeSection,
+  spacing: SpacingSection,
+  placement: PlacementSection,
+  typography: TypographySection,
+  background: BackgroundSection,
+  border: BorderSection,
+  shadow: ShadowSection,
+  animation: AnimationSection,
+  transition: TransitionSection,
+  rules: RulesSection,
+  data: DataSection,
+  actions: ActionsSection,
+  advanced: AdvancedSection,
+};
+
 /**
- * A heading over a run of accordions.
+ * One section, with the button that takes it away again.
  *
- * Quieter than the accordions it labels — smaller, tracked out, and not
- * clickable. A group that collapsed would be a second kind of disclosure in a
- * panel that already has one, and the reader would have to learn which
- * triangle meant what.
+ * Removing clears the declarations it owned — in every breakpoint and every
+ * rule, not just the layer on screen. Hiding a section while keeping its values
+ * would leave the element styled by rows nobody can see, which is the exact
+ * failure a panel that hides things has to avoid; and clearing only the current
+ * layer would leave it in use, so it would stay on screen and the button would
+ * read as broken.
  */
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionSlot({ section }: { section: SectionSpec }) {
+  const Renderer = RENDERERS[section.id];
+  if (!Renderer) return null;
+  if (section.permanent) return <Renderer />;
+
   return (
-    <div className="border-b border-[var(--border-soft)] last:border-b-0">
-      <div className="panel-group px-3 pt-3 pb-1">{title}</div>
-      {children}
+    <div className="group/section relative">
+      <Renderer />
+      <Tooltip content={`Remove ${section.title.toLowerCase()}`} side="left">
+        <button
+          type="button"
+          aria-label={`Remove ${section.title}`}
+          onClick={() => {
+            const store = useEditor.getState();
+            if (section.props.length) {
+              store.dropStyles([...section.props], `Remove ${section.title.toLowerCase()}`);
+            }
+            store.closeSection(section.id);
+          }}
+          className="absolute top-1.5 right-2 flex size-[18px] items-center justify-center rounded-md text-[var(--text-faint)] opacity-0 transition-opacity group-hover/section:opacity-100 hover:bg-[var(--field)] hover:text-[var(--text)] focus-visible:opacity-100"
+        >
+          <Minus size={11} />
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
+/**
+ * The one control that makes hiding things fair.
+ *
+ * A panel that only shows what is in use is shorter and, on its own, worse: a
+ * control you have not used is a control you cannot find. So the menu is not a
+ * footnote — it *is* the vocabulary now, and it carries the same group names
+ * the panel used to print as headings, plus a sentence each. Nothing is hidden
+ * from somebody reading the list; what is hidden is the sixty rows they were
+ * reading past to get to it.
+ */
+function AddSection({ offered }: { offered: SectionSpec[] }) {
+  if (!offered.length) return null;
+  const groups = SECTION_GROUPS.filter((group) => offered.some((one) => one.group === group));
+
+  return (
+    <div className="px-3 py-3">
+      <Popover
+        align="end"
+        trigger={({ toggle, ref }) => (
+          <button
+            ref={ref}
+            type="button"
+            onClick={toggle}
+            className="flex h-[26px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--border)] text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:border-[var(--accent)] hover:text-[var(--text)]"
+          >
+            <Plus size={12} />
+            Add
+          </button>
+        )}
+      >
+        {/* Closes on a pick. A menu that stays open after you have chosen from
+            it is a fixed overlay across the panel you were trying to use, and
+            the section it just added is underneath it. */}
+        {(close) => (
+        <div className="max-h-[420px] w-[248px] overflow-y-auto p-1">
+          {groups.map((group) => (
+            <div key={group}>
+              <div className="panel-group px-2 pt-2 pb-1">{group}</div>
+              {offered
+                .filter((one) => one.group === group)
+                .map((one) => (
+                  <button
+                    key={one.id}
+                    type="button"
+                    onClick={() => {
+                      useEditor.getState().openSection(one.id);
+                      close();
+                    }}
+                    className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--field)]"
+                  >
+                    <span className="text-[11.5px] font-medium text-[var(--text)]">
+                      {one.title}
+                    </span>
+                    <span className="text-[10.5px] leading-snug text-[var(--text-faint)]">
+                      {one.hint}
+                    </span>
+                  </button>
+                ))}
+            </div>
+          ))}
+        </div>
+        )}
+      </Popover>
     </div>
   );
 }
@@ -377,9 +443,41 @@ function MultiSelection() {
         `mixed` when a selection disagrees, so every control in them already
         knew how to show two different values and write one.
       */}
-      <StyleTab />
+      <BulkSections />
       <div className="h-8" />
     </div>
+  );
+}
+
+/**
+ * Style controls across a mixed selection, chosen the same way.
+ *
+ * The two subscriptions are separate on purpose, and the nodes are derived
+ * *after* them rather than inside one. A selector that maps over the selection
+ * builds a fresh array on every call, so the store's identity check never
+ * settles: render, new array, render — React error #185, caught by the
+ * inspector's error boundary, which then unmounts the whole panel. It looks
+ * from the outside exactly like the inspector deciding not to appear.
+ */
+function BulkSections() {
+  const selection = useEditor((s) => s.selection);
+  const doc = useEditor((s) => s.doc);
+  const nodes = selection
+    .map((id) => doc.nodes[id])
+    .filter((node): node is SceneNode => Boolean(node));
+  const pageCollection = useEditor(
+    (s) => s.doc.pages.find((page) => page.id === s.activePageId)?.dynamic?.collection
+  );
+  const opened = useEditor((s) => s.openSections);
+
+  const { showing, offered } = bulkSectionsFor(nodes, doc, opened, pageCollection);
+  return (
+    <>
+      {showing.map((section) => (
+        <SectionSlot key={section.id} section={section} />
+      ))}
+      <AddSection offered={offered} />
+    </>
   );
 }
 

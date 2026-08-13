@@ -297,11 +297,10 @@ function SingleTools({ id, editing }: { id: string; editing: boolean }) {
             <button
               type="button"
               onClick={() => {
-                const store = useEditor.getState();
-                // A link's destination is content, not style — this button
-                // is the shortcut to the row that holds it.
-                store.setInspectorTab('content');
-                store.toggleRight(true);
+                // The panel is one scroll again, and what an element says is
+                // always at the top of it — so this opens the inspector and
+                // there is nothing further to navigate.
+                useEditor.getState().toggleRight(true);
               }}
               className="flex h-[26px] max-w-[130px] items-center gap-1.5 rounded-md px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--field)] hover:text-[var(--text)]"
             >

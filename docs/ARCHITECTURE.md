@@ -1860,87 +1860,82 @@ the thing it proved was not the thing that mattered — linearity was never at
 risk, and observability was never considered. A check derived from that argument
 would have been green on a button that vanished when pressed.
 
-### Fifteen sections in import order
+### A panel as long as what the element uses
 
 Every milestone above added rows to the inspector and none of them changed its
-shape. It ended up as one scroll of fifteen accordions, filed in the order the
-file imports them — a reasonable order for a stylesheet and a poor one for a
-person. *Where this box sits* was eleven sections below *what colour it is*. The
-three halves of "when does this change" — a rule, a data binding, a press — were
-under three unrelated headings, and one of them, the press actions, only
-appeared at all if a switch already existed somewhere above it.
+shape. It ended as one scroll of fifteen accordions in import order — a
+reasonable order for a stylesheet and a poor one for a person, with *where this
+box sits* eleven sections below *what colour it is*.
 
-The panel is **four tabs**, named for the question somebody arrived with:
+The first attempt at that was four tabs: Content, Style, Rules, Actions. It was
+the wrong cut, and the suite said so in numbers before anyone had to argue
+about it — **Style held ten sections and the other three held one apiece.** A
+navigation control where three of four destinations are nearly empty, charging
+a click on every edit to reach the ten. What was actually wrong with the old
+panel was never that it was one scroll. It was that it showed everything at
+full weight whether or not the element used any of it.
 
-| | |
-|---|---|
-| Content | what it says and shows, including where the words come from |
-| Style | what it looks like |
-| Rules | when it looks different |
-| Actions | what happens when it is pressed |
+So: one scroll again, and **a section is on screen for exactly three reasons**.
 
-and the Style tab is four groups: **Arrangement** (Layout, Size, Spacing,
-Placement), **Appearance** (Typography, Background, Border, Shadow & blur),
-**Motion** (Animation, Transition), **Advanced** (Custom CSS).
+  1. It is *essential* to this kind of element.
+  2. The element *holds something* in it.
+  3. Somebody just asked for it.
 
-Nothing was invented and nothing removed. Two things moved: the data binding
-joined the content it fills in, and the press actions came out from under
-Content, where they were a subsection of a subsection.
+Everything else is behind one **Add** button, grouped in the same plain words
+the headings used — Arrangement, Appearance, Motion, Behaviour, Advanced — with
+a sentence each. A heading arrives with Content and Typography. A frame arrives
+with Layout, Size and Spacing. The SaaS template's hero section, which has been
+designed, arrives with five sections and fourteen rows.
 
-The names are the point, and they are not a coat of paint. *Fill* became
-Background, *Effects* became Shadow & blur, *Position* and *In parent* merged
-into Placement, *Advanced CSS* became Custom CSS. The target user has never
-heard of `position: absolute` and does not need to: the row still writes it.
-This is the same argument the expression sentences make one level up — a
-control is only reachable if its label is a word the person already has.
+This is not a new idea in this panel; it is the old one finished. Layout has
+always been hidden on a heading and Data outside a repeater, because neither
+can do anything there. **"Cannot apply" and "is not used" are the same argument
+at different strengths**, and the panel only ever made the first.
 
-Two rules fell out of building it, both about not offering something that
-cannot work:
+**The essentials are the part worth arguing about**, because a panel that opens
+to nothing is honest and useless — a designer needs something to push against
+before they know what they want. Containers get Layout and Spacing, because
+arranging what is inside is why the thing exists. Anything with words gets
+Typography. Everything except pure text gets Size: a heading is sized by its
+words, and a width set by hand on one is rare enough to be worth a press. A
+button is a container with text, so it gets all four, which is right — it is
+also the element people restyle most.
 
-- **A tab row needs exactly one element.** With nothing selected the panel is
-  page settings, so four tabs would be four dead controls over one live panel —
-  which is also why the old header's `Design | Page` toggle could go, since it
-  led to the page settings the empty state already showed. With *several*
-  selected only the style controls apply — what an element says is its own — so
-  the panel drops the tabs and says "3 elements selected" instead. The first
-  version showed the tabs for any selection at all, and three of the four did
-  nothing when pressed.
-- **The breakpoint strip belongs where styles are written.** Content and Actions
-  write props and events; neither varies by width, and a strip over them would
-  say a decision is scoped when it is not.
+`sections.ts` holds the whole thing as data, and that split does more work than
+it looks. Three questions — what is showing, what can Add offer, what does
+Remove take away — have to be three readings of one list. Answered where each
+happened to be convenient, they would disagree within a month. The `props` come
+from `STYLE_VOCABULARY` rather than a second list, so the table that made
+coverage a compile error is also the table that decides when a section appears.
 
-The regroup is checked in a browser, because every part of the claim is about
-what renders. A source scrape can see that `<ShadowSection />` is inside
-`<Group title="Appearance">`; it cannot see whether the label fits in a panel
-288px wide, and clipping is precisely the failure a four-tab row in that width
-invites. So the suite reads the rendered headings and the rendered tab buttons,
-compares `scrollWidth` against `clientWidth`, and asserts each old name is gone.
+**Removing a section removes what it held**, in every breakpoint and every rule,
+in one undoable step. The alternative — hide it, keep the declarations — leaves
+an element styled by rows nobody can see, which is precisely the failure a panel
+that hides things must not have. Clearing only the layer on screen would be
+worse than either: the section would still be in use, so it would stay, and the
+button would read as broken.
 
-Three things that only came up because the check was written honestly:
+Two things fell out of building it that the drawing could not have shown.
 
-**Reachable is per element, not per panel.** The first version demanded Layout
-and Data on the same heading it used for everything else and reported the
-regroup broken. Both were correctly absent: Layout is a container's section — a
-heading has nothing inside it to arrange — and Data needs a record in scope. The
-check now asks for each where it exists, which is the same claim addressed
-correctly rather than a weaker one.
+**Four passengers.** Every container was showing Link, Semantics, Switch and
+Continuous value, because `ContentSection` rendered them for anything that
+could hold children. Four accordions per frame, asking every box whether it is
+a link, on a panel whose whole problem was length. They are sections now: a box
+that is not a link does not have a Link row, and the Add menu offers it.
 
-**A leaf sweep reads controls as well as headings.** Asserting the old name
-*Fill* was gone found the Size row's Fill/Hug/Fixed button and reported an
-incomplete rename. Headings carry `.panel-title` and `.panel-group`; the sweep
-asks for those.
+**A section holding a warning is in use by definition.** The panel reports a
+rule reading an element that is no longer there, and it reports it inside Data.
+Hide Data because nothing is bound, and the warning goes with it — the rule
+still cannot work, and now nothing anywhere says so. `used` asks about dangling
+reads as well as about bindings.
 
-**A scrape must read code, not the comment above it.** The static check that a
-patch is never applied to a missing document matched the sentence in the comment
-*describing* the old code, and reported the fix as absent. Comments are stripped
-first now — the same lesson as scoping a scrape to the call rather than the
-file, arriving from the other direction.
-
-`Section` gained `aria-expanded`, which it should always have had: a disclosure
-button whose only state is the triangle beside it says nothing to anything that
-is not looking at the screen. It also makes "open this section" idempotent for
-the suite, which matters because sections remember their own state — two checks
-reaching for the same accordion had been closing it for each other.
+And one that only the browser could show. The multi-selection subscription
+mapped the selection to nodes *inside* the store selector, so it built a fresh
+array on every call, the identity check never settled, and React error #185 —
+maximum update depth — was thrown on the second click. The inspector's error
+boundary caught it and unmounted the panel, which from the outside looks
+exactly like the inspector deciding not to appear. Nothing was logged to the
+page; the suite saw an `<aside>` count of zero and said so.
 
 ### A room that woke up not knowing which project it was
 

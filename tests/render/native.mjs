@@ -19,7 +19,6 @@ import {
   APP,
   launch,
   openInspectorSection,
-  openInspectorTab,
   openProject,
   publish,
   READY_TIMEOUT,
@@ -444,12 +443,12 @@ try {
    * The URL field is gone rather than sitting there doing nothing: a link and
    * a popover trigger are the same control in two mutually exclusive states.
    *
-   * On the Content tab deliberately, and this is the whole point of saying so:
-   * the row lives there, and a check for its absence run against any other tab
-   * is green whatever the panel does — the strongest kind of vacuous check,
-   * because it looks like the control correctly standing down.
+   * The panel is one scroll, and a button's Link rows are its content — so
+   * they are on screen if they exist at all, and their absence means what it
+   * says. When this lived behind a tab the same check was green whatever the
+   * panel did, which is the strongest kind of vacuous: it looked exactly like
+   * the control correctly standing down.
    */
-  report.check('the panel offers Content to look in', await openInspectorTab(page, 'Content'));
   const urlRow = page.locator('label.field-label:text-is("URL")');
   report.check('the link fields step aside', (await urlRow.count()) === 0);
 

@@ -62,19 +62,18 @@ export type LeftTab =
   | 'theme'
   | 'submissions';
 /**
- * Which question the inspector is answering about the selection.
+ * Sections the designer has asked for and not yet filled in.
  *
- * Four, and they are the four things somebody does to an element rather than
- * the order a stylesheet is written in: what it says, what it looks like, when
- * it looks different, and what it does when pressed. The panel used to be one
- * scroll of fifteen accordions holding all four at once.
+ * The inspector shows a section because it is essential to this kind of
+ * element or because the element holds something in it. Add offers the rest,
+ * and this is the short-lived third reason: you asked for Border, there is no
+ * border yet, and the section has to be on screen for you to make one.
  *
- * There is no `page` any more. Page settings appear when *nothing* is
- * selected, which is where they already appeared — the old toggle was a second
- * way to reach a panel the empty state was showing anyway, and it cost half
- * the header on every element.
+ * Cleared whenever the selection moves, and deliberately not persisted. A
+ * section added and left empty has said nothing about the element, so finding
+ * it gone later is the panel keeping the promise that made it short.
  */
-export type InspectorTab = 'content' | 'style' | 'rules' | 'actions';
+export type OpenSections = string[];
 
 /**
  * Depth, expressed the only way this document model can express it.
@@ -186,7 +185,7 @@ interface EditorState {
   leftWidth: number;
   rightOpen: boolean;
   rightWidth: number;
-  inspectorTab: InspectorTab;
+  openSections: OpenSections;
   /** Which style layer the inspector writes to: the base, or an interaction state. */
   /**
    * Which rule the style panels write into, or `null` for the base layer.
@@ -329,7 +328,19 @@ interface EditorActions {
   toggleRight(open?: boolean): void;
   setLeftWidth(width: number): void;
   setRightWidth(width: number): void;
-  setInspectorTab(tab: InspectorTab): void;
+  /** Put a section on screen that nothing has filled in yet. */
+  openSection(id: string): void;
+  /** Take it off screen again. State only — see `dropStyles` for its values. */
+  closeSection(id: string): void;
+  /**
+   * Take a set of declarations off the selection everywhere they appear.
+   *
+   * Every breakpoint and every rule, not the layer currently being edited —
+   * which is what `clearStyle` does and what a row's reset dot means. Removing
+   * a section has to clear all of them or the section is still in use, stays on
+   * screen, and the button reads as broken.
+   */
+  dropStyles(props: StyleProp[], label: string): void;
   setActiveRule(ruleId: string | null): void;
   addRule(when: Condition[], part?: Part): string | null;
   removeRule(ruleId: string): void;
@@ -521,6 +532,7 @@ export function onLocalPatches(listener: PatchListener): () => void {
  */
 let applyingRemote = false;
 
+
 /**
  * Collections with a load in the air.
  *
@@ -562,7 +574,7 @@ function initialState(): EditorState {
     leftWidth: 264,
     rightOpen: true,
     rightWidth: 288,
-    inspectorTab: 'style',
+    openSections: [],
     activeRuleId: null,
     previewing: false,
     previewDevice: 'desktop',
@@ -800,6 +812,10 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     set({
       selection: result,
       editingTextId: null,
+      // Sections asked for and never filled in belong to the element they were
+      // asked for on. Carrying them to the next selection would rebuild the
+      // long panel one click at a time.
+      openSections: [],
       ...(keepsRule ? {} : { activeRuleId: null }),
     });
 
@@ -916,8 +932,34 @@ export const useEditor = create<EditorStore>()((set, get) => ({
   setRightWidth(width) {
     set({ rightWidth: Math.min(460, Math.max(240, width)) });
   },
-  setInspectorTab(tab) {
-    set({ inspectorTab: tab });
+  openSection(id) {
+    const open = get().openSections;
+    if (!open.includes(id)) set({ openSections: [...open, id] });
+  },
+  closeSection(id) {
+    set({ openSections: get().openSections.filter((open) => open !== id) });
+  },
+  dropStyles(props, label) {
+    const targets = get().selection;
+    if (!targets.length || !props.length) return;
+    /*
+     * One undoable step for the lot, so Ctrl+Z brings the section and
+     * everything in it back together. Removing a shadow and getting half of it
+     * back would be worse than not offering the button.
+     */
+    get().transact(label, (draft) => {
+      for (const nodeId of targets) {
+        const node = draft.nodes[nodeId];
+        if (!node) continue;
+        for (const layer of Object.values(node.styles ?? {})) {
+          for (const prop of props) delete (layer as Record<string, unknown>)[prop];
+        }
+        for (const rule of node.rules ?? []) {
+          for (const prop of props) delete (rule.apply as Record<string, unknown>)[prop];
+        }
+      }
+      return targets;
+    });
   },
   setActiveRule(ruleId) {
     set({ activeRuleId: ruleId });

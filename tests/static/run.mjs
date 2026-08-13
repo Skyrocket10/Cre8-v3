@@ -5178,6 +5178,97 @@ report.group('there is one way to publish and one way to trigger it');
  * ----------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
+ * A panel that hides things has to be able to find them again
+ *
+ * The inspector shows a section when the element holds one of its declarations.
+ * That makes one failure possible that could not happen before: a property
+ * belonging to no section is set on an element, nothing counts it, the section
+ * holding its control never appears — and the value is on the page, invisible
+ * and uneditable. The vocabulary made coverage a compile error; this keeps the
+ * second half of it, now that showing a control is a decision rather than a
+ * given.
+ * ----------------------------------------------------------------------- */
+
+report.group('every property still has a section that would show it');
+
+{
+  const registry = readFileSync(
+    path.join(ROOT, 'src/components/inspector/sections.ts'),
+    'utf8'
+  ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  /* Which vocabulary sections the registry claims, read off the calls. */
+  const claimed = new Set();
+  for (const call of registry.matchAll(/propsOf\(([^)]*)\)/g)) {
+    for (const name of call[1].matchAll(/'([a-zA-Z]+)'/g)) claimed.add(name[1]);
+  }
+  /* And the properties it names one at a time, where two sections share one
+     vocabulary section — Animation and Transition both live under `motion`. */
+  const named = new Set();
+  for (const list of registry.matchAll(/props: \[([^\]]*)\]/g)) {
+    for (const one of list[1].matchAll(/'([a-zA-Z]+)'/g)) named.add(one[1]);
+  }
+
+  /*
+   * `table` is the one allowance, and it is a real one rather than an
+   * exception: those rows render inside the per-type Content section, which
+   * every element gets without asking. A table property being set therefore
+   * cannot hide anything — the section holding it was never optional.
+   */
+  const ALWAYS_SHOWN = ['table'];
+
+  const orphans = Object.entries(vocabulary.STYLE_VOCABULARY)
+    .filter(([prop, entry]) => {
+      if (claimed.has(entry.section)) return false;
+      if (ALWAYS_SHOWN.includes(entry.section)) return false;
+      return !named.has(prop);
+    })
+    .map(([prop, entry]) => `${prop} (${entry.section})`);
+
+  report.check(
+    'every declaration belongs to a section that would put itself on screen for it',
+    orphans.length === 0,
+    orphans.length
+      ? `no section counts ${orphans.join(', ')}`
+      : `${Object.keys(vocabulary.STYLE_VOCABULARY).length} properties, all accounted for`
+  );
+
+  /*
+   * And the other half: a section in the registry with nothing to draw is an
+   * entry in Add that does nothing when pressed — the exact failure the old
+   * panel could not have, because a section was a component somebody had
+   * already written into the panel by hand.
+   */
+  const panel = readFileSync(
+    path.join(ROOT, 'src/components/inspector/inspector.tsx'),
+    'utf8'
+  );
+  const renderers = new Set();
+  const table = panel.slice(panel.indexOf('const RENDERERS'), panel.indexOf('function SectionSlot'));
+  for (const entry of table.matchAll(/^\s{2}([a-zA-Z]+):\s*[A-Z]/gm)) renderers.add(entry[1]);
+
+  const ids = [...registry.matchAll(/^\s{4}id: '([a-zA-Z]+)',$/gm)].map((one) => one[1]);
+  const undrawn = ids.filter((id) => !renderers.has(id));
+  report.check(
+    'and every section the registry declares has something to draw',
+    ids.length > 8 && undrawn.length === 0,
+    undrawn.length ? `nothing renders ${undrawn.join(', ')}` : `${ids.length} sections, all drawn`
+  );
+
+  /*
+   * "And only a handful of sections are essential" was here, counting how many
+   * declare themselves so. It went out because it could not fail at the
+   * granularity that matters: making Background essential to every element —
+   * which is the old panel, one section at a time — left the count inside its
+   * range and the check green.
+   *
+   * The claim belongs in a browser and is already made there. `inspector`
+   * asserts a heading arrives with exactly Content and Typography, so one
+   * extra essential section turns it red and names the section.
+   */
+}
+
+/* ---------------------------------------------------------------------------
  * Hydration does not touch what it is handed
  *
  * Driven rather than read: the failure is a `TypeError` at runtime, on one
@@ -5700,62 +5791,58 @@ report.group('the panel is not narrower than the model');
   /* --- Multi-selection ---------------------------------------------------- */
 
   /*
-   * The three sections a multi-selection is *for* were the three it did not
-   * have. Checked by name against the single-selection list rather than by
-   * counting, so adding a section to one and forgetting the other is caught.
+   * The three sections a multi-selection is *for* were once the three it did
+   * not have. They cannot drift apart by hand any more — one list decides who
+   * shows for one element and who shows for several — so what is checked now
+   * is the rule that list encodes.
+   *
+   * `perElement` is the marker, and it has a criterion rather than being a
+   * bag of exceptions: a section is per-element when it writes to one node's
+   * own content or contract — its words, its binding, its conditions, what
+   * happens when it is pressed, the props it lets an instance change, whether
+   * this particular box is a link. Everything that describes *drawing* applies
+   * to any number of nodes at once, and marking one of those per-element would
+   * take it away from the moment a multi-selection exists for.
    */
-  const sectionsIn = (source, marker) => {
-    const at = source.indexOf(marker);
-    const body = source.slice(at, source.indexOf('\n}', at));
-    return new Set([...body.matchAll(/<(\w+Section) \/>/g)].map((m) => m[1]));
-  };
-  /*
-   * Both selections render the same `StyleTab`, so "does a multi-selection get
-   * the layout controls" is now a question about that one component rather
-   * than about two lists staying in step. The three sections are still named,
-   * because the point of the check is that these specific ones are reachable —
-   * `PlacementSection` is where growing and pinning both went.
-   */
-  const styleSections = sectionsIn(inspector, 'function StyleTab(');
-  const selectedOnly = sectionsIn(inspector, 'function SelectedTab(');
-  const multi = inspector.slice(
-    inspector.indexOf('function MultiSelection('),
-    inspector.indexOf('\n}', inspector.indexOf('function MultiSelection('))
-  );
-  const wanted = ['LayoutSection', 'PlacementSection'];
+  const registrySource = readFileSync(
+    path.join(ROOT, 'src/components/inspector/sections.ts'),
+    'utf8'
+  ).replace(/\/\*[\s\S]*?\*\//g, '');
 
+  const chunks = registrySource.split(/^    id: '/m).slice(1);
+  const perElement = [];
+  const bulk = [];
+  for (const chunk of chunks) {
+    const id = chunk.slice(0, chunk.indexOf("'"));
+    (/^\s+perElement: true,$/m.test(chunk.split(/^    id: '/m)[0]) ? perElement : bulk).push(id);
+  }
+
+  const FOR_SEVERAL = ['layout', 'size', 'spacing', 'placement', 'typography', 'border'];
   report.check(
     'a multi-selection can lay out, grow and pin — the three it is for',
-    multi.includes('<StyleTab />') && wanted.every((name) => styleSections.has(name)),
-    // One component now, rendered by both selections, so the two lists cannot
-    // drift apart — which is what the first version of this was written to
-    // catch. Growing and pinning both live in Placement.
-    multi.includes('<StyleTab />')
-      ? wanted.filter((name) => !styleSections.has(name)).join(', ') ||
-        `${styleSections.size} drawing sections, shared`
-      : 'a multi-selection does not render the style tab at all'
+    FOR_SEVERAL.every((id) => bulk.includes(id)),
+    FOR_SEVERAL.filter((id) => !bulk.includes(id)).join(', ') ||
+      `${bulk.length} sections shared across a selection`
   );
-  /*
-   * Five sections are single-selection by nature, and they share a criterion
-   * rather than being five separate exceptions: each writes to one node's own
-   * content or contract — its text, its binding, its conditions, what happens
-   * when it is pressed, the props it lets an instance change — rather than to
-   * how it is drawn. Everything that describes *drawing* applies to any number
-   * of nodes at once, and that is what this check is for.
-   */
+
   const OWN_CONTRACT = [
-    'ContentSection',
-    'DataSection',
-    'RulesSection',
-    'ActionsSection',
-    'ComponentPropertySection',
+    'content',
+    'component',
+    'linkable',
+    'semantics',
+    'switch',
+    'value',
+    'rules',
+    'data',
+    'actions',
   ];
-  const singleOnly = [...selectedOnly].filter((name) => !OWN_CONTRACT.includes(name));
+  const surprises = perElement.filter((id) => !OWN_CONTRACT.includes(id));
   report.check(
     'and there is nothing left that only one element can be given',
-    singleOnly.length === 0,
-    singleOnly.join(', ') ||
-      `${styleSections.size} drawing sections shared, ${selectedOnly.size} about one element`
+    surprises.length === 0 && perElement.length === OWN_CONTRACT.length,
+    surprises.length
+      ? `${surprises.join(', ')} is about drawing and would be lost on a multi-selection`
+      : `${perElement.length} about one element, ${bulk.length} about any number`
   );
 
   /*

@@ -16,7 +16,6 @@ import {
   ARTIFACTS,
   getDocument,
   launch,
-  openInspectorTab,
   PUBLISH_TIMEOUT,
   READY_TIMEOUT,
   saveDocument,
@@ -138,8 +137,6 @@ try {
   await imageCard.click();
   await page.waitForTimeout(1000);
 
-  // The image source is a Content row, and the panel opens to Style.
-  await openInspectorTab(page, 'Content');
   const choose = page.locator('button:has-text("Choose image"), button:has-text("Replace image")').first();
   await choose.waitFor({ timeout: 15000 });
   check('an image element is selected and offers a source', true);

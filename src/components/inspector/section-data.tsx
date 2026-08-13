@@ -98,7 +98,7 @@ const singular = (name: string) => name.toLowerCase().replace(/ies$/, 'y').repla
  * Mirrors what the renderer does, because a panel that disagreed with the
  * canvas about which record is in scope would be worse than no panel.
  */
-function collectionInScope(
+export function collectionInScope(
   nodes: Record<string, SceneNode>,
   node: SceneNode,
   collections: Collection[],
