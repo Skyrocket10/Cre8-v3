@@ -394,6 +394,7 @@ preferring an installed copy over downloading one.
 |---|---|
 | `fidelity` | Does the canvas compute the same styles as the published file, on one template |
 | `blocks` | The same question of every block in the registry, alone, at 390 / 768 / 1440 |
+| `stress` | The primitives at their limits: how far each page of the stress template scrolls sideways, whether a word with no break opportunity can be made to wrap, whether three clamped cards come out the same height, which order five boxes are drawn in, where a jump lands. The one suite here that needs no Worker — it generates the site and reads it back over `file://` |
 | `panel` | The Insert panel at library scale: grouping, search, live previews |
 | `nav` | Do page links work inside a published site — and does a link into a named section scroll to it, stopping clear of the sticky navbar rather than under it, from the same page and from another one |
 | `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime — and does an anchored panel open against the button that opened it, on the side it was told, flipping rather than overflowing when there is no room |

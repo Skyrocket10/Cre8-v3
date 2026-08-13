@@ -275,53 +275,103 @@ columns on a phone, an empty string, nine hundred words, and every value of
 every enumerated property side by side. It exists to answer a question the
 gallery cannot — *what can the element model not say?*
 
-Measured rather than guessed, and two hypotheses I started with turned out to
-be wrong, which is recorded below because a list of gaps is only trustworthy if
-the non-gaps were checked too.
+Seven gaps. **Five are now closed**, by twelve properties the vocabulary did
+not have; two are still open, and one of those is much larger than the other
+five put together.
 
-### Gaps, with evidence
+Everything below is measured rather than argued. `tests/render/stress.mjs`
+generates the site and reads it back through a browser, so each finding has the
+same number behind it that it had as a gap, with the opposite expected value —
+which is worth strictly more than asserting that a declaration reached the
+stylesheet. It needs no Worker:
 
-**1. A string with no break opportunity cannot be made to wrap.** The style
-vocabulary has 102 properties and none of them is `overflow-wrap`, `word-break`
-or `hyphens`. Uncontained, the text page scrolled **732px sideways at 390px**;
-injecting `overflow-wrap: anywhere` by hand took it to **0**.
+    node tests/render/stress.mjs        19/19
 
-Worth being exact about which content did it, because the obvious candidate is
-not the culprit. A long *URL* mostly behaves — browsers take a break
-opportunity after `/` and `?`, so it wraps on its own. The 767px spill was a
-single seventy-four-character **word**, which has none. So the case to worry
-about is a product code, a hash, a German compound, or a database identifier
-dropped into a heading — and there is nothing a designer can set that helps.
+### Closed, with the measurement
 
-`overflow-x: auto` stops the *page* scrolling, and the stress template uses it,
-but that produces a scrollbar rather than wrapped text; `overflow: hidden`
-truncates it invisibly instead. Neither is the fix.
+**1. A string with no break opportunity could not be made to wrap.**
+`overflowWrap`, `wordBreak` and `hyphens` are now *Long words*, *Breaking* and
+*Hyphenate* in the Typography section.
 
-**2. No line clamping.** No `-webkit-line-clamp`, no `text-overflow`. "Truncate
-this description to two lines" is a card-grid staple and cannot be expressed,
-so a card grid's height is at the mercy of its longest item — which is exactly
-the raggedness `workGridBlock` and `galleryBlock` had to solve with alignment
-instead.
+The text page carries the before and the after side by side, because a fix is
+only legible beside the thing it fixed: two 180px boxes holding the same
+seventy-four-character word. The one with nothing set puts **348px of the word
+outside its box**. The one set to *Break it* puts **0px** outside and grows from
+39px tall to 102px, because the letters had to go somewhere.
 
-**3. `scroll-margin-top` is a constant nobody can change.** The generator emits
-`scroll-margin-top: 96px` globally, which is why jump links currently land
-correctly under the 68px sticky header. It is not in the vocabulary, so a site
-with a taller header has jump targets that land behind it and no control that
-helps.
+The original diagnosis is worth keeping, because the obvious culprit was
+innocent. A long *URL* mostly behaves — browsers take a break opportunity after
+`/` and `?`, so it wraps unaided. The 732px of sideways scroll measured at 390px
+was a single punctuation-free **word**: a product code, a hash, a German
+compound, a database identifier dropped into a heading.
 
-**4. No `order`, `justify-self` or `justify-items`.** Reordering on a phone —
-picture above copy at 390, beside it at 1440 — has to be done by building both
-arrangements and hiding one, which doubles the layer tree for a layout concern.
+And the value that matters is `anywhere` rather than `break-word`, which is why
+the menu offers it first. Both wrap the letters; only `anywhere` shrinks the
+element's min-content width, which is what puts a blown-out grid column back.
+`break-word` leaves the box asking for the whole word, so the text looks fixed
+and the layout stays broken.
 
-**5. No individual `rotate` / `scale` / `translate`.** `transform` is there, so
-anything is *reachable*, but the individual properties are what compose without
-overwriting each other, and a rule that wants to nudge one axis has to restate
-the whole transform.
+**2. No line clamping.** `lineClamp` is a row called *Cut off after*, and it is
+the property the generator most has to translate rather than pass through: a
+clamp is `display: -webkit-box`, a vertical box orientation, both spellings of
+the line count and a hidden overflow, and any four of those five without the
+fifth does nothing at all.
+
+Three cards holding 40, 300 and 120 characters, clamped to two lines, measure
+**38px each**; the same three strings unclamped measure **38, 244 and 94**. That
+difference is the raggedness `workGridBlock` and `galleryBlock` had to solve
+with alignment because the property for it did not exist. The clamped cards hide
+**0, 206 and 56px** of content respectively, which is how the suite knows the
+text is being cut rather than merely carrying a declaration.
+
+`none` is a value rather than an absence, so a narrower breakpoint can lift a
+clamp — clearing the row would inherit the wider layer's instead. `textOverflow`
+sits beside it for the case a clamp cannot take: a table cell, whose `display`
+is what makes it a cell. The trimmed cell fits **993px of text into 260px** on
+one line.
+
+**3. `scroll-margin-top` was a constant nobody could change.** It still defaults
+to 96px for everything with an id, which is what makes a jump land below the
+navbars this app produces — but it is a default now rather than the answer.
+`scrollMarginTop` is *Jump stops at* in the Position section.
+
+The layout page has two jumps: one to a section asking for 220px, one to a
+section asking for nothing. The first lands **220px** down; the second computes
+**96px**, from the reset, in the same stylesheet. The pair is the demonstration,
+because one number on its own says nothing about whether it was chosen.
+
+**4. No `order`, `justify-self` or `justify-items`.** Reordering on a phone no
+longer means building both arrangements and hiding one. Five boxes sit in the
+tree as 1–5 and the fifth carries an order of −1; the browser draws them
+**5 1 2 3 4**.
+
+One caveat worth writing down, because the first version of the demonstration
+hit it: a frame's default width is 100%, so `justify-self` on one changes
+nothing until it also stops asking for the full width. Placement has something
+to place only when the item is not already filling its track — set both, and the
+box measures **34px in a stretching grid**.
+
+**5. No individual `rotate`, `scale` or `translate`.** `transform` is a list, so
+a hover rule that lifts a card two pixels has to restate whatever scale the base
+layer set, and a rule that forgets silently undoes it. These are three separate
+properties that compose through the cascade: a rule writes the one axis it cares
+about and the other two survive.
+
+### Still open
 
 **6. Nothing for internationalisation.** No `direction`, no logical properties
 (`padding-inline`, `margin-block`). Every spacing decision in the library is
-physical, so a right-to-left site would need every one of them mirrored by
-hand. This is the largest gap by effort and the least likely to be noticed.
+physical, so a right-to-left site would need every one of them mirrored by hand.
+This is the largest gap by effort and the least likely to be noticed — and it is
+what the other five were cheap in comparison to. The properties are a day; the
+ninety-three blocks written in the physical ones are not.
+
+One piece of it landed anyway, for a different reason. `hyphens: auto`
+hyphenates by the nearest declared language, and only one of the three surfaces
+has an `<html>` of its own — the canvas and preview draw inside the editor,
+whose root says `en` because the editor is in English. So a German document was
+hyphenated as English while being designed and as German once published. Each
+surface now declares the document's language on the frame it already draws.
 
 **7. Four primitives nothing exercises**, now covered by the stress template:
 `richtext` (no block uses it at all), `spacer`, and `page`/`instance`, which are
@@ -329,18 +379,72 @@ structural. `dialog`, `file` and `range` appear exactly once each in ninety-thre
 blocks. Props nothing sets anywhere: `video.src`/`autoplay`/`loop`/`muted`,
 `form.action`/`method`, `button.target`, `link.target`, `richtext.html`.
 
+### What closing them turned up on the way
+
+**A bug of the same shape in a property that shipped months ago.**
+`textGradient` has always expanded to `color: transparent`, and `color` is a row
+in the same panel — so a gradient set *before* a text colour lost to it, a
+gradient set after won, and nothing anywhere said which had happened. The winner
+was insertion order in the style object: whichever property was touched last.
+
+`lineClamp` writes `display`, and `placeItems` is a shorthand over two rows
+beside it, so three properties now have this shape and it wanted a rule rather
+than three fixes. Expansions are ordered deliberately: a shorthand first, so a
+longhand refines it, and the ones that are inert if they lose — a clamp with no
+`display`, a gradient under a real colour — last. One declaration per property
+survives, so the stylesheet no longer says a thing and then unsays it.
+
+**Every table cell in the stress template was empty.** A cell holds *children*,
+not a `text` prop — deliberately, so the words in it can be selected and edited
+like words anywhere else — and the page's own helper wrote the prop. So the case
+that exists to prove a seven-column table will not fit a phone was proving it
+about a table with nothing in it, and had been since the page was written. The
+markup was valid and the layout was plausible; the sideways-scroll measurement
+passed for a reason that had nothing to do with the table. Found by asking a
+browser how wide the text in one cell was and being told zero.
+
+**The canvas renderer is handed an empty document, and it means it.** The
+obvious way to give both surfaces the same language was `lang` on the page
+node — one renderer, said once. `render.tsx` passes that renderer `{ pages: [] }`
+cast into shape, deliberately, so it can memoise per node without depending on
+the document; reading `doc.settings` through it threw on every page node and
+took the editor down through its error boundary. The static suite stayed green
+throughout, because it renders strings from real documents. Two comments in
+`element-model.ts` say this and I read past both. It is a frame-level attribute
+now, which `lang` being inherited makes free.
+
+**An anchor is a prop, not a consequence of having a name.** A jump reference
+resolves through `props.anchor`; a section with a name and no anchor is not a
+place a link can point at, and the renderer *hides* the link rather than
+pointing it at `#`. That is right — a Next button that does nothing is worse
+than no button — and it looks exactly like a link that failed to render.
+
+**A browser cannot scroll past the end of a document to satisfy a margin.** The
+deep anchor was the last thing on its page and landed 231px down against 220
+asked for, which reads as a broken property and is a short page. The group below
+it is the runway, and the suite now reports whether the page was scrolled to its
+end so the two can be told apart.
+
 ### Checked and *not* gaps
 
 - **Jump links do not land behind the sticky header.** The obvious guess, and
   wrong: the generator's global `scroll-margin-top` already handles it, and the
-  headings measure visible on every jump in the startup template. The gap is
-  the missing *control*, not the behaviour.
+  headings measure visible on every jump in the startup template. The gap was
+  the missing *control*, which is finding 3.
 - **A wide table does not break the page.** Both the comparison table and the
   data table exceed 390px and both scroll inside their own `overflow-x: auto`
-  container, with `documentElement.scrollWidth` equal to `clientWidth`.
+  container, with `documentElement.scrollWidth` equal to `clientWidth`. Every
+  page of the stress template now measures 0px of sideways scroll at 390, 768
+  and 1440.
 - **The library composes without collisions.** Ninety-three blocks in one
   document: no duplicate DOM ids, no switch key declared twice on a page, no
   reference with more than one candidate in its own slot.
+- **The clamp is not in the box model you would expect, and works anyway.**
+  Chromium reimplemented `-webkit-line-clamp` on block layout and reports
+  `display: flow-root` for an element the stylesheet gives `-webkit-box`. The
+  first version of that check asserted the mechanism and went red against a page
+  that was clamping correctly. It asks about the effect now — content taller
+  than its box — which is what was meant.
 
 ---
 

@@ -87,10 +87,13 @@ invites, and realtime co-editing with live cursors and selections.
 
 **Templates**  Ten, including a four-page SaaS landing site, a ten-page
 component gallery holding every block in the library, and a primitive stress
-test whose only job is to find what the element model cannot say — see "What
-the stress template found" in [docs/COMPONENT-LIBRARY.md](docs/COMPONENT-LIBRARY.md). A template is just a
-document, so anything you build could become one — and the gallery is built by
-mapping the block registry, so it never falls behind it.
+test whose only job is to find what the element model cannot say. It found
+seven things; five are now closed, by twelve properties the style vocabulary
+did not have — see "What the stress template found" in
+[docs/COMPONENT-LIBRARY.md](docs/COMPONENT-LIBRARY.md), where each one is a
+number a browser produced rather than a claim. A template is just a document,
+so anything you build could become one — and the gallery is built by mapping
+the block registry, so it never falls behind it.
 
 ---
 

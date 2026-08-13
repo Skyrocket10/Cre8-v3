@@ -16,6 +16,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUITES = [
   ['fidelity', 'editor and published render the same'],
   ['blocks', 'every block, on its own, at three widths'],
+  // The only suite here that needs no Worker — it generates the site and reads
+  // it off disk. Listed anyway, because a suite nobody can find is not run.
+  ['stress', 'the primitives at their limits, measured'],
   ['panel', 'the Insert panel at library scale'],
   ['nav', 'page navigation inside a published site'],
   ['native', 'native primitives behave without a runtime'],

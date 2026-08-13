@@ -26,12 +26,28 @@
  * Recorded in `docs/COMPONENT-LIBRARY.md` under "What the stress template
  * found", because a list of gaps is worth more than the document that produced
  * it, and it should be readable without building anything.
+ *
+ * Seven gaps, five of them since closed — twelve properties the vocabulary did
+ * not have. That changes what several of these cases are *for*: one that used
+ * to demonstrate an impossibility now demonstrates the fix, and keeps the
+ * broken version beside it. A fix is only legible next to the thing it fixed,
+ * and the "before" half is also what stops the "after" half passing for the
+ * wrong reason if the content is ever softened.
+ *
+ * ## Measured, not looked at
+ *
+ * `tests/render/stress.mjs` generates this site and reads it back through a
+ * browser: how far each page scrolls sideways at three widths, whether three
+ * clamped cards come out the same height, which order five boxes are drawn in,
+ * where a jump lands. Those are the numbers in the write-up. It needs no
+ * Worker — it opens the generated files over `file://` — so it runs anywhere.
  */
 
 import { pageRef, type NodeSpec } from '../document/factory';
 import {
   border,
   borderSide,
+  cell,
   column,
   container,
   frame,
@@ -58,6 +74,40 @@ const LONG_WORD = 'Pneumonoultramicroscopicsilicovolcanoconiosisandthensomemoref
 const LOREM =
   'A paragraph long enough to wrap many times over, which is the only way to see whether the measure holds, whether the leading is right at three lines and at thirty, and whether anything below it is pushed somewhere it should not go. ' +
   'It repeats deliberately. A single sentence proves nothing about a block of text, and most copy in a real site is a block of text rather than a single sentence. ';
+
+/**
+ * Three strings of very unequal length, and one card to put them in.
+ *
+ * Shared by the clamped row and the unclamped one, because the comparison is
+ * only worth anything if both rows hold the same words. Two hand-written
+ * copies would drift the first time somebody edited one.
+ */
+const CARD_COPY = [40, 300, 120].map((n) => LOREM.slice(0, n));
+
+const card = (index: number, text: string, clamp?: string): NodeSpec =>
+  column(
+    `${clamp ? 'Clamped' : 'Unclamped'} ${index + 1}`,
+    [
+      heading(`Card ${index + 1}`, 3, { fontSize: '13px', fontWeight: '640' }),
+      label(text, {
+        fontSize: '12.5px',
+        color: 'var(--c-muted)',
+        ...(clamp ? { lineClamp: clamp } : {}),
+      }),
+    ],
+    { gap: '4px', ...pad('10px'), ...border('1px', 'var(--c-border)'), ...radius('var(--r-sm)') }
+  );
+
+/** A link that scrolls to a named section, by reference rather than by fragment. */
+const jump = (text: string, to: string): NodeSpec => ({
+  type: 'link',
+  name: `Jump to ${to}`,
+  // `text`, not `label`: a link's words are `props.text` and a button's are
+  // `props.label`, and the wrong one silently renders the element's default.
+  props: { text },
+  refs: { scrollTo: to },
+  styles: { fontSize: '13px', color: 'var(--c-primary)', textDecoration: 'underline' },
+});
 
 /** A caption row, so a screenshot says which case is which. */
 const case_ = (name: string, note: string, children: NodeSpec[]): NodeSpec =>
@@ -130,8 +180,8 @@ const title = (text: string, note: string): NodeSpec =>
  * static suite caught on four of these five pages the first time they were
  * built, and which is the same defect the gallery had for the same reason.
  */
-const cases = (name: string, children: NodeSpec[]): NodeSpec =>
-  section(
+const cases = (name: string, children: NodeSpec[], styles = {}, anchor?: string): NodeSpec => {
+  const node = section(
     name,
     [
       container(
@@ -148,8 +198,19 @@ const cases = (name: string, children: NodeSpec[]): NodeSpec =>
         { gap: '0px' }
       ),
     ],
-    { paddingTop: '24px', paddingBottom: '24px', ...borderSide('Top') }
+    { paddingTop: '24px', paddingBottom: '24px', ...borderSide('Top'), ...styles }
   );
+  /*
+   * An anchor is a *prop*, not a consequence of having a name, and finding that
+   * out cost an afternoon. A jump reference resolves through `props.anchor`, so
+   * a section with a name and no anchor is not a place a link can point at: the
+   * reference resolves to nothing and the renderer *hides* the link rather than
+   * pointing it at `#`. That is the right behaviour — a Next button that does
+   * nothing is worse than no button — and it looks exactly like a link that
+   * failed to render.
+   */
+  return anchor ? { ...node, props: { ...node.props, anchor } } : node;
+};
 
 /* --------------------------------------------------------------------------
  * Typography
@@ -169,26 +230,64 @@ export function textPage(): NodeSpec[] {
       ),
       case_(
         'A heading that is one long word',
-        'Seventy-four characters and nowhere to break. Nothing can be set on it that would help.',
+        'Seventy-four characters and nowhere to break. The first spills; the second is the same heading with Long words set to Break it.',
         [
           heading(LONG_WORD, 2, { fontSize: '28px' }),
+          heading(LONG_WORD, 2, { fontSize: '28px', overflowWrap: 'anywhere' }),
         ]
       ),
     ]),
     cases('Wrapping', [
       case_(
         'A URL with no spaces in it',
-        'It scrolls inside this box rather than wrapping — and that is the whole finding. Containing the spill is expressible; breaking the word is not.',
+        'The obvious suspect, and mostly innocent — a browser takes a break opportunity after / and ?, so a URL wraps unaided.',
         [label(UNBREAKABLE, { fontSize: '14px' })]
       ),
+      /*
+       * The case the whole first finding came from, kept as a pair.
+       *
+       * The left box is what a designer used to get and could do nothing about;
+       * the right is the same content with one row set. Keeping the broken one
+       * is the point — a fix is only legible beside the thing it fixed, and
+       * this is the case that measured 732px of sideways scroll before there
+       * was a property for it.
+       */
       case_(
-        'The same, in a narrow column',
-        'Uncontained, this alone made the page scroll 732px sideways at 390. `overflow-wrap: anywhere` takes it to zero, and is not in the vocabulary.',
+        'The same word in a narrow column, before and after',
+        'Both 180px wide. The left one has nothing set and pushes past its box; the right one has Long words: Break it.',
         [
-          frame('Narrow', [label(UNBREAKABLE, { fontSize: '14px' })], {
-            width: '180px',
-            ...pad('0px'),
-            overflowX: 'auto',
+          stack(
+            'Before and after',
+            [
+              frame('Spills', [label(LONG_WORD, { fontSize: '14px' })], {
+                width: '180px',
+                flexShrink: '0',
+                ...pad('8px'),
+                ...border('1px', 'var(--c-border)'),
+                ...radius('var(--r-sm)'),
+              }),
+              frame('Wraps', [label(LONG_WORD, { fontSize: '14px', overflowWrap: 'anywhere' })], {
+                width: '180px',
+                flexShrink: '0',
+                ...pad('8px'),
+                ...border('1px', 'var(--c-primary)'),
+                ...radius('var(--r-sm)'),
+              }),
+            ],
+            { gap: '10px', alignItems: 'start' }
+          ),
+        ]
+      ),
+      case_(
+        'Hyphenated, and justified',
+        'Justified text with no hyphenation opens rivers between the words. The second block is the first with Hyphenate on.',
+        [
+          label(LOREM.slice(0, 260), { fontSize: '13px', textAlign: 'justify', maxWidth: '30ch' }),
+          label(LOREM.slice(0, 260), {
+            fontSize: '13px',
+            textAlign: 'justify',
+            maxWidth: '30ch',
+            hyphens: 'auto',
           }),
         ]
       ),
@@ -225,9 +324,78 @@ export function textPage(): NodeSpec[] {
           label(`${v} — ${LOREM.slice(0, 120)}`, { fontSize: '13px', textAlign: v })
         )
       ),
+      case_(
+        'wordBreak',
+        'The opposite question to Long words: this one breaks words that would have fitted.',
+        (['normal', 'break-all', 'keep-all'] as const).map((v) =>
+          label(`${v}: ${LONG_WORD}`, { fontSize: '13px', maxWidth: '22ch', wordBreak: v })
+        )
+      ),
       case_('Rich text', 'The one typography primitive no block in the library uses.', [
         { type: 'richtext', name: 'Rich text' },
       ]),
+    ]),
+    /*
+     * Truncation, which a card grid needs and could not express. Three cards of
+     * very unequal length: without a clamp the row is as tall as the longest,
+     * which is the raggedness `workGridBlock` and `galleryBlock` had to solve
+     * with alignment instead of with the property for it.
+     */
+    cases('Truncation', [
+      case_(
+        'Three cards of different lengths, clamped to two',
+        'Every card the same height, without a fixed height — the row no longer depends on its longest item.',
+        [grid('Clamped cards', 3, CARD_COPY.map((text, i) => card(i, text, '2')), {
+          gap: '8px',
+          alignItems: 'start',
+        })]
+      ),
+      case_(
+        'The same three, unclamped',
+        'What the row does without it, which is the reason the row above is worth having.',
+        [grid('Unclamped cards', 3, CARD_COPY.map((text, i) => card(i, text)), {
+          gap: '8px',
+          alignItems: 'start',
+        })]
+      ),
+      case_(
+        'One line, cut with an ellipsis',
+        'The case a clamp cannot take: a table cell, whose display is what makes it a cell at all.',
+        [
+          {
+            type: 'table',
+            name: 'Trimmed table',
+            props: { caption: 'Fixed column widths, with the overflowing cell trimmed' },
+            styles: { tableLayout: 'fixed', width: '100%' },
+            children: [
+              {
+                type: 'tableRow',
+                name: 'Trimmed head',
+                children: ['Name', 'Notes'].map((h) => cell(h, { header: true })),
+              },
+              {
+                type: 'tableRow',
+                name: 'Trimmed body',
+                children: [
+                  cell('Priya Raman'),
+                  cell(LOREM.slice(0, 160), {
+                    styles: {
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      // Ignored by a fixed table, which divides the width
+                      // evenly. It is here for the auto-layout case, where a
+                      // cell with a sentence in it takes the whole table
+                      // instead of being trimmed.
+                      maxWidth: '0px',
+                    },
+                  }),
+                ],
+              },
+            ],
+          },
+        ]
+      ),
     ]),
   ];
 }
@@ -307,51 +475,157 @@ export function layoutPage(): NodeSpec[] {
         ),
       ]),
     ]),
-    cases('Out of flow', [
-      case_('Absolute, pinned to each corner', '', [
-        frame(
-          'Corners',
-          [
-            box(1, { position: 'absolute', top: '6px', left: '6px' }),
-            box(2, { position: 'absolute', top: '6px', right: '6px' }),
-            box(3, { position: 'absolute', bottom: '6px', left: '6px' }),
-            box(4, { position: 'absolute', bottom: '6px', right: '6px' }),
-          ],
-          { position: 'relative', height: '130px', ...pad('0px'), backgroundColor: 'var(--c-surface)' }
-        ),
-      ]),
-      case_('Stacked, in the wrong order', 'Later in the document, lower on the screen.', [
-        frame(
-          'Stack order',
-          [
-            box(1, { position: 'absolute', top: '10px', left: '10px', zIndex: '3' }),
-            box(2, { position: 'absolute', top: '26px', left: '34px', zIndex: '2' }),
-            box(3, { position: 'absolute', top: '42px', left: '58px', zIndex: '1' }),
-          ],
-          { position: 'relative', height: '110px', ...pad('0px'), backgroundColor: 'var(--c-surface)' }
-        ),
-      ]),
-      case_('Sticky inside a scroller', '', [
-        frame(
-          'Scroller',
-          [
-            frame('Sticky bar', [label('Sticky', { fontSize: '12px' })], {
-              position: 'sticky',
-              top: '0px',
-              backgroundColor: 'var(--c-surface-2)',
-              ...pad('6px', '10px'),
-            }),
-            ...Array.from({ length: 8 }, (_, i) => box(i + 1)),
-          ],
-          { height: '150px', overflowY: 'auto', gap: '6px', ...pad('0px') }
-        ),
-      ]),
-      case_('A spacer, which nothing in the library uses', '', [
-        label('above', { fontSize: '12px' }),
-        { type: 'spacer', name: 'Spacer', styles: { height: '40px' } },
-        label('below', { fontSize: '12px' }),
-      ]),
+    cases('Arrangement', [
+      /*
+       * The gap this closes is not "boxes can be reordered" — it is that the
+       * alternative was building the arrangement twice and hiding one, which
+       * doubles the layer tree for a purely visual decision. Read the numbers
+       * rather than the positions: they are 1 to 5 in the tree and drawn 5,
+       * then 1 to 4.
+       */
+      case_(
+        'Drawn in a different order from the layer list',
+        'Box 5 carries an order of -1, so it is drawn first without moving anywhere in the tree.',
+        [
+          stack('Reordered', [box(1), box(2), box(3), box(4), box(5, { order: '-1' })], {
+            gap: '8px',
+          }),
+        ]
+      ),
+      case_(
+        'One item placed differently from the rest',
+        'The grid says every cell stretches; box 3 says it sits in the middle of its own — and has to stop asking for the full width, or there is nothing to place.',
+        [
+          frame(
+            'Self placed',
+            [
+              box(1),
+              box(2),
+              /*
+               * `width: auto` beside the placement, and it is the interesting
+               * half. A frame's default width is 100%, so `justify-self:
+               * center` on one changes nothing at all: the item already fills
+               * its track, and centring something that is already the full
+               * width is a no-op. The first version of this set only the
+               * placement, read correctly in the document, and measured 256px
+               * in a 255.5px track.
+               */
+              box(3, { justifySelf: 'center', width: 'auto' }),
+              box(4),
+            ],
+            {
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              justifyItems: 'stretch',
+              gap: '8px',
+              ...pad('0px'),
+            }
+          ),
+        ]
+      ),
+      case_(
+        'The three transforms that compose',
+        'Rotated, scaled and nudged as separate properties, so a rule can change one and leave the others standing.',
+        [
+          stack(
+            'Transformed',
+            [
+              box(1, { rotate: '-8deg' }),
+              box(2, { scale: '1.3' }),
+              box(3, { translate: '0 -10px' }),
+              box(4, { rotate: '12deg', scale: '1.15', translate: '0 6px' }),
+            ],
+            { gap: '20px', alignItems: 'center', justifyContent: 'center', height: '70px' }
+          ),
+        ]
+      ),
+      /*
+       * The one case here that has to be measured rather than looked at.
+       * `tests/render/stress.mjs` scrolls to the target and reads how far below
+       * the top of the viewport it lands: 96px everywhere else on the site, 220
+       * here. Before this property the number was 96 and unchangeable.
+       */
+      case_(
+        'Two jumps, one of which stops further down',
+        'The first target asks for 220px of clearance; the second leaves the 96px every anchor gets from the document reset. The pair is the demonstration — one number on its own says nothing about whether it was chosen.',
+        [
+          jump('Jump to “Stops lower than the rest”', 'Stops lower than the rest'),
+          jump('Jump to “Out of flow”, which sets nothing', 'Out of flow'),
+        ]
+      ),
     ]),
+    cases(
+      'Stops lower than the rest',
+      [
+        case_(
+          'This section sets its own jump offset',
+          'Nothing to look at — the finding is where the heading above lands after the jump.',
+          [label('220px, not 96.', { fontSize: '13px' })]
+        ),
+      ],
+      { scrollMarginTop: '220px' },
+      'stops-lower'
+    ),
+    /*
+     * Last on the page on purpose, and the jump above is the reason.
+     *
+     * A browser cannot scroll a target further than the bottom of the document
+     * allows, so an anchor at the very end lands where the page runs out rather
+     * than where its `scroll-margin-top` asks: with this group above it the
+     * measurement read 721px instead of 220. It is the runway. It also carries
+     * an anchor of its own and sets nothing, so the default every id gets from
+     * the reset is readable off a real element beside the one overriding it.
+     */
+    cases(
+      'Out of flow',
+      [
+        case_('Absolute, pinned to each corner', '', [
+          frame(
+            'Corners',
+            [
+              box(1, { position: 'absolute', top: '6px', left: '6px' }),
+              box(2, { position: 'absolute', top: '6px', right: '6px' }),
+              box(3, { position: 'absolute', bottom: '6px', left: '6px' }),
+              box(4, { position: 'absolute', bottom: '6px', right: '6px' }),
+            ],
+            { position: 'relative', height: '130px', ...pad('0px'), backgroundColor: 'var(--c-surface)' }
+          ),
+        ]),
+        case_('Stacked, in the wrong order', 'Later in the document, lower on the screen.', [
+          frame(
+            'Stack order',
+            [
+              box(1, { position: 'absolute', top: '10px', left: '10px', zIndex: '3' }),
+              box(2, { position: 'absolute', top: '26px', left: '34px', zIndex: '2' }),
+              box(3, { position: 'absolute', top: '42px', left: '58px', zIndex: '1' }),
+            ],
+            { position: 'relative', height: '110px', ...pad('0px'), backgroundColor: 'var(--c-surface)' }
+          ),
+        ]),
+        case_('Sticky inside a scroller', '', [
+          frame(
+            'Scroller',
+            [
+              frame('Sticky bar', [label('Sticky', { fontSize: '12px' })], {
+                position: 'sticky',
+                top: '0px',
+                backgroundColor: 'var(--c-surface-2)',
+                ...pad('6px', '10px'),
+              }),
+              ...Array.from({ length: 8 }, (_, i) => box(i + 1)),
+            ],
+            { height: '150px', overflowY: 'auto', gap: '6px', ...pad('0px') }
+          ),
+        ]),
+        case_('A spacer, which nothing in the library uses', '', [
+          label('above', { fontSize: '12px' }),
+          { type: 'spacer', name: 'Spacer', styles: { height: '40px' } },
+          label('below', { fontSize: '12px' }),
+        ]),
+      ],
+      {},
+      'out-of-flow'
+    ),
   ];
 }
 
@@ -490,12 +764,19 @@ export function formsPage(): NodeSpec[] {
  * ----------------------------------------------------------------------- */
 
 export function interactivePage(): NodeSpec[] {
-  const cell = (text: string, header = false): NodeSpec => ({
-    type: 'tableCell',
-    name: text.slice(0, 18) || 'Cell',
-    props: { text, header },
-  });
-
+  /*
+   * The kit's `cell`, not the local one this replaces.
+   *
+   * That one wrote `props: { text }`, which a table cell does not have — a cell
+   * holds *children*, deliberately, so the words in it can be selected and
+   * edited like words anywhere else. Every cell on this page therefore rendered
+   * empty, and the case that exists to prove a seven-column table will not fit
+   * a phone was proving it about a table with nothing in it. Nothing said so:
+   * the markup was valid, the layout was plausible, and the sideways-scroll
+   * measurement passed for a reason that had nothing to do with the table.
+   * Found by asking a browser how wide the text in one cell was, and being
+   * told zero.
+   */
   return [
     title(
       'Interactive and tabular',
@@ -537,7 +818,9 @@ export function interactivePage(): NodeSpec[] {
             {
               type: 'tableRow',
               name: 'Head',
-              children: ['Region', 'Owner', 'Opened', 'Closed', 'Median', 'p95', 'Notes'].map((h) => cell(h, true)),
+              children: ['Region', 'Owner', 'Opened', 'Closed', 'Median', 'p95', 'Notes'].map((h) =>
+                cell(h, { header: true })
+              ),
             },
             ...['Europe', 'North America', 'Asia Pacific'].map((r, i) => ({
               type: 'tableRow' as const,
