@@ -438,6 +438,10 @@ export function Section({
         <button
           type="button"
           onClick={toggle}
+          // A disclosure that does not say whether it is open is a button whose
+          // whole meaning is the triangle beside it — invisible to anything not
+          // looking at the screen.
+          aria-expanded={open}
           className="group flex flex-1 items-center gap-1.5 text-left"
         >
           <svg

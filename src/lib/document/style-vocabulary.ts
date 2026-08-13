@@ -631,7 +631,7 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
   },
 
   /* ------------------------------------------------------------- motion -- */
-  transform: { label: 'Transform', section: 'motion', control: { kind: 'bespoke' } },
+  transform: { label: 'Transform', section: 'position', control: { kind: 'bespoke' } },
   /*
    * The three that compose, and the reason they have no row of their own.
    *
@@ -659,26 +659,30 @@ export const STYLE_VOCABULARY: Record<StyleProp, StyleEntry> = {
     label: 'Nudge',
     hint: 'Moves it without disturbing anything around it, e.g. 0 -4px',
     asEffect: 'where it sits',
-    section: 'motion',
+    section: 'position',
     control: { kind: 'effect' },
   },
   scale: {
     label: 'Scale',
     hint: '1 is unchanged. Two numbers scale the axes separately',
     asEffect: 'how big it is',
-    section: 'motion',
+    section: 'position',
     control: { kind: 'effect' },
   },
   rotate: {
     label: 'Rotate',
     asEffect: 'how far it is turned',
-    section: 'motion',
+    section: 'position',
     control: { kind: 'effect' },
   },
   transformOrigin: {
     label: 'Anchored at',
     hint: 'The point a scale or rotation happens around',
-    section: 'motion',
+    // With the move, scale and rotation it belongs to, in Placement. It sat
+    // under Motion because `transform` did, and `transform` sat there because
+    // CSS animates it more than anything else — which is a fact about
+    // stylesheets rather than about the person moving a box two pixels.
+    section: 'position',
     control: {
       kind: 'choice',
       options: [

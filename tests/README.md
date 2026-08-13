@@ -386,6 +386,12 @@ works with no backend at all, so it needs the build served on its own origin
 with nothing behind it. Override with `CRE8_LOCAL_URL`. It says so and exits
 rather than failing with a connection error if that origin is missing.
 
+**Rebuild, then restart the Worker.** `wrangler dev` reads the asset manifest
+for `out/` once, at startup. Running `next build` under a Worker that is
+already up leaves every page 404ing with the Worker still running and
+answering — which reads exactly like the app being broken, and cost an hour
+before anyone thought to check the static files rather than the code.
+
 Point it elsewhere with `CRE8_TEST_URL=https://…`. Chromium is discovered from
 `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers`) or `CRE8_CHROMIUM`,
 preferring an installed copy over downloading one.
@@ -408,7 +414,7 @@ preferring an installed copy over downloading one.
 | `collections` | Can somebody make a collection, write a record and see it on the canvas — every step a click, no fixtures. And the other direction: does the Blog template arrive with all six of its essays already written, listed on a paginated index and each at a page of its own |
 | `republish` | Does the live site follow its records with nobody pressing Publish, does a second publish write nothing, and do the two things that must *not* republish stay put |
 | `history` | Is every publish kept and honestly labelled, can a design be put back on the canvas and the site, and does the content written since survive it |
-| `inspector` | Does an inspector edit reach the element it was showing rather than the one selected next, does inline text survive a click elsewhere, and does an open overlay actually scope what gets inserted. Every check involves two elements, because one cannot see this class of bug |
+| `inspector` | Does an inspector edit reach the element it was showing rather than the one selected next, does inline text survive a click elsewhere, and does an open overlay actually scope what gets inserted. Every check involves two elements, because one cannot see this class of bug. And, since the panel became four tabs: are all four there and none of them clipped at the panel's own width, is the Style tab grouped in words that are not CSS with none of the names it replaced left behind, is every control still reachable — Layout on a container, Data on an element inside a repeater — does a multi-selection drop the tabs rather than offer three that do nothing when pressed, and is the panel page settings with nothing selected |
 | `menus` | Right-click: does the menu open where the pointer is, stay on screen — submenus included — keep a multi-selection, close without selecting what it closed over. Does Duplicate from the menu do exactly what ⌘D does, down to the undo step. And is it about the *thing* you clicked everywhere else: reset that padding, duplicate that page, delete that variant rather than its component, that field rather than the first one, place that asset, copy that token's reference, duplicate a component and get a second one that brought its variant with it rather than sharing the first's, duplicate that record as a draft and see it in the list — which the editor could not do, because it only ever asked the server for published rows |
 | `components` | Three instances of one component: two saying different things and pixel-identical, one wearing a variant and visibly not. Same classes where they should be shared, canvas and file agreeing element by element, and controls somebody can actually reach |
 | `schema` | Can a deployment read its own schema and add the columns it is missing — the one thing `node:sqlite` cannot answer for D1, which is whether a pragma comes back with rows |

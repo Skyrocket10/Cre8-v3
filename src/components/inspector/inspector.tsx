@@ -20,26 +20,21 @@ import { useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { ElementIcon } from '../ui/element-icon';
 import { Segmented, TextInput, Tooltip } from '../ui/primitives';
-import { ComponentPropertySection, ContentSection } from './section-content';
+import { ActionsSection, ComponentPropertySection, ContentSection } from './section-content';
 import { forgetInspectorTarget, rememberInspectorTarget } from './use-style';
 import { openContextMenu } from '../ui/context-menu';
 import type { StyleProp } from '@/lib/document/types';
 
 import { DataSection } from './section-data';
 import { RulesSection, describeRule } from './section-rules';
-import {
-  FlexChildSection,
-  LayoutSection,
-  PositionSection,
-  SizeSection,
-  SpacingSection,
-} from './sections-layout';
+import { LayoutSection, PlacementSection, SizeSection, SpacingSection } from './sections-layout';
 import {
   AdvancedSection,
+  AnimationSection,
+  BackgroundSection,
   BorderSection,
-  EffectsSection,
-  FillSection,
-  MotionSection,
+  ShadowSection,
+  TransitionSection,
   TypographySection,
 } from './sections-style';
 import { PagePanel } from './page-panel';
@@ -70,7 +65,6 @@ function onInspectorContextMenu(e: React.MouseEvent): void {
 
 export function Inspector() {
   const selectionCount = useEditor((s) => s.selection.length);
-  const tab = useEditor((s) => s.inspectorTab);
 
   return (
     <aside
@@ -100,9 +94,7 @@ export function Inspector() {
     >
       <InspectorHeader />
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {tab === 'page' ? (
-          <PagePanel />
-        ) : selectionCount === 0 ? (
+        {selectionCount === 0 ? (
           <NothingSelected />
         ) : selectionCount > 1 ? (
           <MultiSelection />
@@ -129,19 +121,56 @@ function InspectorHeader() {
 
   return (
     <div className="shrink-0 border-b border-[var(--border)]">
-      <div className="flex h-9 items-center gap-1 px-2">
-        <Segmented
-          full
-          value={tab}
-          onChange={setTab}
-          options={[
-            { value: 'design', label: 'Design' },
-            { value: 'page', label: 'Page' },
-          ]}
-        />
-      </div>
+      {/*
+        One slot, saying what the panel is about: page settings, one element,
+        or several.
 
-      {tab === 'design' && selectionCount > 0 && (
+        Tabs only for a single selection. With nothing selected the panel is
+        page settings, so a tab row would be four dead controls above one live
+        panel; with several selected only the style controls can work at all —
+        what an element *says* is per element — so the other three would be
+        tabs that do nothing when clicked. The old header spent half its width
+        on a `Design | Page` toggle that led to the same page settings the
+        empty state already showed.
+      */}
+      {selectionCount === 1 ? (
+        <div className="flex h-9 items-center gap-1 px-2">
+          <Segmented
+            full
+            size="xs"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'content', label: 'Content' },
+              { value: 'style', label: 'Style' },
+              { value: 'rules', label: 'Rules' },
+              { value: 'actions', label: 'Actions' },
+            ]}
+          />
+        </div>
+      ) : selectionCount > 1 ? (
+        <div className="flex h-9 items-center gap-2 px-3">
+          <span className="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] bg-[var(--accent-subtle)] text-[10px] font-semibold text-[var(--accent)]">
+            {selectionCount}
+          </span>
+          <span className="text-[11px] font-medium text-[var(--text-secondary)]">
+            elements selected
+          </span>
+        </div>
+      ) : (
+        <div className="flex h-9 items-center px-3 text-[11px] font-medium text-[var(--text-secondary)]">
+          Page
+        </div>
+      )}
+
+      {/*
+        The width and state strip, which only means anything where styles are
+        being written. Content and Actions write props and events — neither
+        varies by breakpoint — so showing it there would say a design decision
+        is scoped when it is not. A multi-selection is style-only, so it always
+        gets the strip.
+      */}
+      {(selectionCount > 1 || (selectionCount === 1 && (tab === 'style' || tab === 'rules'))) && (
         <div className="flex items-center gap-1.5 border-t border-[var(--border-soft)] px-2 py-1.5">
           <Tooltip
             content={
@@ -226,26 +255,99 @@ function SingleSelection() {
         </button>
       )}
 
-      <ContentSection />
-      {/* Above the data section, and only while the main component is open:
-          exposing a property is a decision about the component's shape, and it
-          belongs next to the content it is about rather than at the bottom of
-          a panel somebody has to scroll. */}
-      <ComponentPropertySection />
-      <DataSection />
-      <RulesSection />
-      <LayoutSection />
-      <SizeSection />
-      <SpacingSection />
-      <TypographySection />
-      <FillSection />
-      <BorderSection />
-      <EffectsSection />
-      <MotionSection />
-      <FlexChildSection />
-      <PositionSection />
-      <AdvancedSection />
+      <SelectedTab />
       <div className="h-8" />
+    </div>
+  );
+}
+
+/**
+ * What each tab holds, and why the split falls where it does.
+ *
+ * The panel used to render all fifteen of these at once, in the order they are
+ * imported. That order is a reasonable one for a stylesheet and a poor one for
+ * a person: it put *where this box sits* eleven sections below *what colour it
+ * is*, and it filed the three halves of "when does this change" — a rule, a
+ * binding, a press — under three unrelated headings.
+ *
+ * Four tabs, named for the question somebody arrived with:
+ *
+ *   Content   what it says and shows, including where the words come from
+ *   Style     what it looks like
+ *   Rules     when it looks different
+ *   Actions   what happens when it is pressed
+ *
+ * Nothing is invented here and nothing is removed. Two things move: the data
+ * binding joins the content it fills in, and the press actions come out from
+ * under Content, where they were a subsection of a subsection and only
+ * appeared at all if a switch existed somewhere above them.
+ */
+function SelectedTab() {
+  const tab = useEditor((s) => s.inspectorTab);
+
+  if (tab === 'content') {
+    return (
+      <>
+        <ContentSection />
+        {/* Exposing a property is a decision about the component's shape, so it
+            belongs next to the content it is about. */}
+        <ComponentPropertySection />
+        <DataSection />
+      </>
+    );
+  }
+  if (tab === 'rules') return <RulesSection />;
+  if (tab === 'actions') return <ActionsSection />;
+  return <StyleTab />;
+}
+
+/**
+ * The Style tab, in four groups rather than eleven sections in a row.
+ *
+ * The groups are the ones a designer would name, and none of them is a CSS
+ * word: what shape it is and where it sits, what it looks like, how it moves,
+ * and the escape hatch. Inside each, the accordions keep their own state — so
+ * somebody who lives in Typography still opens the panel to Typography open.
+ */
+function StyleTab() {
+  return (
+    <>
+      <Group title="Arrangement">
+        <LayoutSection />
+        <SizeSection />
+        <SpacingSection />
+        <PlacementSection />
+      </Group>
+      <Group title="Appearance">
+        <TypographySection />
+        <BackgroundSection />
+        <BorderSection />
+        <ShadowSection />
+      </Group>
+      <Group title="Motion">
+        <AnimationSection />
+        <TransitionSection />
+      </Group>
+      <Group title="Advanced">
+        <AdvancedSection />
+      </Group>
+    </>
+  );
+}
+
+/**
+ * A heading over a run of accordions.
+ *
+ * Quieter than the accordions it labels — smaller, tracked out, and not
+ * clickable. A group that collapsed would be a second kind of disclosure in a
+ * panel that already has one, and the reader would have to learn which
+ * triangle meant what.
+ */
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="border-b border-[var(--border-soft)] last:border-b-0">
+      <div className="panel-group px-3 pt-3 pb-1">{title}</div>
+      {children}
     </div>
   );
 }
@@ -261,16 +363,10 @@ function NameField({ id, name }: { id: string; name: string }) {
 }
 
 function MultiSelection() {
-  const count = useEditor((s) => s.selection.length);
-
   return (
     <div className="anim-fade">
-      <div className="flex items-center gap-2 border-b border-[var(--border-soft)] px-3 py-2">
-        <div className="flex size-[22px] shrink-0 items-center justify-center rounded-[5px] bg-[var(--accent-subtle)] text-[var(--accent)] text-[10px] font-semibold">
-          {count}
-        </div>
-        <span className="text-[11.5px] font-medium text-[var(--text)]">elements selected</span>
-      </div>
+      {/* The count is in the header, where the tab row would be — no second
+          row here saying the same thing. */}
       {/*
         Layout, Flex child and Position were missing here, which meant the
         three things you most want in bulk — "make these five stack", "let all
@@ -281,17 +377,7 @@ function MultiSelection() {
         `mixed` when a selection disagrees, so every control in them already
         knew how to show two different values and write one.
       */}
-      <LayoutSection />
-      <SizeSection />
-      <SpacingSection />
-      <TypographySection />
-      <FillSection />
-      <BorderSection />
-      <EffectsSection />
-      <MotionSection />
-      <FlexChildSection />
-      <PositionSection />
-      <AdvancedSection />
+      <StyleTab />
       <div className="h-8" />
     </div>
   );

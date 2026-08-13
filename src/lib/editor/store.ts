@@ -61,7 +61,20 @@ export type LeftTab =
   | 'collections'
   | 'theme'
   | 'submissions';
-export type InspectorTab = 'design' | 'page';
+/**
+ * Which question the inspector is answering about the selection.
+ *
+ * Four, and they are the four things somebody does to an element rather than
+ * the order a stylesheet is written in: what it says, what it looks like, when
+ * it looks different, and what it does when pressed. The panel used to be one
+ * scroll of fifteen accordions holding all four at once.
+ *
+ * There is no `page` any more. Page settings appear when *nothing* is
+ * selected, which is where they already appeared — the old toggle was a second
+ * way to reach a panel the empty state was showing anyway, and it cost half
+ * the header on every element.
+ */
+export type InspectorTab = 'content' | 'style' | 'rules' | 'actions';
 
 /**
  * Depth, expressed the only way this document model can express it.
@@ -549,7 +562,7 @@ function initialState(): EditorState {
     leftWidth: 264,
     rightOpen: true,
     rightWidth: 288,
-    inspectorTab: 'design',
+    inspectorTab: 'style',
     activeRuleId: null,
     previewing: false,
     previewDevice: 'desktop',

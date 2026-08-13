@@ -187,10 +187,70 @@ const showLayers = async () => {
   await page.waitForTimeout(300);
 };
 
+/**
+ * Which tab the panel is on.
+ *
+ * The inspector used to render all fifteen of its sections at once, so a check
+ * could reach for any control the moment something was selected. It is four
+ * tabs now, and every one of these gestures is a person's gesture — the tab
+ * click is part of what a designer actually does to get to the row, so it
+ * belongs in the check rather than being routed around.
+ */
+const openTab = async (name) => {
+  await page.locator('aside').last().locator(`button:text-is("${name}")`).first().click();
+  await page.waitForTimeout(350);
+};
+
 const selectLayer = async (name) => {
   await showLayers();
   await page.locator(`[data-layer-row]:has-text("${name}")`).first().click();
   await page.waitForTimeout(350);
+};
+
+/**
+ * Open an accordion, whether or not it is already open.
+ *
+ * Sections remember their own state in `localStorage`, so "click the heading"
+ * and "make sure it is open" are different instructions — two checks reaching
+ * for the same section closed it for the second one, and the row it wanted
+ * reported a count of zero. `aria-expanded` is what the button already tells a
+ * screen reader.
+ */
+const openSection = async (title) => {
+  const button = page
+    .locator('aside')
+    .last()
+    .locator(`button:has(.panel-title:text-is("${title}"))`)
+    .first();
+  if ((await button.getAttribute('aria-expanded')) !== 'true') {
+    await button.click();
+    await page.waitForTimeout(350);
+  }
+};
+
+/**
+ * Deselect the way a person does: click the workspace, off the page.
+ *
+ * Escape does not do it. It walks *up* the tree one rung at a time and stops
+ * at the page root, so the panel is still describing an element — which read
+ * as "the empty state is broken" when the empty state had never been reached.
+ */
+const deselect = async () => {
+  const at = await page.evaluate(() => {
+    const frame = document.querySelector('.cre8-frame.cre8-editing');
+    if (!frame) return null;
+    const box = frame.getBoundingClientRect();
+    const y = Math.max(box.top + 80, 140);
+    // Leftwards off the page until the point stops landing on chrome.
+    for (let x = box.left - 12; x > 0; x -= 12) {
+      const el = document.elementFromPoint(x, y);
+      if (el && !el.closest('aside, header, .cre8-frame')) return { x, y };
+    }
+    return null;
+  });
+  if (!at) throw new Error('nowhere on the workspace to click that is not the page or a panel');
+  await page.mouse.click(at.x, at.y);
+  await page.waitForTimeout(450);
 };
 
 /**
@@ -251,6 +311,8 @@ try {
   const textField = () => page.locator('aside textarea').first();
 
   await selectLayer('First');
+  // The tab row only exists once something is selected.
+  await openTab('Content');
   await textField().click();
   await textField().fill('Applied straight away');
   await textField().press('Tab');
@@ -302,6 +364,8 @@ try {
   /* --------------------------------- 3. a style write is targeted too ----- */
 
   await selectLayer('Second');
+  // Typography's Size row — Appearance, on the Style tab.
+  await openTab('Style');
   const fontField = page
     .locator('aside')
     .locator('label:text-is("Size")')
@@ -536,6 +600,8 @@ try {
    */
   const dataSection = async (layer) => {
     await selectLayer(layer);
+    // Data sits with Content — what an element says, and where it says it from.
+    await openTab('Content');
     const section = page
       .locator('aside')
       .last()
@@ -628,6 +694,7 @@ try {
    * template's grid uniform.
    */
   await selectLayer('Second');
+  await openTab('Style');
   await page.waitForTimeout(300);
 
   const layerOf = async (nodeId, layer) =>
@@ -637,8 +704,25 @@ try {
           credentials: 'include',
           headers: { 'x-cre8-csrf': '1' },
         });
-        const { document: doc } = await r.json();
-        return doc.nodes[nid]?.styles?.[bp] ?? {};
+        const body = await r.json().catch(() => null);
+        // A reader that assumes the shape it wanted takes the whole run down
+        // with `undefined has no nodes` and says nothing about why. The status
+        // and the body are the diagnosis, so carry them to the check that
+        // asked — along with who is asking, since a 404 here means either the
+        // project is gone or the session is somebody else's.
+        if (!body?.document) {
+          // `/api/auth/me`, which is the route that exists — the first version
+          // of this asked `/api/auth/session`, got a 404 of its own, and
+          // reported "as nobody" about a session that was in fact signed in.
+          const me = await fetch('/api/auth/me', { credentials: 'include' });
+          const who = await me.json().catch(() => null);
+          throw new Error(
+            `GET /api/projects/${pid} → ${r.status} ${JSON.stringify(body)?.slice(0, 120)} · ` +
+              `at ${location.pathname}${location.search} · ` +
+              `/auth/me ${me.status} as ${who?.user?.email ?? 'nobody'}`
+          );
+        }
+        return body.document.nodes[nid]?.styles?.[bp] ?? {};
       },
       [id, nodeId, layer]
     );
@@ -715,8 +799,8 @@ try {
 
   // Spans across — the control the whole grid gap comes down to. A number on
   // screen, `span 2` in the document.
-  await page.locator('aside').last().locator('button:has-text("In parent")').first().click();
-  await page.waitForTimeout(400);
+  await openTab('Style');
+  await openSection('Placement');
   const span = rowFor('Spans across').locator('input').first();
   report.check(
     'the grid span control is a count, not a CSS phrase',
@@ -779,12 +863,16 @@ try {
   await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
   await page.waitForTimeout(1500);
 
+  // Both calls to `<StyleFields section="table" />` are inside the per-type
+  // Content section, so the gate is judged on the Content tab.
   await selectLayer('Price table');
+  await openTab('Content');
   const onTable = {
     widths: await rowFor('Widths').count(),
     vertically: await rowFor('Vertically').count(),
   };
   await selectLayer('First cell');
+  await openTab('Content');
   const onCell = {
     widths: await rowFor('Widths').count(),
     vertically: await rowFor('Vertically').count(),
@@ -812,8 +900,8 @@ try {
    * browser can say is whether four fields and a menu actually compose one.
    */
   await selectLayer('Second');
-  await page.locator('aside').last().locator('button:has-text("Motion")').first().click();
-  await page.waitForTimeout(400);
+  await openTab('Style');
+  await openSection('Placement');
 
   const yField = rowFor('Move').locator('input').nth(1);
   report.check(
@@ -837,6 +925,7 @@ try {
     );
   }
 
+  await openSection('Transition');
   const eases = rowFor('Eases').locator('button').last();
   await eases.click();
   await page.waitForTimeout(300);
@@ -883,8 +972,10 @@ try {
    * tells them when part of it will not be used.
    */
   await selectLayer('Second');
-  await page.locator('aside').last().locator('button:has-text("Advanced")').first().click();
-  await page.waitForTimeout(400);
+  await openTab('Style');
+  // "Advanced" is the group heading now and is not clickable; the accordion
+  // under it is called Custom CSS.
+  await openSection('Custom CSS');
 
   const cssBox = page.locator('aside').last().locator('textarea').last();
   report.check(
@@ -929,6 +1020,196 @@ try {
       /\d+ declaration[^.]*/.exec(clean)?.[0] ?? 'said nothing'
     );
   }
+  /* ----------------------- 12. four tabs, and what is under each ---------- */
+
+  /*
+   * The panel used to be one scroll of fifteen accordions filed in import
+   * order. It is four tabs now, named for the question somebody arrived with,
+   * and the Style tab is grouped in words that are not CSS.
+   *
+   * Checked in a browser because every part of the claim is about what renders:
+   * a tab that exists but shows the wrong sections, or a label clipped by a
+   * panel 288px wide, is invisible to a typechecker and to a source scrape.
+   */
+  await selectLayer('First');
+  const tabBar = page.locator('aside').last();
+
+  const TABS = ['Content', 'Style', 'Rules', 'Actions'];
+  const present = [];
+  for (const name of TABS) {
+    if (await tabBar.locator(`button:text-is("${name}")`).first().isVisible().catch(() => false)) {
+      present.push(name);
+    }
+  }
+  report.check(
+    'a selected element offers the four tabs',
+    present.length === 4,
+    present.join(' · ') || 'no tab row'
+  );
+
+  /*
+   * Clipping, which is the failure a 288px panel invites and which no source
+   * check can see. `scrollWidth` against `clientWidth` per button, because a
+   * label lost to `text-overflow` still reports its full text content.
+   */
+  const clipped = await page.evaluate((names) => {
+    const aside = [...document.querySelectorAll('aside')].pop();
+    return [...aside.querySelectorAll('button')]
+      .filter((el) => names.includes(el.textContent.trim()))
+      .filter((el) => el.scrollWidth > el.clientWidth + 1)
+      .map((el) => el.textContent.trim());
+  }, TABS);
+  report.check(
+    'and none of the four is cut off at the panel’s own width',
+    clipped.length === 0,
+    clipped.length ? `clipped: ${clipped.join(', ')}` : 'all four fit'
+  );
+
+  /**
+   * The headings one tab is showing — group names and section names, and
+   * nothing else.
+   *
+   * Headings only, which took a false failure to get right. A leaf sweep of
+   * the whole column also picks up every option label in it, and the Size row
+   * offers "Fill" — so a check that the old section name *Fill* was gone read
+   * a Segmented button and reported the rename as incomplete. Both headings
+   * carry a class of their own, so ask for those.
+   */
+  const headingsOn = async (tab) => {
+    await tabBar.locator(`button:text-is("${tab}")`).first().click();
+    await page.waitForTimeout(400);
+    return page.evaluate(() => {
+      const aside = [...document.querySelectorAll('aside')].pop();
+      return [...aside.querySelectorAll('.panel-title, .panel-group')].map((el) =>
+        el.textContent.trim()
+      );
+    });
+  };
+
+  const style = await headingsOn('Style');
+  const GROUPS = ['Arrangement', 'Appearance', 'Motion', 'Advanced'];
+  /*
+   * Layout is not here: it is a container's section — a heading has nothing
+   * inside it to arrange — and it is checked on a container below. Asking a
+   * heading for it reported the regroup as broken when what it had found was
+   * a section correctly declining to appear.
+   */
+  const SECTIONS = [
+    'Size',
+    'Spacing',
+    'Placement',
+    'Typography',
+    'Background',
+    'Border',
+    'Shadow & blur',
+    'Animation',
+    'Transition',
+    'Custom CSS',
+  ];
+  const missingGroups = GROUPS.filter((one) => !style.includes(one));
+  const missingSections = SECTIONS.filter((one) => !style.includes(one));
+  report.check(
+    'the style tab is grouped in words that are not CSS',
+    missingGroups.length === 0 && missingSections.length === 0,
+    missingGroups.length || missingSections.length
+      ? `missing ${[...missingGroups, ...missingSections].join(', ')}`
+      : `${GROUPS.join(' · ')} over ${SECTIONS.length} sections`
+  );
+  const OLD_WORDS = ['Fill', 'Effects', 'In parent', 'Position', 'Advanced CSS'];
+  const survivors = OLD_WORDS.filter((word) => style.includes(word));
+  // Motion is a group now, and the section that used to carry that name was
+  // split into Animation and Transition. Once, not twice: a group and a
+  // section reading the same is the exact shape of a half-finished rename.
+  const motions = style.filter((one) => one === 'Motion').length;
+  report.check(
+    'and the words it replaced are gone rather than duplicated',
+    survivors.length === 0 && motions === 1,
+    survivors.length || motions !== 1
+      ? `still showing: ${[...survivors, ...(motions === 1 ? [] : [`Motion ×${motions}`])].join(', ')}`
+      : `${OLD_WORDS.join(', ')} — none, and Motion only as a group`
+  );
+
+  const actions = await headingsOn('Actions');
+  report.check(
+    'what happens on a press has a tab rather than a subsection of Content',
+    actions.includes('When pressed'),
+    // It used to render at the bottom of Content, under a heading called
+    // Interaction, and only when a switch existed somewhere above it.
+    actions.join(' · ') || 'no headings'
+  );
+
+  /*
+   * Layout and Data, on the elements that have them.
+   *
+   * A section is either in its group or it is somewhere else, and the only way
+   * to tell the difference is to look where it should be — so a container for
+   * Layout, and an element inside a repeater for Data. Neither is a weaker
+   * check than the heading was; they are the same check, addressed correctly.
+   */
+  await selectLayer('Signup list');
+  const container = await headingsOn('Style');
+  report.check(
+    'a container gets Layout, in the group about arrangement',
+    container.includes('Layout') &&
+      container.indexOf('Arrangement') < container.indexOf('Layout') &&
+      container.indexOf('Layout') < container.indexOf('Appearance'),
+    container.slice(0, 6).join(' · ') || 'no headings'
+  );
+
+  const content = await headingsOn('Content');
+  report.check(
+    'and the data binding sits with the content it fills in',
+    content.includes('Data'),
+    content.join(' · ') || 'no headings'
+  );
+
+  /*
+   * Two selected, which is where a tab row would start lying.
+   *
+   * Only the style controls can work across a mixed selection — what an
+   * element *says* is its own — so a Content tab on a multi-selection is a
+   * control that does nothing when pressed. The panel drops the tabs and says
+   * what it is instead, and the breakpoint strip stays because styles are
+   * still what is being written.
+   */
+  await selectLayer('First');
+  await page.locator('[data-layer-row]:has-text("Second")').first().click({ modifiers: ['Shift'] });
+  await page.waitForTimeout(450);
+  const multi = await page.evaluate(() => {
+    const aside = [...document.querySelectorAll('aside')].pop();
+    return {
+      text: aside.innerText.replace(/\s+/g, ' '),
+      tabs: [...aside.querySelectorAll('button')].filter((el) =>
+        ['Content', 'Rules', 'Actions'].includes(el.textContent.trim())
+      ).length,
+    };
+  });
+  report.check(
+    'several selected drops the tabs rather than offering three that do nothing',
+    multi.tabs === 0 &&
+      /2 elements selected/.test(multi.text) &&
+      // The style controls are still there, and still say which layer. Matched
+      // case-insensitively: the group heading is uppercased in CSS, and
+      // `innerText` reports what is on the screen rather than what is in the
+      // markup.
+      /arrangement/i.test(multi.text) &&
+      /desktop/i.test(multi.text),
+    `${multi.tabs} inert tab(s) · ${multi.text.slice(0, 70)}`
+  );
+
+  await deselect();
+  const deselected = await page.evaluate(() => {
+    const aside = [...document.querySelectorAll('aside')].pop();
+    return aside.innerText.replace(/\s+/g, ' ');
+  });
+  report.check(
+    'and page settings are what the panel shows with nothing selected',
+    /Nothing selected/.test(deselected) && /Slug/.test(deselected) && !/\bStyle\b/.test(deselected),
+    // Which is why the old `Design | Page` toggle could go: it led to the panel
+    // the empty state was already showing, and cost half the header to do it.
+    deselected.slice(0, 90)
+  );
+
 } catch (error) {
   report.check('inspector suite completed', false, error.message);
 } finally {

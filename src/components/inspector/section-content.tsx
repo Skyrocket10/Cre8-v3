@@ -87,16 +87,6 @@ export function ContentSection() {
       {/* Same gate as the switch, for the same reason: a value has to live on
           something the things reading it sit inside. */}
       {def.container && !def.internal && <RangeGroupContent />}
-      {/* And anything inside one can drive it. `applySwitch` has always
-          written `data-cre8-set` for whatever carries the prop, whatever type
-          it is — the panel was the only thing insisting on a button or a link,
-          so a card or an image could not change a tab or a pricing toggle
-          despite the renderer being perfectly willing.
-
-          No type test replaces it because none is needed: the section returns
-          nothing at all when there is no switch above, which is what stops it
-          becoming noise on the other several thousand elements. */}
-      <SwitchSetterSection />
     </>
   );
 }
@@ -1373,7 +1363,21 @@ function SwitchGroupContent() {
  * the wrong menu with nothing saying so, and had no way to reach the outer one
  * even after noticing. Each row now names the state it drives.
  */
-function SwitchSetterSection() {
+/**
+ * What happens when this is pressed — its own tab now, not a subsection.
+ *
+ * It used to render at the bottom of Content, under a heading called
+ * Interaction, and only when a switch existed somewhere above it. So the most
+ * asked-for thing an element can do was the hardest to find in the panel: two
+ * levels down, behind a condition, filed under what the element *says*.
+ *
+ * Anything can drive a switch, not only a button. `applySwitch` has always
+ * written `data-cre8-set` for whatever carries the prop, whatever type it is —
+ * the panel was the only thing insisting on a button or a link, so a card or an
+ * image could not change a tab despite the renderer being perfectly willing.
+ * No type test replaces that, because the tab explains itself when empty.
+ */
+export function ActionsSection() {
   const setActions = useEditor((s) => s.setActions);
   // Only states something can actually be put into: a state whose values are
   // unknown offers an empty menu, which reads as broken.
@@ -1386,7 +1390,18 @@ function SwitchSetterSection() {
   const assignments = parsed.filter((a) => a.type === 'setState');
   const rest = parsed.filter((a) => a.type !== 'setState');
 
-  if (states.length === 0) return null;
+  if (states.length === 0) {
+    return (
+      <Section title="When pressed" defaultOpen>
+        <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+          Nothing here yet. An element can set a switch when it is pressed — a tab
+          strip, a pricing toggle, a filter — and there is no switch on this page
+          for it to drive. Add one from a block, or give an element a switch of
+          its own in Rules.
+        </p>
+      </Section>
+    );
+  }
 
   /** Rewrite the assignments, keeping every other action where it was. */
   const write = (next: NodeAction[]) => setActions([...next, ...rest]);
@@ -1406,7 +1421,7 @@ function SwitchSetterSection() {
   const valuesOf = (key: string) => states.find((s) => s.key === key)?.values ?? [];
 
   return (
-    <Section title="Interaction" defaultOpen>
+    <Section title="When pressed" defaultOpen>
       <InspectorGroup>
         {assignments.length === 0 ? (
           <p className="px-3 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">

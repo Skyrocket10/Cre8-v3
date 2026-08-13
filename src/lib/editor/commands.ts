@@ -1353,7 +1353,9 @@ export const COMMANDS: Record<string, EditorCommand> = {
     enabled: () => true,
     run: (ctx) => {
       ctx.store.toggleRight(true);
-      ctx.store.setInspectorTab('page');
+      // Page settings are what the inspector shows with nothing selected, so
+      // reaching them is a deselection rather than a tab.
+      ctx.store.select(null);
     },
   },
 };

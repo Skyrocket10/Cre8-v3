@@ -30,6 +30,7 @@ import { Section, Segmented, Select, Tooltip } from '../ui/primitives';
 import { BoxModel } from './box-model';
 import { FieldPair, InspectorGroup, StyleRow } from './controls';
 import { StyleFields } from './style-field';
+import { TransformRows } from './sections-style';
 import { useStyleBindings, useStyleProp, useStyleReset, useStyleWriter } from './use-style';
 
 /* --------------------------------------------------------------------------
@@ -452,14 +453,32 @@ export function SpacingSection() {
 
 const POSITION_PROPS: StyleProp[] = ['position', 'top', 'right', 'bottom', 'left', 'zIndex', 'overflow'];
 
-export function PositionSection() {
+/**
+ * Where this sits, and how it is oriented.
+ *
+ * Three sections became one, and the argument for merging them is that they
+ * were three answers to a single question a person asks once. `Position` held
+ * the offsets and the layer; `In parent` held how the box behaves inside the
+ * thing around it; the move, scale and rotation were filed under `Motion`
+ * because `transform` is the property CSS animates most. Between them they
+ * spent three accordions and two pieces of browser vocabulary — *position* and
+ * *in parent* — on "where is this".
+ *
+ * The rows that only make sense inside a flex parent still only appear inside
+ * one, so nothing is offered where it would do nothing.
+ */
+export function PlacementSection() {
   const bindings = useStyleBindings(POSITION_PROPS);
   const write = useStyleWriter();
   const position = bindings.position?.value ?? 'relative';
   const placed = position === 'absolute' || position === 'fixed' || position === 'sticky';
 
+  const inFlexParent = useInFlexParent();
+  const grow = useStyleProp('flexGrow');
+  const alignSelf = useStyleProp('alignSelf');
+
   return (
-    <Section title="Position" defaultOpen={false}>
+    <Section title="Placement" defaultOpen={false}>
       <InspectorGroup>
         <StyleRow styleProps={['position']} menuLabel="Position" label="Position" overridden={bindings.position?.overridden}>
           <Select
@@ -542,18 +561,44 @@ export function PositionSection() {
           />
         </StyleRow>
         <StyleFields section="position" />
+        <TransformRows />
+        {inFlexParent && (
+          <>
+            <StyleRow styleProps={['flexGrow']} menuLabel="Grow" label="Grow" hint="Take up remaining space along the parent's axis">
+              <Segmented
+                full
+                value={grow.value === '1' ? 'grow' : 'none'}
+                onChange={(value) => grow.set(value === 'grow' ? '1' : undefined)}
+                options={[
+                  { value: 'none', label: 'None' },
+                  { value: 'grow', label: 'Grow' },
+                ]}
+              />
+            </StyleRow>
+            <StyleRow styleProps={['alignSelf']} menuLabel="Align in parent" label="Align" overridden={alignSelf.overridden} onReset={alignSelf.clear}>
+              <Segmented
+                full
+                value={alignSelf.value ?? 'auto'}
+                onChange={(value) => alignSelf.set(value === 'auto' ? undefined : value)}
+                options={[
+                  { value: 'auto', label: 'Auto' },
+                  { value: 'flex-start', label: 'Start' },
+                  { value: 'center', label: 'Centre' },
+                  { value: 'flex-end', label: 'End' },
+                  { value: 'stretch', label: 'Fill' },
+                ]}
+              />
+            </StyleRow>
+            <StyleFields section="parent" />
+          </>
+        )}
       </InspectorGroup>
     </Section>
   );
 }
 
-/* --------------------------------------------------------------------------
- * Child-of-flex controls
- * ----------------------------------------------------------------------- */
-
-export function FlexChildSection() {
-  // Same reasoning as Layout above: one of the selected elements sitting in a
-  // flex parent is enough for these controls to be worth offering.
+/** Whether any of the selection sits inside a flex container. */
+function useInFlexParent(): boolean {
   const parentIsFlex = useEditor((s) =>
     s.selection.some((id) => {
       const parentId = s.doc.nodes[id]?.parentId;
@@ -566,41 +611,5 @@ export function FlexChildSection() {
     })
   );
 
-  const grow = useStyleProp('flexGrow');
-  const alignSelf = useStyleProp('alignSelf');
-
-  if (!parentIsFlex) return null;
-
-  return (
-    <Section title="In parent" defaultOpen={false}>
-      <InspectorGroup>
-        <StyleRow styleProps={['flexGrow']} menuLabel="Grow" label="Grow" hint="Take up remaining space along the parent's axis">
-          <Segmented
-            full
-            value={grow.value === '1' ? 'grow' : 'none'}
-            onChange={(value) => grow.set(value === 'grow' ? '1' : undefined)}
-            options={[
-              { value: 'none', label: 'None' },
-              { value: 'grow', label: 'Grow' },
-            ]}
-          />
-        </StyleRow>
-        <StyleRow styleProps={['alignSelf']} menuLabel="Align in parent" label="Align" overridden={alignSelf.overridden} onReset={alignSelf.clear}>
-          <Segmented
-            full
-            value={alignSelf.value ?? 'auto'}
-            onChange={(value) => alignSelf.set(value === 'auto' ? undefined : value)}
-            options={[
-              { value: 'auto', label: 'Auto' },
-              { value: 'flex-start', label: 'Start' },
-              { value: 'center', label: 'Centre' },
-              { value: 'flex-end', label: 'End' },
-              { value: 'stretch', label: 'Fill' },
-            ]}
-          />
-        </StyleRow>
-        <StyleFields section="parent" />
-      </InspectorGroup>
-    </Section>
-  );
+  return parentIsFlex;
 }

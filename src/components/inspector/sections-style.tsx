@@ -275,7 +275,7 @@ const FILL_PROPS: StyleProp[] = [
   'backgroundPosition',
 ];
 
-export function FillSection() {
+export function BackgroundSection() {
   const bindings = useStyleBindings(FILL_PROPS);
   const write = useStyleWriter();
   const theme = useEditor((s) => s.doc.theme);
@@ -285,7 +285,7 @@ export function FillSection() {
   );
 
   return (
-    <Section title="Fill">
+    <Section title="Background">
       <InspectorGroup>
         <Segmented
           full
@@ -604,7 +604,7 @@ function uniform(values: (string | undefined)[]): boolean {
  * Effects
  * ----------------------------------------------------------------------- */
 
-export function EffectsSection() {
+export function ShadowSection() {
   const theme = useEditor((s) => s.doc.theme);
   const opacity = useStyleProp('opacity');
   const shadow = useStyleProp('boxShadow');
@@ -615,7 +615,7 @@ export function EffectsSection() {
   const backdropValue = extractBlur(backdrop.value);
 
   return (
-    <Section title="Effects" defaultOpen={false}>
+    <Section title="Shadow &amp; blur" defaultOpen={false}>
       <InspectorGroup>
         <StyleRow styleProps={['opacity']} menuLabel="Opacity" label="Opacity" overridden={opacity.overridden} onReset={opacity.clear}>
           <div className="flex flex-1 items-center gap-2">
@@ -696,18 +696,135 @@ export function EffectsSection() {
  * "Any CSS transform, e.g. rotate(-2deg)" is a request for the designer to
  * know CSS, in a product whose premise is that they should not have to.
  */
-export function MotionSection() {
+/**
+ * Where a box sits and how it is oriented — the rows Placement borrows.
+ *
+ * Exported rather than rendered here, because a move, a scale and a rotation
+ * are the same kind of decision as an offset or a z-index: they say where this
+ * thing is, not how it moves. They lived under Motion only because `transform`
+ * is the property CSS animates most often, which is a fact about stylesheets
+ * rather than about anybody using this.
+ */
+export function TransformRows() {
   const transform = useStyleProp('transform');
-  const transition = useStyleProp('transition');
-
   const parsed = parseTransform(transform.value);
-  const current = parseTransition(transition.value);
-  const group = current ? transitionGroup(current.props) : '';
-
   const writeTransform = (patch: Partial<Transform>) => {
     if (!parsed) return;
     transform.set(formatTransform({ ...parsed, ...patch }));
   };
+
+  return (
+    <>
+      {/*
+        Four fields rather than the CSS text box this used to be. The box was
+        the clearest example of the gap the audit found: a control that only
+        works if you already know the language the product exists to hide.
+      */}
+      {parsed ? (
+        <>
+          <StyleRow
+            styleProps={['transform']}
+            menuLabel="Transform"
+            label="Move"
+            hint="Shifts the element without moving anything around it"
+            overridden={transform.overridden}
+            onReset={transform.clear}
+          >
+            <FieldPair>
+              <NumberField
+                label="X"
+                value={parsed.x || '0'}
+                onChange={(value) => writeTransform({ x: value ?? '' })}
+              />
+              <NumberField
+                label="Y"
+                value={parsed.y || '0'}
+                onChange={(value) => writeTransform({ y: value ?? '' })}
+              />
+            </FieldPair>
+          </StyleRow>
+          <StyleRow styleProps={['transform']} menuLabel="Transform" label="Scale">
+            <FieldPair>
+              <NumberField
+                label="×"
+                units={[]}
+                unit=""
+                step={0.01}
+                min={0}
+                value={parsed.scale || '1'}
+                onChange={(value) => writeTransform({ scale: value ?? '' })}
+              />
+              <NumberField
+                label="°"
+                units={[]}
+                unit="deg"
+                step={1}
+                value={parsed.rotate || '0'}
+                onChange={(value) => writeTransform({ rotate: value ?? '' })}
+              />
+            </FieldPair>
+          </StyleRow>
+        </>
+      ) : (
+        /*
+         * The escape hatch, and the reason the parser returns `null` rather
+         * than a best guess: a `perspective()` or a `matrix3d()` flattened
+         * into a translate by the act of opening the panel is data loss
+         * wearing a control's clothes. Anything the four fields cannot hold
+         * keeps its text, and the row says which it is.
+         */
+        <StyleRow
+          styleProps={['transform']}
+          menuLabel="Transform"
+          label="Transform"
+          hint="This transform does more than move, scale and rotate, so it stays as written"
+          overridden={transform.overridden}
+          onReset={transform.clear}
+        >
+          <input
+            value={transform.value ?? ''}
+            onChange={(e) => transform.set(e.target.value || undefined)}
+            onKeyDown={(e) => e.stopPropagation()}
+            spellCheck={false}
+            placeholder="none"
+            className="h-[26px] w-full min-w-0 rounded-md bg-[var(--field)] px-2 font-mono text-[10.5px] text-[var(--text)] outline-none transition-colors hover:bg-[var(--field-hover)] focus:ring-1 focus:ring-[var(--accent)] focus:ring-inset placeholder:text-[var(--text-faint)]"
+          />
+        </StyleRow>
+      )}
+    </>
+  );
+}
+
+/**
+ * How it arrives.
+ *
+ * One row, and it is the row people ask for: whether the element fades, rises
+ * or grows into place as the page scrolls to it. Scroll-driven, so nothing is
+ * executed — see `appear` in the style vocabulary.
+ */
+export function AnimationSection() {
+  return (
+    <Section title="Animation" defaultOpen={false}>
+      <InspectorGroup>
+        <StyleFields section="motion" />
+      </InspectorGroup>
+    </Section>
+  );
+}
+
+/**
+ * What moves smoothly when it changes, instead of jumping.
+ *
+ * Its own section rather than a row under a heading called Motion, because the
+ * two questions are different: one is about arriving, the other is about every
+ * change afterwards. A card that eases its hover and a card that fades in on
+ * scroll have nothing to do with each other, and the panel used to file them
+ * together under a word that covers both and explains neither.
+ */
+export function TransitionSection() {
+  const transition = useStyleProp('transition');
+  const current = parseTransition(transition.value);
+  const group = current ? transitionGroup(current.props) : '';
   const writeTransition = (patch: Partial<Transition>) => {
     const base = current ?? {
       props: TRANSITION_GROUPS[0]!.props,
@@ -718,87 +835,8 @@ export function MotionSection() {
   };
 
   return (
-    <Section title="Motion" defaultOpen={false}>
+    <Section title="Transition" defaultOpen={false}>
       <InspectorGroup>
-        {/*
-          Four fields rather than the CSS text box this used to be. The box was
-          the clearest example of the gap the audit found: a control that only
-          works if you already know the language the product exists to hide.
-        */}
-        {parsed ? (
-          <>
-            <StyleRow
-              styleProps={['transform']}
-              menuLabel="Transform"
-              label="Move"
-              hint="Shifts the element without moving anything around it"
-              overridden={transform.overridden}
-              onReset={transform.clear}
-            >
-              <FieldPair>
-                <NumberField
-                  label="X"
-                  value={parsed.x || '0'}
-                  onChange={(value) => writeTransform({ x: value ?? '' })}
-                />
-                <NumberField
-                  label="Y"
-                  value={parsed.y || '0'}
-                  onChange={(value) => writeTransform({ y: value ?? '' })}
-                />
-              </FieldPair>
-            </StyleRow>
-            <StyleRow styleProps={['transform']} menuLabel="Transform" label="Scale">
-              <FieldPair>
-                <NumberField
-                  label="×"
-                  units={[]}
-                  unit=""
-                  step={0.01}
-                  min={0}
-                  value={parsed.scale || '1'}
-                  onChange={(value) => writeTransform({ scale: value ?? '' })}
-                />
-                <NumberField
-                  label="°"
-                  units={[]}
-                  unit="deg"
-                  step={1}
-                  value={parsed.rotate || '0'}
-                  onChange={(value) => writeTransform({ rotate: value ?? '' })}
-                />
-              </FieldPair>
-            </StyleRow>
-          </>
-        ) : (
-          /*
-           * The escape hatch, and the reason the parser returns `null` rather
-           * than a best guess: a `perspective()` or a `matrix3d()` flattened
-           * into a translate by the act of opening the panel is data loss
-           * wearing a control's clothes. Anything the four fields cannot hold
-           * keeps its text, and the row says which it is.
-           */
-          <StyleRow
-            styleProps={['transform']}
-            menuLabel="Transform"
-            label="Transform"
-            hint="This transform does more than move, scale and rotate, so it stays as written"
-            overridden={transform.overridden}
-            onReset={transform.clear}
-          >
-            <input
-              value={transform.value ?? ''}
-              onChange={(e) => transform.set(e.target.value || undefined)}
-              onKeyDown={(e) => e.stopPropagation()}
-              spellCheck={false}
-              placeholder="none"
-              className="h-[26px] w-full min-w-0 rounded-md bg-[var(--field)] px-2 font-mono text-[10.5px] text-[var(--text)] outline-none transition-colors hover:bg-[var(--field-hover)] focus:ring-1 focus:ring-[var(--accent)] focus:ring-inset placeholder:text-[var(--text-faint)]"
-            />
-          </StyleRow>
-        )}
-
-        <StyleFields section="motion" />
-
         {/*
           And the property the whole milestone is named after. It was in the
           model, authored by the block library in TypeScript, and offered
@@ -905,7 +943,7 @@ export function AdvancedSection() {
   const attempted = text.split(';').filter((part) => part.trim()).length;
 
   return (
-    <Section title="Advanced" defaultOpen={false}>
+    <Section title="Custom CSS" defaultOpen={false}>
       <InspectorGroup>
         <StyleRow
           styleProps={['custom']}
