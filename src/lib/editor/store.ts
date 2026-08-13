@@ -532,6 +532,21 @@ export function onLocalPatches(listener: PatchListener): () => void {
  */
 let applyingRemote = false;
 
+/**
+ * Tell the room what just changed here.
+ *
+ * A function rather than three copies of the same loop, because for a long
+ * time there was only one copy and the two that were missing were `undo` and
+ * `redo`. Autosave is suspended while a room is live — the room persists every
+ * patch, so a whole-document PUT on top would force everyone into a resync —
+ * which meant Ctrl+Z changed the document in one browser and nowhere else.
+ * The canvas showed the undo, the room did not have it, and a reload brought
+ * the undone edit back.
+ */
+function emitPatches(patches: Patch[], label: string): void {
+  if (applyingRemote || !patchListeners.size || !patches.length) return;
+  for (const listener of patchListeners) listener(patches, label);
+}
 
 /**
  * Collections with a load in the air.
@@ -676,9 +691,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       measureToken: options?.quiet ? state.measureToken : state.measureToken + 1,
     });
 
-    if (!applyingRemote && patchListeners.size) {
-      for (const listener of patchListeners) listener(result.patches, label);
-    }
+    emitPatches(result.patches, label);
   },
 
   undo() {
@@ -706,6 +719,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       editingTextId: null,
       measureToken: measureToken + 1,
     });
+    emitPatches(result.transaction.inverse, 'Undo');
   },
 
   redo() {
@@ -730,6 +744,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
       editingTextId: null,
       measureToken: measureToken + 1,
     });
+    emitPatches(result.transaction.patches, 'Redo');
   },
 
   /* ------------------------------------------------------ collaboration -- */

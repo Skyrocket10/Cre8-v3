@@ -1937,6 +1937,33 @@ boundary caught it and unmounted the panel, which from the outside looks
 exactly like the inspector deciding not to appear. Nothing was logged to the
 page; the suite saw an `<aside>` count of zero and said so.
 
+### Ctrl+Z changed the document in one browser and nowhere else
+
+Found while chasing the check above, and much worse than what it interrupted.
+
+`transact` emits the patches it produced to the collaboration client, which
+sends them to the room. `undo` and `redo` did not. They applied the inverse
+patches locally, set `saveStatus: 'dirty'`, and stopped.
+
+Which would be survivable if autosave picked it up — except **autosave is
+deliberately suspended while a room is live**, and the room is live in every
+session, because the socket connects when the editor opens. The room persists
+every patch, so a whole-document PUT on top of that would bump the version and
+force everyone into a resync; suspending it is correct. The consequence was
+that pressing Ctrl+Z changed the canvas in front of you and nothing else. The
+room kept the un-undone document, every collaborator kept it, D1 kept it, and a
+reload brought the undone edit back.
+
+The fix is that all three paths call one `emitPatches`, because for a long time
+there was one copy of that loop and the two that were missing were exactly the
+two nobody had written it into. The patches were already there — `inverse` on
+the transaction for undo, `patches` for redo.
+
+Worth recording how it surfaced, because it is the third time in this document
+that the same shape has: a check written for one thing read a value it did not
+expect. The inspector check asked the *API* whether a removed border came back
+after an undo, saw that it had not, and the panel in front of it said it had.
+
 ### A room that woke up not knowing which project it was
 
 Found from the outside, by a browser suite, while it was doing something else
