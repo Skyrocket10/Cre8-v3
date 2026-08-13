@@ -61,6 +61,115 @@ try {
   );
   report.check('the published page still ships no script', !/<script/i.test(html));
 
+  /* ------------------------------- 1b. and can be pointed somewhere else */
+
+  /*
+   * The rows that did not exist until now.
+   *
+   * `action` and `method` are props the renderer has always read — its comment
+   * says "an action the designer typed always wins" — with nowhere in the
+   * editor to type one. So every form this app has ever built posted here,
+   * because that was the only place it could post, and a site wanting its own
+   * handler or a mailing-list provider could not have one.
+   *
+   * Driven through the panel rather than by writing the document, because the
+   * panel is what is being checked: a static check can see that the component
+   * calls `useNodeProp('action')` and cannot see whether the row it renders
+   * reaches the node. That distinction is not academic — the last property
+   * added this week passed every static check and took the canvas down.
+   */
+  /*
+   * Selected by *type*, not by name. The block called "Form" is a section
+   * whose form node is called "Project form", so clicking the row whose text
+   * says Form selects the wrapper and the Form section never appears — which
+   * is what the first run of this reported, as a missing feature rather than a
+   * missed click. `data-layer-row` carries the node id, so the document can
+   * say which row to click and a renamed block cannot break it.
+   */
+  await page.locator('button[aria-label="Layers"]').first().click();
+  await page.waitForTimeout(300);
+  const formId = await page.evaluate(async (pid) => {
+    const r = await fetch(`/api/projects/${pid}`, {
+      credentials: 'include',
+      headers: { 'x-cre8-csrf': '1' },
+    });
+    const { document: doc } = await r.json();
+    return Object.values(doc.nodes).find((n) => n.type === 'form')?.id ?? '';
+  }, id);
+  await page.locator(`[data-layer-row="${formId}"]`).first().click();
+  await page.waitForTimeout(500);
+
+  /*
+   * The row with this label, found from the label outwards.
+   *
+   * `filter({ has: label })` and `.last()` was the obvious spelling and the
+   * wrong one: the deepest div containing the label *is* the label's own
+   * wrapper, which holds no control at all. Climbing to the nearest ancestor
+   * that contains a button lands on the row however the label is wrapped.
+   */
+  const row = (label) =>
+    page.locator(`label:text-is("${label}")`).locator('xpath=ancestor::div[.//button][1]');
+
+  const sendsTo = row('Sends to');
+  const hasRow = await sendsTo.isVisible().catch(() => false);
+  report.check(
+    'a selected form offers somewhere to send it',
+    hasRow,
+    hasRow ? 'the Form section is on screen' : 'no Sends to row — a form had no Content section at all'
+  );
+
+  if (hasRow) {
+    /*
+     * A menu here is a Popover with a button trigger and buttons inside it,
+     * not a native `<select>` — so this is two clicks rather than
+     * `selectOption`, and the option is found by its words.
+     */
+    const choose = async (label, option) => {
+      await row(label).locator('button').first().click();
+      await page.waitForTimeout(200);
+      await page.locator(`button:has-text("${option}")`).last().click();
+      await page.waitForTimeout(300);
+    };
+
+    await choose('Sends to', 'Somewhere else');
+    const url = page.locator('input[placeholder="https://…"]').first();
+    await url.fill('https://example.test/collect');
+    await url.blur();
+    // The method is a Segmented, whose parts are buttons inside the row.
+    await row('Method').locator('button:has-text("Get")').first().click();
+    await page.waitForTimeout(500);
+    await publish(page);
+
+    const form = /<form[^>]*>/.exec(await (await fetch(`${APP}/s/${id}/`)).text())?.[0] ?? '';
+    report.check(
+      'a form pointed at another endpoint publishes with that address',
+      /action="https:\/\/example\.test\/collect"/.test(form),
+      form.slice(0, 160) || 'no form element'
+    );
+    report.check(
+      'and the method the panel chose reaches the markup',
+      /method="get"/.test(form),
+      // A search form has to be a `get`, or its results cannot be linked to.
+      /method="[^"]*"/.exec(form)?.[0] ?? 'no method attribute'
+    );
+
+    // Back to the built-in endpoint, because everything below submits for real
+    // and `example.test` does not exist.
+    await choose('Sends to', 'This project');
+    await row('Method').locator('button:has-text("Post")').first().click();
+    await page.waitForTimeout(500);
+    await publish(page);
+
+    const back = await (await fetch(`${APP}/s/${id}/`)).text();
+    report.check(
+      'and choosing this project again falls back to its own endpoint',
+      new RegExp(`action="[^"]*/api/f/${id}/`).test(back),
+      // The empty action is the value that means "here", so this also checks
+      // that clearing the field is a choice rather than an unfilled box.
+      /<form[^>]*\saction="([^"]+)"/.exec(back)?.[1] ?? 'no action attribute'
+    );
+  }
+
   /* ------------------------------------------- 2. a real browser submission */
 
   const site = await ctx.newPage();

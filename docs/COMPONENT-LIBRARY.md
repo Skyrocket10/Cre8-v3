@@ -425,6 +425,40 @@ asked for, which reads as a broken property and is a short page. The group below
 it is the runway, and the suite now reports whether the page was scrolled to its
 end so the two can be told apart.
 
+### The same audit, on the other half of the model
+
+The stress template asks what the *style* vocabulary cannot say. Running the
+question at element **props** instead found the shape of gap that produced
+`STYLE_VOCABULARY` in the first place, still open on the side that never got a
+table: 61 props across 35 element types, and three of them had no control
+anywhere in the editor.
+
+**A form could not say where it posts.** `action` and `method` are read by the
+renderer — whose comment says "an action the designer typed always wins" — and
+a form had no Content section at all, so there was nowhere to type one. Every
+form this app has ever built posts to the project's own submissions endpoint,
+because that was the only possibility. A site wanting Mailchimp, or its own
+handler, or a `get` so a search result can be linked to, could not have one.
+
+**A textarea could not say how tall it starts.** `rows` is the attribute a
+textarea is sized by before any CSS touches it, which also makes it what the
+box falls back to while the stylesheet is still loading.
+
+Both are rows now, and the audit is a check rather than an afternoon of
+grepping: every prop an element ships with must be reachable from the panel,
+with one named exception — `instance.componentId`, which is deliberately read
+and never written, because you do not retarget a component instance by typing
+an id at it.
+
+Two things about the check are worth keeping, because the first version of it
+had both wrong. It tests *how the panel edits a prop* — `useNodeProp('x')` or
+`setNodeProps({ x: … })` — rather than whether the word appears somewhere: a
+bare-name search found `action` immediately, in `kind: 'action'`, which is an
+expression effect and nothing to do with a form, and would have declared the
+gap closed while it was open. And the exemption list is itself checked against
+the model, because an exemption for a prop that no longer exists is one that
+could be hiding a different prop with the same name.
+
 ### Checked and *not* gaps
 
 - **Jump links do not land behind the sticky header.** The obvious guess, and

@@ -8508,6 +8508,81 @@ report.group('an expression is described in one place');
   );
 }
 
+report.group('every prop an element has is one the panel can set');
+
+{
+  /*
+   * The audit that produced `STYLE_VOCABULARY`, run against the other half of
+   * the model.
+   *
+   * Styles got a declared table and a `Record<StyleProp, StyleEntry>` that
+   * makes a missing entry a compile error. Props never got either, and the
+   * same thing had happened to them: `form.action` is read by the renderer —
+   * whose comment says "an action the designer typed always wins" — and there
+   * was nowhere in the editor to type one. A form had no Content section at
+   * all, so every form this app built posted to the project's own endpoint
+   * because that was the only possibility.
+   *
+   * The test is *how the panel edits a prop*, not whether the word appears in
+   * it, and the difference is the whole reliability of this check. Searching
+   * for the bare name found `action` immediately — in `kind: 'action'`, which
+   * is an expression effect and nothing to do with a form. That false positive
+   * would have declared the gap closed while it was open, which is exactly the
+   * failure the style audit warns about with `transition`.
+   */
+  const panel = readdirSync(path.join(ROOT, 'src/components/inspector'))
+    .filter((name) => name.endsWith('.tsx'))
+    .map((name) => readFileSync(path.join(ROOT, 'src/components/inspector', name), 'utf8'))
+    .join('\n');
+  const editable = (prop) =>
+    new RegExp(`useNodeProp\\(['"]${prop}['"]`).test(panel) ||
+    new RegExp(`setNodeProps\\(\\{[^}]*\\b${prop}:`, 's').test(panel);
+
+  /*
+   * The one prop that is deliberately read and never written.
+   *
+   * `componentId` says which component an instance is a copy of. You do not
+   * retarget an instance by typing an id at it — you delete it and insert the
+   * other one — so the panel shows the component's name and offers Edit and
+   * Detach instead. Named here rather than quietly skipped, because an
+   * exception nobody wrote down is indistinguishable from a hole.
+   */
+  const BY_DESIGN = new Set(['instance.componentId']);
+
+  const unreachable = [];
+  let counted = 0;
+  for (const [type, def] of Object.entries(ELEMENTS)) {
+    for (const prop of Object.keys(def.defaultProps ?? {})) {
+      counted += 1;
+      if (!editable(prop) && !BY_DESIGN.has(`${type}.${prop}`)) unreachable.push(`${type}.${prop}`);
+    }
+  }
+  report.check(
+    'every prop an element ships with can be set from the inspector',
+    unreachable.length === 0,
+    unreachable.length
+      ? `no control for: ${unreachable.join(', ')}`
+      : `${counted} props across ${Object.keys(ELEMENTS).length} element types, one exception named`
+  );
+  report.check(
+    'and the exception is still the one it was written for',
+    [...BY_DESIGN].every((one) => {
+      const [type, prop] = one.split('.');
+      return Boolean(ELEMENTS[type]?.defaultProps && prop in ELEMENTS[type].defaultProps);
+    }),
+    // An exemption for a prop that no longer exists is an exemption that could
+    // be hiding a different one with the same name.
+    [...BY_DESIGN].join(', ')
+  );
+  report.check(
+    'the audit is reading a real panel and real defaults',
+    counted > 30 && panel.length > 10000 && editable('placeholder'),
+    // `placeholder` has had a row since the first inspector. A test that cannot
+    // find that one is not testing the panel.
+    `${counted} props, ${panel.length} characters of panel`
+  );
+}
+
 report.group('text that does not fit has somewhere to go');
 
 {

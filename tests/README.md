@@ -413,7 +413,7 @@ preferring an installed copy over downloading one.
 | `components` | Three instances of one component: two saying different things and pixel-identical, one wearing a variant and visibly not. Same classes where they should be shared, canvas and file agreeing element by element, and controls somebody can actually reach |
 | `schema` | Can a deployment read its own schema and add the columns it is missing — the one thing `node:sqlite` cannot answer for D1, which is whether a pragma comes back with rows |
 | `editor-perf` | What one edit costs on a 761-node document — open time, selection, long tasks during a burst of style writes, layer-tree windowing. A probe: it prints the numbers and fails only on what would be a bug at any speed. `CRE8_PERF_SECTIONS` scales the fixture so the curve can be read rather than a single point |
-| `forms` | Do published forms reach the submissions endpoint when a visitor *presses the button*, and what does the endpoint refuse |
+| `forms` | Do published forms reach the submissions endpoint when a visitor *presses the button*, what does the endpoint refuse — and can a designer point a form somewhere else, which until the Form section existed they could not |
 | `assets` | Do images survive publish and ZIP export — re-encoded, carrying their intrinsic size, offered at four widths, and eager where it matters |
 | `bodyreset` | Does the published page start at the viewport edge |
 | `borders` | Per-side border widths, canvas to published |

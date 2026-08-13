@@ -178,6 +178,8 @@ function typeContent(type: ElementType) {
       return <TableContent />;
     case 'tableCell':
       return <TableCellContent />;
+    case 'form':
+      return <FormContent />;
     case 'input':
     case 'textarea':
       return <FieldContent multiline={type === 'textarea'} />;
@@ -2316,11 +2318,77 @@ function LinkContent({
  * Form fields
  * ----------------------------------------------------------------------- */
 
+/**
+ * Where a form sends what it collects.
+ *
+ * A form had no Content section at all, which meant `action` and `method` were
+ * props the renderer read and nothing could write. The renderer's comment even
+ * says "an action the designer typed always wins" — and there was nowhere to
+ * type one. Every form this app has ever built posts to the project's own
+ * submissions endpoint, which is the right default and the only possibility,
+ * so a site wanting Mailchimp or its own handler could not have one.
+ *
+ * Two rows rather than a free-text field with a hint, because the two answers
+ * are different in kind: the built-in endpoint is a *choice*, and a URL is a
+ * value. Leaving the field empty is what selects the built-in one, so the
+ * empty state has to read as an answer rather than as an unfilled box.
+ */
+function FormContent() {
+  const action = useNodeProp('action');
+  const method = useNodeProp('method');
+  const typed = String(action.value ?? '');
+
+  return (
+    <Section title="Form">
+      <InspectorGroup>
+        <StyleRow label="Sends to">
+          <Select
+            className="flex-1"
+            value={typed ? 'url' : 'cre8'}
+            onChange={(value) => action.set(value === 'cre8' ? '' : 'https://')}
+            options={[
+              { value: 'cre8', label: 'This project', hint: 'Submissions appear in the editor' },
+              { value: 'url', label: 'Somewhere else', hint: 'Any endpoint that accepts a form post' },
+            ]}
+          />
+        </StyleRow>
+        {typed !== '' && (
+          <StyleRow label="URL" hint="Where the browser posts the fields">
+            <TextInput
+              className="flex-1"
+              value={typed}
+              placeholder="https://…"
+              onValueChange={(v) => action.set(v)}
+            />
+          </StyleRow>
+        )}
+        <StyleRow
+          label="Method"
+          // Not a detail: a search form is a `get`, because the answer belongs
+          // in the URL where it can be linked to, bookmarked and gone back to.
+          hint="Get puts the fields in the URL — right for a search, wrong for anything private"
+        >
+          <Segmented
+            full
+            value={String(method.value ?? 'post')}
+            onChange={(value) => method.set(value)}
+            options={[
+              { value: 'post', label: 'Post' },
+              { value: 'get', label: 'Get' },
+            ]}
+          />
+        </StyleRow>
+      </InspectorGroup>
+    </Section>
+  );
+}
+
 function FieldContent({ multiline }: { multiline: boolean }) {
   const placeholder = useNodeProp('placeholder');
   const name = useNodeProp('name');
   const inputType = useNodeProp('inputType');
   const required = useNodeProp('required');
+  const rows = useNodeProp('rows');
 
   return (
     <Section title="Field">
@@ -2357,6 +2425,29 @@ function FieldContent({ multiline }: { multiline: boolean }) {
                 { value: 'time', label: 'Time' },
                 { value: 'datetime-local', label: 'Date & time' },
               ]}
+            />
+          </StyleRow>
+        )}
+        {multiline && (
+          <StyleRow
+            label="Lines"
+            /*
+             * The attribute, not a height. `rows` is what a textarea is sized
+             * by before any CSS touches it, so it is also what the box falls
+             * back to with the stylesheet still loading — and it keeps the
+             * field a whole number of lines tall instead of a number of pixels
+             * that happens to be close.
+             */
+            hint="How tall the field starts, in lines of text"
+          >
+            <NumberField
+              className="flex-1"
+              value={String(rows.value ?? 4)}
+              units={[]}
+              unit=""
+              min={1}
+              max={40}
+              onChange={(value) => rows.set(Math.round(Number.parseFloat(value ?? '4')) || 4)}
             />
           </StyleRow>
         )}
