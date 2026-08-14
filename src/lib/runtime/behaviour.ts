@@ -103,7 +103,28 @@ interface Fired {
 /** The group: names the switch and carries its current value. */
 export const SWITCH_ATTR = 'data-cre8-switch';
 export const VALUE_ATTR = 'data-cre8-value';
-/** A control that sets the enclosing group to a value. */
+/**
+ * A control that sets the enclosing group to a value.
+ *
+ * Or to *whichever of two it is not in*, which is written `a|b` and is the
+ * whole of `toggleState`. Giving a flip its own attribute would have meant a
+ * second lookup, a second `sync` call and a second place for the
+ * ancestor-then-page rule to be got wrong; riding this one means that by the
+ * time `choose` has picked a half it is holding an ordinary value and
+ * everything downstream — the tab pairing, `aria-pressed`, the repeater's
+ * row-local group — is unchanged code.
+ *
+ * Two consequences worth stating, because both are in `choose` and `sync` as
+ * conditions with no room for a comment beside them:
+ *
+ * - A group sitting on **neither** half lands on the first. That is what "open
+ *   it" means on a menu nobody has touched yet.
+ * - A flip makes no `aria-pressed` claim. A menu button that opens and closes
+ *   is not "the selected one", and `false` would announce it as an unselected
+ *   option in a set. `sync` skips it rather than comparing — the comparison
+ *   would reach the same attribute for the wrong reason, since a value holding
+ *   both halves can never equal the group's.
+ */
 export const SET_ATTR = 'data-cre8-set';
 /** Something shown only while the enclosing group holds a value. */
 export const CASE_ATTR = 'data-cre8-case';
@@ -415,7 +436,7 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
       for (let n = 0; n < list.length; n++) {
         if (list[n]![0] === '' || list[n]![0] === key) mine = list[n]![1]!;
       }
-      if (mine === null) continue;
+      if (mine === null || mine.indexOf('|') > -1) continue;
       const on = mine === value;
       if (isTabs) {
         setter.setAttribute('aria-selected', on ? 'true' : 'false');
@@ -490,7 +511,12 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
           root.querySelector('[data-cre8-switch="' + key + '"]')
         : setter.closest('[data-cre8-switch]');
       if (!group) continue;
-      group.setAttribute('data-cre8-value', list[i]![1]!);
+      var want = list[i]![1]!;
+      var pair = want.split('|');
+      if (pair.length === 2) {
+        want = group.getAttribute('data-cre8-value') === pair[0] ? pair[1]! : pair[0]!;
+      }
+      group.setAttribute('data-cre8-value', want);
       sync(group);
     }
   }

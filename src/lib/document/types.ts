@@ -689,12 +689,18 @@ export type RefSlot = 'popover' | 'anchorFor' | 'scrollTo';
  * be checked, so every reader would have had to re-validate, and the two
  * renderers would each have had their own opinion about a malformed action.
  *
- * Both members compile to attributes. That is the constraint the whole
- * behaviour layer is built on — see `lib/runtime/behaviour.ts` — and it is why
- * this union is short and will stay short. An action that could not be
- * expressed as "write an attribute, let CSS draw" would need a second
- * mechanism on three surfaces, which is the failure ARCHITECTURE §1 exists to
- * prevent.
+ * Every member compiles to markup. That is the constraint the whole behaviour
+ * layer is built on — see `lib/runtime/behaviour.ts` — and it is what decides
+ * which members exist: an action that could not be expressed as "write an
+ * attribute, let the browser or CSS act on it" would need a second mechanism
+ * on three surfaces, which is the failure ARCHITECTURE §1 exists to prevent.
+ *
+ * The markup is not always an attribute the runtime reads. Four of the nine
+ * are carried by things the browser already does — `href`, `popovertarget`,
+ * `type="submit"` — and cost no script at all. `document/events.ts` holds that
+ * table, `actions.ts:planActions` applies it, and the split is the whole point
+ * of the vocabulary being this long: the authored shape is uniform and the
+ * compiled shape is whatever is most native.
  */
 export type NodeAction =
   /**
@@ -707,8 +713,42 @@ export type NodeAction =
    * another still drives the set it is in.
    */
   | { type: 'setState'; state?: string; value: string; quiet?: boolean }
-  /** Put text on the clipboard. The one action with nothing native behind it. */
-  | { type: 'copy'; text: string };
+  /**
+   * Move a state to whichever of two cases it is not in.
+   *
+   * The verb a disclosure wants, and the one thing `setState` cannot say: a
+   * menu button that opens *and* closes had to be two controls, or a
+   * `<details>`, or a pair of rules. `values` is the pair to alternate
+   * between; empty means "the state's own two", which is the robust form for
+   * the same reason a bare `setState` is.
+   */
+  | { type: 'toggleState'; state?: string; values?: [string, string] }
+  /** Put text on the clipboard. */
+  | { type: 'copy'; text: string }
+  /**
+   * Go to a page, or off the site.
+   *
+   * `to` is what `props.href` has always held: a path, an absolute URL, or a
+   * `node:` reference the resolver turns into one. Compiles to `href`, so a
+   * link whose only action is this publishes exactly what it published before
+   * the verb existed — no script, and the same bytes.
+   */
+  | { type: 'navigate'; to: string; target?: string }
+  /** Somewhere further down this page. Compiles to `href="#…"`. */
+  | { type: 'scrollTo'; ref: Ref }
+  /**
+   * Show a panel. Compiles to `popovertarget`.
+   *
+   * `mode` defaults to `toggle`, which is both what the markup has always
+   * defaulted to and what a designer means: a menu button that opens a menu
+   * and cannot close it again is one control short. `show` is for the case
+   * where a second control does the closing.
+   */
+  | { type: 'openPanel'; ref: Ref; mode?: 'toggle' | 'show' }
+  /** Dismiss one — usually the panel the control is inside. */
+  | { type: 'closePanel'; ref: Ref }
+  /** Send the surrounding form. Compiles to `type="submit"`. */
+  | { type: 'submit' };
 
 /**
  * What a node does when something happens to it.

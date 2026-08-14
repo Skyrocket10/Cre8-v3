@@ -92,12 +92,6 @@ export interface ElementDefinition {
   defaultStates?: StateStyles;
   /** Not offered in the insert panel (page root, component instances). */
   internal?: boolean;
-  /**
-   * RESERVED — the events this element will expose once the behaviour layer
-   * exists. Declared now so the insert panel and inspector can grow an
-   * "Interactions" tab without a document migration.
-   */
-  events?: string[];
 }
 
 const TEXT_COLOR = 'var(--c-text)';
@@ -444,7 +438,6 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
       whiteSpace: 'nowrap',
       transition: 'background-color 160ms ease, transform 160ms ease, box-shadow 160ms ease',
     },
-    events: ['onClick'],
   },
   link: {
     type: 'link',
@@ -468,7 +461,6 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
       cursor: 'pointer',
       transition: 'color 140ms ease',
     },
-    events: ['onClick'],
   },
   navigation: {
     type: 'navigation',
@@ -546,7 +538,6 @@ export const ELEMENTS: Record<ElementType, ElementDefinition> = {
       gap: '12px',
       width: '100%',
     },
-    events: ['onSubmit'],
   },
   input: {
     type: 'input',
@@ -1392,7 +1383,20 @@ export function readLegacyVisibility(props: NodeProps): Visibility | null {
 export function resolveTag(
   type: ElementType,
   props: NodeProps,
-  opts: { opensPopover?: boolean; scrollsTo?: boolean; acts?: boolean } = {}
+  opts: {
+    opensPopover?: boolean;
+    scrollsTo?: boolean;
+    acts?: boolean;
+    /**
+     * There is somewhere to go, from wherever the caller found it. `props.href`
+     * is still read below, so a caller that knows nothing about verbs gets the
+     * answer it always got; a caller that has resolved the node's actions can
+     * say so without this function having to learn what an action is.
+     */
+    goesTo?: boolean;
+    /** Sending a form, from a `submit` verb rather than only from the prop. */
+    submits?: boolean;
+  } = {}
 ): string {
   if (type === 'heading') {
     const level = Number(props.level ?? 2);
@@ -1411,8 +1415,9 @@ export function resolveTag(
     // Keeping the argument narrow is deliberate: `resolveTag` decides a tag
     // from what it is told, and the caller that has the node is the one that
     // can answer.
-    const goesSomewhere = Boolean(props.href) || Boolean(opts.scrollsTo);
-    return goesSomewhere && !opts.opensPopover && !opts.acts && !props.submit ? 'a' : 'button';
+    const goesSomewhere = Boolean(props.href) || Boolean(opts.scrollsTo) || Boolean(opts.goesTo);
+    const submits = Boolean(props.submit) || Boolean(opts.submits);
+    return goesSomewhere && !opts.opensPopover && !opts.acts && !submits ? 'a' : 'button';
   }
   if (type === 'tableCell') return props.header ? 'th' : 'td';
   if (RETAGGABLE.has(type)) {
@@ -1424,8 +1429,14 @@ export function resolveTag(
      * It beats an explicitly chosen tag because a destination is a stronger
      * statement than a `nav` or an `article`: those describe the content, and
      * this describes what happens when somebody presses it.
+     *
+     * `goesTo` alongside the other two because a destination written as a verb
+     * is the same statement written differently. This is also the only branch
+     * where that argument can be *checked*: `link` and `button` both default
+     * to `href: '#'`, so the line above answers `a` for them however the verbs
+     * are wired, and a card is the one element whose tag a verb decides.
      */
-    if (props.href || opts.scrollsTo) return 'a';
+    if (props.href || opts.scrollsTo || opts.goesTo) return 'a';
     const requested = String(props.tag ?? '');
     if ((SEMANTIC_TAGS as readonly string[]).includes(requested)) return requested;
   }

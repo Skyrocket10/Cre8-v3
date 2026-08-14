@@ -8,7 +8,15 @@
  * promise someone has to keep re-checking.
  */
 
-import { actsOnPress, copyTextFor, encodeSets, stateSets } from '../document/actions';
+import {
+  actionsFor,
+  actsOnPress,
+  claimed,
+  copyTextFor,
+  encodeSets,
+  planActions,
+  stateSets,
+} from '../document/actions';
 import { SWITCH_SHOW_ALL, anchorId, resolveTag, slug, splitFragment } from '../document/schema';
 import { stateOf } from '../document/state';
 import {
@@ -338,6 +346,69 @@ function sizesFor(node: SceneNode, priority: boolean): string {
   }
   parts.push(desktop);
   return parts.join(', ');
+}
+
+/** Where a press goes, once the verbs and the older spellings are reconciled. */
+interface Pressed {
+  /** Unresolved: a path, an absolute URL, or a `node:` reference. */
+  href: string;
+  target: string;
+  /** The node id of a panel to open, or empty. */
+  popover: string;
+  popoverAction: string;
+  submits: boolean;
+  /** Whether the href above came from a jump, which decides the tag on a box. */
+  scrollsTo: boolean;
+}
+
+/**
+ * What the markup carries for this node's press, verbs first.
+ *
+ * Two arms of `describe` used to work this out for themselves — the
+ * button/link one and the plain-container one — from `refs.scrollTo`,
+ * `props.href`, `refs.popover` and `props.submit`. That was already two copies
+ * of one question, and the comment on the container arm says so: *"Anything
+ * less than the same code path is a second answer to the question 'where does
+ * this go', and there were already three."* Adding four verbs that answer the
+ * same question would have made it five.
+ *
+ * **Verbs win, and only when they say something.** No document holds one yet —
+ * X8 is where the older spellings migrate — so every existing page reaches the
+ * same values through the `??` on each line and publishes the same bytes. The
+ * order is not a compatibility shim, though: once both can be present, what
+ * the designer put in the action list is the newer and more specific statement
+ * of the same intent, exactly as `refs.scrollTo` already outranks `props.href`.
+ */
+function pressed(node: SceneNode): Pressed {
+  const props = node.props;
+  const plan = planActions(actionsFor(node));
+
+  const goes = claimed(plan, 'href');
+  const jump = goes?.type === 'scrollTo' ? goes.ref.node : (node.refs?.scrollTo?.node ?? '');
+  const href =
+    goes?.type === 'navigate'
+      ? goes.to
+      : jump
+        ? `${NODE_HREF_PREFIX}${jump}`
+        : str(props.href);
+
+  const panel = claimed(plan, 'popover');
+  return {
+    href,
+    target: goes?.type === 'navigate' ? (goes.target ?? '_self') : str(props.target, '_self'),
+    popover: panel?.type === 'openPanel' || panel?.type === 'closePanel' ? panel.ref.node : (node.refs?.popover?.node ?? ''),
+    popoverAction:
+      panel?.type === 'openPanel'
+        ? (panel.mode ?? 'toggle')
+        : panel?.type === 'closePanel'
+          ? 'hide'
+          : str(props.popoverAction, 'toggle'),
+    submits: Boolean(claimed(plan, 'submit')) || Boolean(props.submit),
+    // A jump is a scroll whether it was written as a verb or as a reference;
+    // a `navigate` is not, and a box carrying one still becomes an `<a>`
+    // through `goesTo` rather than by pretending to be an anchor jump.
+    scrollsTo: Boolean(jump),
+  };
 }
 
 /**
@@ -757,13 +828,6 @@ function describeBase(
     case 'button':
     case 'link': {
       /*
-       * A scroll-to reference outranks a typed href, because it is the newer
-       * and more specific statement of the same intent — and the two cannot
-       * both be honoured by one attribute. The panel offers them as one choice,
-       * so a node holding both is a document that has been hand-edited or
-       * half-migrated, not something the editor produces.
-       */
-      /*
        * The one action with nothing native behind it, so it is an attribute the
        * runtime reads rather than a tag the browser understands. Emitted on the
        * node whatever it turns out to be: a copy button that also opens a panel
@@ -771,24 +835,20 @@ function describeBase(
        * rather than on the element being a button.
        */
       const copyText = copyTextFor(node);
-      const scrollTo = node.refs?.scrollTo?.node;
-      const rawHref = scrollTo ? `${NODE_HREF_PREFIX}${scrollTo}` : str(props.href);
-      // Node-level, not per-variant: what a button opens is structure, and a
-      // variant that changed it would be a different element rather than the
-      // same one saying something else.
-      const popoverTarget = node.refs?.popover?.node ?? '';
+      const press = pressed(node);
       const tag = resolveTag(node.type, props, {
-        opensPopover: Boolean(popoverTarget),
-        scrollsTo: Boolean(scrollTo),
+        opensPopover: Boolean(press.popover),
+        scrollsTo: press.scrollsTo,
+        goesTo: Boolean(press.href),
+        submits: press.submits,
         acts: actsOnPress(node),
       });
-      const target = str(props.target, '_self');
       const attrs: Record<string, AttrValue> = { ...base };
       if (copyText) attrs[COPY_ATTR] = copyText;
       if (tag === 'a') {
         const resolved = options.hrefResolver
-          ? options.hrefResolver(rawHref, options.record ?? null)
-          : resolveHref(doc, rawHref, mode);
+          ? options.hrefResolver(press.href, options.record ?? null)
+          : resolveHref(doc, press.href, mode);
         if (resolved === '') {
           /*
            * A link with nowhere to go, which is a real state rather than a
@@ -801,8 +861,8 @@ function describeBase(
         } else {
           attrs.href = resolved;
         }
-        if (target && target !== '_self') {
-          attrs.target = target;
+        if (press.target && press.target !== '_self') {
+          attrs.target = press.target;
           attrs.rel = 'noopener noreferrer';
         }
       } else {
@@ -815,14 +875,13 @@ function describeBase(
          * `forms` suite passed throughout, because it submitted the form
          * itself rather than pressing the thing a visitor presses.
          */
-        attrs.type = props.submit ? 'submit' : 'button';
+        attrs.type = press.submits ? 'submit' : 'button';
       }
       // Opening a popover is the browser's job, not a script's: name the panel
       // and it handles the top layer, light dismiss, Escape and focus return.
-      if (popoverTarget && tag === 'button') {
-        attrs.popovertarget = popoverDomId(popoverTarget);
-        const action = str(props.popoverAction, 'toggle');
-        if (action !== 'toggle') attrs.popovertargetaction = action;
+      if (press.popover && tag === 'button') {
+        attrs.popovertarget = popoverDomId(press.popover);
+        if (press.popoverAction !== 'toggle') attrs.popovertargetaction = press.popoverAction;
       }
       /*
        * Children win over the text prop, and that is the whole of the
@@ -1166,9 +1225,11 @@ function describeBase(
     default: {
       // Every remaining type is a plain container: frame, section, container,
       // stack, grid, navigation.
-      const scrollTo = node.refs?.scrollTo?.node;
-      const rawHref = scrollTo ? `${NODE_HREF_PREFIX}${scrollTo}` : str(props.href);
-      const tag = resolveTag(node.type, props, { scrollsTo: Boolean(scrollTo) });
+      const press = pressed(node);
+      const tag = resolveTag(node.type, props, {
+        scrollsTo: press.scrollsTo,
+        goesTo: Boolean(press.href),
+      });
       if (tag !== 'a') return { tag, attrs: base, void: false, acceptsChildren: true };
       /*
        * A container that goes somewhere, resolved exactly as a button's link
@@ -1177,14 +1238,13 @@ function describeBase(
        * question "where does this go", and there were already three.
        */
       const resolved = options.hrefResolver
-        ? options.hrefResolver(rawHref, options.record ?? null)
-        : resolveHref(doc, rawHref, mode);
+        ? options.hrefResolver(press.href, options.record ?? null)
+        : resolveHref(doc, press.href, mode);
       const attrs: Record<string, AttrValue> = { ...base };
       if (resolved === '') attrs.hidden = true;
       else attrs.href = resolved;
-      const target = str(props.target, '_self');
-      if (target && target !== '_self') {
-        attrs.target = target;
+      if (press.target && press.target !== '_self') {
+        attrs.target = press.target;
         attrs.rel = 'noopener noreferrer';
       }
       return { tag, attrs, void: false, acceptsChildren: true };

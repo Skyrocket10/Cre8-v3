@@ -8,6 +8,7 @@
  */
 
 import { uid } from './id';
+import { everyAction } from './actions';
 import { asTest } from './when';
 import { LEGACY_STATE_PROPS, declarationFrom } from './state';
 import { bindingFrom, migrateActions, migrateDocument, rulesFromLegacy } from './migrate';
@@ -342,42 +343,73 @@ function resolveRefs(nodes: NodeMap, pageOf?: Map<NodeId, string>): void {
     byName.set(slot, index);
   }
 
-  for (const node of Object.values(nodes)) {
-    if (!node.refs) continue;
-    for (const [slot, ref] of Object.entries(node.refs)) {
-      // The prefix rather than "is it in `nodes`": an id and a name are both
-      // strings, and deciding between them by lookup means a name that happens
-      // to match an id resolves to the wrong element. Rare enough never to be
-      // found, which is the kind of bug worth spending a sentinel on.
-      if (!ref?.node.startsWith(NAME_REF)) continue;
-      // Every candidate that is not the node doing the referring, best first.
-      const here = pageOf?.get(node.id);
-      const found = (byName.get(slot as RefSlot)?.get(ref.node.slice(NAME_REF.length)) ?? [])
-        .filter((id) => id !== node.id)
-        .map((id, order) => ({ id, order, node: nodes[id] }))
-        .sort((a, b) => {
-          if (slot === 'scrollTo') {
-            const rank = destinationRank(b.node!) - destinationRank(a.node!);
-            if (rank) return rank;
-            /*
-             * Then the referring node's own page, so widening the search
-             * cannot move a link that already worked. Only after the rank,
-             * though: a footer column named "Contact" sitting on this page
-             * must not beat the Contact *section* on another one, which is
-             * exactly the way round the first version of this had it.
-             */
-            if (here) {
-              const mine = Number(pageOf?.get(b.id) === here) - Number(pageOf?.get(a.id) === here);
-              if (mine) return mine;
-            }
+  /*
+   * Through `everyRef`, so a name in an action resolves by the same rule as a
+   * name in a slot.
+   *
+   * This loop used to read `node.refs` for itself, which was fine while that
+   * was the only place a reference lived and stopped being fine the moment a
+   * verb could hold one: a block writing `scrollTo` as an action got a
+   * reference nothing ever resolved, and published `href="#"` — a jump to the
+   * top of the page, on an element that looked correctly wired from every
+   * angle except the file.
+   *
+   * Collected before it is applied. The generator is walking the very objects
+   * the resolution deletes from, and mutating a map mid-iteration is how a
+   * cleanup skips every other entry.
+   */
+  const pending = [...everyRef(nodes)].filter(
+    // The prefix rather than "is it in `nodes`": an id and a name are both
+    // strings, and deciding between them by lookup means a name that happens
+    // to match an id resolves to the wrong element. Rare enough never to be
+    // found, which is the kind of bug worth spending a sentinel on.
+    // `node` is optional-chained because an action's reference is the one a
+    // hand-edited document can leave shapeless: `hydrateDocument` repairs
+    // `rules` and `overrides` and has never looked inside `events`, so a
+    // `{ type: 'scrollTo', ref: {} }` would otherwise take the whole builder
+    // down rather than publishing a jump that goes nowhere.
+    (found) => found.scope !== null && Boolean(found.ref.node?.startsWith(NAME_REF))
+  );
+
+  for (const { node, slot, ref, scope } of pending) {
+    // Every candidate that is not the node doing the referring, best first.
+    const here = pageOf?.get(node.id);
+    const found = (byName.get(scope as RefSlot)?.get(ref.node.slice(NAME_REF.length)) ?? [])
+      .filter((id) => id !== node.id)
+      .map((id, order) => ({ id, order, node: nodes[id] }))
+      .sort((a, b) => {
+        if (scope === 'scrollTo') {
+          const rank = destinationRank(b.node!) - destinationRank(a.node!);
+          if (rank) return rank;
+          /*
+           * Then the referring node's own page, so widening the search
+           * cannot move a link that already worked. Only after the rank,
+           * though: a footer column named "Contact" sitting on this page
+           * must not beat the Contact *section* on another one, which is
+           * exactly the way round the first version of this had it.
+           */
+          if (here) {
+            const mine = Number(pageOf?.get(b.id) === here) - Number(pageOf?.get(a.id) === here);
+            if (mine) return mine;
           }
-          return a.order - b.order;
-        })[0]?.id;
-      if (found) node.refs[slot as RefSlot] = { node: found };
-      // A name matching nothing is dropped rather than left dangling.
-      else delete node.refs[slot as RefSlot];
+        }
+        return a.order - b.order;
+      })[0]?.id;
+
+    // An action's reference is edited in place — the verb outlives a name that
+    // matched nothing, for the reason `pruneRefs` gives — while a slot's is
+    // removed, which is what the rest of the code reads as "no reference".
+    if (slot === 'action') {
+      ref.node = found ?? '';
+      continue;
     }
-    if (!Object.keys(node.refs).length) delete node.refs;
+    if (found) node.refs![slot as RefSlot] = { node: found };
+    // A name matching nothing is dropped rather than left dangling.
+    else delete node.refs![slot as RefSlot];
+  }
+
+  for (const node of Object.values(nodes)) {
+    if (node.refs && !Object.keys(node.refs).length) delete node.refs;
   }
 }
 
@@ -458,10 +490,47 @@ function defaultAnchors(nodes: NodeMap): void {
  */
 export function* everyRef(
   nodes: NodeMap
-): Generator<{ node: SceneNode; slot: RefSlot | 'expression'; ref: Ref }> {
+): Generator<{
+  node: SceneNode;
+  slot: RefSlot | 'expression' | 'action';
+  ref: Ref;
+  /**
+   * Which pool of names this one is looked up in, or null for a reference
+   * that only ever holds an id. A `scrollTo` verb and a `refs.scrollTo` are
+   * the same question asked twice, and answering it in two places is how they
+   * would come to disagree about what "Contact" means.
+   */
+  scope: RefSlot | null;
+}> {
   for (const node of Object.values(nodes)) {
     for (const [slot, ref] of Object.entries(node.refs ?? {})) {
-      if (ref) yield { node, slot: slot as RefSlot, ref };
+      if (ref) yield { node, slot: slot as RefSlot, ref, scope: slot as RefSlot };
+    }
+    /*
+     * And the ones inside actions, for the same reason and with the same
+     * consequence if they are left out.
+     *
+     * `scrollTo` and `openPanel` name a node, exactly as `refs.scrollTo` and
+     * `refs.popover` do — the verb is a newer spelling of the same reference,
+     * not a new kind of thing. A block writes `{ name: 'Features' }` and this
+     * walk is what turns it into an id, so leaving actions out did not merely
+     * skip the cleanup: it meant the reference was never resolved at all, and
+     * a jump verb published `href="#"`.
+     *
+     * Yielded as `action` rather than as its slot name because it is not
+     * removable the way a slot is. Deleting the panel a button opens should
+     * not silently delete the action a designer wrote — `pruneRefs` empties
+     * the reference and leaves the verb, which the panel can then report, the
+     * same bargain `expression` strikes one line down.
+     */
+    for (const action of everyAction(node)) {
+      if (!('ref' in action) || !action.ref) continue;
+      yield {
+        node,
+        slot: 'action',
+        ref: action.ref,
+        scope: action.type === 'scrollTo' ? 'scrollTo' : 'popover',
+      };
     }
     /*
      * And the ones inside expressions, which are references in every sense
@@ -477,7 +546,9 @@ export function* everyRef(
      * wrote. Reporting is what enumerability buys here.
      */
     for (const rule of node.assign ?? []) {
-      for (const ref of refsInTest(rule.when)) yield { node, slot: 'expression', ref };
+      for (const ref of refsInTest(rule.when)) {
+        yield { node, slot: 'expression', ref, scope: null };
+      }
     }
   }
 }
@@ -498,7 +569,18 @@ export function pruneRefs(nodes: NodeMap): void {
     // somebody wrote because the control it reads went away is a bigger
     // decision than cleanup gets to make; the node falls back to its
     // "Otherwise", which is the declared answer for an unanswerable rule.
+    //
+    // An action's is emptied rather than removed, which is the same bargain
+    // seen from the other side: the verb stays, so the panel can show a
+    // designer that their Open button no longer names a panel, and the
+    // renderer's `?? ''` already means an emptied reference reaches no
+    // attribute. Deleting the action outright would take away the thing they
+    // would have to write again.
     if (slot === 'expression' || nodes[ref.node]) continue;
+    if (slot === 'action') {
+      ref.node = '';
+      continue;
+    }
     delete node.refs?.[slot];
     if (node.refs && !Object.keys(node.refs).length) delete node.refs;
   }

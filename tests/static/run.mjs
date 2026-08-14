@@ -65,10 +65,12 @@ const {
   vocabulary,
   conditions,
   when_,
+  events: eventLib,
   stateLib,
   testTable,
   motion,
   everyRef,
+  namedRef,
   pruneRefs,
   danglingReads,
   migrateDocument,
@@ -11860,6 +11862,390 @@ report.group('a control can say which state it sets, and set more than one');
     // something the runtime does not implement is inert instead of firing on
     // click by accident.
     'onClick is the only event read, and the filter is by name'
+  );
+}
+
+/* ==========================================================================
+ * Every verb compiles to the most native thing available
+ * ======================================================================= */
+
+report.group('every verb compiles to the most native thing available');
+
+{
+  const { EVENTS, VERBS, carrierOf, eventApplies, eventsFor, needsScript } = eventLib;
+  const { planActions, claimed, runsScript, stateSets, encodeSets } = actionLib;
+
+  /* --- The tables are honest ---------------------------------------------- */
+
+  /*
+   * The defect this stage exists to fix, checked as a property rather than as
+   * a list. `ElementDefinition.events` promised `onSubmit` on every form and
+   * `onClick` on buttons and links; `actionsFor` defaulted to `onClick` and no
+   * caller ever passed anything else. So one of the three was a lie and the
+   * other two were decoration — a registry nothing reads is not a registry.
+   *
+   * A table entry earns its place by being *reachable*: something has to
+   * deliver it. There is one door, `actionsFor`, and it matches by name.
+   */
+  const delivered = EVENTS.filter((event) => {
+    const doc = createEmptyDocument('Reach');
+    const page = doc.pages[0];
+    doc.nodes.btn = {
+      id: 'btn', type: 'button', name: 'Go', parentId: page.rootNodeId, children: [],
+      props: { label: 'Go' }, styles: {}, meta: {},
+      events: [{ event: event.id, actions: [{ type: 'setState', value: 'annual' }] }],
+    };
+    doc.nodes[page.rootNodeId].children.push('btn');
+    return stateSets(doc.nodes.btn).length === 1;
+  });
+  report.check(
+    'every event in the table is one something actually reads',
+    delivered.length === EVENTS.length && EVENTS.length > 0,
+    `${delivered.length} of ${EVENTS.length} reach an action — ${EVENTS.map((e) => e.id).join(' ')}`
+  );
+  report.check(
+    'and an event nobody declared is refused rather than half-offered',
+    !eventApplies('onSubmit', 'form') && eventsFor('form').every((e) => e.id !== 'onSubmit'),
+    eventsFor('form').map((e) => e.id).join(' ') || 'nothing on a form'
+  );
+
+  /*
+   * And the same question of the verbs, which is the other half of "declared
+   * and unread": every one has to have exactly one answer to *what carries
+   * this*, and `null` is an answer — it means the runtime.
+   */
+  const verbTypes = Object.keys(VERBS);
+  report.check(
+    'every verb says what carries it, and says it once',
+    verbTypes.length > 0 &&
+      verbTypes.every((type) => VERBS[type].type === type) &&
+      verbTypes.every((type) => ['href', 'popover', 'submit', null].includes(VERBS[type].carrier)),
+    verbTypes.map((type) => `${type}→${VERBS[type].carrier ?? 'script'}`).join(' · ')
+  );
+
+  /* --- Native means native ------------------------------------------------ */
+
+  /*
+   * The headline, and the one the plan names: a link whose only action is a
+   * `navigate` publishes what a link has always published, and **no script**.
+   * The byte count rather than the tag, because a page that grew an `<a>` and
+   * a runtime has not absorbed anything — it has added a second mechanism.
+   */
+  const linkPage = (spec) => {
+    const doc = createEmptyDocument('Press');
+    const page = doc.pages[0];
+    const { rootId } = buildTree(spec, doc.nodes, page.rootNodeId);
+    doc.nodes[page.rootNodeId].children.push(rootId);
+    return { doc, page, node: doc.nodes[rootId], html: renderPage(doc, page, { mode: 'publish' }) };
+  };
+
+  const byProp = linkPage({ type: 'link', name: 'Pricing', props: { text: 'Pricing', href: '/pricing' } });
+  const byVerb = linkPage({
+    type: 'link',
+    name: 'Pricing',
+    props: { text: 'Pricing' },
+    events: [{ event: 'onClick', actions: [{ type: 'navigate', to: '/pricing' }] }],
+  });
+  const scriptIn = (html) => /<script>([\s\S]*?)<\/script>/.exec(html)?.[1]?.length ?? 0;
+
+  report.check(
+    'a link that navigates through a verb carries no script at all',
+    scriptIn(byVerb.html) === 0 && scriptIn(byProp.html) === 0,
+    `${scriptIn(byVerb.html)} bytes by verb, ${scriptIn(byProp.html)} by prop`
+  );
+  /*
+   * And it is the *same* markup, not merely markup that also works. Compared
+   * on the element rather than the page because the two documents have
+   * different node ids, which reach the class names.
+   */
+  const anchorOf = (html) => /<a\b[^>]*>/.exec(html)?.[0].replace(/class="[^"]*"/, 'class="…"') ?? 'no anchor';
+  report.check(
+    'and the same markup a typed href produces, attribute for attribute',
+    anchorOf(byVerb.html) === anchorOf(byProp.html) && anchorOf(byVerb.html).includes('href="/pricing"'),
+    `${anchorOf(byVerb.html)} vs ${anchorOf(byProp.html)}`
+  );
+  /*
+   * And on something that is not already a link, which is what decides the
+   * *tag* rather than the attribute.
+   *
+   * The pair above cannot: `link` and `button` both default to `href: '#'`, so
+   * `resolveTag` answers `a` for them whatever the verbs say — a falsification
+   * that removed the verb from the tag decision entirely left every check here
+   * passing. A box has no default destination, so this is the one that fails
+   * when a `navigate` stops making something clickable, and it is also the
+   * case C2 exists for: making a whole card go somewhere.
+   */
+  const card = linkPage({
+    type: 'container',
+    name: 'Card',
+    events: [{ event: 'onClick', actions: [{ type: 'navigate', to: '/pricing' }] }],
+  });
+  const plain = linkPage({ type: 'container', name: 'Card' });
+  /*
+   * Read past the page root, which is a `<div data-cre8-root>` on every page
+   * and the first thing any tag regex finds — the detail said "it is a div"
+   * about the *wrapper* while the check was failing about the card.
+   *
+   * Cut at the root's own closing bracket rather than at the attribute name:
+   * the stylesheet mentions `[data-cre8-root]` and comes first in the file, so
+   * slicing on the name alone lands ahead of the markup and finds the wrapper
+   * all over again — which is what the second attempt did.
+   */
+  const inside = (html) => {
+    const body = html.slice(html.indexOf('<body'));
+    const root = body.indexOf('data-cre8-root');
+    return (
+      /<(a|div)\b[^>]*>/
+        .exec(body.slice(body.indexOf('>', root) + 1))?.[0]
+        .replace(/class="[^"]*"/, 'class="…"') ?? 'nothing inside'
+    );
+  };
+  report.check(
+    'a box with a navigate verb becomes a link, and one without stays a box',
+    /<a[^>]*href="\/pricing"/.test(card.html) && !/<a\b/.test(plain.html),
+    `${inside(card.html)} · without: ${inside(plain.html)}`
+  );
+
+  /*
+   * And the same question of a `link` whose href has been emptied, which is
+   * the other branch of `resolveTag` and the only way to reach it.
+   *
+   * `link` and `button` ship `href: '#'` in their defaults, so the pair above
+   * cannot fail no matter what the tag rule says about verbs — the check that
+   * was supposed to cover this passed with the verb removed from the decision
+   * entirely. Clearing the field is something a designer can do today, and it
+   * is what X8's migration will do to every href it turns into a verb, so the
+   * branch is real and this is what makes it so.
+   */
+  const emptied = linkPage({
+    type: 'link',
+    name: 'Pricing',
+    props: { text: 'Pricing', href: '' },
+    events: [{ event: 'onClick', actions: [{ type: 'navigate', to: '/pricing' }] }],
+  });
+  const emptiedAlone = linkPage({ type: 'link', name: 'Pricing', props: { text: 'Pricing', href: '' } });
+  report.check(
+    'and a link whose href was cleared is still a link when a verb says where to go',
+    /<a[^>]*href="\/pricing"/.test(emptied.html) && !/<a\b/.test(emptiedAlone.html),
+    `${inside(emptied.html)} · with nothing to go on: ${inside(emptiedAlone.html)}`
+  );
+
+  /*
+   * The other three carriers, driven the same way. Each is a claim that a verb
+   * reaches an attribute the browser already acts on — so the check reads the
+   * attribute, and reads the script length beside it, because "compiles to
+   * markup" and "costs nothing" are two claims and only one of them is
+   * visible in the tag.
+   */
+  const panel = linkPage({
+    type: 'frame',
+    name: 'Shell',
+    children: [
+      { type: 'popover', name: 'Menu', props: {} },
+      {
+        type: 'button',
+        name: 'Open',
+        props: { label: 'Open' },
+        events: [{ event: 'onClick', actions: [{ type: 'openPanel', ref: namedRef('Menu') }] }],
+      },
+    ],
+  });
+  report.check(
+    'opening a panel through a verb is a popovertarget, not a listener',
+    /<button[^>]*popovertarget="/.test(panel.html) && scriptIn(panel.html) === 0,
+    `${/popovertarget="[^"]*"/.exec(panel.html)?.[0] ?? 'no popovertarget'} · ${scriptIn(panel.html)} bytes of script`
+  );
+
+  const send = linkPage({
+    type: 'form',
+    name: 'Contact',
+    children: [
+      {
+        type: 'button',
+        name: 'Send',
+        props: { label: 'Send' },
+        events: [{ event: 'onClick', actions: [{ type: 'submit' }] }],
+      },
+    ],
+  });
+  report.check(
+    'sending a form through a verb is type=submit, not a listener',
+    /<button[^>]*type="submit"/.test(send.html) && scriptIn(send.html) === 0,
+    `${/<button[^>]*type="[^"]*"/.exec(send.html)?.[0]?.slice(-14) ?? 'no type'} · ${scriptIn(send.html)} bytes of script`
+  );
+
+  /*
+   * A jump, both ways round, for the reason the navigate pair exists: the
+   * claim is that the verb reaches the same markup the reference does, and a
+   * check that only reads the verb's output cannot see a shared mistake.
+   *
+   * It very nearly did. Written first as "the href starts with a `#`", it
+   * passed against a reference nothing had resolved — an unresolved jump
+   * publishes `href="#"`, which matches that perfectly and scrolls to the top
+   * of the page. That is precisely the bug this verb exists to avoid, sailing
+   * through the check meant to catch it.
+   */
+  const jumpWith = (wiring) =>
+    linkPage({
+      type: 'frame',
+      name: 'Shell',
+      children: [
+        // The anchor is what an id in the markup is made of, and it is minted
+        // by `setJumpTarget` when a designer picks a target rather than by the
+        // resolver — so a fixture built by hand has to say it, exactly as
+        // `anchored()` does for every block in the library.
+        { type: 'section', name: 'Features', props: { anchor: 'features' } },
+        { type: 'button', name: 'Down', props: { label: 'Down' }, ...wiring },
+      ],
+    });
+  const jump = jumpWith({
+    events: [{ event: 'onClick', actions: [{ type: 'scrollTo', ref: namedRef('Features') }] }],
+  });
+  const jumpByRef = jumpWith({ refs: { scrollTo: 'Features' } });
+  const landing = /<section[^>]*\bid="([^"]+)"/.exec(jump.html)?.[1] ?? '';
+  report.check(
+    'a jump through a verb is an anchor href naming the section, not a listener',
+    Boolean(landing) &&
+      jump.html.includes(`href="#${landing}"`) &&
+      anchorOf(jump.html) === anchorOf(jumpByRef.html) &&
+      scriptIn(jump.html) === 0,
+    `${/href="#[^"]*"/.exec(jump.html)?.[0] ?? 'no anchor jump'} → section id ${landing || '(none)'} · same as by reference: ${anchorOf(jump.html) === anchorOf(jumpByRef.html)} · ${scriptIn(jump.html)} bytes of script`
+  );
+
+  /*
+   * The mirror, which is what stops the four above from being satisfied by a
+   * page that ships no script no matter what: the verbs with no carrier still
+   * have to bring the runtime.
+   */
+  const copies = linkPage({
+    type: 'button',
+    name: 'Copy',
+    props: { label: 'Copy' },
+    events: [{ event: 'onClick', actions: [{ type: 'copy', text: 'sk-123' }] }],
+  });
+  report.check(
+    'and a verb with nothing native behind it still ships the runtime',
+    scriptIn(copies.html) > 0 && runsScript(copies.node),
+    `${scriptIn(copies.html)} bytes for a copy`
+  );
+
+  /* --- One carrier, one claim --------------------------------------------- */
+
+  /*
+   * Two verbs wanting one attribute is not something a cleverer compiler
+   * resolves — an `<a>` has one `href`. So the second is refused, and refused
+   * *visibly*: dropping it silently is how a designer ends up with a control
+   * that does half of what the panel says it does.
+   */
+  const both = planActions([
+    { type: 'navigate', to: '/pricing' },
+    { type: 'scrollTo', ref: { node: 'sec1' } },
+    { type: 'copy', text: 'hello' },
+  ]);
+  report.check(
+    'two verbs wanting one attribute: the first wins and the second is reported',
+    both.native.length === 1 &&
+      claimed(both, 'href')?.type === 'navigate' &&
+      both.refused.length === 1 &&
+      both.refused[0].type === 'scrollTo' &&
+      both.script.length === 1,
+    `native ${both.native.map((c) => c.action.type).join(' ')} · refused ${both.refused.map((a) => a.type).join(' ')} · script ${both.script.map((a) => a.type).join(' ')}`
+  );
+  /*
+   * And the order is the authored one rather than the table's. Same two verbs
+   * the other way round: a compiler sorting by verb type would give the same
+   * answer to both lists, and a designer who put the jump first would find the
+   * navigate they wrote second silently winning.
+   */
+  const reversed = planActions([
+    { type: 'scrollTo', ref: { node: 'sec1' } },
+    { type: 'navigate', to: '/pricing' },
+  ]);
+  report.check(
+    'and which one wins is the order they were written in',
+    claimed(reversed, 'href')?.type === 'scrollTo' && reversed.refused[0]?.type === 'navigate',
+    `${claimed(reversed, 'href')?.type} kept, ${reversed.refused[0]?.type} refused`
+  );
+
+  /*
+   * Different carriers do not compete. A button that opens a menu and sends a
+   * form is nonsense, but a button that opens a menu and copies a key is not,
+   * and the two claims live on different attributes.
+   */
+  const apart = planActions([
+    { type: 'openPanel', ref: { node: 'pan1' } },
+    { type: 'copy', text: 'sk-123' },
+  ]);
+  report.check(
+    'two verbs on different attributes both land',
+    apart.native.length === 1 && apart.script.length === 1 && apart.refused.length === 0,
+    `${apart.native.length} native · ${apart.script.length} script · ${apart.refused.length} refused`
+  );
+
+  /*
+   * An unfinished verb is neither. A `copy` with no text would put an empty
+   * string on the clipboard, and shipping two kilobytes of runtime to do it is
+   * the worst of both answers.
+   */
+  const blank = planActions([{ type: 'copy', text: '' }, { type: 'setState', value: '  ' }]);
+  report.check(
+    'a verb nobody filled in ships nothing, not an empty gesture',
+    blank.script.length === 0 && blank.native.length === 0 && blank.refused.length === 0,
+    `${blank.script.length} script · ${blank.native.length} native`
+  );
+  report.check(
+    'which is the same reading `needsScript` gives, so the gate cannot drift',
+    needsScript({ type: 'copy', text: 'x' }) &&
+      !needsScript({ type: 'navigate', to: '/a' }) &&
+      carrierOf({ type: 'submit' }) === 'submit',
+    `copy→${carrierOf({ type: 'copy', text: 'x' }) ?? 'script'} navigate→${carrierOf({ type: 'navigate', to: '/a' })}`
+  );
+
+  /* --- A flip ------------------------------------------------------------- */
+
+  /*
+   * `toggleState` rides the assignment grammar rather than getting an
+   * attribute of its own, which is what makes it cost about a hundred and
+   * fifty bytes of runtime instead of five hundred. The encoding is the claim
+   * a check can make here; the browser suite presses it.
+   */
+  const flip = linkPage({
+    type: 'frame',
+    name: 'Menu shell',
+    props: { switchKey: 'menu', switchDefault: 'shut' },
+    children: [
+      {
+        type: 'button',
+        name: 'Menu',
+        props: { label: 'Menu' },
+        events: [
+          { event: 'onClick', actions: [{ type: 'toggleState', values: ['shut', 'open'] }] },
+        ],
+      },
+    ],
+  });
+  const flipButton = flip.doc.nodes[flip.node.children[0]];
+  report.check(
+    'a flip encodes as one assignment holding both halves',
+    encodeSets(stateSets(flipButton)) === 'shut|open',
+    encodeSets(stateSets(flipButton)) || 'nothing encoded'
+  );
+  report.check(
+    'and reaches the markup as the same attribute an ordinary set uses',
+    /data-cre8-set="shut\|open"/.test(flip.html),
+    /data-cre8-set="[^"]*"/.exec(flip.html)?.[0] ?? 'no assignment in the markup'
+  );
+  /*
+   * Both halves or nothing. `a|` would encode a bar with nothing after it and
+   * the runtime would write an empty value — the same failure the
+   * dropped-empty rule exists to prevent, arriving through a different door.
+   */
+  const halfFlip = (values) =>
+    encodeSets(stateSets({ events: [{ event: 'onClick', actions: [{ type: 'toggleState', values }] }] }));
+  report.check(
+    'a flip missing a half is dropped rather than written broken',
+    halfFlip(['shut', '']) === '' && halfFlip(undefined) === '' && halfFlip(['', 'open']) === '',
+    `one half → "${halfFlip(['shut', ''])}" · none → "${halfFlip(undefined)}" · other half → "${halfFlip(['', 'open'])}"`
   );
 }
 

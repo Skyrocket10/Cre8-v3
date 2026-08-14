@@ -43,6 +43,10 @@ export function loadBlocks() {
       'src/lib/document/conditions.ts',
       // And the structural half, which the generator plans a rule with.
       'src/lib/document/when.ts',
+      // What can happen to an element and what it can do about it. The claim
+      // it makes is that every verb has exactly one answer to "what markup
+      // carries this", which is data and therefore drivable.
+      'src/lib/document/events.ts',
       // What an element's state is, and what it can be — declared rather than
       // scraped, which is a claim about data and therefore checkable.
       'src/lib/document/state.ts',
@@ -100,6 +104,7 @@ export function loadBlocks() {
     vocabulary: require(path.join(OUT, 'document/style-vocabulary.js')),
     conditions: require(path.join(OUT, 'document/conditions.js')),
     when_: require(path.join(OUT, 'document/when.js')),
+    events: require(path.join(OUT, 'document/events.js')),
     stateLib: require(path.join(OUT, 'document/state.js')),
     // The scheduling half: which rules fold at publish and which travel.
     testTable: require(path.join(OUT, 'renderer/test.js')).testTable,
@@ -108,6 +113,9 @@ export function loadBlocks() {
     // about a function, and the cleanup that was missing for years is the
     // reason to check it rather than infer it from a rendered page.
     everyRef: require(path.join(OUT, 'document/factory.js')).everyRef,
+    // How a spec points at a node it cannot yet have the id of, which an
+    // action now holds as well as a slot.
+    namedRef: require(path.join(OUT, 'document/factory.js')).namedRef,
     pruneRefs: require(path.join(OUT, 'document/factory.js')).pruneRefs,
     danglingReads: require(path.join(OUT, 'document/factory.js')).danglingReads,
     migrateDocument: require(path.join(OUT, 'document/migrate.js')).migrateDocument,

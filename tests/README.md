@@ -283,6 +283,29 @@ check is what a design that silently dropped the rule instead would fail — and
 it fails there rather than quietly agreeing that a deleted rule draws no
 warning.
 
+Verbs are checked by what they *compile to*, which is the whole of X6: every
+one has exactly one answer to "what markup carries this", and four of the eight
+answer with something the browser already does. So the checks publish a real
+page and read the tag — a link whose only action is a `navigate` beside the
+same link written as an `href`, compared attribute for attribute and both at
+zero bytes of script — and then the mirror, because four checks that all say
+"no script" would be satisfied by a build that never ships any: a `copy` still
+has to bring the runtime.
+
+Two of those checks caught defects on their first run and a third passed for
+the wrong reason, which is recorded in `docs/INTERACTIONS.md` §4.1.5. The one
+worth repeating here is the third: `/<a[^>]*href="#/` is satisfied by
+`href="#"`, so an unresolved jump — the exact failure the verb exists to
+prevent — sailed through the check written to catch it. It reads the target's
+own `id` out of the same file now.
+
+The tag decision is checked on a *box* rather than on a link, and that is not
+an arbitrary choice: `link` and `button` both ship `href: '#'` in their
+defaults, so `resolveTag` answers `a` for them whatever the verbs say. A
+falsification that removed verbs from the tag decision entirely left every
+link-based check passing. A card has no default destination, and a link whose
+href has been cleared is the other branch.
+
 An upgrade is checked for what it produces and then for who is holding it. The
 second half exists because `X5` is the first migration that *creates* a nested
 object, and that turns out to be a different kind of change: the room held raw
@@ -442,7 +465,7 @@ preferring an installed copy over downloading one.
 | `nav` | Do page links work inside a published site — and does a link into a named section scroll to it, stopping clear of the sticky navbar rather than under it, from the same page and from another one |
 | `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime — and does an anchored panel open against the button that opened it, on the side it was told, flipping rather than overflowing when there is no room |
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
-| `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces. And does a state decided by what somebody types follow them as they type, put itself back when they clear the field, and land on the declared fallback when nothing is running |
+| `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces. And does a state decided by what somebody types follow them as they type, put itself back when they clear the field, and land on the declared fallback when nothing is running. And does a flip flip: three presses, because a control that only ever wrote the second half passes a check that presses once, and it takes going back and forward again to tell `toggleState` from `setState` |
 | `conditions` | Does each of the eleven condition shapes actually change what a visitor sees — including a comparison, which is not a selector and never will be: the compiler mints an attribute for it, and the check drives a field to watch the attribute go on, then off again — and does an "any of these" apply on both of its branches **and not when neither holds**, which is the only reading that tells an OR apart from a selector that matches everything — measured on one element either side of the state, so a rule that always applied would fail as loudly as one that never did. Seven of them had no control in the panel until `X1`: every `control` pseudo-class, `:active`, plain `:focus`, and the attribute test. And can a designer reach them — the When… menu is driven for real, offering "Ticked" on a checkbox and withholding it from a `div`, where it would compile to a selector that can never match. Last, the thing `X5` exists for: a case nothing sets is typed into the Switch section and read back **out of storage**, which is what caught the room holding an unmigrated document while every client patched a migrated one |
 | `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |
 | `press` | Does an element arrive as you scroll to it — and stay visible for a browser that cannot animate it, a visitor who asked for less motion, and a page too short to scroll. Does a jump land on its section, and does a copy reach the clipboard and say so |

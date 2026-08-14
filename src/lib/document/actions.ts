@@ -24,22 +24,33 @@
  *
  * ## The grammar
  *
- * One attribute, space separated, each part either
+ * One attribute, space separated, each part one of
  *
  *     value          put the *nearest* enclosing state into `value`
  *     key:value      put the state named `key` into `value`
+ *     a|b            put it into whichever of the two it is not in
+ *     key:a|b        the same, naming the state
  *
- * which works because `slug()` narrows both halves to `[A-Za-z0-9_-]` before
- * either is written. A space or a colon cannot appear inside a key or a value,
- * so neither separator is ambiguous and nothing needs escaping — the same
- * argument that lets a switch key go into a stylesheet selector unquoted.
+ * which works because `slug()` narrows every half to `[A-Za-z0-9_-]` before
+ * any of it is written. A space, a colon and a bar cannot appear inside a key
+ * or a value, so no separator is ambiguous and nothing needs escaping — the
+ * same argument that lets a switch key go into a stylesheet selector unquoted.
  *
  * The bare form is not legacy. It is the more robust statement: a card that
  * says `annual` drives whichever set it is dropped into, and a card that says
  * `billing:annual` insists on one. A designer means the first far more often
  * than the second, and it is also what every existing document holds, so the
  * common case stays byte-identical in the published file.
+ *
+ * The third and fourth forms are `toggleState`, and riding this grammar rather
+ * than getting an attribute of their own is the whole reason a flip costs
+ * about a hundred and fifty bytes instead of five hundred. Everything a set
+ * already has — the ancestor-then-page lookup, `sync`, the tab pairing —
+ * works unchanged, because by the time the runtime has picked which of the two
+ * to write it is holding a value like any other.
  */
+import type { Carrier } from './events';
+import { EVENTS, carrierOf } from './events';
 import type { NodeAction, NodeEventBinding, SceneNode } from './types';
 import { slug } from './schema';
 
@@ -71,12 +82,45 @@ export function stateSets(
 ): { state: string; value: string; quiet: boolean }[] {
   const out: { state: string; value: string; quiet: boolean }[] = [];
   for (const action of actionsFor(node, event)) {
-    if (action.type !== 'setState') continue;
-    const value = slug(action.value);
-    if (!value) continue;
-    out.push({ state: slug(action.state), value, quiet: Boolean(action.quiet) });
+    if (action.type === 'setState') {
+      const value = slug(action.value);
+      if (!value) continue;
+      out.push({ state: slug(action.state), value, quiet: Boolean(action.quiet) });
+      continue;
+    }
+    /*
+     * A flip is an assignment whose value has not been decided yet, so it
+     * travels as one and the runtime picks. Both halves have to be there:
+     * `a|` would encode a bar with nothing after it, and the reader would
+     * write an empty value — the same failure the dropped-empty rule above
+     * exists to prevent, arriving by a different door.
+     *
+     * Never quiet. `quiet` means "this control changes the value without
+     * being one of the choices" — Back, Next — and a flip is the opposite: it
+     * is the only control, and `sync` has to leave its `aria-pressed` alone
+     * rather than announce it as one option among several.
+     */
+    if (action.type === 'toggleState') {
+      const [a, b] = action.values ?? [];
+      const pair = [slug(a), slug(b)];
+      if (!pair[0] || !pair[1]) continue;
+      out.push({ state: slug(action.state), value: pair.join(TOGGLE), quiet: false });
+    }
   }
   return out;
+}
+
+/**
+ * Between the two halves of a flip.
+ *
+ * Outside `slug`'s allowlist, like the space and the colon, so the grammar
+ * stays unambiguous and the parser stays three splits.
+ */
+export const TOGGLE = '|';
+
+/** Whether an encoded assignment is a flip rather than a value. */
+export function isToggle(value: string): boolean {
+  return value.includes(TOGGLE);
 }
 
 /**
@@ -154,13 +198,137 @@ export function copyTextFor(node: SceneNode, event: string = CLICK): string {
  * Read by `resolveTag`: a control that acts is a `<button>`, whatever else it
  * carries, because an `<a>` with no destination is a link a screen reader
  * announces and a keyboard user follows into nothing.
+ *
+ * The emptiness tests are the point rather than an afterthought. An action
+ * with nothing in it is not an action — a `setState` with no value would make
+ * the runtime *clear* the state on press, and a `copy` with no text would put
+ * an empty string on the clipboard — so a node carrying only those still
+ * renders as whatever it was and still ships no script.
  */
 export function actsOnPress(node: SceneNode): boolean {
-  return actionsFor(node).some(
-    (action) =>
-      (action.type === 'setState' && Boolean(slug(action.value))) ||
-      (action.type === 'copy' && Boolean(action.text))
-  );
+  return actionsFor(node).some(runnable);
+}
+
+/**
+ * Whether this action, as written, asks the runtime to do something.
+ *
+ * Both halves matter: the verb has to be one with no native carrier, *and* it
+ * has to be filled in. Split out of `actsOnPress` because the publisher's
+ * script gate and the tag decision now ask it about different lists — a page
+ * asks about every event, a tag asks about the press.
+ */
+export function runnable(action: NodeAction): boolean {
+  if (carrierOf(action) !== null) return false;
+  switch (action.type) {
+    case 'setState':
+      return Boolean(slug(action.value));
+    case 'toggleState':
+      return true;
+    case 'copy':
+      return Boolean(action.text);
+    default:
+      return false;
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * The native-first compiler
+ * ----------------------------------------------------------------------- */
+
+/** What one carrier ended up holding, and which action put it there. */
+export interface Claim {
+  carrier: Exclude<Carrier, null>;
+  action: NodeAction;
+}
+
+/**
+ * What a list of actions compiles to.
+ *
+ * `native` is at most one claim per carrier; `script` is everything the
+ * runtime has to run; `refused` is the honest answer to a list that asks one
+ * element to do two contradictory things.
+ */
+export interface ActionPlan {
+  native: Claim[];
+  script: NodeAction[];
+  refused: NodeAction[];
+}
+
+/**
+ * Sort a list of actions into what the markup carries and what the script runs.
+ *
+ * The one place the native-first rule lives, so "does this page need the
+ * runtime", "is this an `<a>` or a `<button>`" and "what attributes does it
+ * get" are three readings of one answer rather than three functions that have
+ * to agree. They did not have to agree while there were two verbs; with nine
+ * they would drift within a month.
+ *
+ * **First claim wins, in authored order.** An element has one `href`, one
+ * `popovertarget` and one `type`, so a second action wanting a carrier the
+ * list has already spent cannot be honoured — not because the compiler is
+ * simple, but because the markup has nowhere to put it. Reported rather than
+ * dropped: a designer who wrote "go to Pricing and also open the menu" has
+ * asked for something a page cannot do, and the panel should say so. Silently
+ * keeping the first would be the same class of bug as the switch section that
+ * stopped responding — a change that appears to land and does not.
+ *
+ * An unrunnable action is neither: a `copy` with no text is an unfinished
+ * thought, not a reason to ship two kilobytes of runtime.
+ */
+export function planActions(actions: readonly NodeAction[]): ActionPlan {
+  const native: Claim[] = [];
+  const script: NodeAction[] = [];
+  const refused: NodeAction[] = [];
+  const taken = new Set<string>();
+
+  for (const action of actions) {
+    const carrier = carrierOf(action);
+    if (carrier === null) {
+      if (runnable(action)) script.push(action);
+      continue;
+    }
+    if (taken.has(carrier)) {
+      refused.push(action);
+      continue;
+    }
+    taken.add(carrier);
+    native.push({ carrier, action });
+  }
+  return { native, script, refused };
+}
+
+/** The action holding a carrier, or undefined. The question every caller asks. */
+export function claimed(plan: ActionPlan, carrier: Exclude<Carrier, null>): NodeAction | undefined {
+  return plan.native.find((claim) => claim.carrier === carrier)?.action;
+}
+
+/**
+ * Everything a node does, across every event that is actually delivered.
+ *
+ * Filtered against the registry rather than flattened, and the difference is
+ * not academic: a binding for an event nothing raises has always been inert —
+ * `actionsFor` matches by name, so `onHover` reached no attribute — and a gate
+ * that flattened every binding would have started shipping two kilobytes of
+ * runtime for it while still doing nothing when the visitor hovered. A page
+ * that carries the script and has no way to run it is worse than either
+ * honest answer.
+ */
+export function everyAction(node: SceneNode): NodeAction[] {
+  return (node.events ?? [])
+    .filter((binding) => EVENTS.some((event) => event.id === binding.event))
+    .flatMap((binding) => binding.actions);
+}
+
+/**
+ * Whether this node puts any script on the page, whatever event it hangs off.
+ *
+ * The publisher's gate. Wider than `actsOnPress` on purpose: a select that
+ * sets a state `onChange` needs the runtime exactly as much as a button that
+ * sets one `onClick`, and asking only about the press is how the second one
+ * would have shipped a page whose dropdown did nothing.
+ */
+export function runsScript(node: SceneNode): boolean {
+  return everyAction(node).some(runnable);
 }
 
 /** One `onClick` binding holding these actions, or nothing for an empty list. */

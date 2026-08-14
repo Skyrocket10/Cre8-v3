@@ -12,7 +12,7 @@
  * execute. Either way it drops straight onto a CDN.
  */
 
-import { actsOnPress } from '../document/actions';
+import { runsScript } from '../document/actions';
 import { describeElement, resolveNodeHref, type AttrValue } from '../renderer/element-model';
 import { variantsOf, type Variant } from '../renderer/variants';
 import { boundProps, repeatRows, type RecordSet } from '../renderer/repeat';
@@ -554,15 +554,17 @@ export function renderPage(
   const interactive = nodeIds.some((id) => {
     const node = doc.nodes[id];
     if (!node) return false;
-    // A copy joins the two for the same reason they are here: it is the one
-    // action in the set with nothing native behind it, so a page that copies
-    // needs the runtime and a page that does not still ships nothing.
+    // `runsScript` is the same reading `planActions` gives the renderer and
+    // the tag decision: a verb ships the runtime exactly when nothing native
+    // carries it. Asking a different question here is how a page ends up with
+    // a button the runtime was never shipped for — or, once four of the nine
+    // verbs compile to plain markup, two kilobytes of script for a link.
     //
-    // `actsOnPress` covers both actions and is the same function that decides
-    // whether a control renders as a `<button>`. Asking two different questions
-    // about the same node is how a page ends up with a button the runtime was
-    // never shipped for.
-    return actsOnPress(node) || Boolean(node.props.drives);
+    // Every event, not only the press. A select that sets a state when it
+    // changes needs the runtime as much as a button that sets one when it is
+    // pressed, and asking only about the press would publish a dropdown that
+    // does nothing.
+    return runsScript(node) || Boolean(node.props.drives);
   });
   /*
    * And the Tests that could not be answered here. The table is built once for

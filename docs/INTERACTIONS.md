@@ -371,7 +371,7 @@ Each is independently shippable and independently falsifiable.
 | **X3** | ~~OR compiles to a selector list~~ — **shipped** | X2 |
 | **X4** | ~~A comparison in a style rule mints its own answer~~ — **shipped**, as an attribute rather than a state | X2 |
 | **X5** | ~~States are declared, not scraped~~ — **shipped**; it also found the collaboration bug below | — |
-| **X6** | Events become a registry; actions grow verbs | X5 |
+| **X6** | ~~Events become a registry; actions grow verbs~~ — **shipped**; the model and the compiler, not the panel | X5 |
 | **X7** | `only` on an action | X6 |
 | **X8** | One "When pressed" list, absorbing Link / Relative-to / Form | X6 |
 | **X9** | Prove it in a browser; rewrite both docs | all |
@@ -398,6 +398,79 @@ How each is falsified — the check that must fail against the unfixed code:
   absent.
 - **X8** — extend U3's reachability sweep: every prop reachable before is
   reachable after.
+
+### 4.0 What X6 shipped, and what it deliberately did not
+
+The table in §3.5 lists six events and nine verbs. What shipped is **one event
+and eight verbs**, and both cuts are worth writing down because neither is a
+compromise about the design — they are the same rule applied twice.
+
+**The rule.** A table entry earns its place by being *delivered*. The thing
+this stage exists to fix is `ElementDefinition.events`, which promised
+`onSubmit` on every form and `onClick` on buttons and links while `actionsFor`
+defaulted to `onClick` and no caller ever passed anything else: one entry was a
+lie and two were decoration. Replacing that with a longer list of entries
+nothing reads would be the same defect at three times the size.
+
+**So `onChange` and `onSubmit` wait for X7.** Both are wanted and both cost the
+same two things: a listener in a runtime that is serialised into every
+interactive page, and a declared answer for the visitor with scripting off. The
+second is not optional — the execution model makes the no-script fallback a
+required declaration, which is why `unfinished()` refuses to call an assignment
+complete without one — and the machinery for demanding it of an *action* is
+X7's. `onVisible`, `onLoad` and `onKey` are the same argument with no native
+gesture behind them at all.
+
+**And `focus` was cut from the verbs.** It needs an attribute of its own and a
+DOM lookup — roughly 300 bytes of runtime on every interactive page — for a
+verb nothing can author until X8. The other eight are all reachable: four
+compile to markup and cost nothing, three were already implemented, and
+`toggleState` is the one addition.
+
+**What did ship is the part that matters.** Every verb has exactly one answer
+to "what markup carries this", `planActions` is the one place that answer is
+applied, and the renderer, the tag decision and the publisher's script gate are
+three readings of it rather than three functions that have to agree. Four verbs
+— `navigate`, `scrollTo`, `openPanel`, `closePanel`, `submit` — compile to
+`href`, `popovertarget` and `type="submit"`, so a link authored as a verb
+publishes the same bytes as a link authored as a prop and **no script at all**.
+
+`toggleState` costs 113 bytes of runtime, and only that much because a flip
+rides the assignment grammar as `a|b` rather than getting an attribute of its
+own: the group lookup, `sync`, the tab pairing and the row-local group in a
+repeater are all unchanged code.
+
+The panel is untouched. X8 is where the verbs become authorable and where
+`props.href`, `refs.popover`, `refs.scrollTo` and `props.submit` migrate onto
+them — which is why the compiler reads verbs first and the older spellings
+second, and why every existing document still publishes byte-for-byte what it
+published before.
+
+### 4.1.5 And what X6 turned up — a reference no walk could see
+
+Two of X6's own checks failed on the first run, and one passed for the wrong
+reason. All three were the same defect.
+
+`everyRef` is the function whose whole argument is that references are
+*enumerable*: "deleting a panel used to leave every button that opened it
+pointing at an id no longer in the document, because nothing enumerated the
+references." It walked `node.refs` and expressions. It did not walk actions —
+so the moment a verb could hold a reference, a block writing
+`{ type: 'scrollTo', ref: namedRef('Features') }` got a name that nothing ever
+resolved into an id, and published `href="#"`: a jump to the top of the page,
+on an element that looks correctly wired from every angle except the file.
+
+Worse, `resolveRefs` was reading `node.refs` for itself rather than going
+through `everyRef`, so the one walk was not one walk at all. It is now, and
+`pruneRefs` empties an action's reference rather than deleting the verb —
+the same bargain expressions strike, so a designer whose panel was deleted sees
+an Open button that names nothing rather than an Open button that vanished.
+
+The check that *passed* is the more interesting half. It read
+`/<a[^>]*href="#/`, which an unresolved jump satisfies perfectly — the exact
+bug the verb exists to prevent, sailing through the check written to catch it.
+It reads the target's own `id` out of the same file now, and compares the
+anchor against the same design authored as a reference.
 
 ### 4.1 What X5 turned up on the way — a migration the room could not see
 

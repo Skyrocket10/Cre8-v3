@@ -198,14 +198,27 @@ try {
    * the ancestor-then-page lookup, and the loop that keeps `aria-pressed`
    * honest for a control that touches two states.
    *
+   * From 3680, for `toggleState` — 113 bytes, and the smallest of the four by
+   * a distance. It buys the verb `setState` cannot express: a menu button that
+   * both opens and closes, which until now had to be two controls, a
+   * `<details>`, or a pair of rules that contradict each other on the third
+   * press. The reason it is 113 and not four hundred is that a flip rides the
+   * assignment grammar as `a|b` rather than getting an attribute of its own,
+   * so the lookup, `sync`, the tab pairing and the row-local group in a
+   * repeater are all unchanged code. What was added is a `split`, a comparison
+   * and one guard in `sync` so a flip makes no `aria-pressed` claim.
+   *
    * The number still sits just above that, deliberately, so the next thing to
-   * grow it trips this immediately and has to make the same argument.
+   * grow it trips this immediately and has to make the same argument. X6's
+   * other seven verbs cost nothing here, which is the point of them: four
+   * compile to `href`, `popovertarget` and `type="submit"`, and a page whose
+   * only behaviour is one of those still ships no script at all.
    *
    * The published copy is minified, which is worth knowing before trying to fix
    * a failure here by deleting comments or shortening names — neither saves
    * anything at all.
    */
-  const RUNTIME_BUDGET = 3680;
+  const RUNTIME_BUDGET = 3790;
   const source = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
   report.check(
     'and it is small enough to be read in one sitting',
@@ -1287,6 +1300,132 @@ try {
         'the defaults ship in the markup, so a page with no script is a page at rest'
       );
       await stillWorks.close();
+    }
+  }
+
+  /* ------------------------------------------------ 12. one button, both ways */
+
+  /*
+   * `toggleState`, pressed.
+   *
+   * The verb `setState` cannot express, and the reason it is worth 113 bytes
+   * of runtime: a menu button that opens *and* closes was two controls, or a
+   * `<details>`, or a pair of rules that disagree on the third press.
+   *
+   * Three presses rather than one, and the third is the one that matters. A
+   * flip that only ever wrote the second half would pass a check that pressed
+   * once and read `open`; it takes going back to `shut` and forward again to
+   * tell a flip from an assignment. The `aria-pressed` reading is here for the
+   * same reason the encoding check is in the static suite — a flip is not one
+   * of a set of choices, so claiming it is `false` would announce it as an
+   * unselected option.
+   */
+  {
+    const doc = await getDocument(page, id);
+    const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
+    const root = doc.nodes[home.rootNodeId];
+
+    Object.assign(doc.nodes, {
+      men0flip01: node('men0flip01', 'frame', 'Menu shell', {
+        parentId: root.id,
+        children: ['btn0flip02', 'pan0flip03'],
+        props: { switchKey: 'menu', switchDefault: 'shut' },
+        styles: { desktop: { display: 'flex', flexDirection: 'column', padding: '20px' } },
+      }),
+      btn0flip02: node('btn0flip02', 'button', 'Menu', {
+        parentId: 'men0flip01',
+        props: { label: 'Menu' },
+        events: [{ event: 'onClick', actions: [{ type: 'toggleState', values: ['shut', 'open'] }] }],
+      }),
+      pan0flip03: node('pan0flip03', 'paragraph', 'Panel', {
+        parentId: 'men0flip01',
+        props: { text: 'The menu contents' },
+        rules: [
+          {
+            id: 'rul0flip01',
+            when: [{ kind: 'state', key: 'menu', op: 'isnt', values: ['open'] }],
+            apply: { display: 'none' },
+          },
+        ],
+      }),
+    });
+    root.children.push('men0flip01');
+
+    const seeded = await saveDocument(page, doc);
+    if (report.check('the document with a flip is accepted', seeded === 200, `HTTP ${seeded}`)) {
+      await publish(page);
+      const flipHtml = await (await fetch(`${APP}/s/${id}/`)).text();
+      /*
+       * Every assignment on the page, not the first one `exec` happens to
+       * find. The page carries eleven fixtures' worth of setters by now, and
+       * the first match is a pricing toggle from section 3 — so the detail
+       * read `data-cre8-set="monthly"` beside a passing check about a flip,
+       * which is a detail that cannot tell you whether the right thing
+       * matched.
+       */
+      const assignments = [...flipHtml.matchAll(/data-cre8-set="([^"]*)"/g)].map((m) => m[1]);
+      report.check(
+        'a flip ships as one assignment holding both halves',
+        assignments.includes('shut|open'),
+        assignments.filter((one) => one.includes('|')).join(' · ') || `no flip among ${assignments.length} assignments`
+      );
+
+      const flipping = await ctx.newPage();
+      await flipping.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      const menu = flipping.locator('[data-cre8-switch="menu"]');
+      const contents = flipping.locator('[data-cre8-switch="menu"] p');
+      const button = flipping.locator('button:has-text("Menu")').first();
+
+      const shown = async () => (await contents.evaluate((el) => getComputedStyle(el).display));
+      report.check(
+        'it ships shut, which is what the file said',
+        (await menu.getAttribute('data-cre8-value')) === 'shut' && (await shown()) === 'none',
+        `${await menu.getAttribute('data-cre8-value')} · display ${await shown()}`
+      );
+
+      await button.click();
+      await flipping.waitForTimeout(120);
+      const first = await menu.getAttribute('data-cre8-value');
+      const firstShown = await shown();
+
+      await button.click();
+      await flipping.waitForTimeout(120);
+      const second = await menu.getAttribute('data-cre8-value');
+
+      await button.click();
+      await flipping.waitForTimeout(120);
+      const third = await menu.getAttribute('data-cre8-value');
+
+      report.check(
+        'pressing it opens the menu',
+        first === 'open' && firstShown !== 'none',
+        `${first} · display ${firstShown}`
+      );
+      report.check(
+        'pressing it again shuts it, which is the half `setState` cannot reach',
+        second === 'shut',
+        String(second)
+      );
+      report.check(
+        'and a third press opens it again, so it is a flip and not an assignment',
+        third === 'open',
+        `${first} → ${second} → ${third}`
+      );
+      report.check(
+        'and it makes no claim to be one of a set of choices',
+        (await button.getAttribute('aria-pressed')) === null,
+        `aria-pressed=${String(await button.getAttribute('aria-pressed'))}`
+      );
+      await flipping.close();
+
+      const noJs = await ctx.newPage({ javaScriptEnabled: false });
+      await noJs.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      report.check(
+        'with scripting off it rests on the case that shipped',
+        (await noJs.locator('[data-cre8-switch="menu"]').getAttribute('data-cre8-value')) === 'shut',
+        'a flip needs a script and says so by simply not moving'
+      );
+      await noJs.close();
     }
   }
 } catch (error) {
