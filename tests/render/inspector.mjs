@@ -1227,6 +1227,118 @@ try {
     `${multi.headings.join(' · ')} · ${multi.text.slice(0, 40)}`
   );
 
+  /* ------------------------------------------------- nothing spills out ---- */
+
+  /*
+   * Every section of every kind of element, measured against the panel it is
+   * drawn in.
+   *
+   * The press list had been publishing a row 123px wider than the inspector —
+   * its remove button drawn outside the panel — for as long as the row had two
+   * icon buttons, and every check on it passed, because every check read the
+   * DOM and none of them measured it. This is the sweep that would have caught
+   * it anywhere rather than in the one section somebody thought to look at.
+   *
+   * Two things learned writing it, both of which made an earlier draft green
+   * against a broken panel:
+   *
+   * - Ask the whole subtree for its furthest-right edge. Reading a row's own
+   *   last child finds `StyleRow`'s wrapper, which carries `min-w-0` and can
+   *   never overflow.
+   * - Scope the "is this in a horizontal scroller" exclusion to *inside* the
+   *   section. Walking to `body` marks everything: the panel scrolls
+   *   vertically, and a computed `overflow-y: auto` turns a `visible`
+   *   overflow-x into `auto`, so every descendant looked exempt.
+   *
+   * `measured` is in the detail for the same reason the count is in the
+   * inert-set check: a sweep that stopped finding elements has to read as a
+   * suspicious zero rather than as a clean panel.
+   */
+  {
+    const KINDS = [
+      ['ovbtn', 'button', 'Wide button', { label: 'Go annual' }],
+      ['ovinp', 'input', 'Wide field', { inputType: 'email', name: 'email', placeholder: 'you@company.com' }],
+      ['ovimg', 'image', 'Wide picture', { src: 'https://example.com/a.png', alt: 'Something' }],
+      ['ovdet', 'details', 'Wide disclosure', { summary: 'How do refunds work?' }],
+      ['ovtbl', 'table', 'Wide table', { caption: 'Opening hours' }],
+      ['ovbox', 'container', 'Wide box', {}],
+    ];
+    const doc = await getDocument(page, id);
+    const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
+    const rootId = home.rootNodeId;
+    for (const [nodeId, type, name, props] of KINDS) {
+      doc.nodes[nodeId] = node(nodeId, type, name, { parentId: rootId, props });
+      doc.nodes[rootId].children.push(nodeId);
+    }
+    // Two behaviours and a condition on the button, so the widest things this
+    // panel draws — the press rows and a rule's sentence — are in the sweep.
+    doc.nodes.ovbtn.events = [
+      { event: 'onClick', actions: [
+        { type: 'setState', value: 'annual' },
+        { type: 'copy', text: 'PROMO20' },
+      ] },
+    ];
+    doc.nodes.ovbtn.rules = [
+      { id: 'ovr1', when: { kind: 'pointer', pseudo: 'hover' }, apply: { opacity: '0.8' } },
+    ];
+
+    if (report.check('a page of wide content is accepted', (await saveDocument(page, doc)) === 200)) {
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+      await page.waitForTimeout(1200);
+
+      const spills = [];
+      let measured = 0;
+      let closest = -9999;
+      for (const [, , name] of KINDS) {
+        await selectLayer(name);
+        const heads = page.locator('aside').last().locator('button[aria-expanded="false"]');
+        for (let i = 0, n = await heads.count(); i < n; i++) {
+          await heads.nth(0).click().catch(() => {});
+          await page.waitForTimeout(90);
+        }
+        const rule = page.locator('aside').last().locator('button:has-text("pointed at")').first();
+        if (await rule.count()) await rule.click().catch(() => {});
+        await page.waitForTimeout(350);
+
+        const found = await page.locator('aside').last().evaluate((aside) => {
+          const inScroller = (el, stop) => {
+            for (let n = el; n && n !== stop; n = n.parentElement) {
+              if (/auto|scroll/.test(getComputedStyle(n).overflowX)) return true;
+            }
+            return false;
+          };
+          const out = [];
+          let seen = 0;
+          let nearest = -9999;
+          for (const section of aside.querySelectorAll('section')) {
+            const edge = section.getBoundingClientRect().right;
+            const title = section.querySelector('.panel-title')?.textContent ?? '?';
+            for (const el of section.querySelectorAll('*')) {
+              const box = el.getBoundingClientRect();
+              if (!box.width || !box.height || inScroller(el, section)) continue;
+              seen += 1;
+              const over = Math.round(box.right - edge);
+              nearest = Math.max(nearest, over);
+              if (over > 1) out.push(`${title} +${over}px`);
+            }
+          }
+          return { out, seen, nearest };
+        });
+        measured += found.seen;
+        closest = Math.max(closest, found.nearest);
+        for (const one of found.out) spills.push(`${name} → ${one}`);
+      }
+      report.check(
+        'nothing any section draws spills out of the panel',
+        spills.length === 0 && measured > 200,
+        spills.length
+          ? [...new Set(spills)].slice(0, 5).join(' | ')
+          : `${measured} boxes across ${KINDS.length} kinds, closest to the edge ${closest}px`
+      );
+    }
+  }
+
   await deselect();
   const deselected = await page.evaluate(() => {
     const aside = [...document.querySelectorAll('aside')].pop();

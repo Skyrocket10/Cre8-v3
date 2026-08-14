@@ -392,6 +392,7 @@ Each is independently shippable and independently falsifiable.
 | **X12** | ~~Declare which props are content~~ — **shipped**; the third hand-listed vocabulary | X11 |
 | **X13** | ~~Close §1.8's last row honestly~~ — **shipped**; `onSubmit` was withdrawn, and the model still said otherwise | X6 |
 | **X14** | ~~Look at the panel~~ — **shipped**; the row had been overflowing by 123px | X8, X10, X11 |
+| **X15** | ~~Sweep every section for the same fault~~ — **shipped**; the press list was the only one | X14 |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -701,6 +702,40 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.17 And the sweep that generalises it — six kinds, every section, 1207 boxes
+
+X14 found one row overflowing because somebody thought to look at that row. The
+same fault could be in any section of any element type, and nothing would have
+said so — the panel has no horizontal scrollbar to notice, because the content
+simply draws past the edge.
+
+So the measurement is a sweep now, in the panel suite: six element types, every
+section opened, every rule expanded, and every box in every section compared
+against the section's own right edge. It reports what it measured — **1207
+boxes, closest to the edge 0px** — because a sweep that stopped finding
+elements has to read as a suspicious zero rather than as a clean panel.
+
+The answer is that the press list was the only one. That is worth having as a
+result rather than as an assumption: the rest of the inspector has been
+laid out correctly all along, and now stays that way.
+
+Two mistakes in writing it, both of which produced a green sweep over a broken
+panel, and both worth keeping because they are the general shape of a
+measurement that does not measure:
+
+- **Reading the wrong node.** A row's own last child is `StyleRow`'s wrapper,
+  which carries `min-w-0` and can never overflow. Ask the whole subtree for its
+  furthest-right edge instead — that cannot pick the wrong element.
+- **An exclusion that excluded everything.** Skipping boxes inside a horizontal
+  scroller is right; walking to `body` to find one is not. The panel scrolls
+  vertically, and a computed `overflow-y: auto` turns a `visible` overflow-x
+  into `auto` — so every descendant of the inspector looked exempt and the
+  sweep passed having skipped all 457 boxes it had just measured. It was
+  reporting `closest to the edge: -9999`, which is what caught it.
+
+Falsified by restoring the one-line row: `When pressed +123px`, plus four
+smaller spills in the same section.
 
 ### 4.1.15 And what looking turned up — a row 123px wider than the panel
 
