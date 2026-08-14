@@ -395,6 +395,7 @@ Each is independently shippable and independently falsifiable.
 | **X15** | ~~Sweep every section for the same fault~~ — **shipped**; the press list was the only one | X14 |
 | **X16** | ~~Look at the one thing left unseen~~ — **shipped**; “+ or” wrote *pointed at or pointed at* | X11, X14 |
 | **X17** | ~~A condition on the visit can be about something other than the time~~ — **shipped**; and it is how a form says thank you | X1 |
+| **X18** | ~~Check the claim X17 broke, not a proxy for it~~ — **shipped**; five kinds, no frozen operands | X17 |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -704,6 +705,42 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.23 And the check that should have caught X17
+
+The static suite has said, for every condition kind, *"a '<kind>' condition can
+be edited, not only described"* — and it was green while a data condition's
+source was a word. What it tests is a **regex over the source**:
+
+```js
+new RegExp(`condition\\.kind === '${kind}' && onChange`).test(sentence)
+```
+
+The branch existed. Whether anything *inside* it was a control was never asked,
+and that is the whole of X17. A proxy for a claim is not the claim.
+
+So the claim is tested where it is made: the rule is rendered, every `button`,
+`input` and `select` inside its sentence has its text subtracted from the
+sentence's own, and what is left has to be connective tissue — *when*, *and*,
+*hold*, *is*. Anything else is an operand somebody cannot change. Run over all
+five kinds, and the count of kinds measured is asserted alongside, so a sweep
+that stopped finding sentences reads as a failure rather than as five clean
+ones.
+
+No per-kind operand counts, deliberately: a list of expected numbers is the
+thing that drifts, and the point of this check is to not be the kind of check
+that drifts.
+
+Falsified by restoring the word: `data: form was just sent`.
+
+**And a self-inflicted one worth keeping.** The first run reported
+`attr: the canvas did not come back`, which read like a shape that crashes the
+editor. It was the fixture: the model spells an attribute condition
+`{ kind, name, op, values: [] }` and it had been written `{ kind, name, value }`.
+The finding is about the check rather than the product — it survived a
+malformed input by reporting which shape failed and carrying on, instead of
+taking the suite down with a timeout, which is why the real cause was one run
+away rather than one bisect away.
 
 ### 4.1.21 And the condition on a visit that could only ever be about the time
 

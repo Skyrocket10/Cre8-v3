@@ -989,6 +989,94 @@ try {
     }
   }
 
+  /* -------------------------------- nothing in a rule is frozen prose ----- */
+
+  /*
+   * Every operand of every condition is a control, not a word.
+   *
+   * The static suite claims each kind "can be edited, not only described", and
+   * what it tests is that `conditionSentence` has a branch guarded by
+   * `onChange` for that kind — a regex over the source. That is the reachable
+   * half. It says nothing about the operands *inside* the branch, which is how
+   * a data condition kept its source as an unclickable word: the branch was
+   * there, the check was green, and the only fact anybody could ask about a
+   * visit was the time of day.
+   *
+   * So this reads the rendered sentence and subtracts every control from it.
+   * What is left has to be connective tissue — the words that join a sentence
+   * rather than the values it is about. No per-kind operand counts, because a
+   * list of expected numbers is the thing that drifts.
+   */
+  {
+    const JOINERS = new Set([
+      'when', 'and', 'or', 'hold', 'is', 'of', 'these', 'all', 'any', 'the',
+      'a', 'an', 'in', 'as', 'with', 'its', 'first', 'characters', 'reads',
+      'only', 'not', 'empty', 'contains', 'over', 'under', 'at', 'least',
+      'most', 'decimals', 'condition', 'group',
+    ]);
+    const SHAPES = [
+      ['pointer', { kind: 'pointer', pseudo: 'hover' }],
+      ['control', { kind: 'control', pseudo: 'checked' }],
+      ['state', { kind: 'state', key: 'plan', op: 'is', values: ['annual'] }],
+      ['attr', { kind: 'attr', name: 'data-cre8-copied', op: 'is', values: [''] }],
+      ['data', { kind: 'data', source: 'query.sent', op: 'is', values: ['1'] }],
+    ];
+    const frozen = [];
+    let measured = 0;
+    for (const [kind, when] of SHAPES) {
+      const doc = await getDocument(page, projectId);
+      doc.nodes.chkx.rules = [{ id: `ed-${kind}`, when, apply: { opacity: '0.9' } }];
+      if ((await saveDocument(page, doc)) !== 200) {
+        frozen.push(`${kind}: refused`);
+        continue;
+      }
+      await page.reload({ waitUntil: 'load' });
+      try {
+        await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: 20000 });
+      } catch {
+        // The canvas never came back. That is a finding about this shape, not
+        // a reason to abandon the sweep.
+        frozen.push(`${kind}: the canvas did not come back`);
+        continue;
+      }
+      await page.waitForTimeout(1200);
+      await showLayers();
+      await page.locator('[data-layer-row]:has-text("Tickable")').first().click();
+      await page.waitForTimeout(400);
+      if (!(await openInspectorSection(page, 'States & conditions'))) continue;
+      const panel = page.locator('aside').last();
+      // The rule row has to be open for its sentence to exist at all.
+      await panel.locator('button:has(> span.truncate)').first().click().catch(() => {});
+      await page.waitForTimeout(400);
+
+      const left = await panel.evaluate((aside) => {
+        const sentence = aside.querySelector('[data-sentence]');
+        if (!sentence) return null;
+        const whole = sentence.textContent ?? '';
+        let inControls = '';
+        for (const el of sentence.querySelectorAll('button, input, select')) {
+          inControls += ` ${el.tagName === 'INPUT' ? el.value : (el.textContent ?? '')}`;
+        }
+        const strip = (text) =>
+          text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean);
+        const used = new Set(strip(inControls));
+        return strip(whole).filter((word) => !used.has(word));
+      });
+      if (left === null) {
+        frozen.push(`${kind}: no sentence`);
+        continue;
+      }
+      measured += 1;
+      const prose = left.filter((word) => !JOINERS.has(word));
+      if (prose.length) frozen.push(`${kind}: ${prose.join(' ')}`);
+    }
+    report.check(
+      'every operand of every condition is a control, not a word',
+      frozen.length === 0 && measured === SHAPES.length,
+      frozen.length ? frozen.join(' | ') : `${measured}/${SHAPES.length} kinds, nothing frozen`
+    );
+  }
+
   /* ------------------------------------- which fact about the visit ------- */
 
   /*

@@ -38,6 +38,12 @@ Nobody looks again at something with a tick beside it.
    downstream of the store, which is not the same as testing the editor. The
    press list offered eight verbs and the store's write path kept two of them,
    for two stages, because no check ever went through it.
+6. **Check the claim, not a proxy for it.** *"A condition can be edited, not
+   only described"* was a regex asserting that `conditionSentence` has a branch
+   guarded by `onChange` for that kind. The branch existed, the check was
+   green, and inside it the data source was an unclickable word — so the only
+   fact anybody could ask about a visit was the time of day. The claim is about
+   the rendered sentence; test the rendered sentence.
 
 ### The ways they have actually failed here
 
@@ -52,6 +58,7 @@ Each of these shipped, passed, and was found later:
 | a jump publishes an anchor | the regex `/<a[^>]*href="#/` is satisfied by `href="#"`, which is the bug |
 | five no-script guarantees | `javaScriptEnabled` is a **context** option and is ignored on `newPage`, silently |
 | "or" offers a second condition | the fixtures never grew from the one the seed hardcoded |
+| a condition can be edited, not only described | a regex over the source, asserting the *branch* exists — it says nothing about the operands inside it |
 
 And one that is not a check at all but reads like one: a falsification whose
 `npm run build` **failed** while `wrangler` kept serving the previous `out/`,
