@@ -807,10 +807,20 @@ type ActionBody =
  * A *list* of actions, which is the whole reason this exists rather than one
  * more prop: a link in a mobile nav has to close the nav and move a tab set,
  * and two props cannot be ordered against each other or reasoned about as one
- * gesture. `ElementDefinition.events` says which events an element offers.
+ * gesture. `document/events.ts` says which events exist and which elements
+ * offer them.
  */
 export interface NodeEventBinding {
-  /** The only one wired today; `onSubmit` is declared by `form` and unread. */
+  /**
+   * Named in `EVENTS`, which holds one entry — `onClick`.
+   *
+   * A binding for anything else is **inert and kept**: `everyAction` filters
+   * against the registry, so it reaches no attribute and ships no script, and
+   * `setActions` leaves other events alone rather than deleting what it does
+   * not draw. That is the arrangement X6 chose over the one it replaced, where
+   * `ElementDefinition.events` promised `onSubmit` on every form and nothing
+   * anywhere read it — a table entry earns its place by being delivered.
+   */
   event: string;
   actions: NodeAction[];
 }

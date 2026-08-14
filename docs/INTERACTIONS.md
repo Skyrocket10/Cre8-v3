@@ -178,11 +178,14 @@ suite that presses the buttons.
 | Either of two conditions | conditional row | ✘ not in the model | ✔ X11 · one press |
 | Press → close a menu **and** navigate | one workflow, ordered | 2 panels, no order | ✔ X8, ordered by X10 |
 | Press → but only when signed in | "Only when" on the action | ✘ not in the model | ✔ X7, on screen in X10 |
-| On submit → do something | workflow on the event | declared, unread | **still open** — see §4.0 |
+| On submit → do something | workflow on the event | declared, unread | **withdrawn** — see §5.1 |
 
-The last row is the only one left, and it is deferred rather than missed: the
-event registry has one entry, and §4.0 records why adding the second is a
-separate piece of work rather than a line in a table.
+The last row is the only one left, and what happened to it is not "deferred".
+The audit's complaint was that `ElementDefinition.events` *promised* `onSubmit`
+on every form while nothing read it, and X6 answered that by **withdrawing the
+promise** — a table entry earns its place by being delivered. So the row is
+closed as a lie and open as a feature, which are different things. §5.1 says
+what building it would actually cost.
 
 ---
 
@@ -387,6 +390,7 @@ Each is independently shippable and independently falsifiable.
 | **X10** | ~~"Only when" on screen~~ — **shipped**; it also found the write path below | X7, X8 |
 | **X11** | ~~Re-drive §1.8 through the panel~~ — **shipped**; two rows were still open | all |
 | **X12** | ~~Declare which props are content~~ — **shipped**; the third hand-listed vocabulary | X11 |
+| **X13** | ~~Close §1.8's last row honestly~~ — **shipped**; `onSubmit` was withdrawn, and the model still said otherwise | X6 |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -946,3 +950,42 @@ Worth stating as a rule, because X6 is another migration:
 - **No new runtime for the common case.** If this plan makes a page that
   publishes no script today publish script tomorrow, it has failed, whatever
   else it achieved.
+
+### 5.1 And `onSubmit`, which is a feature rather than a gap
+
+§1.8's last row is the one thing the audit named and this arc did not build. It
+is worth being exact about why, because "deferred" has been the answer for long
+enough to look like an oversight.
+
+**The lie is gone.** The audit's complaint was that `ElementDefinition.events`
+promised `onSubmit` on every form while `actionsFor` defaulted to `onClick` and
+no caller passed anything else. X6 withdrew the promise rather than half-build
+it, which is the rule that stage set for itself. `EVENTS` holds one entry, and
+a document that still carries an `onSubmit` binding — from a block, from a
+hand edit, from an older release — publishes no attribute and ships no script,
+and keeps the binding rather than having it silently deleted. Both halves are
+checked, against `EVENTS` rather than against the string `onClick`, so the
+guarantee cannot rot into a claim.
+
+**What building it costs is not a listener.** Every action a form could
+usefully run on submit — *show the thank-you, close the dialog* — is only
+meaningful if the page does not navigate away, and a form submit is a
+navigation. So there are three options and two of them are wrong:
+
+- *Run the actions and let it navigate.* The state change is invisible: the
+  page is replaced a moment later.
+- *Run the actions and `preventDefault()`.* The form stops submitting. A
+  designer who adds "show thank you" has silently broken their contact form
+  and nothing on screen says so. This is the trap, and it is the easy
+  implementation.
+- *Run the actions and submit in the background.* Correct, and it is a new
+  capability rather than a new listener: the published page makes a network
+  request, which needs a pending state, an error state, a decision about where
+  it is allowed to post, and a runtime budget argument. It also splits the
+  scripted and unscripted visitor for the first time — same outcome, different
+  page behaviour, which is what progressive enhancement means and is fine, but
+  it has to be *said* rather than discovered.
+
+That is a stage of its own, roughly the size of X6–X8 together, and none of it
+is unblocked by more panel work. Recorded here so the next person reads a
+decision instead of a silence.

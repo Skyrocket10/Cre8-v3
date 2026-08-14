@@ -12108,27 +12108,62 @@ report.group('a control can say which state it sets, and set more than one');
     /data-cre8-set="[^"]*"/.exec(halfHtml)?.[0] ?? 'no attribute beside the real assignment'
   );
 
+  /*
+   * A binding for an event the registry does not declare.
+   *
+   * The stand-in is picked as one `EVENTS` does not contain rather than
+   * spelled `onHover`, and the detail is read off `EVENTS` rather than
+   * asserted beside it. Both for the same reason: this check is the guarantee
+   * that lets a promise be *withdrawn* — `ElementDefinition.events` offered
+   * `onSubmit` on every form and nothing read it, and X6's answer was to stop
+   * offering it rather than to half-build it. A document that still holds such
+   * a binding has to publish nothing, and a check whose detail says "onClick
+   * is the only event read" would keep saying so after a second one arrived.
+   */
+  const unread = ['onSubmit', 'onHover', 'onChange'].find(
+    (name) => !eventLib.EVENTS.some((one) => one.id === name)
+  );
   report.check(
     'an action under an event nothing listens for reaches nothing',
+    Boolean(unread) &&
+      (() => {
+        const other = wiredPage({
+          type: 'button',
+          name: 'Later',
+          props: { label: 'Later' },
+          events: [{ event: unread, actions: [{ type: 'setState', value: 'annual' }] }],
+        });
+        const html = renderPage(other.doc, other.page, { mode: 'publish' });
+        return (
+          stateSets(other.button).length === 0 &&
+          actionsFor(other.button).length === 0 &&
+          !actsOnPress(other.button) &&
+          !html.includes('data-cre8-set') &&
+          !/<script/i.test(html)
+        );
+      })(),
+    `${unread ?? 'nothing unread to try'} against ${eventLib.EVENTS.map((one) => one.id).join(', ')}`
+  );
+  /*
+   * And it is kept rather than dropped, which is the other half: the panel
+   * draws one event and `setActions` must not quietly delete the rest.
+   */
+  report.check(
+    'and is still in the document afterwards, because the panel only draws one of them',
     (() => {
-      const other = wiredPage({
-        type: 'button',
-        name: 'Later',
-        props: { label: 'Later' },
-        events: [{ event: 'onHover', actions: [{ type: 'setState', value: 'annual' }] }],
-      });
-      const html = renderPage(other.doc, other.page, { mode: 'publish' });
-      return (
-        stateSets(other.button).length === 0 &&
-        actionsFor(other.button).length === 0 &&
-        !actsOnPress(other.button) &&
-        !html.includes('data-cre8-set')
-      );
+      const node = { id: 'n', type: 'button', name: 'B', props: {}, children: [],
+        events: [{ event: unread, actions: [{ type: 'setState', value: 'a' }] }] };
+      const doc = { nodes: { n: node } };
+      ops.setActions(doc, 'n', [{ type: 'copy', text: 'x' }]);
+      return (doc.nodes.n.events ?? []).some((b) => b.event === unread);
     })(),
-    // The event is a field rather than an assumption, so a binding for
-    // something the runtime does not implement is inert instead of firing on
-    // click by accident.
-    'onClick is the only event read, and the filter is by name'
+    (() => {
+      const node = { id: 'n', type: 'button', name: 'B', props: {}, children: [],
+        events: [{ event: unread, actions: [{ type: 'setState', value: 'a' }] }] };
+      const doc = { nodes: { n: node } };
+      ops.setActions(doc, 'n', [{ type: 'copy', text: 'x' }]);
+      return (doc.nodes.n.events ?? []).map((b) => b.event).join(' + ');
+    })()
   );
 }
 
