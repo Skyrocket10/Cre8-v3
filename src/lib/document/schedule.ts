@@ -12,7 +12,7 @@
  * questions worth asking of the pair.
  */
 
-import type { CollectionRecord, CompareOp, Test, TestLiteral, Value } from './types';
+import type { CollectionRecord, CompareOp, Step, Test, TestLiteral, Value } from './types';
 
 /** True, false, or "not from here". */
 export type Verdict = boolean | null;
@@ -21,17 +21,42 @@ export type Verdict = boolean | null;
 type Raw = string | number | boolean | null | undefined;
 
 /**
- * An operand this evaluator could resolve, and how much it knows about it.
+ * How a chain finds the record a reference names.
  *
- * `type` is the declared one, and only a literal has it — which is the whole
- * of the coercion story: a comparison against a constant is made *in the type
- * that constant was typed as*, and a comparison against a field is made in
- * whatever that field turned out to hold. See `compare`.
+ * By id alone, with no collection: a record id is unique across a project, so
+ * following a reference is a lookup rather than a search — and a step that had
+ * to name its target collection would be a second copy of the field's `of`,
+ * free to go stale the day somebody repoints it.
+ *
+ * Optional everywhere it is taken. A caller that has no records to hand is not
+ * wrong, it is somewhere that cannot answer this — so a `follow` without one
+ * is `null`, *cannot decide here*, which is the same answer the model already
+ * gives for a control's value at publish time.
+ */
+export type FindRecord = (id: string) => CollectionRecord | null;
+
+/**
+ * What a chain is worth, part way along it.
+ *
+ * A chain is not scalar all the way down: `⟨Author⟩ ⟨→ the record⟩ ⟨Name⟩` is
+ * a value, then a *record*, then a value again. Saying so in the type is what
+ * stops `follow` from having to pretend a record is a string — and it is the
+ * shape E4 grows a third member of, when a chain can also be a list.
+ *
+ * On the value side, `type` is the declared one and only a literal has it,
+ * which is the whole of the coercion story: a comparison against a constant is
+ * made *in the type that constant was typed as*, and one against a field is
+ * made in whatever that field turned out to hold. See `compare`.
  *
  * `has` separates absent from present-and-empty, because `empty` is the
  * operator that exists to tell them apart.
  */
-type Known = { raw: Raw; has: boolean; type?: TestLiteral['type'] };
+type Resolved =
+  | { at: 'value'; raw: Raw; has: boolean; type?: TestLiteral['type'] }
+  | { at: 'record'; record: CollectionRecord };
+
+/** The scalar a chain ended on, or nothing if it ended on a record. */
+type Known = Extract<Resolved, { at: 'value' }>;
 
 /**
  * What a Value is worth at publish time, or `null` for "not from here".
@@ -42,13 +67,67 @@ type Known = { raw: Raw; has: boolean; type?: TestLiteral['type'] };
  * not known because nobody has typed anything yet. That last one is not
  * `false` — "empty because the page has not been visited" is the absence of a
  * fact rather than a fact.
+ *
+ * Exported because the binder needs exactly this: `boundProps` used to read
+ * `record.data[key]` itself, which was the whole of a `Value` when a `Value`
+ * was one leaf. Two resolvers walking one chain is how the canvas and the file
+ * come to disagree, so there is one.
  */
-function known(value: Value, record: CollectionRecord | null): Known | null {
-  if (value.kind === 'literal') return { raw: value.value, has: true, type: value.type };
-  if (value.kind !== 'field') return null;
-  if (!record) return null;
-  const has = value.key in record.data;
-  return { raw: has ? (record.data[value.key] as Raw) : undefined, has };
+export function resolveValue(
+  value: Value,
+  record: CollectionRecord | null,
+  find?: FindRecord
+): Known | null {
+  let at: Resolved | null =
+    value.kind === 'literal'
+      ? { at: 'value', raw: value.value, has: true, type: value.type }
+      : value.kind === 'field'
+        ? record
+          ? fieldOf(record, value.key)
+          : null
+        : // `input` and `element` read a form control, which is the operand
+          // this function exists to *not* answer.
+          null;
+
+  for (const step of value.steps ?? []) {
+    if (!at) return null;
+    at = advance(at, step, find);
+  }
+
+  // A chain that ends on a record has not produced a value. Nothing downstream
+  // can print or compare one, so it says so rather than stringifying an id.
+  return at && at.at === 'value' ? at : null;
+}
+
+/**
+ * One step, applied.
+ *
+ * Its own function rather than the body of the loop above, and not only for
+ * reading: a `let` reassigned inside a loop from an expression that reads its
+ * own narrowed type is a circular inference, and TypeScript says so.
+ */
+function advance(at: Resolved, step: Step, find: FindRecord | undefined): Resolved | null {
+  if (step.op === 'follow') {
+    // Only an id can be followed, and only from the value side. A `follow`
+    // straight after a `follow` would be following a record, which the panel
+    // does not offer and the model should not invent an answer for.
+    if (at.at !== 'value' || !at.has || !find) return null;
+    const raw: Raw = at.raw;
+    const id = raw === null || raw === undefined ? '' : String(raw);
+    // The record is gone, or the reference was never set. Undecidable rather
+    // than empty: "the author was deleted" and "this post has no author" are
+    // different facts, and neither of them is a name.
+    const found: CollectionRecord | null = id ? find(id) : null;
+    return found ? { at: 'record', record: found } : null;
+  }
+  if (at.at !== 'record') return null;
+  return fieldOf(at.record, step.key);
+}
+
+/** One field of one record, keeping absent and present-but-empty apart. */
+function fieldOf(record: CollectionRecord, key: string): Known {
+  const has = key in record.data;
+  return { at: 'value', raw: has ? (record.data[key] as Raw) : undefined, has };
 }
 
 /* --------------------------------------------------------------------------
@@ -62,15 +141,22 @@ function known(value: Value, record: CollectionRecord | null): Known | null {
  *   not the same as an empty one. With no record a field comparison cannot be
  *   answered at all, so it is `null` rather than `false`: a card outside any
  *   repeater has not failed the test, it was never in a position to take it.
+ * @param find How to reach a record a reference names. Omitted by every caller
+ *   that has no records to hand, which makes a `follow` undecidable there
+ *   rather than wrong.
  */
-export function evaluate(test: Test, record: CollectionRecord | null): Verdict {
+export function evaluate(
+  test: Test,
+  record: CollectionRecord | null,
+  find?: FindRecord
+): Verdict {
   switch (test.kind) {
     case 'compare': {
       // A form control's value is the operand this function exists to *not*
       // answer. Nobody has typed anything when a page is being published, and
       // "empty because nothing has been typed yet" is not a fact about the
       // page — it is the absence of one.
-      const left = known(test.left, record);
+      const left = resolveValue(test.left, record, find);
       if (!left) return null;
       // Absent and present-but-empty are different, and only the second is a
       // value. `empty` is the operator that exists to tell them apart, so it
@@ -81,7 +167,7 @@ export function evaluate(test: Test, record: CollectionRecord | null): Verdict {
       // `Price > Budget` sayable: a right-hand operand that is absent from
       // this record leaves the comparison undecided rather than false, exactly
       // as a missing left-hand one does.
-      const right = test.right ? known(test.right, record) : null;
+      const right = test.right ? resolveValue(test.right, record, find) : null;
       if (!right || !right.has) return null;
       return compare(left.raw, test.op, right);
     }
@@ -90,7 +176,7 @@ export function evaluate(test: Test, record: CollectionRecord | null): Verdict {
       // thing undecidable — `A && B` is not knowable when B is not.
       let unknown = false;
       for (const inner of test.tests) {
-        const verdict = evaluate(inner, record);
+        const verdict = evaluate(inner, record, find);
         if (verdict === false) return false;
         if (verdict === null) unknown = true;
       }
@@ -99,7 +185,7 @@ export function evaluate(test: Test, record: CollectionRecord | null): Verdict {
     case 'some': {
       let unknown = false;
       for (const inner of test.tests) {
-        const verdict = evaluate(inner, record);
+        const verdict = evaluate(inner, record, find);
         if (verdict === true) return true;
         if (verdict === null) unknown = true;
       }
@@ -216,10 +302,17 @@ export function foldable(test: Test): boolean {
 /**
  * Whether one operand is known when the site is published.
  *
- * The two that are: a field, because the record is compiled into the page, and
- * a literal, because somebody typed it into the panel. The two that are not
- * are the two that read a form control, and they are why there is a runtime at
- * all.
+ * The two heads that are: a field, because the record is compiled into the
+ * page, and a literal, because somebody typed it into the panel. The two that
+ * are not are the two that read a form control, and they are why there is a
+ * runtime at all.
+ *
+ * The steps do not change the answer, and that is `VALUES.md` §3.3 in one
+ * line: `follow` and `field` can only ever appear over a record, a record is
+ * publish-time data, so a chain that folds at its head folds all the way down
+ * and costs the browser nothing. It stops being true the day a list can change
+ * after publish — see §6, where that is settled as *not yet* rather than
+ * *never* — and the day it does, this function is where it stops.
  */
 export function foldableValue(value: Value): boolean {
   return value.kind === 'field' || value.kind === 'literal';

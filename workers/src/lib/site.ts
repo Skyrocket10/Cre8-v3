@@ -66,7 +66,11 @@ export async function liveDocument(env: Env, projectId: string): Promise<Cre8Doc
  * exactly the case nobody tests.
  */
 export async function recordsFor(env: Env, projectId: string, doc: Cre8Document): Promise<RecordSet> {
-  const collections = collectionsUsedBy(doc.nodes, Object.keys(doc.nodes));
+  // Plus whatever those point at: a chain that follows a reference reads a
+  // record out of a collection nothing on the page repeats, so nothing else
+  // would ever have asked for it. The same closure the browser publisher
+  // takes, from the same function, because the two must query the same rows.
+  const collections = collectionsUsedBy(doc.nodes, Object.keys(doc.nodes), doc.collections ?? []);
   if (!collections.length) return {};
 
   const out: RecordSet = {};

@@ -178,7 +178,7 @@ function PreviewSurface({
    * request per collection for the whole session.
    */
   const repeated = useMemo(
-    () => collectionsUsedBy(doc.nodes, Object.keys(doc.nodes)),
+    () => collectionsUsedBy(doc.nodes, Object.keys(doc.nodes), doc.collections ?? []),
     [doc.nodes]
   );
   useEffect(() => {

@@ -30,6 +30,7 @@ import {
   type StateRule,
   type StyleProp,
   type Test,
+  type Value,
   type ValueVar,
 } from '@/lib/document/types';
 import {
@@ -44,7 +45,7 @@ import { stateKeyOf, stateOf } from '@/lib/document/state';
 import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
 import { Sentence, type Part } from '../ui/sentence';
-import { bindingSentence, blankTest, filterSentence, testSentence } from './sentences';
+import { bindingSentence, blankTest, filterSentence, singular, testSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
 import { useReadableValues } from './use-readable';
 
@@ -78,16 +79,15 @@ export function DataSection() {
             bind its content.
           </p>
         )}
-        {scope && !node.repeat && <BindControls node={node} collection={scope} />}
+        {scope && !node.repeat && (
+          <BindControls node={node} collection={scope} collections={collections} />
+        )}
         {scope && !node.repeat && <AssignControls node={node} collection={scope} />}
         {scope && !node.repeat && <VarControls node={node} collection={scope} />}
       </InspectorGroup>
     </Section>
   );
 }
-
-/** "Posts" → "post". Good enough for the two words this ever sees. */
-const singular = (name: string) => name.toLowerCase().replace(/ies$/, 'y').replace(/s$/, '');
 
 /**
  * Which collection's record is in scope here.
@@ -280,7 +280,15 @@ function RepeatControls({ node, collections }: { node: SceneNode; collections: C
  * Bind
  * ----------------------------------------------------------------------- */
 
-function BindControls({ node, collection }: { node: SceneNode; collection: Collection }) {
+function BindControls({
+  node,
+  collection,
+  collections,
+}: {
+  node: SceneNode;
+  collection: Collection;
+  collections: Collection[];
+}) {
   // Only the props this element actually has. Offering `src` on a heading is
   // a control that appears to do nothing.
   const offered = bindableProps().filter((prop) => prop in node.props);
@@ -292,14 +300,14 @@ function BindControls({ node, collection }: { node: SceneNode; collection: Colle
     );
   }
 
-  const setBinding = (prop: string, key: string) =>
-    useEditor.getState().transact(key ? 'Bind to a field' : 'Unbind', (draft) => {
+  const setBinding = (prop: string, value: Value | null) =>
+    useEditor.getState().transact(value ? 'Bind to a field' : 'Unbind', (draft) => {
       const scene = draft.nodes[node.id];
       if (!scene) return;
-      if (key) {
-        // A new field means a new type, and a currency format on a date is
+      if (value) {
+        // A new value means a new type, and a currency format on a date is
         // nonsense. Dropped rather than migrated: there is no honest mapping.
-        scene.bind = { ...(scene.bind ?? {}), [prop]: { value: { kind: 'field', key } } };
+        scene.bind = { ...(scene.bind ?? {}), [prop]: { value } };
       } else if (scene.bind) {
         delete scene.bind[prop];
         if (!Object.keys(scene.bind).length) delete scene.bind;
@@ -320,7 +328,8 @@ function BindControls({ node, collection }: { node: SceneNode; collection: Colle
             prop,
             binding: node.bind?.[prop],
             fields: collection.fields,
-            onBind: (key) => setBinding(prop, key),
+            collections,
+            onBind: (value) => setBinding(prop, value),
             onFormat: (format) =>
               useEditor.getState().transact('Change how this reads', (draft) => {
                 const target = draft.nodes[node.id]?.bind?.[prop];

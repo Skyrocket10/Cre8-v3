@@ -37,6 +37,7 @@ import {
   mintedFor,
   needsRuntime,
   publishedValues,
+  type FindRecord,
   stateFrom,
 } from './test';
 import { varsFor } from './values';
@@ -74,6 +75,15 @@ export interface RenderOptions {
    * and the resolver cannot know which without being told.
    */
   record?: CollectionRecord | null;
+  /**
+   * How to reach a record a reference names, for a chain that follows one.
+   *
+   * Beside `record` because it is its companion: `record` is the row in scope
+   * and this is everything else the page was built with. Optional, and a
+   * caller that omits it is not wrong — it is somewhere a `follow` cannot be
+   * answered, which the model already has an answer for.
+   */
+  find?: FindRecord;
   /**
    * Where a form with no action of its own should post.
    *
@@ -445,7 +455,7 @@ function applySwitch(
   const props = node.props;
   const decl = stateOf(node);
   const key = decl?.key ?? '';
-  const sets = stateSets(node, CLICK, options.record ?? null);
+  const sets = stateSets(node, CLICK, options.record ?? null, options.find);
   const set = encodeSets(sets);
   // Hiding is the stylesheet's job — these attributes exist so the *runtime*
   // can tell a tab's panel from a price that happens to answer to the same
@@ -462,7 +472,7 @@ function applySwitch(
    * the rule would never match.
    */
   const minted = mintedFor(node);
-  for (const attr of foldedAttrs(node, options.record ?? null)) model.attrs[attr] = '';
+  for (const attr of foldedAttrs(node, options.record ?? null, options.find)) model.attrs[attr] = '';
 
   /*
    * "Only run this when…", named on the element.
@@ -522,7 +532,7 @@ function applySwitch(
        * already here doing that job — it is what ships in the file and what a
        * visitor sees for ever with no scripting.
        */
-      const assigned = stateFrom(node, options.record ?? null);
+      const assigned = stateFrom(node, options.record ?? null, options.find);
       const settled = assigned || slug(decl?.initial);
       model.attrs[VALUE_ATTR] = design || settled;
 

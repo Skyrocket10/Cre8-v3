@@ -96,6 +96,7 @@ const {
   components: componentLib,
   format: formatLib,
   boundProps,
+  repeatLib,
   tests,
   values,
   behaviour,
@@ -3227,6 +3228,191 @@ report.group('a bound value can be formatted, and only where it is shown');
     old === 750000,
     String(old)
   );
+
+  /* ----------------------------------------------------------------------
+   * E3 — a reference, followed
+   *
+   * `Field.type: 'reference'` has been declarable and unreadable since the
+   * model had references: a post had an author and a page could not say the
+   * author's name. Every content site is two collections and a pointer, so
+   * this is the row of the audit that decided whether somebody could build one
+   * here at all.
+   * ------------------------------------------------------------------- */
+
+  {
+    const author = {
+      id: 'auth-ada', collectionId: 'authors', position: 0, published: true,
+      data: { name: 'Ada Lovelace', city: 'London' }, createdAt: 0, updatedAt: 0,
+    };
+    const draftAuthor = {
+      id: 'auth-grace', collectionId: 'authors', position: 1, published: false,
+      data: { name: 'Grace Hopper' }, createdAt: 0, updatedAt: 0,
+    };
+    const post = {
+      id: 'post-1', collectionId: 'posts', position: 0, published: true,
+      data: { title: 'On engines', author: 'auth-ada' }, createdAt: 0, updatedAt: 0,
+    };
+    const orphan = {
+      id: 'post-2', collectionId: 'posts', position: 1, published: true,
+      data: { title: 'Nobody wrote this', author: 'auth-gone' }, createdAt: 0, updatedAt: 0,
+    };
+    const anonymous = {
+      id: 'post-3', collectionId: 'posts', position: 2, published: true,
+      data: { title: 'Unsigned' }, createdAt: 0, updatedAt: 0,
+    };
+    const drafted = {
+      id: 'post-4', collectionId: 'posts', position: 3, published: true,
+      data: { title: 'Early', author: 'auth-grace' }, createdAt: 0, updatedAt: 0,
+    };
+
+    const find = repeatLib.recordIndex({ authors: [author, draftAuthor], posts: [post] });
+    const chain = {
+      kind: 'field',
+      key: 'author',
+      steps: [{ op: 'follow' }, { op: 'field', key: 'name' }],
+    };
+    const card = {
+      id: 'c1', type: 'text', name: 'By', parentId: null, children: [],
+      props: { text: 'By somebody' }, styles: {}, meta: {},
+      bind: { text: { value: chain } },
+    };
+
+    report.check(
+      'a post can say its author’s name',
+      boundProps(card, post, undefined, find).text === 'Ada Lovelace',
+      String(boundProps(card, post, undefined, find).text)
+    );
+    /*
+     * The ways it can have nothing to say, and every one of them leaves the
+     * design-time copy alone rather than printing a record id. The first is
+     * the falsification `VALUES.md` §5 asks for on this stage: delete the
+     * author and the binding falls back rather than printing an id.
+     *
+     * One check rather than three, deliberately. They are three different
+     * inputs and they reach `null` through three different guards, but no
+     * single change to the resolver separates them — so three checks would be
+     * one check wearing three names, and the detail below is what actually
+     * says which case did what.
+     */
+    const quiet = {
+      'author deleted': boundProps(card, orphan, undefined, find).text,
+      'no author set': boundProps(card, anonymous, undefined, find).text,
+      'no records here': boundProps(card, post).text,
+    };
+    report.check(
+      'a post whose author it cannot reach falls back rather than printing an id',
+      Object.values(quiet).every((text) => text === 'By somebody'),
+      Object.entries(quiet)
+        .map(([why, text]) => `${why} → ${String(text)}`)
+        .join(' · ')
+    );
+    /*
+     * A draft author is not published, and a reference does not get round that.
+     * `recordsFor` drops unpublished rows from a list because a published page
+     * must not carry content that is off the site, and reading *one field* of
+     * that content on a public page is the same leak in a smaller box — a
+     * profile kept unpublished because it is not ready would have its name
+     * published by any post pointing at it.
+     */
+    report.check(
+      'an author who is still a draft is not published by a post that points at them',
+      boundProps(card, drafted, undefined, find).text === 'By somebody',
+      String(boundProps(card, drafted, undefined, find).text)
+    );
+    report.check(
+      'a chain that stops at the record prints nothing, rather than its id',
+      boundProps(
+        { ...card, bind: { text: { value: { kind: 'field', key: 'author', steps: [{ op: 'follow' }] } } } },
+        post,
+        undefined,
+        find
+      ).text === 'By somebody',
+      String(
+        boundProps(
+          { ...card, bind: { text: { value: { kind: 'field', key: 'author', steps: [{ op: 'follow' }] } } } },
+          post,
+          undefined,
+          find
+        ).text
+      )
+    );
+
+    /*
+     * And a rule can ask about the other record. Same resolver, so this is not
+     * a second implementation — it is the same walk reached from the Test side,
+     * which is what keeps a binding and a condition agreeing about what
+     * `⟨Author⟩ → ⟨City⟩` means.
+     */
+    const inLondon = { kind: 'compare', left: { ...chain, steps: [{ op: 'follow' }, { op: 'field', key: 'city' }] }, op: 'eq', right: { kind: 'literal', type: 'text', value: 'London' } };
+    report.check(
+      'a rule can ask about a field on the record a reference names',
+      tests.evaluate(inLondon, post, find) === true &&
+        tests.evaluate(inLondon, drafted, find) === null,
+      `Ada ${tests.evaluate(inLondon, post, find)} · Grace ${tests.evaluate(inLondon, drafted, find)}`
+    );
+    report.check(
+      'and it folds, so it costs the browser nothing',
+      tests.foldable(inLondon) === true && !tests.needsRuntime({ ...card, assign: [{ id: 'a', when: inLondon, value: 'local' }] }),
+      `foldable ${tests.foldable(inLondon)}`
+    );
+    /*
+     * The one that would be a silent hole: the field a chain *starts* on is
+     * what has to be published and what has to be cleared when somebody
+     * deletes it. The followed key belongs to another collection and must not
+     * be in that list — reporting it would clear a rule when an unrelated
+     * field went away.
+     */
+    report.check(
+      'the field a chain reads is the one on the record in scope, not the one past the arrow',
+      tests.fieldsRead(inLondon).join() === 'author',
+      tests.fieldsRead(inLondon).join(' · ') || 'none'
+    );
+
+    /*
+     * And the rows are actually fetched, which is the half that was wrong for
+     * two rounds while everything above passed.
+     *
+     * Nothing repeats the authors — a byline is not a list — so the only thing
+     * that ever asked for a collection's rows was a repeater pointing at it,
+     * and the author's record was never loaded on either surface. The chain in
+     * the document was perfectly correct and the page printed the placeholder.
+     * Checked as a closure over the schema rather than as "the publisher does
+     * the right thing", because three callers take this answer and the one
+     * that is a Worker cannot be driven from here.
+     */
+    const schema = [
+      { id: 'posts', name: 'Posts', fields: [{ key: 'author', label: 'Author', type: 'reference', of: 'authors' }] },
+      { id: 'authors', name: 'Authors', fields: [{ key: 'house', label: 'House', type: 'reference', of: 'houses' }] },
+      { id: 'houses', name: 'Houses', fields: [{ key: 'name', label: 'Name', type: 'text' }] },
+      { id: 'unrelated', name: 'Unrelated', fields: [] },
+    ];
+    const repeater = {
+      r1: { id: 'r1', type: 'stack', name: 'Feed', parentId: null, children: [], props: {}, styles: {}, meta: {}, repeat: { collection: 'posts' } },
+    };
+    const wanted = repeatLib.collectionsUsedBy(repeater, ['r1'], schema).sort();
+    report.check(
+      'publishing a list of posts also fetches what its references name, all the way down',
+      wanted.join() === 'authors,houses,posts',
+      wanted.join(' · ')
+    );
+    report.check(
+      'and stops at what is actually reachable',
+      !wanted.includes('unrelated'),
+      `${wanted.length} of ${schema.length} collections`
+    );
+    /*
+     * A cycle is not hypothetical — two collections pointing at each other is
+     * how anybody models a pair — and the walk has to stop.
+     */
+    const looped = repeatLib.withReferences(
+      ['a'],
+      [
+        { id: 'a', name: 'A', fields: [{ key: 'b', label: 'B', type: 'reference', of: 'b' }] },
+        { id: 'b', name: 'B', fields: [{ key: 'a', label: 'A', type: 'reference', of: 'a' }] },
+      ]
+    ).sort();
+    report.check('and a reference cycle terminates', looped.join() === 'a,b', looped.join(' · '));
+  }
 
   /*
    * The source scan. Every one of these is a way to write a formatter that

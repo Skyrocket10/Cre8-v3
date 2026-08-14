@@ -25,6 +25,7 @@ import React from 'react';
 import { Trash2 } from 'lucide-react';
 import type {
   Binding,
+  Collection,
   CompareOp,
   Condition,
   DatePattern,
@@ -33,6 +34,7 @@ import type {
   RecordFilter,
   StyleRule,
   Test,
+  Value,
 } from '@/lib/document/types';
 import { slugList } from '@/lib/document/schema';
 import {
@@ -62,6 +64,17 @@ import {
 } from '@/lib/renderer/test';
 import { QUERY_PREFIX, describeSource, offerableSources } from '@/lib/runtime/data';
 import type { Part } from '../ui/sentence';
+
+/**
+ * "Posts" → "post". Good enough for the two words this ever sees.
+ *
+ * Here rather than in the panel because it is a wording decision, and every
+ * other wording decision in the inspector is already in this file — a chip
+ * reading "the writers itself" is a collection name in a slot that wants one
+ * record.
+ */
+export const singular = (name: string) =>
+  name.toLowerCase().replace(/ies$/, 'y').replace(/s$/, '');
 
 /** The one field type a form control's value is read as: text, undeclared. */
 const AS_TEXT: Field = { key: '', label: 'Typed', type: 'text' };
@@ -741,12 +754,33 @@ export function bindingSentence(options: {
   prop: string;
   binding: Binding | undefined;
   fields: Field[];
-  onBind?: (fieldKey: string) => void;
+  /**
+   * Every collection, so a reference can be followed into the one it names.
+   *
+   * The whole list rather than the one collection: which one a reference
+   * points at is `Field.of`, and looking it up here keeps the caller from
+   * having to resolve it — the panel knows the element's scope, not the
+   * schema's shape.
+   */
+  collections?: Collection[];
+  onBind?: (value: Value | null) => void;
   onFormat?: (format: Format | undefined) => void;
 }): Part[] {
-  const { prop, binding, fields, onBind, onFormat } = options;
-  const source = binding?.value.kind === 'field' ? binding.value.key : '';
+  const { prop, binding, fields, collections = [], onBind, onFormat } = options;
+  const held = binding?.value;
+  const source = held?.kind === 'field' ? held.key : '';
   const field = fields.find((f) => f.key === source);
+  /*
+   * The chain past the reference, if there is one.
+   *
+   * Exactly `follow` then `field`, which is the only shape this panel writes
+   * and the only one it can render — anything longer arrived from somewhere
+   * else and is left alone rather than half-shown. One level, as §4 says.
+   */
+  const followed =
+    held?.steps?.length === 2 && held.steps[0]?.op === 'follow' && held.steps[1]?.op === 'field'
+      ? held.steps[1].key
+      : '';
 
   const parts: Part[] = [
     { kind: 'word', text: prop === 'text' ? 'Text' : prop, key: 'prop' },
@@ -761,12 +795,62 @@ export function bindingSentence(options: {
         { value: '', label: 'what is typed here' },
         ...fields.map((f) => ({ value: f.key, label: f.label })),
       ],
-      onChange: onBind,
+      // A new field is a new chain: the steps belonged to the old one, and a
+      // `follow` left behind on a text field is a binding that resolves to
+      // nothing for ever.
+      onChange: onBind && ((key) => onBind(key ? { kind: 'field', key } : null)),
     },
   ];
   if (!binding || !field) return parts;
 
-  const kinds = formatsFor(prop, field);
+  /*
+   * A reference, and the record it names.
+   *
+   * The chip that closes `VALUES.md` §1.3 — `Field.type: 'reference'` has been
+   * declared and unreadable since the model had references at all, so a post
+   * had an author and a page could not say the author's name. Offered only
+   * where it can resolve: a reference whose target collection is gone gets no
+   * chip rather than a menu of nothing.
+   */
+  const target =
+    field.type === 'reference' && field.of
+      ? (collections.find((one) => one.id === field.of) ?? null)
+      : null;
+  let effective = field;
+  if (target?.fields.length) {
+    const inner = target.fields.find((f) => f.key === followed);
+    if (inner) effective = inner;
+    parts.push({ kind: 'word', text: '→', key: 'follow' });
+    parts.push({
+      kind: 'pick',
+      key: 'followed',
+      value: followed,
+      menuWidth: 200,
+      options: [
+        // Singular, because it is one record: a chip reading "the writers
+        // itself" is a collection name where a thing should be.
+        { value: '', label: `the ${singular(target.name)} itself` },
+        ...target.fields.map((f) => ({ value: f.key, label: f.label })),
+      ],
+      onChange:
+        onBind &&
+        ((key) =>
+          onBind(
+            key
+              ? { kind: 'field', key: source, steps: [{ op: 'follow' }, { op: 'field', key }] }
+              : { kind: 'field', key: source }
+          )),
+    });
+    // A chain that stops at the record has not produced anything to print, so
+    // there is nothing to format either. Said by not offering it.
+    if (!inner) return parts;
+  }
+
+  // The field the chain *ends* on, which after a follow is the other
+  // collection's. Formatting a date as a currency is nonsense either way; what
+  // this fixes is offering a date's formats for a reference, which is what
+  // asking `field` here would have done.
+  const kinds = formatsFor(prop, effective);
   if (!kinds.length) return parts;
 
   const format = binding.format;

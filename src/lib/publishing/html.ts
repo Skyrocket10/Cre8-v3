@@ -15,9 +15,9 @@
 import { runsScript } from '../document/actions';
 import { describeElement, resolveNodeHref, type AttrValue } from '../renderer/element-model';
 import { variantsOf, type Variant } from '../renderer/variants';
-import { boundProps, repeatRows, type RecordSet } from '../renderer/repeat';
+import { boundProps, recordIndex, repeatRows, type RecordSet } from '../renderer/repeat';
 import { behaviourRuntimeSource, testRuntimeSource } from '../runtime/behaviour';
-import { testTable } from '../renderer/test';
+import { testTable, type FindRecord } from '../renderer/test';
 import {
   DATA_ATTR,
   collectDataSources,
@@ -72,6 +72,15 @@ export interface RenderNodeOptions {
   formAction?: (formId: string) => string;
   /** Every collection's rows, for the repeaters on this page. */
   records?: RecordSet;
+  /**
+   * The same rows by id, for a chain that follows a reference.
+   *
+   * Separate from `records` because the two are asked different questions —
+   * *which rows does this repeater show* and *which record is this id* — and
+   * the second wants an index rather than a scan. Built once per file by
+   * `renderPage` and carried down unchanged.
+   */
+  find?: FindRecord;
   /**
    * The record in scope.
    *
@@ -131,7 +140,7 @@ export function renderNodeToHtml(
   // rather than on top. Everything below reads `variant.props`, so a bound
   // `src` reaches the `srcset` logic and a bound `href` reaches the link
   // resolver without either of them learning what a record is.
-  const props = boundProps(node, options.record ?? null, overriddenProps(node, scope));
+  const props = boundProps(node, options.record ?? null, overriddenProps(node, scope), options.find);
 
   // A node whose rules change its content ships as one element per
   // alternative, every string in the file, with a stylesheet rule choosing
@@ -160,6 +169,7 @@ function renderVariant(
       hrefResolver: options.hrefResolver,
       formAction: options.formAction,
       record: options.record ?? null,
+      find: options.find,
     },
     variant
   );
@@ -448,6 +458,10 @@ export function renderPage(
   const body = applyShortClasses(renderNodeToHtml(doc, page.rootNodeId, {
     hrefResolver: hrefResolverFor(doc, output, all),
     records: options.records,
+    // Built once per file rather than per node: a `follow` is a lookup, and a
+    // page with a hundred rows following an author each would otherwise walk
+    // every collection a hundred times.
+    find: recordIndex(options.records),
     // A dynamic page's record is in scope before the tree is entered, so
     // `bind` on a detail page reads exactly as it does inside a repeater.
     record: output.record,

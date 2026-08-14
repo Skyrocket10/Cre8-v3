@@ -56,11 +56,11 @@ import { actionsFor, guardOf, planActions } from '../document/actions';
  * where a function lives is not something forty call sites should have to
  * care about.
  */
-import { evaluate, foldable, type Verdict } from '../document/schedule';
+import { evaluate, foldable, type FindRecord, type Verdict } from '../document/schedule';
 import type { TestConst, TestNode, TestOperand, TestTable } from '../runtime/behaviour';
 
 export { evaluate, foldable };
-export type { Verdict };
+export type { FindRecord, Verdict };
 
 /* --------------------------------------------------------------------------
  * What a node's state resolves to
@@ -79,13 +79,17 @@ export type { Verdict };
  * node's declared default, which is the value a visitor sees before anything
  * resolves and for ever with no scripting.
  */
-export function stateFrom(node: SceneNode, record: CollectionRecord | null): string | null {
+export function stateFrom(
+  node: SceneNode,
+  record: CollectionRecord | null,
+  find?: FindRecord
+): string | null {
   const rules = node.assign;
   if (!rules?.length) return null;
 
   let chosen: string | null = null;
   for (const rule of rules) {
-    if (evaluate(rule.when, record) === true) chosen = slug(rule.value) || null;
+    if (evaluate(rule.when, record, find) === true) chosen = slug(rule.value) || null;
   }
   return chosen;
 }
@@ -246,10 +250,14 @@ export function needsRuntime(node: SceneNode): boolean {
  * comparison is one the runtime will answer, and off is what a visitor with no
  * scripting sees, which is the fallback the execution model requires anyway.
  */
-export function foldedAttrs(node: SceneNode, record: CollectionRecord | null): string[] {
+export function foldedAttrs(
+  node: SceneNode,
+  record: CollectionRecord | null,
+  find?: FindRecord
+): string[] {
   const on: string[] = [];
   for (const one of mintedFor(node)) {
-    if (evaluate(one.when, record) === true) on.push(one.attr);
+    if (evaluate(one.when, record, find) === true) on.push(one.attr);
   }
   return on;
 }

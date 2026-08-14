@@ -134,7 +134,7 @@ export async function publishProject(doc: Cre8Document): Promise<PublishResult> 
  */
 async function loadRecords(doc: Cre8Document): Promise<RecordSet> {
   const adapter = getStorage();
-  const collections = collectionsUsedBy(doc.nodes, Object.keys(doc.nodes));
+  const collections = collectionsUsedBy(doc.nodes, Object.keys(doc.nodes), doc.collections ?? []);
   if (!adapter.listRecords || !collections.length) return {};
 
   const loaded = await Promise.all(

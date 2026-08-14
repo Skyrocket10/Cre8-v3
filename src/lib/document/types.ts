@@ -852,6 +852,33 @@ export interface NodeDataBinding {
  * ----------------------------------------------------------------------- */
 
 /**
+ * One thing that happens to the value before it.
+ *
+ * The chain in `docs/VALUES.md` §3: a `Value` is a head and a list of steps,
+ * and a list — rather than a tree — is what keeps it a sentence. A tree needs
+ * brackets, brackets need a modal composer, and `EXPRESSIONS.md` §5 refuses
+ * one. Read left to right, `⟨Author⟩ ⟨→ the record⟩ ⟨Name⟩` is the same shape
+ * the panel already draws.
+ *
+ * Two steps to begin with, and they are one idea: a reference field holds an
+ * id, `follow` turns that id into the record it names, and `field` reads
+ * something off it. That is every content site — two collections and a pointer
+ * between them — and it was the gap that decided whether somebody could build
+ * one here at all.
+ *
+ * `follow` takes no argument, which is a simplification on the plan. The head
+ * already names the field the id came out of, so saying it twice would be a
+ * second place to keep in step. And it needs no target collection either:
+ * record ids are unique across a project, so following one is a lookup rather
+ * than a search.
+ */
+export type Step =
+  /** The id in the value before this, resolved to the record it names. */
+  | { op: 'follow' }
+  /** A field of the record in the value before this. */
+  | { op: 'field'; key: string };
+
+/**
  * Something an expression can read.
  *
  * Four kinds, and the fourth is the one that changed what the others are for.
@@ -865,7 +892,23 @@ export interface NodeDataBinding {
  * and `foldable` derives the schedule from that rather than anybody choosing
  * it. See docs/EXPRESSIONS.md.
  */
-export type Value =
+export type Value = Head & {
+  /**
+   * What happens to the head, in order. Absent is the common case.
+   *
+   * Flat — `{ kind, key, steps }` — rather than the `{ head, steps }` the plan
+   * proposed, and the difference is a migration that does not have to happen:
+   * every `Value` ever stored is already a chain of length zero, so widening
+   * the model rewrites no document, moves no published byte, and leaves every
+   * `value.kind === 'field'` in the codebase reading correctly. §5 called the
+   * nested version's migration the dangerous stage; this is that stage not
+   * existing.
+   */
+  steps?: Step[];
+};
+
+/** Where a chain starts. A `Value` is one of these, plus what happens next. */
+export type Head =
   /** A field of whatever record is in scope. `key`, never `label`: renaming a field must not break a page. */
   | { kind: 'field'; key: string }
   /**

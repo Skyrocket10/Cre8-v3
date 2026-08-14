@@ -362,6 +362,203 @@ try {
       `value attributes ${(html.match(/data-cre8-vals/g) ?? []).length}`
   );
   await site.close();
+
+  /* ------------------------------------- 4. E3: following a reference */
+
+  /*
+   * `VALUES.md` §1.3: a post has an author and a page could not say the
+   * author's name, because `Field.type: 'reference'` was declarable and
+   * unreadable. Every content site is two collections and a pointer between
+   * them, so this is the row that decided whether somebody could build one.
+   *
+   * The reference is *authored* here — pick the field, then pick what to read
+   * off the record it names — and then the author record is deleted, which is
+   * the falsification §5 asks for: the binding has to fall back rather than
+   * print an id.
+   */
+  const authors = await call(`/api/projects/${projectId}/records`, {
+    method: 'POST',
+    body: JSON.stringify({
+      collectionId: 'writers',
+      slug: 'ada',
+      position: 0,
+      published: true,
+      data: { name: 'Ada Lovelace' },
+    }),
+  });
+  const authorId = authors.body?.record?.id ?? authors.body?.id;
+  report.check(
+    'an author to point at',
+    authors.status === 200 && Boolean(authorId),
+    `${authors.status} · ${authorId ?? 'no id'}`
+  );
+
+  {
+    const d = await getDocument(page, projectId);
+    d.collections = [
+      ...d.collections,
+      {
+        id: 'writers',
+        name: 'Writers',
+        slugField: 'name',
+        fields: [{ key: 'name', label: 'Name', type: 'text' }],
+      },
+    ];
+    const listings = d.collections.find((one) => one.id === 'listings');
+    listings.fields = [
+      ...listings.fields,
+      { key: 'agent', label: 'Agent', type: 'reference', of: 'writers' },
+    ];
+    // A second element on the card, so the byline is its own binding rather
+    // than a change to the title's.
+    d.nodes.bylval0004 = node('bylval0004', 'paragraph', 'Byline', {
+      parentId: 'crdval0002',
+      props: { text: 'By somebody' },
+      styles: { desktop: { fontSize: '13px' } },
+    });
+    d.nodes.crdval0002.children.push('bylval0004');
+    await saveDocument(page, d);
+  }
+  /*
+   * The two rows now point at the author. Written through the records API
+   * rather than into the document, because that is where a record lives — and
+   * asserted, because a check further down that reads "By somebody" cannot
+   * tell a resolver that did not follow from a link that was never made.
+   */
+  const linked = [];
+  for (const slug of ['over', 'under']) {
+    const list = await call(`/api/projects/${projectId}/records?collection=listings`);
+    const row = (list.body?.records ?? []).find((one) => one.slug === slug);
+    if (!row) {
+      linked.push(`${slug}: not found among ${(list.body?.records ?? []).length}`);
+      continue;
+    }
+    const put = await call(`/api/projects/${projectId}/records/${row.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ data: { ...row.data, agent: authorId } }),
+    });
+    linked.push(`${slug}: ${put.status} agent=${put.body?.record?.data?.agent ?? 'unset'}`);
+  }
+  report.check(
+    'both listings point at the author',
+    linked.every((one) => one.includes(`agent=${authorId}`)),
+    linked.join(' · ')
+  );
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+  await page.locator('[data-layer-row]:has-text("Byline")').first().click();
+  await page.waitForTimeout(500);
+  await openInspectorSection(page, 'Data');
+  await page.waitForTimeout(400);
+
+  const dataPanel = page.locator('aside').last();
+  const textRow = dataPanel.locator('[data-sentence]:has-text("Text reads")').first();
+  const fieldChip = textRow.getByRole('button').first();
+  report.check(
+    'the Data panel offers the record’s fields for this element’s text',
+    (await fieldChip.count()) === 1,
+    `${await fieldChip.count()} field chip(s)`
+  );
+  if (await fieldChip.count()) {
+    await fieldChip.click();
+    await page.waitForTimeout(300);
+    // By accessible name: `:text-is` matches the smallest element holding the
+    // text, which inside a `Select` option is the span rather than the button.
+    await page.getByRole('button', { name: 'Agent', exact: true }).last().click();
+    await page.waitForTimeout(600);
+  }
+
+  /*
+   * And now the chip that did not exist before E3. A reference on its own
+   * prints nothing — it is a record, not a name — so the sentence has to offer
+   * the step that turns it into one.
+   */
+  const arrow = dataPanel.locator('[data-sentence]:has-text("Text reads")').first();
+  const followChip = arrow.getByRole('button').nth(1);
+  report.check(
+    'and picking a reference offers what to read off the record it names',
+    (await followChip.count()) === 1 &&
+      (await arrow.innerText()).includes('→'),
+    JSON.stringify((await arrow.innerText()).replace(/\n/g, ' · '))
+  );
+  if (await followChip.count()) {
+    await followChip.click();
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Name', exact: true }).last().click();
+    await page.waitForTimeout(600);
+  }
+
+  const chained = await getDocument(page, projectId);
+  const value = chained.nodes.bylval0004.bind?.text?.value;
+  report.check(
+    'the binding is a chain: the reference, followed, then a field of it',
+    value?.kind === 'field' &&
+      value?.key === 'agent' &&
+      value?.steps?.length === 2 &&
+      value.steps[0].op === 'follow' &&
+      value.steps[1].op === 'field' &&
+      value.steps[1].key === 'name',
+    JSON.stringify(value ?? null)
+  );
+
+  const canvasByline = await page.evaluate(() => {
+    const card = document.querySelector('.cre8-frame.cre8-editing .c-bylval0004');
+    return card ? (card.textContent ?? '').trim() : 'no byline';
+  });
+  report.check(
+    'the canvas prints the name off the record the reference names',
+    canvasByline === 'Ada Lovelace',
+    canvasByline
+  );
+
+  await publish(page);
+  const withAuthor = await ctx.newPage();
+  await withAuthor.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await withAuthor.waitForTimeout(600);
+  const bylines = await withAuthor.evaluate(() =>
+    [...document.querySelectorAll('p')].map((p) => (p.textContent ?? '').trim())
+  );
+  report.check(
+    'and so does the published file, on every row',
+    bylines.filter((text) => text === 'Ada Lovelace').length === 2,
+    bylines.join(' · ') || 'no paragraphs'
+  );
+  await withAuthor.close();
+
+  /*
+   * The falsification. Delete the author and the byline has nothing to say —
+   * so it says what the designer typed, not a record id. An id in the markup
+   * would be the failure this whole shape exists to avoid: a page that looks
+   * broken to a reader and fine to a crawler.
+   */
+  const gone = await call(`/api/projects/${projectId}/records/${authorId}`, { method: 'DELETE' });
+  report.check('the author is deleted', gone.status === 200 || gone.status === 204, `${gone.status}`);
+
+  await publish(page);
+  const without = await ctx.newPage();
+  await without.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await without.waitForTimeout(600);
+  const after = await without.evaluate(() =>
+    [...document.querySelectorAll('p')].map((p) => (p.textContent ?? '').trim())
+  );
+  const markup = await without.content();
+  report.check(
+    'with the author gone the byline falls back rather than printing an id',
+    after.every((text) => text === 'By somebody') && after.length === 2,
+    after.join(' · ') || 'no paragraphs'
+  );
+  report.check(
+    'and the id is nowhere in the file',
+    !markup.includes(authorId),
+    authorId ? `looked for ${authorId}` : 'no id to look for'
+  );
+  await without.close();
 } catch (error) {
   report.check('values suite completed', false, String(error?.message ?? error));
 } finally {

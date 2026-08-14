@@ -168,6 +168,9 @@ export function loadBlocks() {
     // JavaScript engines agree, and that is a claim about a function.
     format: require(path.join(OUT, 'renderer/format.js')),
     boundProps: require(path.join(OUT, 'renderer/repeat.js')).boundProps,
+    // And the whole module, for `recordIndex` — following a reference is a
+    // lookup, and the index both renderers build is the thing to drive.
+    repeatLib: require(path.join(OUT, 'renderer/repeat.js')),
     // The Test evaluator, for the same reason as the formatter: three answers
     // and an arbitration order are claims about a function.
     tests: require(path.join(OUT, 'renderer/test.js')),

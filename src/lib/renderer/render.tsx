@@ -38,7 +38,8 @@ import type {
   SceneNode,
 } from '../document/types';
 import { describeElement, resolveNodeHref, toReactAttrs, type RenderMode } from './element-model';
-import { boundProps, repeatRows } from './repeat';
+import { boundProps, recordIndex, repeatRows } from './repeat';
+import type { FindRecord } from '../document/schedule';
 import { activeVariant, variantsOf, type Variant } from './variants';
 
 export interface RenderEngine {
@@ -61,6 +62,20 @@ export interface RenderEngine {
    * itself having changed.
    */
   useRecords: (collectionId: string) => CollectionRecord[] | undefined;
+  /**
+   * How to reach a record a reference names. Must be a hook.
+   *
+   * A hook for the same reason `useRecords` is one: the editor loads rows over
+   * the network, and a card printing its author's name has to redraw when they
+   * land. Separate from `useRecords` because it is a different question — not
+   * *which rows does this repeater show* but *which record is this id* — and
+   * it is asked across collections rather than of one.
+   *
+   * Optional, so a surface with no records to hand does not have to invent an
+   * answer: a `follow` there resolves to nothing, which the binding treats as
+   * *leave the design-time text alone*.
+   */
+  useFindRecord?: () => FindRecord | undefined;
   resolveHref: (href: string) => string;
   registerRef?: (id: NodeId, el: HTMLElement | null) => void;
   commitText?: (id: NodeId, prop: string, value: string, ruleId?: string | null) => void;
@@ -189,6 +204,10 @@ export const NodeView = memo(function NodeView({
   // subtree redraws through this rather than through `useNode` — the node has
   // not changed, the record has.
   const record = useContext(RecordContext);
+  // Also unconditional, and above the early returns for the same reason: it is
+  // a hook, and a binding that follows a reference redraws through it when the
+  // record it points at arrives.
+  const find = engine.useFindRecord?.();
   const scope = useContext(OverrideContext);
 
   if (!node || depth > MAX_DEPTH) return null;
@@ -215,7 +234,10 @@ export const NodeView = memo(function NodeView({
   // alternative, with CSS choosing between them. The single-element case is
   // kept off the mapping path entirely: it is every node on every page but a
   // handful, and an extra array walk per node per render is not free.
-  const variants = variantsOf(node, boundProps(node, record, overriddenProps(node, scope)));
+  const variants = variantsOf(
+    node,
+    boundProps(node, record, overriddenProps(node, scope), find)
+  );
   if (variants.length === 1) {
     return <ElementView node={node} variant={variants[0]!} live {...shared} />;
   }
@@ -345,16 +367,20 @@ function ElementView({
    * content rather than on every keystroke in the inspector.
    */
   const record = useContext(RecordContext);
+  // Beside the record for the same reason it is in the memo's dependencies: a
+  // minted comparison can follow a reference, so the answer moves when the
+  // record it points at loads or changes.
+  const find = engine.useFindRecord?.();
 
   const model = useMemo(
     () =>
       describeElement(
         node,
         EMPTY_DOC,
-        { mode: engine.mode, hrefResolver: engine.resolveHref, record },
+        { mode: engine.mode, hrefResolver: engine.resolveHref, record, find },
         variant
       ),
-    [node, variant, engine.mode, engine.resolveHref, record]
+    [node, variant, engine.mode, engine.resolveHref, record, find]
   );
 
   /**
@@ -654,6 +680,7 @@ export function createSnapshotEngine(
   records?: Record<string, CollectionRecord[] | undefined>
 ): RenderEngine {
   const componentsById = new Map(doc.components.map((c) => [c.id, c]));
+  const index = recordIndex(records);
   return {
     mode,
     useNode: (id) => doc.nodes[id],
@@ -664,6 +691,10 @@ export function createSnapshotEngine(
     // snapshot never runs in `edit` mode its repeaters draw nothing at all
     // rather than a template row.
     useRecords: (collectionId) => records?.[collectionId],
+    // A snapshot's rows are fixed, so the index is built once with them rather
+    // than per render — and preview is handed the same ones the canvas has, so
+    // a followed reference reads the same on both.
+    useFindRecord: () => index,
     // A snapshot has no design-time state to consult, so the base is the
     // honest answer — and nothing outside the canvas uses what it decides.
     useActiveVariantKey: (node) => activeVariant(doc.nodes, node, doc.settings).key,

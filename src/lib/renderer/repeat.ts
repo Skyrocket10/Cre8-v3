@@ -28,6 +28,7 @@
 import { bindingFrom } from '../document/migrate';
 import { LIMITS } from '../document/types';
 import type {
+  Collection,
   CollectionRecord,
   NodeProps,
   ProjectSettings,
@@ -35,11 +36,45 @@ import type {
   RepeatSpec,
   SceneNode,
 } from '../document/types';
+import { resolveValue, type FindRecord } from '../document/schedule';
 import { formatValue } from './format';
 import { isSettable } from './variants';
 
 /** Every record a page might need, keyed by collection id. */
 export type RecordSet = Record<string, CollectionRecord[] | undefined>;
+
+/**
+ * The same records, by id, for a chain that follows a reference.
+ *
+ * Here rather than in either renderer because both need it and they must agree
+ * — `docs/VALUES.md` §2 and the single-renderer rule. Across collections, in
+ * one map: a record id is unique in a project, so a `follow` is a lookup and
+ * the field's declared target is the editor's business rather than the
+ * resolver's.
+ *
+ * Published rows only, the same rule `recordsFor` applies to a list.
+ *
+ * Written the other way round first, on the argument that a reference is not
+ * *showing* the record, only reading one field of it — so a post whose author
+ * is still a draft would print the name rather than the placeholder. That
+ * argument is wrong, and wrong in the direction that matters: a draft is
+ * content that is off the site, and "one field of it" is still that content on
+ * a public page. A profile kept unpublished because it is not ready would have
+ * its name published by any post that pointed at it.
+ *
+ * It is also the only reading that keeps the surfaces together. The Worker
+ * queries `published = 1` — a leak is not something to leave to whichever
+ * publisher ran — so an index that kept drafts would resolve on the canvas and
+ * not in the file, which is the one thing this renderer does not trade away.
+ */
+export function recordIndex(records: RecordSet | undefined): FindRecord | undefined {
+  if (!records) return undefined;
+  const byId = new Map<string, CollectionRecord>();
+  for (const rows of Object.values(records)) {
+    for (const record of rows ?? []) if (record.published) byId.set(record.id, record);
+  }
+  return (id) => byId.get(id) ?? null;
+}
 
 /** What a record's field holds once read out of `data`. */
 type FieldValue = string | number | boolean | null | undefined;
@@ -174,7 +209,8 @@ function text(value: FieldValue): string {
 export function boundProps(
   node: SceneNode,
   record: CollectionRecord | null,
-  base: NodeProps = node.props
+  base: NodeProps = node.props,
+  find?: FindRecord
 ): NodeProps {
   const bind = node.bind;
   if (!record || !bind) return base;
@@ -200,19 +236,30 @@ export function boundProps(
      * where you author it* — and this is the other half of that sentence.
      */
     if (binding.value.kind !== 'field') continue;
-    const field = binding.value.key;
-    // A field the record does not carry leaves the design-time prop alone.
-    // That is what makes a half-filled record show placeholder copy instead of
-    // a row of blanks — and what stops a renamed field from emptying the page
-    // before anybody notices. Present-but-empty is different: the record has
-    // said, and what it said is nothing.
-    if (!(field in record.data)) continue;
+    /*
+     * Through `resolveValue`, which walks the chain: `⟨Author⟩ ⟨→ the record⟩
+     * ⟨Name⟩` ends on a name, and a plain `⟨Title⟩` is the same walk with no
+     * steps in it. This read `record.data[key]` directly, which was the whole
+     * of a `Value` while a `Value` was one leaf — and two resolvers walking one
+     * chain is how the canvas and the file come to disagree.
+     *
+     * `null` covers three things that all mean *leave the design-time prop
+     * alone*: a field the record does not carry, a reference that is not set,
+     * and a reference whose record is gone. That is what makes a half-filled
+     * record show placeholder copy instead of a row of blanks, what stops a
+     * renamed field from emptying the page before anybody notices, and what
+     * stops a deleted author from printing a record id where a name was.
+     * Present-but-empty is different: the record has said, and what it said is
+     * nothing.
+     */
+    const held = resolveValue(binding.value, record, find);
+    if (!held || !held.has) continue;
 
     out ??= { ...base };
     // The only place a formatted value exists. `record.data` is untouched, so
     // everything that reads it — the filter and the sort above, and every Test
     // that comes later — is reading the number, never the price tag.
-    out[prop] = formatValue(record.data[field], binding.format);
+    out[prop] = formatValue(held.raw, binding.format);
 
     /*
      * An uploaded image ships a `srcset` alongside its `src`, and intrinsic
@@ -294,12 +341,49 @@ export function designRecord(
 /** Collection ids the given nodes repeat over, for prefetching. */
 export function collectionsUsedBy(
   nodes: Record<string, SceneNode>,
-  nodeIds: Iterable<string>
+  nodeIds: Iterable<string>,
+  collections?: Collection[]
 ): string[] {
   const found = new Set<string>();
   for (const id of nodeIds) {
     const collection = nodes[id]?.repeat?.collection;
     if (collection) found.add(collection);
   }
-  return [...found];
+  return collections ? withReferences([...found], collections) : [...found];
+}
+
+/**
+ * Those, plus every collection they point at, and so on.
+ *
+ * A `follow` reads a record out of another collection, so a page that says
+ * `⟨Author⟩ → ⟨Name⟩` needs the authors as much as the posts — and nothing
+ * repeats the authors, so nothing else was ever going to ask for them. That is
+ * the bug this closes, found by a byline that came out as the placeholder on
+ * both surfaces while the chain in the document was perfectly correct.
+ *
+ * Off the *schema* rather than off the nodes, which means it can over-fetch: a
+ * `Posts` repeater whose Post declares an author nobody prints still loads the
+ * authors. The alternative is resolving which chains actually follow, which
+ * needs each node's scope walked and would answer *fewer* collections at the
+ * cost of being wrong whenever the walk and the renderer disagree. Bounded by
+ * the number of collections in the project, which is a schema-sized number, so
+ * over-fetching here is one query rather than an unbounded one.
+ *
+ * Transitive, and it has to be: an author has a publisher. Guarded against a
+ * cycle by only ever adding what is not already in the set.
+ */
+export function withReferences(ids: string[], collections: Collection[]): string[] {
+  const seed = new Set(ids);
+  const byId = new Map(collections.map((one) => [one.id, one]));
+  const queue = [...seed];
+  while (queue.length) {
+    const current = byId.get(queue.shift()!);
+    if (!current) continue;
+    for (const field of current.fields) {
+      if (field.type !== 'reference' || !field.of || seed.has(field.of)) continue;
+      seed.add(field.of);
+      queue.push(field.of);
+    }
+  }
+  return [...seed];
 }

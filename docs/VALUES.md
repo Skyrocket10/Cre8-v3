@@ -49,15 +49,16 @@ no new evaluator, no new runtime and no new UI, only the same type on both
 sides of the operator. §5.1 records what it actually cost, which was one more
 thing than that.
 
-### 1.3 A reference is declared and cannot be followed
+### 1.3 A reference is declared and cannot be followed — closed by E3
 
-`Field` has `type: 'reference'` and a `collection` naming what it points at.
-Nothing reads it. A post has an author; a page cannot say the author's name,
-because there is no step that turns *a reference* into *the record it names*
-and no step that then takes a field of it.
+`Field` had `type: 'reference'` and a `collection` naming what it points at.
+Nothing read it. A post had an author; a page could not say the author's name,
+because there was no step that turned *a reference* into *the record it names*
+and no step that then took a field of it.
 
 This is the one that decides whether a person can build a real site. Every
-content site is two collections and a pointer between them.
+content site is two collections and a pointer between them. §5.2 records what
+it cost, including the two things that were wrong after the model was right.
 
 ### 1.4 There are no lists
 
@@ -74,7 +75,7 @@ them.
 | Format it | `:formatted as 1,000.00` | ✔ |
 | Compare a field to a number | conditional | ✔ |
 | Compare two fields | `Price > Budget` | ✔ **E1** |
-| **Follow a reference** | `Post's Author's Name` | ✘ declared, unreadable |
+| Follow a reference | `Post's Author's Name` | ✔ **E3** |
 | **Arithmetic** | `Price × Quantity` | ✘ |
 | **Round, then use it** | `:rounded to 0` | ✘ formatting is terminal |
 | **Count a list** | `:count` | ✘ |
@@ -114,8 +115,13 @@ One sentence: **a value becomes a head and a list of steps, and the list is
 what keeps it a sentence.**
 
 ```ts
-type Value = { head: Head; steps?: Step[] };
+type Value = Head & { steps?: Step[] };
 ```
+
+Written `{ head: Head; steps?: Step[] }` when this was planned, and built flat.
+Same model — a head, then what happens to it — with one difference that turned
+out to be the whole of stage E2: an existing `Value` is *already* a chain of
+length zero, so nothing stored has to be rewritten. See §5.2.
 
 ### 3.1 Why a list and not a tree
 
@@ -156,14 +162,14 @@ what they meant in both evaluators and the migration is a no-op the second
 time by construction.
 
 `records` is the list head. It is the only new *source*, and everything in §1.4
-is a step over it.
+is a step over it. Not built — it is E4, and §6 settles what it may assume.
 
 ### 3.3 The steps, and which ones are free
 
 ```ts
 type Step =
-  // record → record, record → value
-  | { op: 'follow'; field: string }             // a reference → what it names
+  // record → record, record → value          — E3, built
+  | { op: 'follow' }                            // an id → the record it names
   | { op: 'field'; key: string }                // that record's field
   // list → value, list → list
   | { op: 'count' }
@@ -259,19 +265,21 @@ unfixed code.
 | | | Falsified by |
 |---|---|---|
 | **E1** ✔ | `compare.right` becomes a `Value`; a `literal` head | Compare two fields of one record and see the rule apply on one row and not another. A literal-only model cannot express the rule at all |
-| **E2** | `Value` becomes `{ head, steps }`, `foldable` and both evaluators walk it — **zero steps defined** | Publish all ten templates: byte-identical. The migration is the whole of it |
-| **E3** | `follow` and `field`: a reference is readable | A post's author's name on the page. Falsified by deleting the author record and seeing the binding fall back rather than print an id |
+| **E2** ✔ | `Value` gains `steps`, `foldable` and both evaluators walk it — **zero steps defined** | Publish all ten templates: byte-identical. The migration is the whole of it |
+| **E3** ✔ | `follow` and `field`: a reference is readable | A post's author's name on the page. Falsified by deleting the author record and seeing the binding fall back rather than print an id |
 | **E4** | The list head and `count`, `first`, `last` | "3 comments" from a real collection, and 0 when there are none — the empty case is the one that reads as broken |
 | **E5** | Arithmetic and `round`, in both evaluators | The same sum on the canvas and in the file, and a comparison against a typed number answered in the browser |
 | **E6** | `where` and `sortedBy` | A filtered count that differs from the unfiltered one, on the same page |
 | **E7** | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
 | **E8** | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
 
-**E2 is the one that matters and the one to be most careful about.** It changes
-the shape of every `Value` in every stored document while changing nothing
-about what any of them mean, which is exactly the class of change
-`publish-dump.mjs` exists for: ten templates, byte-identical, or the migration
-is wrong.
+**E2 was the one to be most careful about, and then it turned out not to
+exist.** The plan's `{ head, steps }` rewrites every `Value` in every stored
+document; `Head & { steps? }` does not, because an existing `Value` is already
+a chain of length zero. Same model, same evaluator, no migration, and
+byte-identity by construction rather than by a migration being correct. The
+flat form is also what keeps forty call sites reading `value.kind === 'field'`
+correct without being touched. See §3.2.
 
 ### 5.1 What E1 turned out to cost
 
@@ -311,19 +319,78 @@ short, and the runtime would have answered `null` for ever), `inputsRead`, and
 integrity). They are now one `operandsIn` derived three ways, which is the
 `content-props.ts` move: two lists kept in step by nobody drift, silently.
 
+### 5.2 What E2 and E3 turned out to cost
+
+Built, and §1.3 is closed: a post can say its author's name. The chain is
+authored in the panel — `Text reads ⟨Agent⟩ → ⟨Name⟩` — and
+`tests/render/values.mjs` deletes the author record and watches the byline fall
+back to what the designer typed, with the record id nowhere in the file.
+
+**E2 evaporated, which was the best available outcome.** See the paragraph
+above: the flat shape is the same model without the migration. Ten templates
+byte-identical, again, with nothing to be careful about.
+
+**`follow` takes no argument.** The plan had `{ op: 'follow'; field }`, and the
+head already names the field the id came out of — so saying it twice would be
+two places to keep in step. It needs no target collection either: record ids
+are unique across a project, so following one is a lookup rather than a search,
+and `Field.of` stays the editor's business.
+
+**A chain is not scalar all the way down.** `Resolved` is `value | record`,
+because `⟨Author⟩ → ⟨Name⟩` is a value, then a record, then a value. Saying so
+in the type is what stops `follow` from pretending a record is a string, and it
+is the shape E4 adds `list` to.
+
+**The bug that took two rounds to find, and the reason it is worth writing
+down.** Everything above passed while both surfaces printed the placeholder.
+Nothing repeats the authors — a byline is not a list — so the only thing that
+had ever asked for a collection's rows was a repeater pointing at it, and the
+author's record was never *fetched*. The chain was correct; the data was not
+there. `collectionsUsedBy` now takes the closure over reference fields, in the
+browser publisher, the Worker and the canvas, from one function.
+
+**And a leak, argued the wrong way round first.** `recordIndex` originally kept
+unpublished rows, on the reasoning that a reference is not *showing* a record,
+only reading one field of it. That is wrong in the direction that matters: a
+profile kept unpublished because it is not ready would have its name published
+by any post that pointed at it. Published-only, matching `recordsFor` — and
+matching the Worker, which queries `published = 1` and would otherwise have
+disagreed with the canvas.
+
 ---
 
-## 6. The first thing to argue about
+## 6. Is a list allowed to be live?
 
-E1 is free and closes the audit's cheapest row, so it is not the interesting
-question. The interesting question is whether §3.3 is right that the list and
-reference steps never travel.
+E1 was free and closed the audit's cheapest row, so it was never the
+interesting question. The interesting one was whether §3.3 is right that the
+list and reference steps never travel.
 
-They never travel *today*, because a `records` head reads the records the page
-was published with. If a later stage ever wants a list that changes after
-publish — a search box filtering a client-side list — that assumption breaks,
-the runtime grows a list evaluator, and the byte argument in §3.3 goes with it.
+**Settled: not yet, and yes soon.** Live databases are coming. So the answer is
+"no" for E4–E8 and it has an expiry date on it, which is a different
+instruction from "no" and worth writing down as one:
 
-So the question to settle before E4 is not "should lists exist" but **"is a
-list allowed to be live?"** This plan says no, and says it early, because the
-answer decides how much of the vocabulary is free.
+- **§3.3 is a statement about today, not an invariant.** Every list and record
+  step folds *because a `records` head reads the records the page was published
+  with*. That is true, it is what makes E4–E8 cost nothing at runtime, and it
+  stops being true the day a list can change after the file is served.
+- **So nothing may be built that assumes it for ever.** Concretely: no step may
+  be implemented only in the publisher on the grounds that it can never travel.
+  Each one gets an evaluator that could be serialised, and the reason the
+  runtime does not carry it today is that `foldable` says so — not that the
+  code does not exist.
+- **The seam that makes this survivable already exists.** E1 split the wire
+  format from the document (§5.1): `lowerTest` sends the browser what it needs
+  rather than what the document holds. A live list means a reduced chain on the
+  wire and a list evaluator beside `holds` — an addition at a seam, rather than
+  the rewrite it would have been while the two were one object.
+- **What it will cost, stated before it is spent.** A list evaluator in
+  `testRuntime` is the first thing that makes the runtime grow with the
+  *vocabulary* rather than with the page. §5's stages should each carry their
+  byte number so that when live lists arrive the argument is about a measured
+  delta rather than a remembered one.
+
+The thing that stays refused whatever happens to lists is in §4, and it is not
+the same question: a published Cre8 site is a static file with no session, so
+`Current User` remains a promise the file cannot keep. A live *database* is a
+request-time read of public data. A live *user* is authentication, and that is
+a different product decision.

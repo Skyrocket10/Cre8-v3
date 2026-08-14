@@ -62,6 +62,7 @@ import { slug } from './schema';
  * condition.
  */
 import { evaluate, foldable } from '../renderer/test';
+import type { FindRecord } from './schedule';
 
 /** The event a click-driven action hangs off. Named as the registry names it. */
 export const CLICK = 'onClick';
@@ -88,10 +89,11 @@ export function actionsFor(node: SceneNode, event: string = CLICK): NodeAction[]
 export function stateSets(
   node: SceneNode,
   event: string = CLICK,
-  record?: CollectionRecord | null
+  record?: CollectionRecord | null,
+  find?: FindRecord
 ): { state: string; value: string; quiet: boolean }[] {
   const out: { state: string; value: string; quiet: boolean }[] = [];
-  for (const action of keptFor(node, event, record)) {
+  for (const action of keptFor(node, event, record, find)) {
     if (action.type === 'setState') {
       const value = slug(action.value);
       if (!value) continue;
@@ -222,10 +224,11 @@ export function copyTextFor(
 export function keptFor(
   node: SceneNode,
   event: string = CLICK,
-  record?: CollectionRecord | null
+  record?: CollectionRecord | null,
+  find?: FindRecord
 ): NodeAction[] {
   const list = actionsFor(node, event);
-  const plan = planActions(list, record);
+  const plan = planActions(list, record, find);
   const inPlan = new Set<NodeAction>([...plan.script, ...plan.native.map((one) => one.action)]);
   return list.filter((action) => inPlan.has(action));
 }
@@ -598,7 +601,8 @@ export interface ActionPlan {
  */
 export function planActions(
   actions: readonly NodeAction[],
-  record?: CollectionRecord | null
+  record?: CollectionRecord | null,
+  find?: FindRecord
 ): ActionPlan {
   const native: Claim[] = [];
   const script: NodeAction[] = [];
@@ -614,7 +618,7 @@ export function planActions(
       if (foldable(action.only)) {
         // Undecidable stays: `evaluate` answers null for a foldable test with
         // no record, which is the canvas. Only a flat `false` drops it.
-        if (record !== undefined && evaluate(action.only, record ?? null) === false) continue;
+        if (record !== undefined && evaluate(action.only, record ?? null, find) === false) continue;
       } else if (!sameGuard(action.only, gated)) {
         refused.push({ action, why: 'guard' });
         continue;

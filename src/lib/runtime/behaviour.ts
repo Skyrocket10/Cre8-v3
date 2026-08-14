@@ -286,7 +286,14 @@ export const ELSE_ATTR = 'data-cre8-else';
 type TestRaw = string | number | boolean | null | undefined;
 /** The record values one element publishes, keyed by field. */
 type TestValues = Record<string, TestRaw>;
-export type TestOperand = { kind: string; key?: string; name?: string; ref?: { node: string } };
+export type TestOperand = {
+  kind: string;
+  key?: string;
+  name?: string;
+  ref?: { node: string };
+  /** Present when the document's chain had steps. See `operand`. */
+  steps?: unknown[];
+};
 /**
  * A constant, on the wire.
  *
@@ -660,6 +667,13 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
  */
 export function testRuntime(root: Host, live: boolean, tests: TestTable): () => void {
   function operand(left: TestOperand, holder: Tagged, values: TestValues): TestRaw {
+    // A chain with steps in it is one this runtime cannot walk: `follow` needs
+    // the other collection's records, and shipping those would be paying for
+    // the whole database to answer one comparison. Undecidable, therefore —
+    // not the id, which is what reading the head alone would print. It only
+    // arises when the *other* operand is a control, because a chain over a
+    // record folds and never travels at all.
+    if (left.steps) return undefined;
     const key = left.key || '';
     if (left.kind === 'field') return key in values ? values[key] : undefined;
     var control = null;
