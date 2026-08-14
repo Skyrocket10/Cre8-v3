@@ -1730,12 +1730,17 @@ export function ActionsSection() {
          * it is inside, and a navigate goes where the element's own URL says —
          * that is the whole of §4.0.7: the destination stays a prop so a rule
          * can vary it and a record can fill it, and the verb only says *when*.
+         *
+         * The navigate still gets a line, because "where does this go" has an
+         * answer and it is somewhere else in the panel. The submit does not:
+         * "Send the form" already says everything "The form this is inside"
+         * was going to, and a line that repeats its own label is a line.
          */
-        return (
-          <span className="flex-1 text-[10.5px] text-[var(--text-faint)]">
-            {action.type === 'navigate' ? 'Uses the URL in Link' : 'The form this is inside'}
+        return action.type === 'navigate' ? (
+          <span className="min-w-0 flex-1 truncate text-[10.5px] text-[var(--text-faint)]">
+            Goes where the URL in Link says
           </span>
-        );
+        ) : null;
     }
   };
 
@@ -1781,15 +1786,32 @@ export function ActionsSection() {
           </p>
         )}
 
-        {list.map((action, index) => (
+        {list.map((action, index) => {
+          const box = operand(action, index);
+          return (
           <StyleRow
             key={index}
             label={index === 0 ? 'Does' : 'Then'}
             hint={VERBS[action.type]?.hint}
           >
-            <div className="flex flex-1 items-center gap-1">
+            {/*
+              The verb and its buttons on one line, the operand on its own.
+
+              One line was the intent and does not fit, which a measurement
+              says and an argument did not: the control column is 215px, the
+              verb picker is a fixed 104, and two icon buttons and their gaps
+              take another 56 — so the operand had 37px and the row overflowed
+              the panel by up to 123. `setState` with two states in scope put
+              two pickers in those 37px and `navigate`'s "Uses the URL in Link"
+              wrapped to four lines.
+
+              `w-full` inside a wrapping row is what puts the operand on the
+              next line, so a verb that needs no operand — `navigate`, `submit`
+              — is still one line and nothing is spent on it. See §4.1.15.
+            */}
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
               <Select
-                className="w-[104px] shrink-0"
+                className="min-w-0 flex-1"
                 value={action.type}
                 // Changing the verb starts the row again rather than carrying
                 // an operand across: "open a panel" and "copy text" have
@@ -1799,9 +1821,27 @@ export function ActionsSection() {
                   const made = fresh(next as VerbType);
                   if (made) at(index, made);
                 }}
-                options={offer.map((verb) => ({ value: verb.type, label: verb.label }))}
+                /*
+                 * The verb it *is*, even when the element can no longer be
+                 * offered it. A `Select` shows its placeholder for a value no
+                 * option carries, so an `openPanel` on a page whose last
+                 * popover was deleted read as "Select…" — a row that is set
+                 * rendering as unset, which is the failure `DELETED_ELEMENT`
+                 * was added to `testSentence` to stop.
+                 */
+                options={
+                  offer.some((verb) => verb.type === action.type)
+                    ? offer.map((verb) => ({ value: verb.type, label: verb.label }))
+                    : [
+                        ...offer.map((verb) => ({ value: verb.type, label: verb.label })),
+                        // The bare label. A suffix explaining *why* it is not
+                        // in the menu truncates to "Open a panel — not…" in
+                        // 104px, and the operand picker underneath is already
+                        // showing an empty list, which says it better.
+                        { value: action.type, label: VERBS[action.type]?.label ?? action.type },
+                      ]
+                }
               />
-              {operand(action, index)}
               {list.length > 1 && (
                 <IconButton
                   size="xs"
@@ -1815,9 +1855,11 @@ export function ActionsSection() {
               <IconButton size="xs" label="Remove this" onClick={() => at(index, null)}>
                 <X size={11} />
               </IconButton>
+              {box && <div className="flex w-full min-w-0 items-center gap-1">{box}</div>}
             </div>
           </StyleRow>
-        ))}
+          );
+        })}
 
         <StyleRow label="" hint="They run in this order, top to bottom">
           <Select
@@ -1852,9 +1894,19 @@ export function ActionsSection() {
 
         {list.length > 0 && agreed && guard && answerable(guard) && (
           <div className="rounded-md border border-[var(--border-soft)] bg-[var(--field)] px-2 py-1.5">
-            <Sentence
-              parts={[
-                ...testSentence({
+            {/*
+              The remover is beside the sentence rather than inside it.
+
+              As a trailing `action` part it wrapped onto whatever line the
+              sentence ended on and landed next to "+ or", which reads as
+              deleting that rather than the whole condition. A sentence grows
+              and a box does not, so the control that removes the box belongs
+              to the box.
+            */}
+            <div className="flex items-start gap-1">
+              <Sentence
+                className="min-w-0 flex-1"
+                parts={testSentence({
                   test: guard,
                   fields: readable.fields,
                   controls: readable.controls,
@@ -1862,16 +1914,12 @@ export function ActionsSection() {
                   opening: 'Only when',
                   newLeaf: () => seed ?? guard,
                   onChange: setGuard,
-                }),
-                {
-                  kind: 'action',
-                  key: 'ungate',
-                  title: 'Always run this',
-                  label: <Trash2 size={10} />,
-                  onClick: () => setGuard(null),
-                },
-              ]}
-            />
+                })}
+              />
+              <IconButton size="xs" label="Always run this" onClick={() => setGuard(null)}>
+                <Trash2 size={10} />
+              </IconButton>
+            </div>
             {caveat && (
               <p className="pt-1 text-[10px] leading-relaxed text-[var(--warning,var(--text-faint))]">
                 {caveat}
@@ -1908,6 +1956,29 @@ export function ActionsSection() {
               ? 'An element has one condition to be gated by, so every action here has to share it.'
               : 'An element has one link, one panel and one form to send, and the first claim wins.'}
           </p>
+        )}
+
+        {/*
+          And a way out of it.
+
+          Without this the panel reported a state it offered no exit from: the
+          guard editor only renders when the actions agree, so a list that
+          disagreed showed the refusal and nothing to act on, and the only
+          repair was to delete the rows and start again. One press writes the
+          first condition onto all of them, which is the shape this panel
+          authors anyway.
+        */}
+        {list.length > 0 && !agreed && (
+          <div className="pt-0.5">
+            <button
+              type="button"
+              onClick={() => setGuard(list.find((one) => one.only)?.only ?? null)}
+              className="flex h-[24px] items-center gap-1 rounded-md bg-[var(--field)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--field-hover)] hover:text-[var(--text)]"
+            >
+              <Plus size={10} />
+              Give them all the same condition
+            </button>
+          </div>
         )}
 
         {list.some((a) => a.type === 'copy' && a.text) && (

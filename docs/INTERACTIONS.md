@@ -391,6 +391,7 @@ Each is independently shippable and independently falsifiable.
 | **X11** | ~~Re-drive §1.8 through the panel~~ — **shipped**; two rows were still open | all |
 | **X12** | ~~Declare which props are content~~ — **shipped**; the third hand-listed vocabulary | X11 |
 | **X13** | ~~Close §1.8's last row honestly~~ — **shipped**; `onSubmit` was withdrawn, and the model still said otherwise | X6 |
+| **X14** | ~~Look at the panel~~ — **shipped**; the row had been overflowing by 123px | X8, X10, X11 |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -700,6 +701,60 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.15 And what looking turned up — a row 123px wider than the panel
+
+Everything X8, X10 and X11 put in the press list was verified by reading the
+DOM. For a 288px column that is half a check, and the half that was missing is
+the one that decides whether any of it is usable.
+
+The arithmetic, which had been done on paper and done wrong: the section's
+content is 263px, the label column takes 62 and its gap 8, so a row has **215**.
+The verb picker is a fixed 104. Two icon buttons and three gaps are 56. The
+operand had **37px** — and no `min-w-0` on the row's inner flex container, so it
+did not even shrink into them. Measured against the panel:
+
+| | overhang |
+|---|---|
+| `Set a state` + a value picker | **16px** |
+| `Copy text` + its field | **123px** |
+
+The remove button on the second row was drawn past the edge of the panel.
+`setState` with two states in scope put two pickers in those 37px and dropped
+one off the end entirely; `navigate`'s "Uses the URL in Link" wrapped to four
+lines and made the row four times as tall as its neighbour. X10's own note that
+the row "has about twenty pixels to spare, not forty" was the wrong number
+about the wrong thing.
+
+The verb and its buttons keep the first line; the operand takes its own, which
+is `w-full` inside a wrapping row — so a verb that needs no operand is still
+one line and nothing is spent on it. The operand now has the full 215.
+
+Three more things only a screenshot showed:
+
+- **A picker whose value is not among its options renders as unset.** An
+  `openPanel` on a page whose last popover was deleted read as *"Select…"* —
+  a row that is set, drawn as a row that is not. That is the failure
+  `DELETED_ELEMENT` exists to prevent in `testSentence`, in two more places:
+  the verb picker, and a guard naming a control that is not a descendant,
+  which fell through to *"a field"*. Both name what they hold now.
+- **The refusal had no exit.** The guard editor only renders when the actions
+  agree, so a list that disagreed showed the report and offered nothing to act
+  on — the only repair was deleting the rows. One press now writes the first
+  condition onto all of them.
+- **The remover wrapped onto the sentence's last line**, landing beside
+  "+ or" and reading as deleting that. A sentence grows and a box does not, so
+  it belongs to the box.
+
+**And the check that keeps it looked at failed to look, twice.** First it read
+the row's own last child — which is `StyleRow`'s wrapper, and that carries
+`min-w-0`, so it can never overflow: green against a row hanging 123px into the
+void. Rewritten to ask the whole subtree for its furthest-right edge, it failed
+at `overhang 28px, 135px` and passes at `0px, 0px`.
+
+> **A layout claim needs a number, and the number has to come off the deepest
+> thing in the box.** Three checks in this session passed while measuring
+> nothing; each one was found by mutating the code it was written for.
 
 ### 4.1.13 And the third hand-listed vocabulary — two prop lists, drifted both ways
 

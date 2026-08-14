@@ -745,6 +745,45 @@ try {
           `${await rows.count()} rows`
         );
         /*
+         * And it fits in the panel it is drawn in.
+         *
+         * Every other check here reads the DOM, which is half a check for a
+         * 288px column: the row's budget was argued on paper and the argument
+         * was wrong. A verb picker at a fixed 104, two icon buttons and their
+         * gaps left the operand 37px, so this very pair — a `setState` and a
+         * `copy` — overflowed by 16px and 123px, with the remove button drawn
+         * past the edge of the panel. Nothing failed, because nothing measured.
+         *
+         * Measured as overhang past the row's own right edge rather than as a
+         * width, so the number in the detail is the thing that was wrong.
+         */
+        const overhang = await panel.evaluate((aside) => {
+          const rows = [...aside.querySelectorAll('label.field-label')]
+            .filter((one) => one.textContent === 'Does' || one.textContent === 'Then')
+            .map((one) => one.closest('div.flex.gap-2'))
+            .filter(Boolean);
+          return rows.map((row) => {
+            /*
+             * The furthest-right descendant, whatever it is. Written first as
+             * the row's own last child, which is `StyleRow`'s wrapper — and
+             * that carries `min-w-0`, so it can never overflow and the check
+             * passed against a row hanging 123px into the void. Asking the
+             * whole subtree cannot pick the wrong node.
+             */
+            const far = [...row.querySelectorAll('*')].reduce(
+              (most, one) => Math.max(most, one.getBoundingClientRect().right),
+              0
+            );
+            return Math.round(far - row.getBoundingClientRect().right);
+          });
+        });
+        report.check(
+          'and no row spills out of the panel it is drawn in',
+          overhang.length > 0 && overhang.every((over) => over <= 0),
+          overhang.length ? `overhang ${overhang.join('px, ')}px` : 'no rows measured'
+        );
+
+        /*
          * And in the order they run. Read off the row *labels* — the first row
          * says what happens and the rest say what happens next — because a
          * list that rendered both in the wrong order would satisfy a count.
@@ -854,7 +893,7 @@ try {
 
           // And off again, from the same place — on every action, for the same
           // reason it went on to every action.
-          await panel.locator('button[title="Always run this"]').first().click();
+          await panel.locator('button[aria-label="Always run this"]').first().click();
           await page.waitForTimeout(400);
           const freed = await getDocument(page, projectId);
           const after = freed.nodes.btna2.events?.[0]?.actions ?? [];

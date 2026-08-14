@@ -343,6 +343,17 @@ export function testSentence(options: {
    */
   const orphaned =
     left.kind === 'element' && !elements.some((one) => one.id === left.ref.node);
+  /*
+   * And the same failure on the other operand kind, which had no answer.
+   *
+   * A named control is looked up *inside* the node that owns the rule —
+   * `holder.querySelector('[name="…"]')` — so a name that is not among
+   * `controls` is not merely unoffered, it will never resolve. Without this
+   * the chip fell through to its placeholder and the sentence read
+   * `When ⟨a field⟩ is not empty`: a rule that names something, rendered as a
+   * rule that names nothing. Same reasoning as `orphaned`, one line along.
+   */
+  const notInside = left.kind === 'input' && !controls.includes(left.name);
 
   parts.push({
     kind: 'pick',
@@ -358,6 +369,9 @@ export function testSentence(options: {
         label: `${one.name} — what it holds`,
       })),
       ...(orphaned ? [{ value: source, label: DELETED_ELEMENT }] : []),
+      ...(notInside && left.kind === 'input'
+        ? [{ value: source, label: `${left.name} — not inside this` }]
+        : []),
     ],
     onChange:
       onChange &&
