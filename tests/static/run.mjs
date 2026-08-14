@@ -5954,36 +5954,64 @@ report.group('the panel is not narrower than the model');
    * so it explains itself instead. The claim is unchanged: it still reads the
    * scope and still branches on finding nothing.
    */
+  /*
+   * And what it does when there is nothing to say.
+   *
+   * The old claim was that the section *hid itself* when no switch existed
+   * above it, which was right while `setState` was the only verb it could
+   * offer. X8 made that the defect: a button that opens a panel or goes
+   * somewhere has behaviour whether or not the page has a switch on it, and an
+   * empty "When pressed" on such a button was the section disagreeing with the
+   * element about what the element does.
+   *
+   * So the claim moves rather than goes. The menu is generated from the verb
+   * registry, so it cannot fall behind what the compiler understands; and an
+   * element with nothing wired says so in a sentence rather than sitting blank.
+   */
   report.check(
-    'and it still says so when there is no switch above it',
+    'the actions menu is generated from the verb table, not hand-listed',
     (() => {
-      /*
-       * Scoped to the function rather than measured in characters.
-       *
-       * This used to require the guard within 200 characters of the hook,
-       * which held only while the section was two hooks long. The guard has to
-       * come after *every* hook — a `return` above one breaks the rules of
-       * hooks — so a section that grows pushes them apart, and the check went
-       * red on a section that was still perfectly self-hiding.
-       */
       const at = content.indexOf('export function ActionsSection(');
       if (at < 0) return false;
-      const body = content.slice(at, content.indexOf('\n}', at));
+      const body = content.slice(at, content.indexOf('\n}\n', at));
       return (
-        body.includes('useStatesInScope()') &&
-        /if \(states\.length === 0\) \{/.test(body) &&
-        // Says what is missing and where to get one, rather than sitting blank.
-        /no switch on this page/.test(body)
+        body.includes('verbsFor(type)') &&
+        // Every row's word comes from the table too, so the panel and the
+        // compiler cannot disagree about what a verb is called.
+        body.includes('VERBS[action.type]') &&
+        /Nothing happens when this is pressed/.test(body)
       );
     })(),
     (() => {
       const at = content.indexOf('export function ActionsSection(');
       if (at < 0) return 'the section is gone entirely';
-      const body = content.slice(at, content.indexOf('\n}', at));
-      return (
-        (/if \(states\.length === 0\)[^\n]*/.exec(body)?.[0] ?? 'no branch on an empty scope') +
-        (body.includes('useStatesInScope()') ? '' : ', and it never asks what is in scope')
-      );
+      const body = content.slice(at, content.indexOf('\n}\n', at));
+      return [
+        body.includes('verbsFor(type)') ? 'offers from the table' : 'hand-listed verbs',
+        body.includes('VERBS[action.type]') ? 'labelled from the table' : 'hand-written labels',
+        /Nothing happens when this is pressed/.test(body) ? 'says so when empty' : 'sits blank',
+      ].join(' · ');
+    })()
+  );
+  /*
+   * And the half that makes the above worth having: every verb the model can
+   * hold is one the panel can produce. A row `fresh` cannot build is a menu
+   * entry that does nothing when picked.
+   */
+  report.check(
+    'and every verb in the table has a row the panel can make',
+    (() => {
+      const at = content.indexOf('const fresh = (verb: VerbType)');
+      if (at < 0) return false;
+      const body = content.slice(at, content.indexOf('\n  };', at));
+      return Object.keys(eventLib.VERBS).every((verb) => body.includes(`case '${verb}':`));
+    })(),
+    (() => {
+      const at = content.indexOf('const fresh = (verb: VerbType)');
+      if (at < 0) return 'nothing builds a row';
+      const body = content.slice(at, content.indexOf('\n  };', at));
+      const missing = Object.keys(eventLib.VERBS).filter((v) => !body.includes(`case '${v}':`));
+      return missing.length ? `no row for ${missing.join(' ')}` : `all ${Object.keys(eventLib.VERBS).length}`;
     })()
   );
 

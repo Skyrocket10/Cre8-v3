@@ -773,12 +773,18 @@ type ActionBody =
   /**
    * Go to a page, or off the site.
    *
-   * `to` is what `props.href` has always held: a path, an absolute URL, or a
-   * `node:` reference the resolver turns into one. Compiles to `href`, so a
-   * link whose only action is this publishes exactly what it published before
-   * the verb existed — no script, and the same bytes.
+   * **Optional**, and that is the design rather than a convenience. `href` is
+   * `SETTABLE` and `BINDABLE`: a destination varies by rule and binds to a
+   * record, and an action can be neither. So the ordinary spelling is a
+   * `navigate` with no `to` at all, meaning *go where this element's `href`
+   * says* — the behaviour joins the list, in order, with its own `only`, and
+   * the value stays where a rule and a binding can reach it. See
+   * docs/INTERACTIONS.md §4.0.7.
+   *
+   * `to` is there for the case that has no element prop behind it, and holds
+   * what `props.href` holds: a path, an absolute URL, or a `node:` reference.
    */
-  | { type: 'navigate'; to: string; target?: string }
+  | { type: 'navigate'; to?: string; target?: string }
   /** Somewhere further down this page. Compiles to `href="#…"`. */
   | { type: 'scrollTo'; ref: Ref }
   /**

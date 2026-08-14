@@ -29,6 +29,8 @@ import {
 } from '@/lib/document/schema';
 import { stateOf, valuesOf } from '@/lib/document/state';
 import { pressActionOfType, setPressAction } from '@/lib/document/actions';
+import { actionsFor } from '@/lib/document/actions';
+import { VERBS, verbsFor, type VerbType } from '@/lib/document/events';
 import type {
   Asset,
   ElementType,
@@ -1543,147 +1545,232 @@ function SwitchGroupContent() {
  */
 export function ActionsSection() {
   const setActions = useEditor((s) => s.setActions);
-  // Only states something can actually be put into: a state whose values are
-  // unknown offers an empty menu, which reads as broken.
+  const type = useEditor((s) => s.doc.nodes[s.selection[0] ?? '']?.type);
   const states = useStatesInScope().filter((state) => state.values.length > 0);
-  const actions = useEditor((s) => {
+  const panels = usePopovers();
+  const anchors = useAnchors();
+  const encoded = useEditor((s) => {
     const node = s.doc.nodes[s.selection[0] ?? ''];
-    return JSON.stringify(node?.events?.find((b) => b.event === 'onClick')?.actions ?? []);
+    return JSON.stringify(actionsFor(node ?? ({} as never)));
   });
-  const parsed = useMemo(() => JSON.parse(actions) as NodeAction[], [actions]);
-  const assignments = parsed.filter((a) => a.type === 'setState');
-  const rest = parsed.filter((a) => a.type !== 'setState');
+  const list = useMemo(() => JSON.parse(encoded) as NodeAction[], [encoded]);
 
-  if (states.length === 0) {
-    return (
-      <Section title="When pressed" defaultOpen>
-        <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
-          Nothing here yet. An element can set a switch when it is pressed — a tab
-          strip, a pricing toggle, a filter — and there is no switch on this page
-          for it to drive. Add one from a block, or give an element a switch of
-          its own in Rules.
-        </p>
-      </Section>
-    );
-  }
+  if (!type) return null;
 
-  /** Rewrite the assignments, keeping every other action where it was. */
-  const write = (next: NodeAction[]) => setActions([...next, ...rest]);
+  const write = (next: NodeAction[]) => setActions(next);
+  const at = (index: number, action: NodeAction | null) =>
+    write(action ? list.map((a, i) => (i === index ? action : a)) : list.filter((_, i) => i !== index));
 
   /*
-   * Which state a row drives, for the menu.
+   * What each verb needs said about it, and nothing more.
    *
-   * An assignment with no `state` means the nearest one, and the nearest one
-   * is `states[0]` — so the two spellings pick the same entry and the menu can
-   * show it without the designer having to know there is a difference. What is
-   * written back keeps the distinction: choosing the first option writes no
-   * name, so a control copied into another tab set still drives the set it is
-   * in.
+   * One row per action, in the order the document holds them, because that is
+   * the order they run in — which is the whole reason this section exists. It
+   * used to show only `setState`, and returned nothing at all when the page
+   * had no switch on it: a button that opened a panel and went somewhere had
+   * two behaviours, four panels between them, and an empty "When pressed".
    */
-  const keyOf = (action: Extract<NodeAction, { type: 'setState' }>) =>
-    slug(action.state) || states[0]!.key;
-  const valuesOf = (key: string) => states.find((s) => s.key === key)?.values ?? [];
+  const operand = (action: NodeAction, index: number) => {
+    const swap = (patch: Partial<NodeAction>) => at(index, { ...action, ...patch } as NodeAction);
+    switch (action.type) {
+      case 'setState':
+      case 'toggleState': {
+        const key = slug(action.state) || states[0]?.key || '';
+        const values = states.find((one) => one.key === key)?.values ?? [];
+        const options = values.map((value) => ({ value, label: value }));
+        return (
+          <>
+            {states.length > 1 && (
+              <Select
+                className="flex-1"
+                value={key}
+                // The nearest state is spelled as no name at all, so choosing
+                // it back gives up the insistence rather than pinning what
+                // happens to be nearest today.
+                onChange={(next) => swap({ state: next === states[0]!.key ? undefined : next })}
+                options={states.map((one) => ({
+                  value: one.key,
+                  label: one.key === states[0]!.key ? `${one.key} (nearest)` : one.key,
+                }))}
+              />
+            )}
+            {action.type === 'setState' ? (
+              <Select
+                className="flex-1"
+                value={action.value}
+                onChange={(value) => swap({ value })}
+                options={options}
+              />
+            ) : (
+              <>
+                <Select
+                  className="flex-1"
+                  value={action.values?.[0] ?? values[0] ?? ''}
+                  onChange={(one) => swap({ values: [one, action.values?.[1] ?? values[1] ?? ''] })}
+                  options={options}
+                />
+                <Select
+                  className="flex-1"
+                  value={action.values?.[1] ?? values[1] ?? ''}
+                  onChange={(two) => swap({ values: [action.values?.[0] ?? values[0] ?? '', two] })}
+                  options={options}
+                />
+              </>
+            )}
+          </>
+        );
+      }
+      case 'copy':
+        return (
+          <TextInput
+            className="flex-1"
+            value={action.text}
+            onValueChange={(text) => swap({ text })}
+            placeholder="Text to copy"
+          />
+        );
+      case 'openPanel':
+      case 'closePanel':
+        return (
+          <Select
+            className="flex-1"
+            value={action.ref.node}
+            onChange={(node) => swap({ ref: { node } })}
+            options={panels.map((one) => ({ value: one.id, label: one.name }))}
+          />
+        );
+      case 'scrollTo':
+        return (
+          <Select
+            className="flex-1"
+            value={action.ref.node}
+            onChange={(node) => swap({ ref: { node } })}
+            options={anchors.map((one) => ({ value: one.id, label: one.name }))}
+          />
+        );
+      default:
+        /*
+         * `navigate` and `submit` have nothing to ask. A submit sends the form
+         * it is inside, and a navigate goes where the element's own URL says —
+         * that is the whole of §4.0.7: the destination stays a prop so a rule
+         * can vary it and a record can fill it, and the verb only says *when*.
+         */
+        return (
+          <span className="flex-1 text-[10.5px] text-[var(--text-faint)]">
+            {action.type === 'navigate' ? 'Uses the URL in Link' : 'The form this is inside'}
+          </span>
+        );
+    }
+  };
+
+  /** Only verbs this element can do, and only ones there is something to aim at. */
+  const offer = verbsFor(type).filter((verb) => {
+    if (verb.type === 'setState' || verb.type === 'toggleState') return states.length > 0;
+    if (verb.type === 'openPanel' || verb.type === 'closePanel') return panels.length > 0;
+    if (verb.type === 'scrollTo') return anchors.length > 0;
+    return true;
+  });
+
+  const fresh = (verb: VerbType): NodeAction | null => {
+    const key = states[0]?.key ?? '';
+    const values = states[0]?.values ?? [];
+    switch (verb) {
+      case 'setState':
+        return { type: 'setState', value: values[0] ?? '' };
+      case 'toggleState':
+        return { type: 'toggleState', values: [values[0] ?? '', values[1] ?? values[0] ?? ''] };
+      case 'copy':
+        return { type: 'copy', text: '' };
+      case 'openPanel':
+        return panels[0] ? { type: 'openPanel', ref: { node: panels[0].id } } : null;
+      case 'closePanel':
+        return panels[0] ? { type: 'closePanel', ref: { node: panels[0].id } } : null;
+      case 'scrollTo':
+        return anchors[0] ? { type: 'scrollTo', ref: { node: anchors[0].id } } : null;
+      case 'navigate':
+        return { type: 'navigate' };
+      case 'submit':
+        return { type: 'submit' };
+      default:
+        return key ? null : null;
+    }
+  };
 
   return (
     <Section title="When pressed" defaultOpen>
       <InspectorGroup>
-        {assignments.length === 0 ? (
+        {list.length === 0 && (
           <p className="px-3 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
             Nothing happens when this is pressed.
           </p>
-        ) : null}
+        )}
 
-        {assignments.map((action, index) => {
-          const key = keyOf(action);
-          const rewrite = (patch: Partial<Extract<NodeAction, { type: 'setState' }>>) =>
-            write(assignments.map((a, i) => (i === index ? { ...a, ...patch } : a)));
-          return (
-            <div key={index} className="flex flex-col gap-1">
-              <StyleRow
-                label={index === 0 ? 'Switches' : 'And switches'}
-                hint="Clicking this puts that state into that value"
-              >
-                <div className="flex flex-1 items-center gap-1">
-                  {states.length > 1 ? (
-                    <Select
-                      className="flex-1"
-                      value={key}
-                      onChange={(next) =>
-                        rewrite({
-                          // The nearest state is spelled as no name at all, so
-                          // choosing it back gives up the insistence rather
-                          // than pinning what happened to be nearest today.
-                          state: next === states[0]!.key ? undefined : next,
-                          value: valuesOf(next).includes(action.value)
-                            ? action.value
-                            : (valuesOf(next)[0] ?? ''),
-                        })
-                      }
-                      options={states.map((state) => ({
-                        value: state.key,
-                        label: state.key === states[0]!.key ? `${state.key} (nearest)` : state.key,
-                      }))}
-                    />
-                  ) : null}
-                  <Select
-                    className="flex-1"
-                    value={action.value}
-                    onChange={(next) => rewrite({ value: next })}
-                    options={valuesOf(key).map((value) => ({ value, label: value }))}
-                  />
-                  <IconButton
-                    label="Remove this"
-                    onClick={() => write(assignments.filter((_, i) => i !== index))}
-                  >
-                    <X size={11} />
-                  </IconButton>
-                </div>
-              </StyleRow>
-            </div>
-          );
-        })}
-
-        <StyleRow label="" hint="A control can move more than one state at once">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() =>
-              write([
-                ...assignments,
-                { type: 'setState', value: states[0]!.values[0] ?? '' },
-              ])
-            }
+        {list.map((action, index) => (
+          <StyleRow
+            key={index}
+            label={index === 0 ? 'Does' : 'Then'}
+            hint={VERBS[action.type]?.hint}
           >
-            {assignments.length ? 'Add another' : 'Switch a state'}
-          </Button>
+            <div className="flex flex-1 items-center gap-1">
+              <Select
+                className="w-[104px] shrink-0"
+                value={action.type}
+                // Changing the verb starts the row again rather than carrying
+                // an operand across: "open a panel" and "copy text" have
+                // nothing in common to keep, and a half-kept action is a row
+                // that reads as finished and is not.
+                onChange={(next) => {
+                  const made = fresh(next as VerbType);
+                  if (made) at(index, made);
+                }}
+                options={offer.map((verb) => ({ value: verb.type, label: verb.label }))}
+              />
+              {operand(action, index)}
+              <IconButton label="Remove this" onClick={() => at(index, null)}>
+                <X size={11} />
+              </IconButton>
+            </div>
+          </StyleRow>
+        ))}
+
+        <StyleRow label="" hint="They run in this order, top to bottom">
+          <Select
+            className="flex-1"
+            value=""
+            onChange={(verb) => {
+              const made = fresh(verb as VerbType);
+              if (made) write([...list, made]);
+            }}
+            options={[
+              { value: '', label: list.length ? 'Add another…' : 'Do something…' },
+              ...offer.map((verb) => ({ value: verb.type, label: verb.label })),
+            ]}
+          />
         </StyleRow>
 
-        {assignments.length ? (
+        {list.some((a) => a.type === 'setState') && (
           <StyleRow label="Announced as" hint="A toggle says whether it is on; Next and Back do not">
             <Segmented
               full
-              value={assignments.some((a) => a.quiet) ? 'quiet' : 'toggle'}
+              value={list.some((a) => a.type === 'setState' && a.quiet) ? 'quiet' : 'toggle'}
               onChange={(mode) =>
                 // One flag for the control, because `aria-pressed` describes
                 // the button rather than any one of its assignments.
                 write(
-                  assignments.map((a) => ({
-                    ...a,
-                    ...(mode === 'quiet' ? { quiet: true } : { quiet: undefined }),
-                  }))
+                  list.map((a) =>
+                    a.type === 'setState'
+                      ? { ...a, ...(mode === 'quiet' ? { quiet: true } : { quiet: undefined }) }
+                      : a
+                  )
                 )
               }
               options={[
                 { value: 'toggle', label: 'A toggle', title: 'aria-pressed' },
-                {
-                  value: 'quiet',
-                  label: 'Nothing',
-                  title: 'Moves the state without claiming to be a toggle',
-                },
+                { value: 'quiet', label: 'Nothing', title: 'Moves the state without claiming to be a toggle' },
               ]}
             />
           </StyleRow>
-        ) : null}
+        )}
       </InspectorGroup>
     </Section>
   );

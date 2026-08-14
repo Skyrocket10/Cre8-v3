@@ -373,7 +373,7 @@ Each is independently shippable and independently falsifiable.
 | **X5** | ~~States are declared, not scraped~~ — **shipped**; it also found the collaboration bug below | — |
 | **X6** | ~~Events become a registry; actions grow verbs~~ — **shipped**; the model and the compiler, not the panel | X5 |
 | **X7** | ~~`only` on an action~~ — **shipped**; it also found five vacuous no-script checks | X6 |
-| **X8** | Absorbing Relative-to / Form, and *naming* Link — **the model is shipped**; the unified list is what remains. See §4.0.7 | X6 |
+| **X8** | ~~One "When pressed" list, absorbing Relative-to / Form and *naming* Link~~ — **shipped**. See §4.0.7 | X6 |
 | **X9** | Prove it in a browser; rewrite both docs | all |
 
 How each is falsified — the check that must fail against the unfixed code:
@@ -435,7 +435,20 @@ it that way: X6's `pressed()` takes the verb's `to` when there is one and the
 prop when there is not, so this needs no new reconciliation, only the decision
 not to write `to` during the migration.
 
-**Shipped.** `migratePress` folds the three at both doors — `migrateDocument`
+**Shipped, including the list.** The section is one row per action, in the
+order the document holds them, which is the order they run in. Both the menu
+and each row's word come from `VERBS`, so the panel cannot fall behind what the
+compiler understands — the same arrangement `conditionOffers` gave the When…
+menu in X1.
+
+What it replaces is worth stating plainly: the old section showed `setState`
+and nothing else, and *returned nothing at all* when the page had no switch on
+it. So a button that opened a panel and went somewhere had two behaviours,
+four panels between them, and an empty "When pressed". A verb with no operand
+to ask about — `navigate`, `submit` — says where its answer comes from rather
+than showing a blank control.
+
+`migratePress` folds the three at both doors — `migrateDocument`
 for a stored document and `finishTree` for a block — and `setPressAction` is
 what the panel writes through, so the Relative-to control, `setJumpTarget` and
 the section registry's "in use" test all go to the action list. Published
