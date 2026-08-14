@@ -54,6 +54,26 @@ async function withoutScripting(url) {
   const quiet = await browser.newContext({
     javaScriptEnabled: false,
     viewport: { width: 1440, height: 1000 },
+    /*
+     * And the page's own answer to "should scrolling animate".
+     *
+     * `css.ts` ships `html { scroll-behavior: smooth }` on every published
+     * page, with `@media (prefers-reduced-motion: reduce)` turning it off —
+     * which is right for a visitor and hostile to a driver. Playwright scrolls
+     * an element into view and then waits for it to be *stable*: with smooth
+     * scrolling the box is still moving when it re-measures, so it scrolls
+     * again, and on a fixture page five thousand pixels tall it can spend the
+     * whole timeout landing a few pixels short. That is what the last check
+     * here used to answer with `click({ force: true })`.
+     *
+     * Setting the preference is better than forcing the click because it is
+     * not a bypass. `force` skips the hit test, so the check could no longer
+     * tell a reachable button from one behind an overlay — on the no-script
+     * page, which is exactly where an element that should have been hidden
+     * would still be there. This asks for the behaviour the stylesheet already
+     * offers and then clicks the ordinary way.
+     */
+    reducedMotion: 'reduce',
   });
   const page = await quiet.newPage();
   await page.goto(url, { waitUntil: 'load' });
@@ -1606,16 +1626,10 @@ try {
        */
       const noScript = await withoutScripting(`${APP}/s/${id}/`);
       await noScript.locator('input[name="coupon"]').fill('SAVE20');
-      /*
-       * `force`, because Playwright's actionability wait times out here and
-       * the browser's event dispatch does not. This page is twelve fixtures
-       * deep by now and something above the button fails the hit test; with
-       * scripting off the press cannot do anything either way, so the check
-       * sends it rather than spending thirty seconds waiting for permission
-       * to. What is being asserted is what the visitor is left with, and that
-       * is read below.
-       */
-      await noScript.locator('button:has-text("Apply")').first().click({ force: true });
+      // An ordinary click. It reaches the button because the context asks for
+      // reduced motion and the page's own stylesheet stops animating the
+      // scroll — see `withoutScripting`.
+      await noScript.locator('button:has-text("Apply")').first().click();
       await noScript.waitForTimeout(150);
       const restingAt = await noScript
         .locator('[data-cre8-switch="deal"]')

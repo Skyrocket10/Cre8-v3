@@ -619,6 +619,26 @@ model and named in three docs, had been checked for months by pages that had
 scripting. It is checked by contexts now, through one helper, because the wrong
 spelling is one keystroke away and reads identically.
 
+**And what the helper was hiding, found in X10.** That same fixture's last
+click carried `{ force: true }`, with a comment guessing that "something above
+the button fails the hit test". Measured rather than guessed: nothing is above
+the button. `css.ts` ships `html { scroll-behavior: smooth }` on every
+published page, Playwright scrolls an element into view and then waits for it to
+be *stable*, and on a fixture five thousand pixels tall it re-measures
+mid-animation, scrolls again, and spends the whole timeout landing a few pixels
+short — `element is not stable`, thirty seconds, every run.
+
+The fix is the preference, not the bypass: the context asks for reduced motion,
+the page's own `@media (prefers-reduced-motion: reduce)` turns the smooth
+scrolling off, and the ordinary click lands. That matters beyond tidiness,
+because `force` skips the hit test — so for as long as it was there, the check
+could not tell a reachable button from one behind an overlay, on the no-script
+page, which is precisely where an element that should have been hidden would
+still be showing.
+
+> **A workaround with a guess in its comment is an unfinished measurement.**
+> Removing it and reading the actual error took one run.
+
 ### 4.0 What X6 shipped, and what it deliberately did not
 
 The table in §3.5 lists six events and nine verbs. What shipped is **one event
