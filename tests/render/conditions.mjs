@@ -710,6 +710,109 @@ try {
           fields === 1,
           `${fields} field(s) hold it`
         );
+
+        /*
+         * X10: "…but only when", for the whole gesture.
+         *
+         * Driven for real rather than seeded, because the write is the claim.
+         * `only` is per action in the model and an unfoldable guard is one
+         * attribute on one element, so a panel that guarded the row you were
+         * looking at would make `planActions` refuse the other one — see
+         * §4.0.9. What is asserted is therefore not "a condition appeared" but
+         * *both actions carry the same one*, read back out of the document.
+         *
+         * The affordance is an ordinary button, so clicking it measures the
+         * panel rather than measuring `Select`.
+         */
+        const offer = panel.getByRole('button', { name: 'Only when…' });
+        report.check(
+          'the list offers a condition for the whole gesture',
+          (await offer.count()) === 1,
+          `${await offer.count()} offer(s)`
+        );
+        if ((await offer.count()) === 1) {
+          await offer.click();
+          await page.waitForTimeout(400);
+
+          const gated = await getDocument(page, projectId);
+          const acts = gated.nodes.btna2.events?.[0]?.actions ?? [];
+          const guards = acts.map((one) => JSON.stringify(one.only ?? null));
+          report.check(
+            'and one press of it guards every action, not the row it was next to',
+            acts.length === 2 && guards[0] !== 'null' && guards[0] === guards[1],
+            `${acts.length} action(s): ${guards.join(' · ')}`
+          );
+          /*
+           * A comparison, and that is the half §4.0.9 derives rather than
+           * chooses: `evaluate` and `testRuntime.holds` both answer `null` for
+           * a `Condition`, so a guard that was one would travel, never hold,
+           * and take the rest of the gesture with it.
+           */
+          report.check(
+            'and what it seeded is a comparison, which is the only kind either evaluator answers',
+            acts[0]?.only?.kind === 'compare',
+            `${acts[0]?.only?.kind ?? 'nothing'} · ${JSON.stringify(acts[0]?.only?.left ?? null)}`
+          );
+          report.check(
+            'and it reads as one sentence rather than as a field nobody can parse',
+            (await panel.locator('[data-sentence]:has-text("Only when")').count()) >= 1,
+            (await panel.locator('[data-sentence]').first().innerText().catch(() => '')) || 'no sentence'
+          );
+
+          // And off again, from the same place — on every action, for the same
+          // reason it went on to every action.
+          await panel.locator('button[title="Always run this"]').first().click();
+          await page.waitForTimeout(400);
+          const freed = await getDocument(page, projectId);
+          const after = freed.nodes.btna2.events?.[0]?.actions ?? [];
+          report.check(
+            'and taking it off takes it off all of them',
+            after.length === 2 && after.every((one) => one.only === undefined),
+            `${after.filter((one) => one.only).length} of ${after.length} still guarded`
+          );
+
+          /*
+           * And the shape the panel refuses to write but has to read.
+           *
+           * A block can hand it a list whose actions disagree about their
+           * guard, and `planActions` takes that apart — the second action is
+           * refused, not run under somebody else's condition. That refusal has
+           * existed since X6 with nothing on screen saying so, which is
+           * survivable only for as long as nothing can produce one. Seeded
+           * rather than clicked because the panel cannot author it, which is
+           * the whole point.
+           */
+          freed.nodes.btna2.events = [
+            {
+              event: 'onClick',
+              actions: [
+                { type: 'setState', value: 'annual', only: acts[0].only },
+                { type: 'copy', text: 'PROMO20' },
+              ],
+            },
+          ];
+          if ((await saveDocument(page, freed)) === 200) {
+            await page.reload({ waitUntil: 'load' });
+            await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+            await page.waitForTimeout(1500);
+            await showLayers();
+            await page.locator('[data-layer-row]:has-text("Go annual")').first().click();
+            await page.waitForTimeout(500);
+            await openInspectorSection(page, 'When pressed');
+            const said = await panel
+              .locator('p:has-text("will not run")')
+              .first()
+              .innerText()
+              .catch(() => '');
+            report.check(
+              'a list whose actions disagree about their guard says which one loses',
+              said.includes('will not run') &&
+                said.includes('Copy text') &&
+                said.includes('one condition to be gated by'),
+              said || 'nothing said'
+            );
+          }
+        }
       }
     }
   }

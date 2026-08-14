@@ -375,6 +375,7 @@ Each is independently shippable and independently falsifiable.
 | **X7** | ~~`only` on an action~~ — **shipped**; it also found five vacuous no-script checks | X6 |
 | **X8** | ~~One "When pressed" list, absorbing Relative-to / Form and *naming* Link~~ — **shipped**. See §4.0.7 | X6 |
 | **X9** | ~~Prove it in a browser; correct both docs~~ — **shipped** | all |
+| **X10** | ~~"Only when" on screen~~ — **shipped**; it also found the write path below | X7, X8 |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -398,6 +399,88 @@ How each is falsified — the check that must fail against the unfixed code:
   absent.
 - **X8** — extend U3's reachability sweep: every prop reachable before is
   reachable after.
+- **X10** — author a guard from the panel and publish: the folded one decides
+  at publish and leaves no trace in the file, the live one mints an attribute.
+  Falsified by offering a condition neither evaluator answers and seeing the
+  gesture stop working.
+
+### 4.0.9 The guard is a comparison, and it is one per gesture
+
+Written before starting X10, and both halves of the title are conclusions
+rather than choices — the code decides them and the panel has to agree.
+
+#### Why not the whole condition vocabulary
+
+`only` is a `Test`, and a `Test` is a superset: every `Condition` is one. So
+the obvious panel is the one the rules section already has — the When… menu,
+eleven shapes, *only when hovered*. It is also unshippable, and the two
+evaluators say so in the same line of code.
+
+`schedule.ts:evaluate` answers `compare`, `every`, `some`, and returns `null`
+for everything else — a `Condition` "is answered by the browser rather than by
+the publisher". `behaviour.ts:testRuntime.holds` has the same three cases and
+the same default. Put those together for a `Condition` guard:
+
+- `foldable()` is false, so it is not decided at publish. It travels.
+- `holds()` answers `null`, so `testRuntime` **removes** the guard attribute.
+- `behaviourRuntime` finds the attribute absent and does nothing.
+
+Every press, for ever. And it is worse than one dead action: an unfoldable
+guard is the element's guard, so `planActions` refuses every *other* action
+that does not carry the same one. A single pick from a menu of eleven would
+silently stop the whole control.
+
+So the guard menu offers exactly what the two evaluators can answer, which is
+a comparison over the three operand kinds that exist:
+
+| operand | schedule | answered by |
+|---|---|---|
+| `field` — the record | folds | `evaluate`, at publish |
+| `input` — a named control inside | travels | `testRuntime` |
+| `element` — a control anywhere on the page | travels | `testRuntime` |
+
+That is `testSentence`'s *assignment* grammar, already built, already used by
+the state-from-record panel. The guard row is that builder with a different
+opening word. Nothing new is authored, which is the point: a second grammar
+for the same question is how the two would drift.
+
+#### Why one guard for the gesture, not one per row
+
+`only` is per action in the model and stays that way. The panel authors one,
+and the reason is `planActions`:
+
+```ts
+const gated = actions.find((a) => a.only && !foldable(a.only))?.only;
+… else if (!sameGuard(action.only, gated)) refused.push(action)
+… else if (gated) refused.push(action)      // unguarded, on a gated element
+```
+
+An unfoldable guard becomes one attribute on one element, so the element has
+one. Guard the first of two rows and the second is refused — not dropped,
+*refused*, which is the compiler being honest about a design a page cannot
+express. A per-row editor would make that the natural second click.
+
+A per-row editor is only fully meaningful for the *foldable* half, where two
+actions genuinely can carry two different record conditions. That design — one
+button whose copy is gated on one field and whose panel is gated on another —
+is not one anybody has asked for, and it is still expressible in the model, in
+a block, and by anything that writes a document. The panel writes the shape
+that is correct on both schedules: **the same guard on every action**, so a
+refusal is not reachable from here.
+
+What the panel must still do is *read* the other shapes, because a block can
+write them. Mismatched guards are reported rather than redrawn — one line
+naming what the compiler will drop, which is the first time `plan.refused` has
+been on screen at all.
+
+#### And the sentence that is not a warning about the panel
+
+`unfinished()` has said since X7 that a live guard is not a lock: the guard is
+answered in the browser, so a visitor with no scripting still follows the link,
+because the `href` is in the file and nothing is there to stop it. That
+sentence renders in the Data section, which needs a collection in scope. The
+guard is authored here and this section always exists, so it belongs here —
+same function, so there is still one wording.
 
 ### 4.0.7 X8 is asymmetric, and `href` is the reason
 
@@ -559,6 +642,55 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.9 And what X10 turned up — a panel writing into a two-verb allowlist
+
+X10 is a row on the press list, so the first thing to read is what the press
+list writes through. It is `ops.setActions`, and it said:
+
+```ts
+const kept = actions.filter(
+  (a) => (a.type === 'setState' && slug(a.value)) || (a.type === 'copy' && a.text)
+);
+```
+
+Which was a complete description of the vocabulary on the day it was written.
+X6 grew six more verbs and X8 put all eight in a menu, and this kept two of
+them. **Every `toggleState`, `navigate`, `submit`, `openPanel`, `closePanel`
+and `scrollTo` added from the panel was discarded on its way to the document.**
+Not stored and ignored — discarded, so the row never appeared at all: the store
+updates, the section re-reads the document, and the action is not in it.
+
+Two things about how it survived X8 and X9 are worth keeping.
+
+The first is that the panel *looked* right, and looked right in the way that is
+hardest to catch: the menu is generated from the verb table, so it offered
+exactly the eight verbs the compiler knows, and the static suite proved that
+agreement. Both tables were correct. What was wrong was the pipe between them,
+and no check went through it.
+
+The second is that X9 chose, with a stated reason, not to drive the add menu:
+*"driving the add menu would be driving `Select`, this app's own component
+rather than a native one, and what that measures is the component."* That is
+right about the widget and wrong about the coverage. The reason to click a menu
+is not to test the menu; it is that the click is the only thing that runs the
+write path. Seeding the document over HTTP tests the compiler and the renderer
+against a shape the editor cannot actually produce.
+
+> **A check that seeds the document tests everything downstream of the store,
+> which is not the same as testing the editor.** If nothing exercises the write
+> path, the panel and the model can agree perfectly and still not be connected.
+
+The fix is the filter's *default*. It was an allowlist — a list of what to keep,
+so anything unlisted was dropped — and it now names only what is empty:
+`setState` with no value and `copy` with no text, the two that would make the
+runtime do something wrong rather than nothing. Everything else is kept,
+including an action whose reference names nothing, because `pruneRefs` empties
+a reference rather than deleting the verb on purpose and a filter that dropped
+it would undo that the next time any other row was edited.
+
+The write path is now driven one verb at a time, by `ops.setActions` itself, so
+a failure names the verb rather than reporting a count.
 
 ### 4.1.7 And what X9 turned up — a field X8 moved but did not remove
 

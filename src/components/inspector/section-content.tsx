@@ -28,8 +28,16 @@ import {
   slug,
 } from '@/lib/document/schema';
 import { stateOf, valuesOf } from '@/lib/document/state';
-import { pressActionOfType, setPressAction } from '@/lib/document/actions';
-import { actionsFor } from '@/lib/document/actions';
+import {
+  actionsFor,
+  answerable,
+  guardsAgree,
+  planActions,
+  pressActionOfType,
+  setPressAction,
+  sharedGuard,
+} from '@/lib/document/actions';
+import { guardWarning } from '@/lib/renderer/test';
 import { VERBS, verbsFor, type VerbType } from '@/lib/document/events';
 import type {
   Asset,
@@ -38,6 +46,7 @@ import type {
   StateDecl,
   StyleDecl,
   StyleProp,
+  Test,
 } from '@/lib/document/types';
 import {
   exposeProperty,
@@ -63,8 +72,11 @@ import {
   TextInput,
   Tooltip,
 } from '../ui/primitives';
+import { Sentence } from '../ui/sentence';
 import { InspectorGroup, StyleRow } from './controls';
 import { StyleFields } from './style-field';
+import { blankGuard, testSentence } from './sentences';
+import { useReadableValues } from './use-readable';
 import { useRangesInScope, useStatesInScope } from './section-rules';
 import { useNodeProp, useStyleProp, useStyleReset, useStyleWriter } from './use-style';
 
@@ -1545,7 +1557,8 @@ function SwitchGroupContent() {
  */
 export function ActionsSection() {
   const setActions = useEditor((s) => s.setActions);
-  const type = useEditor((s) => s.doc.nodes[s.selection[0] ?? '']?.type);
+  const node = useEditor((s) => s.doc.nodes[s.selection[0] ?? '']);
+  const type = node?.type;
   const states = useStatesInScope().filter((state) => state.values.length > 0);
   const panels = usePopovers();
   const anchors = useAnchors();
@@ -1554,12 +1567,52 @@ export function ActionsSection() {
     return JSON.stringify(actionsFor(node ?? ({} as never)));
   });
   const list = useMemo(() => JSON.parse(encoded) as NodeAction[], [encoded]);
+  /*
+   * What a guard on this element could compare against — and the guards it
+   * already holds, so an element one of them names stays nameable after it has
+   * stopped being on offer. Same call the state-from-record panel makes, which
+   * is the point of it being a call rather than a walk in each panel.
+   */
+  const guards = useMemo(
+    () => list.map((action) => action.only).filter((one): one is Test => Boolean(one)),
+    [list]
+  );
+  const readable = useReadableValues(node, guards);
+  /*
+   * The no-scripting sentence, from the function that owns the wording. It has
+   * been right since X7 and has been rendering in the Data section, which needs
+   * a collection in scope; the guard is authored here and this section always
+   * exists. See §4.0.9.
+   */
+  const caveat = node ? guardWarning(node) : null;
 
   if (!type) return null;
 
   const write = (next: NodeAction[]) => setActions(next);
   const at = (index: number, action: NodeAction | null) =>
     write(action ? list.map((a, i) => (i === index ? action : a)) : list.filter((_, i) => i !== index));
+
+  /*
+   * One guard, written to every action, and §4.0.9 is the argument for it: an
+   * unfoldable guard is one attribute on one element, so guarding one row of
+   * two would make `planActions` refuse the other. Writing all of them is the
+   * shape that is correct on both schedules, and it makes a refusal something
+   * this panel reports rather than something it can produce.
+   */
+  const guard = sharedGuard(list);
+  const agreed = guardsAgree(list);
+  const setGuard = (next: Test | null) =>
+    write(
+      list.map((action) => {
+        const copy = { ...action };
+        if (next) copy.only = next;
+        else delete copy.only;
+        return copy;
+      })
+    );
+  const refusals = planActions(list).refused;
+  /** What a fresh guard would say, and `null` when there is nothing to read. */
+  const seed = blankGuard(readable);
 
   /*
    * What each verb needs said about it, and nothing more.
@@ -1747,6 +1800,82 @@ export function ActionsSection() {
             ]}
           />
         </StyleRow>
+
+        {/*
+          "…but only when", for the whole gesture.
+
+          A comparison rather than the condition menu the rules section offers,
+          and that is derived rather than chosen: `evaluate` and
+          `testRuntime.holds` both answer `compare` and both answer `null` for
+          every `Condition`, so *only when hovered* would travel, never hold,
+          and take every other action on the element down with it. §4.0.9.
+        */}
+        {list.length > 0 && agreed && guard && !answerable(guard) && (
+          <p className="px-1 text-[10.5px] leading-relaxed text-[var(--warning,var(--text-faint))]">
+            This is gated on something neither the publisher nor the browser can answer, so it
+            never runs. Only a comparison works here.
+          </p>
+        )}
+
+        {list.length > 0 && agreed && guard && answerable(guard) && (
+          <div className="rounded-md border border-[var(--border-soft)] bg-[var(--field)] px-2 py-1.5">
+            <Sentence
+              parts={[
+                ...testSentence({
+                  test: guard,
+                  fields: readable.fields,
+                  controls: readable.controls,
+                  elements: readable.elements,
+                  opening: 'Only when',
+                  newLeaf: () => seed ?? guard,
+                  onChange: setGuard,
+                }),
+                {
+                  kind: 'action',
+                  key: 'ungate',
+                  title: 'Always run this',
+                  label: <Trash2 size={10} />,
+                  onClick: () => setGuard(null),
+                },
+              ]}
+            />
+            {caveat && (
+              <p className="pt-1 text-[10px] leading-relaxed text-[var(--warning,var(--text-faint))]">
+                {caveat}
+              </p>
+            )}
+          </div>
+        )}
+
+        {list.length > 0 && agreed && !guard && seed && (
+          <div className="pt-0.5">
+            <button
+              type="button"
+              onClick={() => setGuard(seed)}
+              className="flex h-[24px] items-center gap-1 rounded-md bg-[var(--field)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--field-hover)] hover:text-[var(--text)]"
+            >
+              <Plus size={10} />
+              Only when…
+            </button>
+          </div>
+        )}
+
+        {/*
+          And the shapes this panel does not write but has to read, because a
+          block can. `plan.refused` has existed since X6 and has never been on
+          screen — which was survivable while nothing in the editor could
+          produce one, and is not the same as nobody's document holding one.
+        */}
+        {refusals.length > 0 && (
+          <p className="px-1 text-[10.5px] leading-relaxed text-[var(--warning,var(--text-faint))]">
+            {refusals.length === 1 ? 'One of these will not run' : `${refusals.length} of these will not run`}
+            {' — '}
+            {refusals.map((one) => VERBS[one.action.type]?.label ?? one.action.type).join(', ')}.{' '}
+            {refusals.some((one) => one.why === 'guard')
+              ? 'An element has one condition to be gated by, so every action here has to share it.'
+              : 'An element has one link, one panel and one form to send, and the first claim wins.'}
+          </p>
+        )}
 
         {list.some((a) => a.type === 'copy' && a.text) && (
           <p className="px-3 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">

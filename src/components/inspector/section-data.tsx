@@ -33,7 +33,6 @@ import {
   type ValueVar,
 } from '@/lib/document/types';
 import {
-  elementsRead,
   fieldsRead,
   needsRuntime,
   provablyOverlap,
@@ -42,11 +41,12 @@ import {
 import { varReference } from '@/lib/renderer/values';
 import { isSettable } from '@/lib/renderer/variants';
 import { stateKeyOf, stateOf } from '@/lib/document/state';
-import { activeRootId, useEditor } from '@/lib/editor/store';
+import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
 import { Sentence, type Part } from '../ui/sentence';
 import { bindingSentence, blankTest, filterSentence, testSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
+import { useReadableValues } from './use-readable';
 
 /** Props worth offering a binding for, in the order they appear in Content. */
 const BINDABLE = ['text', 'html', 'label', 'alt', 'src', 'href', 'caption', 'placeholder', 'value', 'title'];
@@ -367,12 +367,8 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
   const nodes = useEditor((s) => s.doc.nodes);
   const rules = node.assign ?? [];
   const key = stateKeyOf(node);
-  const controls = namedControlsInside(nodes, node);
-  const elements = alsoAlreadyRead(
-    controlsOnPage(nodes, activeRootId(useEditor.getState()) ?? undefined, node),
-    rules,
-    nodes
-  );
+  const reading = React.useMemo(() => rules.map((rule) => rule.when), [rules]);
+  const { controls, elements } = useReadableValues(node, reading);
   /*
    * Rules whose element is not in the document at all, by rule.
    *
@@ -679,101 +675,6 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
  * handed. Sourcing it from a `Record<StyleProp, …>` makes that unspellable.
  */
 const EFFECT_PROPS = effectProps();
-
-/**
- * Form controls inside this node, by name.
- *
- * Inside, because that is the scope the interaction model gives a rule: it
- * evaluates against the node that owns it, and descendants react to the
- * resulting state. So the way to light up a submit button when a field is
- * filled is to put the rule on the form and style the button through the
- * state — not to reach across the page from the button, which is the
- * arbitrary targeting the model defers.
- */
-/**
- * Every control on the page, whether or not it is inside this node.
- *
- * The other half of the source list, and the one that could not exist before
- * references did: a control here is offered by *node*, so the rule survives the
- * field being renamed and is cleared when the field is deleted. Named controls
- * inside the node stay on offer beside them — they are one string in the
- * document rather than a reference, which is the lighter thing to reach for
- * when the control really is a child.
- */
-function controlsOnPage(
-  nodes: Record<string, SceneNode>,
-  rootId: string | undefined,
-  exclude: SceneNode
-): { id: string; name: string }[] {
-  if (!rootId) return [];
-  const inside = new Set<string>();
-  const mark = (id: string, depth: number): void => {
-    if (depth > 60) return;
-    inside.add(id);
-    for (const child of nodes[id]?.children ?? []) mark(child, depth + 1);
-  };
-  mark(exclude.id, 0);
-
-  const out: { id: string; name: string }[] = [];
-  const walk = (id: string, depth: number): void => {
-    if (depth > 60) return;
-    const node = nodes[id];
-    if (!node) return;
-    // Not the ones already offered as "what is typed" — the same control twice
-    // under two spellings is a menu nobody can choose from.
-    if (READABLE_TYPES.has(node.type) && !inside.has(id)) out.push({ id, name: node.name });
-    for (const child of node.children) walk(child, depth + 1);
-  };
-  walk(rootId, 0);
-  return out;
-}
-
-/**
- * Those, plus any element the rules already read that is not among them.
- *
- * Because what is worth *offering* and what has to be *named* are different
- * questions, and `controlsOnPage` answers the first. It leaves out the node's
- * own descendants on purpose — they are offered as "what is typed" instead — so
- * a control that was picked from the page and has since been dragged inside
- * this node is a live, working reference that the offer list cannot label. Ask
- * the offer list to do the naming and that rule renders as unset and then gets
- * reported as broken, which is two lies about a rule that works.
- *
- * After this, a reference the sentence cannot name is one whose node is
- * genuinely not in the document — the same thing `danglingReads` reports, which
- * is what lets the chip and the warning underneath agree.
- */
-function alsoAlreadyRead(
-  offered: { id: string; name: string }[],
-  rules: StateRule[],
-  nodes: Record<string, SceneNode>
-): { id: string; name: string }[] {
-  const out = [...offered];
-  for (const rule of rules) {
-    for (const id of elementsRead(rule.when)) {
-      if (out.some((one) => one.id === id)) continue;
-      const found = nodes[id];
-      if (found) out.push({ id, name: found.name });
-    }
-  }
-  return out;
-}
-
-const READABLE_TYPES = new Set(['input', 'textarea', 'select', 'checkbox', 'radio', 'range', 'file']);
-
-function namedControlsInside(nodes: Record<string, SceneNode>, root: SceneNode): string[] {
-  const found: string[] = [];
-  const walk = (id: string, depth: number): void => {
-    if (depth > 40) return;
-    const child = nodes[id];
-    if (!child) return;
-    const name = slug(child.props.name);
-    if (name && !found.includes(name)) found.push(name);
-    for (const grandchild of child.children) walk(grandchild, depth + 1);
-  };
-  for (const child of root.children) walk(child, 0);
-  return found;
-}
 
 /* --------------------------------------------------------------------------
  * A number from the record, on a scale

@@ -239,6 +239,29 @@ export function foldedAttrs(node: SceneNode, record: CollectionRecord | null): s
 }
 
 /**
+ * What a live guard does not do, said where the guard is written.
+ *
+ * A guard that reads something typed cannot be answered in a file, and what a
+ * visitor with no scripting gets then depends on which verb it is guarding —
+ * not on anything the author chose. A `copy` does nothing, which is what it
+ * does unguarded. A `navigate` *goes*: the `href` is in the markup and there is
+ * nothing to stop it. That second one is worth a sentence, because "only when
+ * signed in" reads like a lock and is not one.
+ *
+ * Its own function since X10 so the press list can print it. It is the panel
+ * where the guard is authored and the only one that is always there — the Data
+ * section, which had it, needs a collection in scope. One wording still, for
+ * the reason `unfinished` gives: two places deciding how to word one rule is
+ * how they end up disagreeing about what the rule is.
+ */
+export function guardWarning(node: SceneNode): string | null {
+  if (!guardOf(node)) return null;
+  const carried = planActions(actionsFor(node)).native;
+  if (!carried.length) return null;
+  return `“Only when” is answered in the browser, so a visitor with no scripting still ${carried[0]!.carrier === 'href' ? 'follows this link' : 'gets this'}. Use it to tidy an interface, not to keep anybody out.`;
+}
+
+/**
  * What is stopping this node's assignments from being finished.
  *
  * The execution model makes the scripting-off fallback **required**, not
@@ -253,24 +276,10 @@ export function foldedAttrs(node: SceneNode, record: CollectionRecord | null): s
  * disagreeing about what the rule is.
  */
 export function unfinished(node: SceneNode): string | null {
-  /*
-   * The guard first, because it is the one thing here a designer cannot
-   * discover by looking at the page.
-   *
-   * A guard that reads something typed cannot be answered in a file, and what
-   * a visitor with no scripting gets then depends on which verb it is guarding
-   * — not on anything the author chose. A `copy` does nothing, which is what
-   * it does unguarded. A `navigate` *goes*: the `href` is in the markup and
-   * there is nothing to stop it. That second one is worth a sentence, because
-   * "only when signed in" reads like a lock and is not one.
-   */
-  const gate = guardOf(node);
-  if (gate) {
-    const carried = planActions(actionsFor(node)).native;
-    if (carried.length) {
-      return `“Only when” is answered in the browser, so a visitor with no scripting still ${carried[0]!.carrier === 'href' ? 'follows this link' : 'gets this'}. Use it to tidy an interface, not to keep anybody out.`;
-    }
-  }
+  // The guard first, because it is the one thing here a designer cannot
+  // discover by looking at the page.
+  const gate = guardWarning(node);
+  if (gate) return gate;
   if (!node.assign?.length) return null;
   if (!stateKeyOf(node)) {
     return 'This has no state name, so nothing is written when a rule matches.';

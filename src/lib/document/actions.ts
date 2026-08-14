@@ -269,6 +269,33 @@ export function runnable(action: NodeAction): boolean {
   }
 }
 
+/**
+ * Whether this action says nothing, and is not worth storing.
+ *
+ * A **denylist**, and that is the whole of it. The store used to keep
+ * `setState`-with-a-value and `copy`-with-text and drop the rest, which was a
+ * complete description of the vocabulary on the day it was written and became
+ * a silent delete of six verbs the moment X6 grew them: every `openPanel`,
+ * `scrollTo`, `navigate`, `submit` and `toggleState` the panel offered was
+ * discarded on its way to the document. See §4.1.9.
+ *
+ * The two cases below are the ones that were always meant. An empty
+ * `data-cre8-set` makes the runtime *clear* the state on press and an empty
+ * `copy` puts an empty string on the clipboard — neither is a thought anybody
+ * finished, and both do something rather than nothing.
+ *
+ * Deliberately not here: an action pointing at a reference that names nothing.
+ * `pruneRefs` empties an action's reference rather than deleting the verb, so
+ * that a designer whose panel was deleted sees an Open button naming nothing
+ * rather than an Open button that vanished — and a filter that dropped it
+ * would undo that bargain the next time any *other* row was edited.
+ */
+export function emptyAction(action: NodeAction): boolean {
+  if (action.type === 'setState') return !slug(action.value);
+  if (action.type === 'copy') return !action.text;
+  return false;
+}
+
 /* --------------------------------------------------------------------------
  * The absorption
  * ----------------------------------------------------------------------- */
@@ -428,6 +455,65 @@ function sameGuard(a: Test | undefined, b: Test | undefined): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
+/**
+ * Whether either evaluator could ever answer this guard.
+ *
+ * True for a comparison and for groups of them; false the moment a `Condition`
+ * appears anywhere in the tree. Not a restriction this module invented — it is
+ * what the two evaluators say, read off both:
+ *
+ * - `schedule.ts:evaluate` handles `compare`, `every`, `some`, and answers
+ *   `null` for a `Condition` because those "are answered by the browser rather
+ *   than by the publisher".
+ * - `behaviour.ts:testRuntime.holds` has the same three cases and the same
+ *   default, and a `null` verdict *removes* the minted attribute.
+ *
+ * So a `Condition` guard does not fold, travels, and is never true: the action
+ * never runs, and because an unfoldable guard is the whole element's guard,
+ * `planActions` refuses every other action beside it. One pick from a condition
+ * menu would silently stop the control.
+ *
+ * The panel offers comparisons only, which makes this unreachable from the
+ * editor. It is still worth having, because a block can write a document this
+ * module has to describe honestly. See §4.0.9.
+ */
+export function answerable(test: Test): boolean {
+  if (test.kind === 'compare') return true;
+  if (test.kind === 'every' || test.kind === 'some') return test.tests.every(answerable);
+  return false;
+}
+
+/**
+ * Whether every action in a list carries the same `only`.
+ *
+ * True for an empty list and for a list nothing guards, which is the common
+ * case and the one the panel treats as "no guard yet" rather than as agreement
+ * about nothing.
+ */
+export function guardsAgree(actions: readonly NodeAction[]): boolean {
+  const first = actions[0]?.only;
+  return actions.every((action) => sameGuard(action.only, first));
+}
+
+/**
+ * That guard, when there is one they all share.
+ *
+ * The shape the panel authors, and the reason it authors it is `planActions`
+ * two functions down: an unfoldable guard is one attribute on one element, so
+ * an element has one, and a list whose actions disagree has a refusal in it.
+ * Writing the same guard to every action is the shape that is correct on both
+ * schedules — folded, they all get the same publish-time answer; live, they all
+ * hang off the one attribute.
+ *
+ * `null` when the list is unguarded *and* when its actions disagree. Those two
+ * are told apart by `guardsAgree`, because they could not be further apart on
+ * screen: one is an offer to add a condition, the other is a design the
+ * compiler is about to take apart.
+ */
+export function sharedGuard(actions: readonly NodeAction[]): Test | null {
+  return guardsAgree(actions) ? (actions[0]?.only ?? null) : null;
+}
+
 /* --------------------------------------------------------------------------
  * The native-first compiler
  * ----------------------------------------------------------------------- */
@@ -436,6 +522,27 @@ function sameGuard(a: Test | undefined, b: Test | undefined): boolean {
 export interface Claim {
   carrier: Exclude<Carrier, null>;
   action: NodeAction;
+}
+
+/**
+ * An action the element has nowhere to put, and which of the two reasons it is.
+ *
+ * The reason is recorded rather than re-derived because the panel is the thing
+ * that has to explain it, and the compiler is the only thing that knows: by the
+ * time a caller is looking at a refused action, the state that decided it —
+ * which carrier was already spent, which guard was first — is gone.
+ */
+export interface Refusal {
+  action: NodeAction;
+  /**
+   * `carrier` — the markup slot this verb needs is already claimed, and an
+   * element has one `href`, one `popovertarget` and one `type`.
+   *
+   * `guard` — it does not carry the same `only` as the rest, and the element
+   * has one attribute to be gated by. An *unguarded* action on a gated element
+   * is this too: there is no way to exempt one action from the attribute.
+   */
+  why: 'carrier' | 'guard';
 }
 
 /**
@@ -448,7 +555,7 @@ export interface Claim {
 export interface ActionPlan {
   native: Claim[];
   script: NodeAction[];
-  refused: NodeAction[];
+  refused: Refusal[];
   /** The guard the browser has to answer before any of it runs, if there is one. */
   gated?: Test;
 }
@@ -495,7 +602,7 @@ export function planActions(
 ): ActionPlan {
   const native: Claim[] = [];
   const script: NodeAction[] = [];
-  const refused: NodeAction[] = [];
+  const refused: Refusal[] = [];
   const taken = new Set<string>();
   // The first unfoldable guard sets the terms; `guardOf` reads the node the
   // same way, so the attribute the renderer mints and the condition the plan
@@ -509,7 +616,7 @@ export function planActions(
         // no record, which is the canvas. Only a flat `false` drops it.
         if (record !== undefined && evaluate(action.only, record ?? null) === false) continue;
       } else if (!sameGuard(action.only, gated)) {
-        refused.push(action);
+        refused.push({ action, why: 'guard' });
         continue;
       }
     } else if (gated) {
@@ -517,7 +624,7 @@ export function planActions(
       // because the attribute gates the element and there is no way to exempt
       // one action from it — and quietly making it conditional would be a
       // control that stops working for reasons nothing on screen explains.
-      refused.push(action);
+      refused.push({ action, why: 'guard' });
       continue;
     }
 
@@ -527,7 +634,7 @@ export function planActions(
       continue;
     }
     if (taken.has(carrier)) {
-      refused.push(action);
+      refused.push({ action, why: 'carrier' });
       continue;
     }
     taken.add(carrier);

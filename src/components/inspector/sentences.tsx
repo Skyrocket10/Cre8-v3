@@ -445,6 +445,37 @@ export function blankTest(field: Field): Test {
 }
 
 /**
+ * The same, over whatever this element can actually read.
+ *
+ * `blankTest` needs a field, and the panel that guards an action often has
+ * none: most pages carry no collection at all, and *only when the email box is
+ * not empty* is the guard people reach for first. So the seed falls through the
+ * three operand kinds in the order they are worth offering, and answers `null`
+ * when there is nothing here to compare — which is the case where the panel
+ * must not offer a guard, because a comparison with no operand is a condition
+ * that ships and can never hold.
+ *
+ * `notEmpty` for the two control kinds, because it needs no right-hand side and
+ * is therefore complete the moment it appears — the same standard `blankTest`
+ * sets with "grammatical from the moment it appears".
+ */
+export function blankGuard(readable: {
+  fields: Field[];
+  controls: string[];
+  elements: { id: string; name: string }[];
+}): Test | null {
+  const field = readable.fields[0];
+  if (field) return blankTest(field);
+  const control = readable.controls[0];
+  if (control) return { kind: 'compare', left: { kind: 'input', name: control }, op: 'notEmpty' };
+  const element = readable.elements[0];
+  if (element) {
+    return { kind: 'compare', left: { kind: 'element', ref: { node: element.id } }, op: 'notEmpty' };
+  }
+  return null;
+}
+
+/**
  * `Only when ⟨Tag⟩ ⟨is⟩ ⟨news⟩`, for the repeater.
  *
  * The same three parts as a Test, over a smaller operator set, because a filter

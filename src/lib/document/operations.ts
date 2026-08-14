@@ -27,7 +27,7 @@ import {
   structuredCloneCompat,
   type NodeSpec,
 } from './factory';
-import { CLICK, setPressAction, stateSets } from './actions';
+import { CLICK, emptyAction, setPressAction, stateSets } from './actions';
 import { conditionsOf, eachCondition } from './when';
 import { stateKeyOf, stateOf } from './state';
 import { uid, slugify } from './id';
@@ -692,14 +692,15 @@ export function removeAssign(doc: Cre8Document, id: NodeId, assignId: string): v
  * An empty list removes the field: an element carrying `events: []` publishes
  * exactly as one carrying nothing, and a document where the two are different
  * is a document with a difference nobody can see.
+ *
+ * What counts as nothing is `emptyAction`'s answer rather than this function's.
+ * It was this function's, spelled as a list of the two verbs that existed, and
+ * that list is what silently ate the six X6 added — see §4.1.9.
  */
 export function setActions(doc: Cre8Document, id: NodeId, actions: NodeAction[]): void {
   const node = doc.nodes[id];
   if (!node) return;
-  const kept = actions.filter(
-    (action) =>
-      (action.type === 'setState' && slug(action.value)) || (action.type === 'copy' && action.text)
-  );
+  const kept = actions.filter((action) => !emptyAction(action));
   // Bindings for other events are left alone. There are none today, and a
   // panel that silently dropped the ones it does not draw is the reason to
   // write the filter now rather than when the second event arrives.

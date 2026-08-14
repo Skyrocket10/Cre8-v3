@@ -12328,6 +12328,77 @@ report.group('every verb compiles to the most native thing available');
     `${/popovertarget="[^"]*"/.exec(absorbed.html)?.[0] ?? 'no popovertarget'} · ${/<button[^>]*type="submit"/.test(absorbed.html) ? 'type="submit"' : 'no submit'}`
   );
 
+  /* --- And back out of the panel ------------------------------------------ */
+
+  /*
+   * The write path, which is the half X8 never drove.
+   *
+   * X9's browser checks seeded the document over HTTP on purpose — driving the
+   * add menu would have been driving `Select` — and the reasoning was sound
+   * about the widget and wrong about the coverage: nothing exercised
+   * `ops.setActions`, so nothing noticed it was a two-verb allowlist written
+   * before the vocabulary had eight. Six of what the panel offers were dropped
+   * on the way to the document. See §4.1.9.
+   *
+   * Driven one verb at a time rather than as a list, so the failure names which
+   * verb rather than reporting a count that is wrong by an unknown amount.
+   */
+  const EVERY_VERB = [
+    { type: 'setState', value: 'annual' },
+    { type: 'toggleState', values: ['open', 'shut'] },
+    { type: 'copy', text: 'PROMO20' },
+    { type: 'navigate' },
+    { type: 'submit' },
+    { type: 'openPanel', ref: { node: 'pan1' } },
+    { type: 'closePanel', ref: { node: 'pan1' } },
+    { type: 'scrollTo', ref: { node: 'sec1' } },
+  ];
+  const throughStore = (actions) => {
+    const doc = { nodes: { one: { id: 'one', type: 'button', name: 'Go', props: {}, children: [] } } };
+    ops.setActions(doc, 'one', actions);
+    return (doc.nodes.one.events ?? []).flatMap((binding) => binding.actions);
+  };
+  const eaten = EVERY_VERB.filter((action) => throughStore([action]).length !== 1);
+  report.check(
+    'every verb the panel offers survives the store’s write path',
+    eaten.length === 0,
+    eaten.length ? `dropped: ${eaten.map((one) => one.type).join(', ')}` : `all ${EVERY_VERB.length} kept`
+  );
+  report.check(
+    'and every verb in one list keeps its order, because the order is the gesture',
+    throughStore(EVERY_VERB).map((one) => one.type).join(' ') ===
+      EVERY_VERB.map((one) => one.type).join(' '),
+    throughStore(EVERY_VERB).map((one) => one.type).join(' ') || 'nothing stored'
+  );
+  /*
+   * The two the filter was always meant to catch, and a third it must not: an
+   * emptied reference is what `pruneRefs` leaves behind on purpose, so dropping
+   * it here would delete a row the panel deliberately keeps visible the next
+   * time any *other* row was edited.
+   */
+  report.check(
+    'a verb that says nothing is still not stored',
+    throughStore([{ type: 'setState', value: '  ' }, { type: 'copy', text: '' }]).length === 0,
+    `${throughStore([{ type: 'setState', value: '  ' }, { type: 'copy', text: '' }]).length} stored`
+  );
+  report.check(
+    'but a reference that names nothing is a row to fix, not a row to delete',
+    throughStore([{ type: 'openPanel', ref: {} }]).length === 1,
+    `${throughStore([{ type: 'openPanel', ref: {} }]).length} stored`
+  );
+  /* A guard rides along, which is the whole of X10 reaching the document. */
+  const allGuarded = throughStore(
+    EVERY_VERB.map((one) => ({
+      ...one,
+      only: { kind: 'compare', left: { kind: 'input', name: 'email' }, op: 'notEmpty' },
+    }))
+  ).filter((one) => one.only?.left?.name === 'email');
+  report.check(
+    'and the guard the panel writes onto them arrives on every one of them',
+    allGuarded.length === EVERY_VERB.length,
+    `${allGuarded.length}/${EVERY_VERB.length} guarded`
+  );
+
   /* --- One carrier, one claim --------------------------------------------- */
 
   /*
@@ -12346,9 +12417,10 @@ report.group('every verb compiles to the most native thing available');
     both.native.length === 1 &&
       claimed(both, 'href')?.type === 'navigate' &&
       both.refused.length === 1 &&
-      both.refused[0].type === 'scrollTo' &&
+      both.refused[0].action.type === 'scrollTo' &&
+      both.refused[0].why === 'carrier' &&
       both.script.length === 1,
-    `native ${both.native.map((c) => c.action.type).join(' ')} · refused ${both.refused.map((a) => a.type).join(' ')} · script ${both.script.map((a) => a.type).join(' ')}`
+    `native ${both.native.map((c) => c.action.type).join(' ')} · refused ${both.refused.map((one) => `${one.action.type} (${one.why})`).join(' ')} · script ${both.script.map((a) => a.type).join(' ')}`
   );
   /*
    * And the order is the authored one rather than the table's. Same two verbs
@@ -12362,8 +12434,9 @@ report.group('every verb compiles to the most native thing available');
   ]);
   report.check(
     'and which one wins is the order they were written in',
-    claimed(reversed, 'href')?.type === 'scrollTo' && reversed.refused[0]?.type === 'navigate',
-    `${claimed(reversed, 'href')?.type} kept, ${reversed.refused[0]?.type} refused`
+    claimed(reversed, 'href')?.type === 'scrollTo' &&
+      reversed.refused[0]?.action.type === 'navigate',
+    `${claimed(reversed, 'href')?.type} kept, ${reversed.refused[0]?.action.type} refused`
   );
 
   /*
@@ -12530,8 +12603,11 @@ report.group('every verb compiles to the most native thing available');
   ]);
   report.check(
     'two different live guards on one element: the second is refused, not run under the first',
-    mixed.script.length === 1 && mixed.refused.length === 1 && mixed.refused[0].value === 'b',
-    `kept ${mixed.script.map((a) => a.value).join(' ')} · refused ${mixed.refused.map((a) => a.value).join(' ')}`
+    mixed.script.length === 1 &&
+      mixed.refused.length === 1 &&
+      mixed.refused[0].action.value === 'b' &&
+      mixed.refused[0].why === 'guard',
+    `kept ${mixed.script.map((a) => a.value).join(' ')} · refused ${mixed.refused.map((one) => `${one.action.value} (${one.why})`).join(' ')}`
   );
   const beside = planActions([
     { type: 'setState', value: 'a', only: typed },
@@ -12539,8 +12615,11 @@ report.group('every verb compiles to the most native thing available');
   ]);
   report.check(
     'and an unguarded action beside a live guard is refused rather than quietly gated',
-    beside.script.length === 1 && beside.refused.length === 1 && beside.refused[0].type === 'copy',
-    `kept ${beside.script.map((a) => a.type).join(' ')} · refused ${beside.refused.map((a) => a.type).join(' ')}`
+    beside.script.length === 1 &&
+      beside.refused.length === 1 &&
+      beside.refused[0].action.type === 'copy' &&
+      beside.refused[0].why === 'guard',
+    `kept ${beside.script.map((a) => a.type).join(' ')} · refused ${beside.refused.map((one) => `${one.action.type} (${one.why})`).join(' ')}`
   );
   report.check(
     'while the same guard written twice is the same guard',
@@ -12549,6 +12628,77 @@ report.group('every verb compiles to the most native thing available');
       { type: 'copy', text: 'x', only: { ...typed } },
     ]).refused.length === 0,
     `${planActions([{ type: 'setState', value: 'a', only: typed }, { type: 'copy', text: 'x', only: { ...typed } }]).script.length} kept, none refused`
+  );
+
+  /* --- What the panel may offer, and what it may only report -------------- */
+
+  /*
+   * X10, and the claim is the derivation rather than the answer: the reason a
+   * guard has to be a comparison is that a `Condition` is answered by *neither*
+   * evaluator, so it does not fold and is never true.
+   *
+   * Both halves are asserted beside `answerable` on the same input, which is
+   * what makes this more than a restatement of its switch. Teach either
+   * evaluator a new kind and forget this function, and the second clause fails
+   * rather than the first.
+   */
+  const CONDITIONS = [
+    { kind: 'pointer', pseudo: 'hover' },
+    { kind: 'control', pseudo: 'checked' },
+    { kind: 'state', key: 'billing', values: ['annual'] },
+    { kind: 'attr', name: 'data-cre8-copied', value: '' },
+    { kind: 'data', source: 'utm', values: ['sale'] },
+  ];
+  const unanswerable = CONDITIONS.filter(
+    (one) => !actionLib.answerable(one) && !tests.foldable(one) && tests.evaluate(one, null) === null
+  );
+  report.check(
+    'a browser condition is answerable by neither schedule, so it is not a guard',
+    unanswerable.length === CONDITIONS.length,
+    `${unanswerable.length}/${CONDITIONS.length}: ${CONDITIONS.map((one) => `${one.kind}→${actionLib.answerable(one) ? 'offered' : 'refused'}`).join(' ')}`
+  );
+  report.check(
+    'and a comparison is, on either schedule, however deep it is nested',
+    actionLib.answerable(typed) &&
+      actionLib.answerable({ kind: 'every', tests: [typed, { ...typed }] }) &&
+      !actionLib.answerable({ kind: 'every', tests: [typed, CONDITIONS[0]] }),
+    `compare ${actionLib.answerable(typed)} · all-compare ${actionLib.answerable({ kind: 'every', tests: [typed, typed] })} · one rotten ${actionLib.answerable({ kind: 'every', tests: [typed, CONDITIONS[0]] })}`
+  );
+
+  /*
+   * And the shape the panel writes: one guard, on every action. Told apart from
+   * "no guard" and from "these disagree", because the panel does three
+   * completely different things with the three answers — an offer, an editor,
+   * and a report.
+   */
+  const agreeing = [
+    { type: 'setState', value: 'a', only: typed },
+    { type: 'copy', text: 'x', only: { ...typed } },
+  ];
+  const disagreeing = [
+    { type: 'setState', value: 'a', only: typed },
+    { type: 'copy', text: 'x' },
+  ];
+  report.check(
+    'one guard on every action is one guard, and the panel can read it back',
+    actionLib.guardsAgree(agreeing) &&
+      JSON.stringify(actionLib.sharedGuard(agreeing)) === JSON.stringify(typed),
+    `${actionLib.guardsAgree(agreeing) ? 'agreed' : 'disagreed'} · ${JSON.stringify(actionLib.sharedGuard(agreeing))}`
+  );
+  report.check(
+    'a list nothing guards is not a list that agrees about a guard it has',
+    actionLib.guardsAgree([{ type: 'copy', text: 'x' }]) &&
+      actionLib.sharedGuard([{ type: 'copy', text: 'x' }]) === null &&
+      actionLib.guardsAgree([]) &&
+      actionLib.sharedGuard([]) === null,
+    `unguarded → ${actionLib.sharedGuard([{ type: 'copy', text: 'x' }])} · empty → ${actionLib.sharedGuard([])}`
+  );
+  report.check(
+    'and a list that disagrees is neither, which is what the panel reports',
+    !actionLib.guardsAgree(disagreeing) &&
+      actionLib.sharedGuard(disagreeing) === null &&
+      planActions(disagreeing).refused.length === 1,
+    `${actionLib.guardsAgree(disagreeing) ? 'agreed' : 'disagreed'} · ${planActions(disagreeing).refused.length} refused`
   );
 
   /* --- and what reaches the page ------------------------------------------ */
