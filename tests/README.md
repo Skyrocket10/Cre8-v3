@@ -2,6 +2,70 @@
 
 Two tiers, split by what they cost.
 
+## Before adding one — a check that cannot fail is worse than none
+
+A passing check is evidence only if it could have failed. This is not a
+platitude here: in one sitting, **five** newly written checks in this repo
+passed without being able to fail — two examined nothing at all, one measured
+an element that cannot overflow, and two stated the right rule over inputs that
+could not break it. Every one was found by breaking the code the check was
+written for, and none by re-reading the check.
+
+Worse than none, because a check that cannot fail *retires the question*.
+Nobody looks again at something with a tick beside it.
+
+### The practice
+
+1. **Falsify it.** Break the code the check is for and watch it fail. If it
+   still passes, something is wrong with the check or the mutation, and it is
+   usually the check. Use file backups (`cp`) rather than `git checkout`, so an
+   unrelated edit in the tree is not lost to a revert.
+2. **Compute the detail from what was tested.** A literal third argument cannot
+   tell you what it saw. `'onClick is the only event read'` kept saying so
+   after a second event would have arrived; `` `${unread} against
+   ${EVENTS.map((e) => e.id).join(', ')}` `` cannot.
+3. **Say how much you examined.** `nothing spills` and `93 blocks, every set
+   lands` read identically whether the sweep found nothing wrong or looked at
+   nothing at all. Put the count in the assertion — `spills.length === 0 &&
+   measured > 200` — and in the detail. Two of the five were caught by exactly
+   this and nothing else.
+4. **Make sure the fixture can produce the fault.** A rule stated perfectly
+   over inputs that cannot break it is not a check. Two checks asserted that
+   growing a condition offers a *different* one, over fixtures that grew from
+   `ticked` and `focused` — so a hardcoded `hover` seed differed from both by
+   luck, and restoring the bug left them green.
+5. **Drive the editor, not the document.** Seeding over HTTP tests everything
+   downstream of the store, which is not the same as testing the editor. The
+   press list offered eight verbs and the store's write path kept two of them,
+   for two stages, because no check ever went through it.
+
+### The ways they have actually failed here
+
+Each of these shipped, passed, and was found later:
+
+| The check | Why it could not fail |
+|---|---|
+| every conditional selector is in the stylesheet | `.every()` over a list that was always empty — a published page is one line, and the scan looked for lines ending in `{` |
+| no block varies a prop nothing can vary | `walk` is a generator; passing it a callback iterates nothing |
+| nothing in the panel spills out of it | measured `StyleRow`'s wrapper, which carries `min-w-0` and therefore cannot overflow |
+| …the second attempt at the same | skipped every box in a horizontal scroller, and a computed `overflow-y: auto` makes `overflow-x` `auto` too, so walking to `body` exempted the whole panel |
+| a jump publishes an anchor | the regex `/<a[^>]*href="#/` is satisfied by `href="#"`, which is the bug |
+| five no-script guarantees | `javaScriptEnabled` is a **context** option and is ignored on `newPage`, silently |
+| "or" offers a second condition | the fixtures never grew from the one the seed hardcoded |
+
+And one that is not a check at all but reads like one: a falsification whose
+`npm run build` **failed** while `wrangler` kept serving the previous `out/`,
+so the suite passed against the code the mutation was meant to have replaced.
+`npm run build | tail -1` hides it. Read the exit code.
+
+### What a good failure looks like
+
+`overhang 28px, 135px`. `dropped: toggleState, navigate, submit, openPanel,
+closePanel, scrollTo`. `2 field(s) hold it`. `0 set keys`. Every one of those
+names the thing that is wrong and how wrong it is, because the detail was built
+from the values under test — so the failure is the diagnosis, and nobody has to
+add logging to a red suite to find out what it meant.
+
 ## Comparing two revisions — `tests/publish-dump.mjs`
 
 Not a suite. A tool, for the class of change whose whole claim is that nothing
