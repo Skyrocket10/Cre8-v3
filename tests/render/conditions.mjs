@@ -693,27 +693,22 @@ try {
           ordered.join(' ') || 'no ordered rows'
         );
         /*
-         * The copy's own field, which is the half that says the row is an
-         * editor rather than a summary — the old section could not show a
-         * `copy` at all, and the text lived in the Content panel.
-         */
-        /*
-         * And the copy's own field is in the row, which is what makes it an
-         * editor rather than a summary — the old section could not show a
-         * `copy` at all and its text lived in Content.
+         * And the copy's own field is in the row, which is what makes the row
+         * an editor rather than a summary — the old section could not show a
+         * `copy` at all, and its text lived in the Content panel.
          *
-         * The count is in the detail because it is *two*, not one: Content
-         * still offers the same field. That is a leftover rather than a
-         * design — X8 moved the storage and left the second surface standing —
-         * and it is recorded here rather than asserted away, because a check
-         * that demanded one would fail for the right reason and read like the
-         * list was broken.
+         * Exactly one, counted across the whole inspector rather than the one
+         * section, because the failure this guards against is not a missing
+         * field but a second one. X8 moved the storage into the action and
+         * left Content's field standing on top of it, so for a while the same
+         * string had two editors that wrote through different code paths.
+         * Asserting the count is what stops the second one coming back.
          */
         const fields = await panel.locator('input[value="PROMO20"]').count();
         report.check(
-          'and the copy’s text is editable from the row itself',
-          fields >= 1,
-          `${fields} field(s) hold it — Content still offers one too, which X8 should retire`
+          'and the copy’s text is editable from the row itself, and only there',
+          fields === 1,
+          `${fields} field(s) hold it`
         );
       }
     }

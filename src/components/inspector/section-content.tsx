@@ -1748,6 +1748,13 @@ export function ActionsSection() {
           />
         </StyleRow>
 
+        {list.some((a) => a.type === 'copy' && a.text) && (
+          <p className="px-3 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
+            A copy carries <code>data-cre8-copied</code> for a moment afterwards, so a rule keyed
+            on that attribute can say so.
+          </p>
+        )}
+
         {list.some((a) => a.type === 'setState') && (
           <StyleRow label="Announced as" hint="A toggle says whether it is on; Next and Back do not">
             <Segmented
@@ -2500,28 +2507,6 @@ function LinkContent({
   const insideForm = useInsideForm();
   const submits = Boolean(submit.value);
   const opensPopover = opensAPopover;
-  /*
-   * The clipboard text, which is an *action* now rather than a prop.
-   *
-   * Read and written through the same list the Interaction section edits, so
-   * a control that copies and switches carries one ordered gesture rather than
-   * a prop and a list that have to be reconciled by whatever reads them next.
-   */
-  const setActions = useEditor((s) => s.setActions);
-  const encoded = useEditor((s) => {
-    const node = s.doc.nodes[s.selection[0] ?? ''];
-    return JSON.stringify(node?.events?.find((b) => b.event === 'onClick')?.actions ?? []);
-  });
-  const actions = useMemo(() => JSON.parse(encoded) as NodeAction[], [encoded]);
-  const copyText = actions.reduce(
-    (found, action) => (action.type === 'copy' && action.text ? action.text : found),
-    ''
-  );
-  const setCopy = (text: string) =>
-    setActions([
-      ...actions.filter((action) => action.type !== 'copy'),
-      ...(text ? [{ type: 'copy' as const, text }] : []),
-    ]);
 
   return (
     <Section title={title}>
@@ -2559,32 +2544,7 @@ function LinkContent({
             and offering a URL that would silently stop working is worse than
             not offering it. A submitting button is a `<button>` for the same
             reason, so its href would be ignored too. */}
-        {!opensPopover && !submits && (
-          <>
-            <Destination />          </>
-        )}
-
-        {/*
-          The one thing a press can do that the platform has no element for, so
-          the only one that costs a visitor a script — and it costs them nothing
-          unless a page uses it. Offered here rather than in a section of its
-          own because it is a thing this control *does*, which is what everything
-          above it is too.
-        */}
-        <StyleRow label="Copies" hint="Puts this text on the clipboard when pressed">
-          <TextInput
-            className="flex-1"
-            value={copyText}
-            onValueChange={(v) => setCopy(v.trim())}
-            placeholder="Nothing"
-          />
-        </StyleRow>
-        {Boolean(copyText) && (
-          <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
-            It carries <code>data-cre8-copied</code> for a moment afterwards, so a rule keyed on
-            that attribute can say so.
-          </p>
-        )}
+        {!opensPopover && !submits && <Destination />}
       </InspectorGroup>
     </Section>
   );

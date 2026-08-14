@@ -560,6 +560,37 @@ them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
 
+### 4.1.7 And what X9 turned up — a field X8 moved but did not remove
+
+X9's check on the copy row read *two* fields where it expected one, and the
+first version of it recorded that in its detail rather than asserting it away.
+The reading was right: X8 moved the clipboard text out of `props.copyText` and
+into a `copy` action, taught the press list to edit it, and left Content's
+"Copies" row standing on top of the new storage.
+
+Two text inputs holding the same string is bad on its own. What made it a bug
+rather than a redundancy is that they did not write the same way. The row edits
+the action **at its index** — `at(index, { ...action, text })`. Content's field
+rebuilt the whole list:
+
+```ts
+setActions([...actions.filter((a) => a.type !== 'copy'), { type: 'copy', text }]);
+```
+
+So typing one character into the second field moved the copy to the **end** of
+the ordered gesture and collapsed any two copies into one — silently, from a
+panel whose subject is content, on a list whose entire point is that order is
+authored. The two surfaces disagreed about the thing X8 exists to establish.
+
+It is gone, and the check that found it now asserts `fields === 1` across the
+whole inspector rather than `>= 1` in the row. The failure it guards against
+was never a missing field; it was a second one. Falsified by putting Content's
+row back: it fails, reading `2 field(s) hold it`.
+
+> **A migration that moves storage is not finished until the old surface is
+> gone.** Two editors over one value will drift, and the one that rebuilds
+> loses what the one that patches was keeping.
+
 ### 4.1.5 And what X6 turned up — a reference no walk could see
 
 Two of X6's own checks failed on the first run, and one passed for the wrong
