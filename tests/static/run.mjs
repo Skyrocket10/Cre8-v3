@@ -15,6 +15,11 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+/*
+ * The same immer the store and the room use, so "this patch cannot apply" is
+ * the real library's answer rather than this file's opinion of one.
+ */
+import { applyPatches, enablePatches, produceWithPatches } from 'immer';
 import { createReport } from '../report.mjs';
 import { layers, loadBlocks, walk } from './load-blocks.mjs';
 import {
@@ -26,6 +31,8 @@ import {
 } from './load-schema.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+enablePatches();
 
 /**
  * Every condition in a rule's `when`, from either spelling.
@@ -58,6 +65,7 @@ const {
   vocabulary,
   conditions,
   when_,
+  stateLib,
   testTable,
   motion,
   everyRef,
@@ -1810,7 +1818,7 @@ report.group('a reference is a thing the document knows about');
   {
     const { doc: d6, panel: p6, beside: b6 } = wired();
     const reader = d6.nodes[p6.id];
-    reader.props.switchKey = 'form';
+    reader.state = { key: 'form', values: [], initial: '' };
     reader.props.switchDefault = 'idle';
     reader.assign = [
       {
@@ -3148,7 +3156,8 @@ report.group('a record decides what state an element is in');
     name: 'Card',
     parentId: null,
     children: [],
-    props: { switchKey: 'band', ...props },
+    props: { ...props },
+    state: { key: 'band', values: [], initial: '' },
     styles: {},
     meta: {},
     assign,
@@ -3597,7 +3606,8 @@ report.group('a Test the browser has to answer agrees with the one the publisher
   const publishAnswer = (assign, data) => {
     const node = {
       id: 'n1', type: 'frame', name: 'Card', parentId: null, children: [],
-      props: { switchKey: 'band', switchDefault: 'else' }, styles: {}, meta: {}, assign,
+      props: {}, styles: {}, meta: {},
+      state: { key: 'band', values: ['else'], initial: 'else' }, assign,
     };
     return stateFrom(node, record(data)) ?? 'else';
   };
@@ -3853,7 +3863,8 @@ report.group('a Test the browser has to answer agrees with the one the publisher
 
   const runtimeNode = {
     id: 'n9', type: 'frame', name: 'Form', parentId: null, children: [],
-    props: { switchKey: 'form', switchDefault: 'waiting' }, styles: {}, meta: {},
+    props: {}, styles: {}, meta: {},
+    state: { key: 'form', values: ['waiting'], initial: 'waiting' },
     assign: [
       { id: 'p', when: { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { type: 'number', value: 5 } }, value: 'dear' },
       { id: 't', when: typedTest, value: 'ready' },
@@ -3895,8 +3906,11 @@ report.group('a Test the browser has to answer agrees with the one the publisher
 
   report.check(
     'a runtime rule with no fallback is refused as unfinished',
-    typeof unfinished({ ...runtimeNode, props: { switchKey: 'form' } }) === 'string',
-    String(unfinished({ ...runtimeNode, props: { switchKey: 'form' } })).slice(0, 48)
+    typeof unfinished({ ...runtimeNode, state: { key: 'form', values: [], initial: '' } }) ===
+      'string',
+    String(
+      unfinished({ ...runtimeNode, state: { key: 'form', values: [], initial: '' } })
+    ).slice(0, 48)
   );
   report.check(
     'and one with a fallback is not',
@@ -3905,11 +3919,11 @@ report.group('a Test the browser has to answer agrees with the one the publisher
   );
   report.check(
     'a folded rule needs no fallback, because its answer is in the file',
-    unfinished({ ...foldedNode, props: { switchKey: 'form' } }) === null
+    unfinished({ ...foldedNode, state: { key: 'form', values: [], initial: '' } }) === null
   );
   report.check(
     'but every rule needs somewhere to write to',
-    typeof unfinished({ ...foldedNode, props: {} }) === 'string'
+    typeof unfinished({ ...foldedNode, state: undefined }) === 'string'
   );
 
   /* ----------------------------------------------------------------------
@@ -4179,8 +4193,13 @@ report.group('an assignment can write the rule you would have written');
     const doc = createEmptyDocument('Homes');
     const page = doc.pages[0];
     const node = doc.nodes[page.rootNodeId];
-    node.props.switchKey = 'band';
-    node.props.switchDefault = 'ordinary';
+    /*
+     * Declared, not scraped. A node built by hand here never passes through
+     * `finishTree` or the document migration, which are the two doors that
+     * fold `switchKey` into a declaration — so the fixture writes the shape
+     * the model actually holds.
+     */
+    node.state = { key: 'band', values: ['ordinary'], initial: 'ordinary' };
     node.assign = [
       {
         id: 'a1',
@@ -4283,8 +4302,8 @@ report.group('an assignment can write the rule you would have written');
     ops.setStateKey(doc, node.id, 'Price band');
     report.check(
       'renaming the key rewrites the rules on this node that name it',
-      node.props.switchKey === 'Price-band' && node.rules?.[0]?.when?.key === 'Price-band',
-      `${node.props.switchKey} / ${node.rules?.[0]?.when?.key}`
+      node.state?.key === 'Price-band' && node.rules?.[0]?.when?.key === 'Price-band',
+      `${node.state?.key} / ${node.rules?.[0]?.when?.key}`
     );
   }
 
@@ -12253,7 +12272,7 @@ report.group('one condition language, and OR in the stylesheet');
     // generator drops the whole rule — correctly, and it took a confusing
     // empty result to remember that a condition naming nothing is not a
     // condition the stylesheet can carry.
-    root.props = { ...root.props, switchKey: 'plan', switchDefault: 'monthly' };
+    root.state = { key: 'plan', values: ['monthly', 'annual'], initial: 'monthly' };
     const id = 'orx1';
     doc.nodes[id] = {
       id,
@@ -12319,6 +12338,263 @@ report.group('one condition language, and OR in the stylesheet');
     !/price|\bgt\b/.test(mintedCss),
     mintedCss.split('\n')[0] ?? ''
   );
+}
+
+/* ==========================================================================
+ * A state says what it can be
+ * ======================================================================= */
+
+report.group('a state says what it can be');
+
+{
+  const { stateOf, valuesOf, scrapedValues, declarationFrom } = stateLib;
+
+  /* --- The upgrade -------------------------------------------------------- */
+
+  /*
+   * Three loose props become one declaration, and the values — which were
+   * never written down at all — are scraped once and recorded.
+   */
+  const legacy = () => {
+    const doc = createEmptyDocument('Old switch');
+    const root = doc.nodes[doc.pages[0].rootNodeId];
+    root.props = { ...root.props, switchKey: 'plan', switchDefault: 'monthly' };
+    doc.nodes.btn1 = {
+      id: 'btn1', type: 'button', name: 'Annual', parentId: root.id, children: [],
+      props: { label: 'Annual', switchSet: 'annual' }, styles: {}, meta: {},
+    };
+    root.children.push('btn1');
+    return doc;
+  };
+
+  const upgraded = migrateDocument(legacy());
+  const decl = stateOf(upgraded.nodes[upgraded.pages[0].rootNodeId]);
+  report.check(
+    'the three props become one declaration',
+    decl?.key === 'plan' && decl?.initial === 'monthly',
+    JSON.stringify(decl)
+  );
+  report.check(
+    'and the values nothing recorded are read off the controls, once',
+    decl?.values.join(' ') === 'monthly annual',
+    decl?.values.join(' ') ?? 'none'
+  );
+  report.check(
+    'the props it came from are gone, so nothing can read two spellings',
+    (() => {
+      const root = upgraded.nodes[upgraded.pages[0].rootNodeId];
+      return ['switchKey', 'switchDefault', 'switchDesign'].every(
+        (prop) => root.props[prop] === undefined
+      );
+    })(),
+    Object.keys(upgraded.nodes[upgraded.pages[0].rootNodeId].props).join(' ')
+  );
+  /*
+   * Twice is the same as once. Every migration here is recognised by shape and
+   * safe to re-run, and this one has a way to get that wrong the others do not
+   * — a second pass over a node whose props are already gone would scrape an
+   * empty list over a declared one.
+   */
+  const twice = migrateDocument(migrateDocument(legacy()));
+  report.check(
+    'and running the upgrade twice changes nothing',
+    JSON.stringify(stateOf(twice.nodes[twice.pages[0].rootNodeId])) === JSON.stringify(decl),
+    JSON.stringify(stateOf(twice.nodes[twice.pages[0].rootNodeId]))
+  );
+
+  /* --- Declared beats discovered ------------------------------------------ */
+
+  /*
+   * The whole point of the stage, and the thing that was impossible by
+   * construction: a value nothing sets.
+   *
+   * A filter's *empty* case, or a form's *error* case, could not exist until
+   * the control that reached it was wired — because the list was recovered by
+   * walking the subtree for controls. So the case could not be designed until
+   * after it had been wired, which is backwards: the design is how you decide
+   * what the control should do.
+   */
+  const declared = migrateDocument(legacy());
+  const rootId = declared.pages[0].rootNodeId;
+  declared.nodes[rootId].state.values = ['monthly', 'annual', 'lifetime'];
+
+  report.check(
+    'a value nothing sets is still a value',
+    valuesOf(declared.nodes, rootId, stateOf(declared.nodes[rootId])).includes('lifetime'),
+    valuesOf(declared.nodes, rootId, stateOf(declared.nodes[rootId])).join(' ')
+  );
+  report.check(
+    'and the walk that used to be the truth cannot see it',
+    !scrapedValues(declared.nodes, rootId, 'plan').includes('lifetime'),
+    scrapedValues(declared.nodes, rootId, 'plan').join(' ')
+  );
+
+  /*
+   * The other direction, which is the one a check could easily forget: a
+   * control setting a value the declaration has not heard of. Appended rather
+   * than dropped — the value is real, the page will enter that state, and
+   * hiding it from the panel would leave a designer unable to style a case
+   * their own document can reach.
+   */
+  const stray = migrateDocument(legacy());
+  const strayRoot = stray.pages[0].rootNodeId;
+  stray.nodes[strayRoot].state.values = ['monthly'];
+  report.check(
+    'a value something sets but nobody declared is surfaced, not swallowed',
+    valuesOf(stray.nodes, strayRoot, stateOf(stray.nodes[strayRoot])).join(' ') ===
+      'monthly annual',
+    valuesOf(stray.nodes, strayRoot, stateOf(stray.nodes[strayRoot])).join(' ')
+  );
+  report.check(
+    'and what was declared still leads, in the order it was written',
+    (() => {
+      const doc = migrateDocument(legacy());
+      const id = doc.pages[0].rootNodeId;
+      doc.nodes[id].state.values = ['lifetime', 'monthly'];
+      return valuesOf(doc.nodes, id, stateOf(doc.nodes[id])).join(' ') === 'lifetime monthly annual';
+    })(),
+    (() => {
+      const doc = migrateDocument(legacy());
+      const id = doc.pages[0].rootNodeId;
+      doc.nodes[id].state.values = ['lifetime', 'monthly'];
+      return valuesOf(doc.nodes, id, stateOf(doc.nodes[id])).join(' ');
+    })()
+  );
+
+  /* --- A declaration with no name is no declaration ----------------------- */
+
+  report.check(
+    'a declaration with no name reads as none, so nothing writes to nowhere',
+    stateOf({ state: { key: '  ', values: ['a'], initial: 'a' } }) === null &&
+      declarationFrom({}, { id: 'x', props: {} }) === null,
+    String(stateOf({ state: { key: '  ', values: ['a'], initial: 'a' } }))
+  );
+
+  /*
+   * And the sentinel that must survive the fold. `switchDesign` could hold
+   * `*`, meaning "lay every case out at once" — a working view rather than a
+   * case name — and slugging it, which is right for every other field here,
+   * strips it to nothing and silently drops the designer into the first case.
+   */
+  report.check(
+    'the “show every case” view survives the upgrade',
+    (() => {
+      const doc = legacy();
+      doc.nodes[doc.pages[0].rootNodeId].props.switchDesign = '*';
+      const out = migrateDocument(doc);
+      return stateOf(out.nodes[out.pages[0].rootNodeId])?.design === '*';
+    })(),
+    String(
+      (() => {
+        const doc = legacy();
+        doc.nodes[doc.pages[0].rootNodeId].props.switchDesign = '*';
+        const out = migrateDocument(doc);
+        return stateOf(out.nodes[out.pages[0].rootNodeId])?.design;
+      })()
+    )
+  );
+
+  /* --- And the room has to be holding the same shape ---------------------- */
+
+  /*
+   * The half of an upgrade that is not in the upgrade.
+   *
+   * Every migration before this one rewrote fields that already existed, so
+   * the room could hold unmigrated JSON and still apply an editor's patches:
+   * `replace nodes/x/props/y` lands on either shape. This one *creates* a
+   * nested object, and a patch into `nodes/x/state/values` has no parent in a
+   * document where `state` was never folded. `applyPatches` throws, the room
+   * answers with a resync, and the client throws its own edit away and
+   * re-derives the old declaration from the props it still has — for ever, on
+   * exactly the documents that predate the migration, with nothing logged and
+   * nothing saved.
+   *
+   * So the hazard is established first, from the real patch an inspector edit
+   * produces, and then the room is required to be on the other side of it.
+   */
+  const stored = JSON.parse(JSON.stringify(legacy()));
+  const opened = hydrateDocument(JSON.parse(JSON.stringify(stored)));
+  const openedRoot = opened.pages[0].rootNodeId;
+  // Caught rather than thrown: a fold that stops happening should fail the
+  // check below with "no patches", not take the suite down two thousand
+  // checks early with a TypeError about `undefined`.
+  let patches = [];
+  try {
+    [, patches] = produceWithPatches(opened, (draft) => {
+      draft.nodes[openedRoot].state.values.push('lifetime');
+    });
+  } catch {
+    patches = [];
+  }
+
+  report.check(
+    'an edit to a declaration patches a path the stored document has no parent for',
+    patches.length > 0 &&
+      patches.every((patch) => patch.path[2] === 'state') &&
+      stored.nodes[openedRoot].state === undefined,
+    patches.map((patch) => patch.path.join('/')).join(' · ') || 'no patches'
+  );
+  report.check(
+    'so applying it to what D1 holds throws rather than editing anything',
+    (() => {
+      try {
+        applyPatches(stored, patches);
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+    (() => {
+      try {
+        applyPatches(stored, patches);
+        return 'it applied — the shapes already agree, so this check is spent';
+      } catch (error) {
+        return error instanceof Error ? error.message.split('\n')[0] : String(error);
+      }
+    })()
+  );
+  const landed = (() => {
+    try {
+      const room = hydrateDocument(JSON.parse(JSON.stringify(stored)));
+      return applyPatches(room, patches).nodes[openedRoot].state?.values ?? [];
+    } catch (error) {
+      return [error instanceof Error ? error.message.split('\n')[0] : String(error)];
+    }
+  })();
+  report.check(
+    'and applying it to a hydrated copy lands the edit, which is what the room must hold',
+    landed.includes('lifetime'),
+    landed.join(' ') || 'nothing'
+  );
+
+  /*
+   * Which is a property of `room.ts`, not of this file. Both doors a document
+   * comes in through are named — a load from D1 and a whole-document write —
+   * and the count is asserted so that renaming one into something this does
+   * not recognise fails here rather than passing by not being looked at.
+   */
+  {
+    const room = readFileSync(path.join(ROOT, 'workers', 'src', 'room.ts'), 'utf8');
+    const external = [...room.matchAll(/this\.doc = (.+);/g)]
+      .map((match) => match[1])
+      .filter((expression) => !/^applyPatches\(|^null$/.test(expression));
+    report.check(
+      'the room takes a document from exactly two places',
+      external.length === 2,
+      external.join(' · ') || 'none found — the assignment moved'
+    );
+    report.check(
+      'and upgrades what arrives at both of them',
+      external.length === 2 && external.every((expression) => /^upgraded\(/.test(expression)),
+      external.filter((expression) => !/^upgraded\(/.test(expression)).join(' · ') || 'both'
+    );
+    report.check(
+      'through the same function every other reader uses',
+      /function upgraded\([^)]*\)[^{]*\{\s*return hydrateDocument\(/.test(room),
+      /function upgraded\([\s\S]{0,120}/.exec(room)?.[0].split('\n').slice(0, 2).join(' ') ??
+        'no upgrade function'
+    );
+  }
 }
 
 /* ==========================================================================
@@ -12524,9 +12800,10 @@ report.group('a comparison in a style rule mints its own answer');
       name: 'Card',
       parentId: root.id,
       children: [],
-      props: { switchKey: 'band', switchDefault: 'plain' },
+      props: {},
       styles: {},
       meta: {},
+      state: { key: 'band', values: ['plain', 'premium'], initial: 'plain' },
       assign: [{ id: 'a1', when: priceOver, value: 'premium' }],
       rules: [
         {

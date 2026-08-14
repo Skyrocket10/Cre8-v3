@@ -10,6 +10,7 @@
 
 import { actsOnPress, copyTextFor, encodeSets, stateSets } from '../document/actions';
 import { SWITCH_SHOW_ALL, anchorId, resolveTag, slug, splitFragment } from '../document/schema';
+import { stateOf } from '../document/state';
 import {
   BREAKPOINT_DEFS,
   type CollectionRecord,
@@ -354,7 +355,8 @@ function applySwitch(
 ): ElementModel {
   const mode = options.mode;
   const props = node.props;
-  const key = slug(props.switchKey);
+  const decl = stateOf(node);
+  const key = decl?.key ?? '';
   const sets = stateSets(node);
   const set = encodeSets(sets);
   // Hiding is the stylesheet's job — these attributes exist so the *runtime*
@@ -389,7 +391,7 @@ function applySwitch(
   }
 
   if (key) {
-    const showAll = mode === 'edit' && props.switchDesign === SWITCH_SHOW_ALL;
+    const showAll = mode === 'edit' && decl?.design === SWITCH_SHOW_ALL;
     if (showAll) {
       // Every case at once, for laying them out side by side. Done by
       // *renaming* the attribute rather than by overriding `display`: the
@@ -403,7 +405,7 @@ function applySwitch(
       // `switchDesign` is which case the designer is looking at; it never
       // reaches a published file, so choosing one to style cannot change what
       // visitors see first.
-      const design = mode === 'edit' ? slug(props.switchDesign) : '';
+      const design = mode === 'edit' ? slug(decl?.design) : '';
       /*
        * Then whatever the node's Tests decide, and only then the declared
        * default. Folding happens here rather than in the publisher because
@@ -417,7 +419,7 @@ function applySwitch(
        * visitor sees for ever with no scripting.
        */
       const assigned = stateFrom(node, options.record ?? null);
-      const settled = assigned || slug(props.switchDefault);
+      const settled = assigned || slug(decl?.initial);
       model.attrs[VALUE_ATTR] = design || settled;
 
       /*

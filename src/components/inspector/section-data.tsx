@@ -41,6 +41,7 @@ import {
 } from '@/lib/renderer/test';
 import { varReference } from '@/lib/renderer/values';
 import { isSettable } from '@/lib/renderer/variants';
+import { stateKeyOf, stateOf } from '@/lib/document/state';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
 import { Sentence, type Part } from '../ui/sentence';
@@ -365,7 +366,7 @@ function BindControls({ node, collection }: { node: SceneNode; collection: Colle
 function AssignControls({ node, collection }: { node: SceneNode; collection: Collection }) {
   const nodes = useEditor((s) => s.doc.nodes);
   const rules = node.assign ?? [];
-  const key = String(node.props.switchKey ?? '');
+  const key = stateKeyOf(node);
   const controls = namedControlsInside(nodes, node);
   const elements = alsoAlreadyRead(
     controlsOnPage(nodes, activeRootId(useEditor.getState()) ?? undefined, node),
@@ -382,7 +383,7 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
    */
   const dangling = danglingReads(nodes).filter((one) => one.node.id === node.id);
   /** What the element is left in when a rule can never hold. */
-  const fallback = slug(node.props.switchDefault) || 'in no state';
+  const fallback = slug(stateOf(node)?.initial) || 'in no state';
   const problem = unfinished(node);
   const live = needsRuntime(node);
   const exposed = live
@@ -408,7 +409,9 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
        * would look right and the page would never change. So the first rule
        * names the key after the element, and the designer can rename it.
        */
-      if (!slug(scene.props.switchKey)) scene.props.switchKey = slug(scene.name) || 'state';
+      if (!stateKeyOf(scene)) {
+        scene.state = { key: slug(scene.name) || 'state', values: [], initial: '' };
+      }
       scene.assign = [
         ...(scene.assign ?? []),
         {
@@ -601,11 +604,11 @@ function AssignControls({ node, collection }: { node: SceneNode; collection: Col
           <StyleRow label="Otherwise" hint="What it is when no rule matches — and what ships in the file">
             <TextInput
               className="flex-1"
-              value={String(node.props.switchDefault ?? '')}
+              value={stateOf(node)?.initial ?? ''}
               placeholder="no state"
               onValueChange={(value) =>
                 edit('Change the fallback state', (scene) => {
-                  scene.props.switchDefault = slug(value);
+                  if (scene.state) scene.state.initial = slug(value);
                 })
               }
             />

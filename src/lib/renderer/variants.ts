@@ -32,6 +32,7 @@
 
 import { SWITCH_SHOW_ALL, readCase, slug } from '../document/schema';
 import { conditionsOf } from '../document/when';
+import { stateKeyOf, stateOf } from '../document/state';
 import { designValue } from '../runtime/data';
 import type {
   Condition,
@@ -311,13 +312,13 @@ export function stateOwner(
   node: SceneNode,
   name: string
 ): { node: SceneNode; key: string; self: boolean } | null {
-  const own = slug(node.props.switchKey);
+  const own = stateKeyOf(node);
   if (own && (!name || own === name)) return { node, key: own, self: true };
 
   let current: SceneNode | undefined = node.parentId ? nodes[node.parentId] : undefined;
   let guard = 0;
   while (current && guard++ < 200) {
-    const key = slug(current.props.switchKey);
+    const key = stateKeyOf(current);
     if (key && (!name || key === name)) return { node: current, key, self: false };
     current = current.parentId ? nodes[current.parentId] : undefined;
   }
@@ -362,8 +363,10 @@ export function activeVariant(
       // Nothing declares the state, or the group is laid out with every case
       // at once — either way nothing is hidden, so the base is the honest
       // answer.
-      if (!owner || owner.node.props.switchDesign === SWITCH_SHOW_ALL) break;
-      value = slug(owner.node.props.switchDesign) || slug(owner.node.props.switchDefault);
+      if (!owner) break;
+      const decl = stateOf(owner.node);
+      if (decl?.design === SWITCH_SHOW_ALL) break;
+      value = slug(decl?.design) || slug(decl?.initial);
     } else {
       /*
        * An attribute axis, and the base variant is always the answer.

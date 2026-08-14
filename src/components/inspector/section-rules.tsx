@@ -30,6 +30,7 @@ import {
   type ControlPseudo,
 } from '@/lib/document/conditions';
 import { eachCondition, replaceCondition, unreachable } from '@/lib/document/when';
+import { stateKeyOf, stateOf } from '@/lib/document/state';
 import { slug, slugList } from '@/lib/document/schema';
 import type { Condition, ElementType, Field, StyleRule, Test } from '@/lib/document/types';
 import { DATA_SOURCES, QUERY_PREFIX, describeSource } from '@/lib/runtime/data';
@@ -93,7 +94,7 @@ export function useStatesInScope(): { key: string; values: string[] }[] {
     const seen = new Set<string>();
 
     const collect = (ownerId: string) => {
-      const key = slug(s.doc.nodes[ownerId]?.props.switchKey);
+      const key = stateKeyOf(s.doc.nodes[ownerId]);
       if (!key || seen.has(key)) return;
       seen.add(key);
       // What the state can be: what it ships as, and every value a control
@@ -103,7 +104,10 @@ export function useStatesInScope(): { key: string; values: string[] }[] {
       const add = (raw: unknown) => {
         for (const v of slugList(raw).split(' ')) if (v && !values.includes(v)) values.push(v);
       };
-      add(s.doc.nodes[ownerId]?.props.switchDefault);
+      // Declared first, then whatever a control sets that the declaration
+      // has not heard of. What somebody wrote down leads the menu.
+      for (const one of stateOf(s.doc.nodes[ownerId])?.values ?? []) add(one);
+      add(stateOf(s.doc.nodes[ownerId])?.initial);
       for (const id of collectSubtree(s.doc.nodes, ownerId)) {
         const node = s.doc.nodes[id];
         if (node) add(valuesSetting(node, key).join(' '));

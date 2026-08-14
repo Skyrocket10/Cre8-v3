@@ -29,6 +29,7 @@ import {
 } from './factory';
 import { CLICK, stateSets } from './actions';
 import { conditionsOf, eachCondition } from './when';
+import { stateKeyOf, stateOf } from './state';
 import { uid, slugify } from './id';
 import { fieldsRead } from '../renderer/test';
 import { SWITCH_SHOW_ALL, anchorId, canContain, getElement, readCase, slug } from './schema';
@@ -577,7 +578,7 @@ export function setAssignEffect(
   const assignment = node?.assign?.find((rule) => rule.id === assignId);
   if (!node || !assignment) return;
 
-  const key = slug(node.props.switchKey);
+  const key = stateKeyOf(node);
   const value = slug(assignment.value);
   if (!key || !value) return;
 
@@ -616,7 +617,7 @@ export function setAssignValue(
   const assignment = node?.assign?.find((rule) => rule.id === assignId);
   if (!node || !assignment) return;
 
-  const key = slug(node.props.switchKey);
+  const key = stateKeyOf(node);
   const owned = ruleForAssignment(node, key, slug(assignment.value));
   assignment.value = slug(value);
   const next = slug(assignment.value);
@@ -637,10 +638,11 @@ export function setAssignValue(
 export function setStateKey(doc: Cre8Document, id: NodeId, key: string): void {
   const node = doc.nodes[id];
   if (!node) return;
-  const before = slug(node.props.switchKey);
+  const before = stateKeyOf(node);
   const after = slug(key) || 'state';
   if (before === after) return;
-  node.props.switchKey = after;
+  if (node.state) node.state.key = after;
+  else node.state = { key: after, values: [], initial: '' };
   for (const rule of node.rules ?? []) {
     eachCondition(rule.when, (condition) => {
       if (condition.kind === 'state' && condition.key === before) condition.key = after;
@@ -651,7 +653,7 @@ export function setStateKey(doc: Cre8Document, id: NodeId, key: string): void {
 /** What an assignment currently does, read back off the rule it wrote. */
 export function assignEffect(node: SceneNode, assignId: string): AssignEffect {
   const assignment = node.assign?.find((rule) => rule.id === assignId);
-  const key = slug(node.props.switchKey);
+  const key = stateKeyOf(node);
   const value = slug(assignment?.value);
   if (!assignment || !key || !value) return { kind: 'state' };
 
@@ -676,7 +678,7 @@ export function removeAssign(doc: Cre8Document, id: NodeId, assignId: string): v
   if (!node?.assign) return;
   const going = node.assign.find((rule) => rule.id === assignId);
   if (going) {
-    const owned = ruleForAssignment(node, slug(node.props.switchKey), slug(going.value));
+    const owned = ruleForAssignment(node, stateKeyOf(node), slug(going.value));
     if (owned) removeRule(doc, id, owned.id);
   }
   node.assign = node.assign.filter((rule) => rule.id !== assignId);
@@ -1471,17 +1473,24 @@ export function revealSwitchPath(doc: Cre8Document, nodeId: NodeId): boolean {
   if (!node) return false;
   let changed = false;
 
-  const valueOf = (group: SceneNode): string =>
-    slug(group.props.switchDesign) || slug(group.props.switchDefault);
+  const valueOf = (group: SceneNode): string => {
+    const decl = stateOf(group);
+    return slug(decl?.design) || slug(decl?.initial);
+  };
+  /** Move a group's design-time case, which lives on the declaration now. */
+  const showCase = (group: SceneNode, value: string): void => {
+    if (!group.state) return;
+    group.state.design = value;
+  };
 
   /** Which element owns the named state — itself first, then upwards. */
   const ownerOf = (from: SceneNode, name: string): SceneNode | undefined => {
-    const own = slug(from.props.switchKey);
+    const own = stateKeyOf(from);
     if (own && (!name || own === name)) return from;
     let current: SceneNode | undefined = from.parentId ? doc.nodes[from.parentId] : undefined;
     let guard = 0;
     while (current && guard++ < 200) {
-      const key = slug(current.props.switchKey);
+      const key = stateKeyOf(current);
       if (key && (!name || key === name)) return current;
       current = current.parentId ? doc.nodes[current.parentId] : undefined;
     }
@@ -1493,23 +1502,23 @@ export function revealSwitchPath(doc: Cre8Document, nodeId: NodeId): boolean {
     const when = readCase(from.rules);
     if (!when) return;
     const group = ownerOf(from, when.state);
-    if (!group || group.props.switchDesign === SWITCH_SHOW_ALL) return;
+    if (!group || stateOf(group)?.design === SWITCH_SHOW_ALL) return;
 
     const current = valueOf(group);
     const matches = when.values.includes(current);
     if (when.negated ? !matches : matches) return;
 
     if (!when.negated) {
-      group.props.switchDesign = when.values[0]!;
+      showCase(group, when.values[0]!);
       changed = true;
       return;
     }
     // "Shown unless the state is X." Anything not in the list will do, and
     // what it ships as is the least surprising choice; if that is in the list
     // too there is nothing to fall back to and it is left alone.
-    const fallback = slug(group.props.switchDefault);
+    const fallback = slug(stateOf(group)?.initial);
     if (fallback && !when.values.includes(fallback)) {
-      group.props.switchDesign = fallback;
+      showCase(group, fallback);
       changed = true;
     }
   };
@@ -1531,10 +1540,10 @@ export function revealSwitchPath(doc: Cre8Document, nodeId: NodeId): boolean {
     const target =
       group ??
       (state
-        ? Object.values(doc.nodes).find((one) => slug(one.props.switchKey) === state)
+        ? Object.values(doc.nodes).find((one) => stateKeyOf(one) === state)
         : undefined);
-    if (target && target.props.switchDesign !== SWITCH_SHOW_ALL && valueOf(target) !== value) {
-      target.props.switchDesign = value;
+    if (target && stateOf(target)?.design !== SWITCH_SHOW_ALL && valueOf(target) !== value) {
+      showCase(target, value);
       changed = true;
     }
   }

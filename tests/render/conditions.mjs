@@ -571,6 +571,68 @@ try {
     );
   }
 
+  /* ------------------------------------------------- a declared value ---- */
+
+  /*
+   * The gap X5 exists to close, driven through the real panel.
+   *
+   * A state's values used to be *discovered* by walking the subtree for
+   * controls that set them, so a case could not exist until something reached
+   * it — the empty case of a filter could not be designed until the button was
+   * wired. Here a third case is added to a group whose controls only ever set
+   * two, and then designed against.
+   */
+  {
+    await showLayers();
+    await page.locator('[data-layer-row]:has-text("Plan group")').first().click();
+    await page.waitForTimeout(400);
+    const panel = page.locator('aside').last();
+    const opened = await openInspectorSection(page, 'Switch');
+    report.check('the Switch section opens on a group that declares one', opened, String(opened));
+
+    if (opened) {
+      const row = panel.locator('div:has(> .panel-title)').first();
+      const before = await panel.locator('[aria-label^="Remove "]').count();
+      const add = panel.locator('input[placeholder="+ case"]').first();
+      report.check('it offers somewhere to write a case down', await add.count() > 0, String(before));
+
+      if (await add.count()) {
+        await add.fill('lifetime');
+        await add.blur();
+        await page.waitForTimeout(700);
+        const doc = await getDocument(page, projectId);
+        const values = doc.nodes.grpo?.state?.values ?? [];
+        report.check(
+          'a case nothing sets is written down and kept',
+          values.includes('lifetime'),
+          values.join(' ') || 'no values'
+        );
+        /*
+         * And it can be designed against — which is the whole point. Nothing
+         * on the page sets `lifetime`, so before this the canvas had no way to
+         * show it and the panel had no way to name it.
+         */
+        const editing = panel.locator('button:has-text("lifetime")');
+        report.check(
+          'and the canvas can be pointed at it',
+          (await editing.count()) > 0,
+          `${await editing.count()} controls mention it`
+        );
+        /*
+         * And the box is ready for the next one. `TextInput` holds a draft and
+         * only takes a new one when `value` changes — this field's is the
+         * constant empty string, so the committed case sat in the box beside
+         * the chip it had just become, reading as an edit that had not landed.
+         */
+        report.check(
+          'and the box empties itself, ready for the next case',
+          (await add.inputValue()) === '',
+          JSON.stringify(await add.inputValue())
+        );
+      }
+    }
+  }
+
   const onContainer = await offeredFor('Plain box');
   /*
    * And the other half of the applicability rule, which is the one that keeps

@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Scissors,
   SquarePen,
+  Trash2,
   X,
 } from 'lucide-react';
 import { ICON_NAMES, ICON_PATHS } from '@/lib/renderer/icons';
@@ -24,15 +25,14 @@ import {
   SEMANTIC_TAGS,
   SWITCH_SHOW_ALL,
   anchorId,
-  readCase,
   slug,
-  slugList,
 } from '@/lib/document/schema';
-import { valuesSetting } from '@/lib/document/actions';
+import { stateOf, valuesOf } from '@/lib/document/state';
 import type {
   Asset,
   ElementType,
   NodeAction,
+  StateDecl,
   RefSlot,
   StyleDecl,
   StyleProp,
@@ -1179,29 +1179,32 @@ function PopoverTargetRows() {
  * for the same reason `usePopovers` is — a selector that builds an array is a
  * new value on every read.
  */
-function useSwitchCases(groupId: string | undefined): string[] {
+function useSwitchCases(groupId: string | undefined): { cases: string[]; undeclared: string[] } {
   const encoded = useEditor((s) => {
-    if (!groupId) return '';
-    const seen: string[] = [];
-    const add = (raw: unknown) => {
-      for (const v of slugList(raw).split(' ')) if (v && !seen.includes(v)) seen.push(v);
-    };
-    // What the state can be: what it ships as, what any control sets it to,
-    // and what any condition tests for. Read off the tree rather than
-    // declared anywhere, so the list cannot fall out of step with the nodes.
-    add(s.doc.nodes[groupId]?.props.switchDefault);
-    const key = slug(s.doc.nodes[groupId]?.props.switchKey);
-    for (const id of collectSubtree(s.doc.nodes, groupId)) {
-      const node = s.doc.nodes[id];
-      if (node) add(valuesSetting(node, key).join(' '));
-      // Only cases of *this* state, and only positive ones: "shown unless
-      // Free" does not make Free a case worth laying out on its own.
-      const when = readCase(s.doc.nodes[id]?.rules);
-      if (when && !when.negated && !when.state) add(when.values.join(' '));
-    }
-    return seen.join(ENTRY);
+    const node = groupId ? s.doc.nodes[groupId] : undefined;
+    const decl = stateOf(node);
+    if (!node || !decl) return '';
+    /*
+     * Declared first, in the order somebody wrote them, then anything a
+     * control sets that the declaration has not heard of.
+     *
+     * This used to be the scrape alone, and the scrape was the *only* record
+     * of what a state could be — so a value could not exist until something
+     * set it, and the empty case of a filter could not be designed until the
+     * button that reached it was wired. The list is now what the designer
+     * said; the walk is a suggestion.
+     */
+    const declared = valuesOf(s.doc.nodes, node.id, { ...decl, values: [] });
+    const known = decl.values.map((one) => slug(one)).filter(Boolean);
+    const extra = declared.filter((one) => !known.includes(one));
+    return `${known.join(' ')}${ENTRY}${extra.join(' ')}`;
   });
-  return useMemo(() => (encoded ? encoded.split(ENTRY) : []), [encoded]);
+  return useMemo(() => {
+    const [known = '', extra = ''] = encoded.split(ENTRY);
+    const cases = known ? known.split(' ') : [];
+    const undeclared = extra ? extra.split(' ') : [];
+    return { cases: [...cases, ...undeclared], undeclared };
+  }, [encoded]);
 }
 
 /**
@@ -1304,13 +1307,36 @@ function RangeDriveRow() {
 
 function SwitchGroupContent() {
   const id = useEditor((s) => s.selection[0]);
-  const key = useNodeProp('switchKey');
-  const fallback = useNodeProp('switchDefault');
-  const design = useNodeProp('switchDesign');
+  /*
+   * The raw declaration, normalised outside the selector.
+   *
+   * `stateOf` builds a fresh object every call — it slugs the key on the way
+   * out — and a zustand selector returning a new object on every store update
+   * re-renders for ever and trips React's update-depth guard, which the error
+   * boundary catches by unmounting the whole panel. So the selector returns
+   * the object immer is already holding, whose identity only changes when the
+   * declaration does.
+   */
+  const raw = useEditor((s) => (s.selection[0] ? s.doc.nodes[s.selection[0]]?.state : undefined));
+  const decl = useMemo(
+    () => (raw && slug(raw.key) ? { ...raw, key: slug(raw.key) } : null),
+    [raw]
+  );
   const role = useNodeProp('switchRole');
-  const cases = useSwitchCases(id);
+  const { cases, undeclared } = useSwitchCases(id);
 
-  const current = slug(design.value) || slug(fallback.value) || cases[0] || '';
+  /** Every write to the declaration goes through here, so there is one label. */
+  const edit = (label: string, patch: (state: StateDecl) => void) => {
+    if (!id) return;
+    useEditor.getState().transact(label, (draft) => {
+      const scene = draft.nodes[id];
+      if (!scene) return;
+      scene.state ??= { key: slug(scene.name) || 'state', values: [], initial: '' };
+      patch(scene.state);
+    });
+  };
+
+  const current = slug(decl?.design) || slug(decl?.initial) || cases[0] || '';
 
   return (
     <Section title="Switch" defaultOpen>
@@ -1318,8 +1344,14 @@ function SwitchGroupContent() {
         <StyleRow label="Named" hint="Letters, numbers and dashes — it becomes an attribute">
           <TextInput
             className="flex-1"
-            value={String(key.value ?? '')}
-            onValueChange={(next) => key.set(slug(next) || undefined)}
+            value={decl?.key ?? ''}
+            onValueChange={(next) => {
+              if (id) {
+                useEditor.getState().transact('Rename the state', (draft) => {
+                  ops.setStateKey(draft, id, next);
+                });
+              }
+            }}
             placeholder="plan"
           />
         </StyleRow>
@@ -1336,21 +1368,90 @@ function SwitchGroupContent() {
           />
         </StyleRow>
 
+        {/*
+          The values, written down.
+          
+          This is the row the section did not have, and its absence was the
+          reason a value could not exist before something set it: the list was
+          recovered by walking the subtree for controls, so the empty case of a
+          filter could not be designed until the button that reached it was
+          wired. Which is backwards — the design is how you decide what the
+          button should do.
+        */}
+        <StyleRow label="Can be" hint="Every case this state has. Add one before wiring anything to it.">
+          <div className="flex flex-1 flex-wrap items-center gap-1">
+            {cases.map((value) => (
+              <span
+                key={value}
+                className={cn(
+                  'flex h-[22px] items-center gap-1 rounded-[5px] px-1.5 text-[11px]',
+                  undeclared.includes(value)
+                    ? 'bg-[var(--field)] text-[var(--text-faint)]'
+                    : 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+                )}
+                title={
+                  undeclared.includes(value)
+                    ? 'Something inside sets this, but it is not written down. Add it to keep it.'
+                    : undefined
+                }
+              >
+                {value}
+                <button
+                  type="button"
+                  aria-label={`Remove ${value}`}
+                  onClick={() =>
+                    edit('Remove a case', (state) => {
+                      state.values = state.values.filter((one: string) => slug(one) !== value);
+                      if (slug(state.initial) === value) state.initial = '';
+                    })
+                  }
+                  className="opacity-60 transition-opacity hover:opacity-100"
+                >
+                  <Trash2 size={9} />
+                </button>
+              </span>
+            ))}
+            <TextInput
+              /*
+               * Remounted whenever the list changes, which is what empties it.
+               * `TextInput` keeps a draft and only syncs it back from `value`
+               * when `value` itself changes — and this one's is the constant
+               * empty string, so a committed case stayed sitting in the box
+               * next to the chip it had just become.
+               */
+              key={cases.join(' ')}
+              className="w-[84px]"
+              value=""
+              placeholder="+ case"
+              onValueChange={(raw) => {
+                const value = slug(raw);
+                if (!value) return;
+                edit('Add a case', (state) => {
+                  if (!state.values.map((one: string) => slug(one)).includes(value)) {
+                    state.values = [...state.values, value];
+                  }
+                  if (!slug(state.initial)) state.initial = value;
+                });
+              }}
+            />
+          </div>
+        </StyleRow>
+
         {cases.length > 0 && (
           <>
             <StyleRow label="Ships as" hint="What a visitor sees before touching anything">
               <Select
                 className="flex-1"
-                value={slug(fallback.value) || cases[0] || ''}
-                onChange={(value) => fallback.set(value)}
+                value={slug(decl?.initial) || cases[0] || ''}
+                onChange={(value) => edit('Change what ships', (state) => { state.initial = value; })}
                 options={cases.map((value) => ({ value, label: value }))}
               />
             </StyleRow>
             <StyleRow label="Editing" hint="Which case the canvas shows. Never published.">
               <Segmented
                 full
-                value={design.value === SWITCH_SHOW_ALL ? SWITCH_SHOW_ALL : current}
-                onChange={(value) => design.set(value)}
+                value={decl?.design === SWITCH_SHOW_ALL ? SWITCH_SHOW_ALL : current}
+                onChange={(value) => edit('Change the case being edited', (state) => { state.design = value; })}
                 options={[
                   ...cases.map((value) => ({ value, label: value })),
                   {
@@ -1366,8 +1467,8 @@ function SwitchGroupContent() {
       </InspectorGroup>
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         {cases.length === 0
-          ? 'Nothing inside is tied to a case yet. Select a child and give it a “Shown when”.'
-          : design.value === SWITCH_SHOW_ALL
+          ? 'No cases yet. Add one above — you can design it before anything sets it.'
+          : decl?.design === SWITCH_SHOW_ALL
             ? 'Every case is laid out at once — a working view, not how the page looks. Pick one to see the real layout.'
             : role.value === 'tabs'
               ? 'Each case is a panel, paired to the option that shows it. Switching here only changes the canvas.'

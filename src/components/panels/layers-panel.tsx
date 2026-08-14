@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Eye, EyeOff, Lock, LockOpen } from 'lucide-react';
 import { SWITCH_SHOW_ALL, readCase, slug } from '@/lib/document/schema';
 import * as ops from '@/lib/document/operations';
+import { stateOf } from '@/lib/document/state';
 import { canReparent } from '@/lib/document/tree';
 import { hasAnyOverride } from '@/lib/renderer/styles';
 import type { NodeId, SceneNode } from '@/lib/document/types';
@@ -86,11 +87,12 @@ export function LayersPanel() {
       if (depth >= 0) out.push({ node, depth, expandable, expanded, kase });
 
       // A group below resets what "current" means for everything inside it.
-      const key = slug(node.props.switchKey);
+      const decl = stateOf(node);
+      const key = decl?.key ?? '';
       const inner = key
-        ? node.props.switchDesign === SWITCH_SHOW_ALL
+        ? decl?.design === SWITCH_SHOW_ALL
           ? SWITCH_SHOW_ALL
-          : slug(node.props.switchDesign) || slug(node.props.switchDefault)
+          : slug(decl?.design) || slug(decl?.initial)
         : showing;
 
       if (expanded) for (const childId of node.children) walk(childId, depth + 1, inner);

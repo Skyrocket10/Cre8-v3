@@ -370,7 +370,7 @@ Each is independently shippable and independently falsifiable.
 | **X2** | ~~`StyleRule.when` becomes a `Test`; the planner; byte-identical output~~ — **shipped** | — |
 | **X3** | ~~OR compiles to a selector list~~ — **shipped** | X2 |
 | **X4** | ~~A comparison in a style rule mints its own answer~~ — **shipped**, as an attribute rather than a state | X2 |
-| **X5** | States are declared, not scraped | — |
+| **X5** | ~~States are declared, not scraped~~ — **shipped**; it also found the collaboration bug below | — |
 | **X6** | Events become a registry; actions grow verbs | X5 |
 | **X7** | `only` on an action | X6 |
 | **X8** | One "When pressed" list, absorbing Link / Relative-to / Form | X6 |
@@ -398,6 +398,38 @@ How each is falsified — the check that must fail against the unfixed code:
   absent.
 - **X8** — extend U3's reachability sweep: every prop reachable before is
   reachable after.
+
+### 4.1 What X5 turned up on the way — a migration the room could not see
+
+X5's browser check went green in every direction except one: the value it added
+appeared in the panel, and was gone from storage. The reason is not in anything
+X5 touched.
+
+`hydrateDocument`'s docblock claims to be the one gate every document passes
+through — "the editor, the collaboration client, the API, the publisher". The
+room was not on that list. It held whatever JSON was in D1 and patched *that*,
+while every client patched a migrated copy of the same bytes.
+
+For years the difference was invisible, because every migration until X5
+rewrote fields that already existed: `replace nodes/x/props/y` applies to
+either shape. X5 is the first that **creates a nested object**, so the editor
+sends `replace nodes/x/state/values` — a path with no parent in the room's
+copy. `applyPatches` throws, the room answers `resync`, and the client
+obediently discards its own edit and re-derives the old declaration from the
+props it still has. Every subsequent edit does the same. Nothing errors,
+nothing logs, nothing saves: the Switch section stops responding, permanently,
+and only for documents written before the migration.
+
+The fix is one function in `room.ts` — both doors a document arrives through, a
+load from D1 and a whole-document write, now go through `hydrateDocument`. The
+write path matters as much as the load: restoring a version writes an *old*
+document by definition, so a restore into a live room reproduced this exactly.
+
+Worth stating as a rule, because X6 is another migration:
+
+> **A migration that creates a field the editor will patch into is not finished
+> until the room runs it too.** The client-side upgrade is not enough, and its
+> failure mode is silence.
 
 ---
 

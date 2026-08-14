@@ -11,6 +11,7 @@
 import { clickBinding } from './actions';
 import { uid } from './id';
 import { readLegacyVisibility, slug } from './schema';
+import { LEGACY_STATE_PROPS, declarationFrom } from './state';
 import {
   DOCUMENT_VERSION,
   type Binding,
@@ -262,6 +263,22 @@ function migrateNode(node: SceneNode): void {
  */
 export function migrateDocument(doc: Cre8Document): Cre8Document {
   for (const node of Object.values(doc.nodes)) migrateNode(node);
+
+  /*
+   * And the state, which needs the whole document rather than one node.
+   *
+   * `migrateNode` cannot do this one: a declaration's *values* were never
+   * written down, so they are scraped out of the subtree, and a node on its
+   * own has no subtree to look at. Read once here and written down, after
+   * which nothing walks the tree to find out what a state can be.
+   */
+  for (const node of Object.values(doc.nodes)) {
+    if (!node.state) {
+      const decl = declarationFrom(doc.nodes, node);
+      if (decl) node.state = decl;
+    }
+    for (const prop of LEGACY_STATE_PROPS) delete node.props[prop];
+  }
   doc.version = DOCUMENT_VERSION;
   return doc;
 }

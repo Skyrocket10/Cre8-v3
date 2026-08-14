@@ -9,6 +9,7 @@
 
 import { uid } from './id';
 import { asTest } from './when';
+import { LEGACY_STATE_PROPS, declarationFrom } from './state';
 import { bindingFrom, migrateActions, migrateDocument, rulesFromLegacy } from './migrate';
 import { getElement, splitFragment } from './schema';
 import { createDefaultTheme } from './theme';
@@ -26,6 +27,7 @@ import {
   type RepeatSpec,
   type ResponsiveStyles,
   type SceneNode,
+  type StateDecl,
   type StateRule,
   type StateStyles,
   type StyleDecl,
@@ -81,6 +83,15 @@ export interface NodeSpec {
   responsive?: ResponsiveStyles;
   /** Authoring shorthand, folded into `rules` on the way in. */
   states?: StateStyles;
+  /**
+   * The state this element declares.
+   *
+   * The long spelling. `props.switchKey` and its two siblings remain the short
+   * one and are folded by `finishTree`, so a block only reaches for this when
+   * it wants to say something the props cannot — which today means naming a
+   * value nothing sets.
+   */
+  state?: StateDecl;
   /**
    * Rules, with `when` in either spelling.
    *
@@ -167,6 +178,30 @@ export function buildTree(
 export function finishTree(nodes: NodeMap): void {
   resolveRefs(nodes);
   defaultAnchors(nodes);
+  foldStates(nodes);
+}
+
+/**
+ * `switchKey` and friends become the node's state declaration.
+ *
+ * Here rather than in `buildSubtree`, and that is forced: a declaration's
+ * values are scraped out of the subtree, and a node being built has no subtree
+ * yet — its children arrive after it. `finishTree` is the first moment the
+ * whole shape exists, which is the same reason `resolveRefs` runs here.
+ *
+ * A spec that writes `state` itself wins, exactly as one that writes `events`
+ * wins over `switchSet`. The props survive as the authoring shorthand every
+ * block in the library is written in; `migrate.ts` does the same fold for a
+ * document arriving from disk, and neither has to know about the other.
+ */
+function foldStates(nodes: NodeMap): void {
+  for (const node of Object.values(nodes)) {
+    if (!node.state) {
+      const decl = declarationFrom(nodes, node);
+      if (decl) node.state = decl;
+    }
+    for (const prop of LEGACY_STATE_PROPS) delete node.props[prop];
+  }
 }
 
 function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): NodeId {
@@ -190,6 +225,7 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
     });
     node.rules = [...(node.rules ?? []), ...fromStates, ...authored];
   }
+  if (spec.state) node.state = structuredCloneCompat(spec.state);
   if (spec.meta) node.meta = { ...node.meta, ...spec.meta };
   if (spec.repeat) node.repeat = structuredCloneCompat(spec.repeat);
   if (spec.assign?.length) node.assign = structuredCloneCompat(spec.assign);
@@ -375,6 +411,16 @@ export function finishDocument(pageRoots: Map<NodeId, string>, all: NodeMap): vo
   for (const [rootId, pageId] of pageRoots) mark(rootId, pageId);
   resolveRefs(all, pageOf);
   defaultAnchors(all);
+  /*
+   * And here too, not only in `finishTree`.
+   *
+   * A template composes its pages with `defer` and finishes the whole document
+   * in one pass, so `finishTree` never runs for it — which left every
+   * template's switch declared nowhere. The fold is idempotent (a node that
+   * already has a declaration is skipped), so both doors can call it and the
+   * one a caller happens to use stops mattering.
+   */
+  foldStates(all);
 }
 
 /**

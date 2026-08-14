@@ -451,6 +451,46 @@ export type Test =
  * node are two writes to one key, resolved in list order with the later one
  * winning. Same arbitration as `rules`, for the same reason.
  */
+/**
+ * A state an element declares: its name, what it can be, and where it starts.
+ *
+ * The values are the addition, and the reason the other three moved to join
+ * them. They used to be *discovered* — `valuesSetting` scraped every control
+ * in the subtree for what it set — which had three costs. A value could not
+ * exist before something set it, so the empty case of a filter or the error
+ * case of a form could not be designed until the button that reached it was
+ * wired. Renaming one meant finding every control that mentioned it. And the
+ * scrape's own docblock admitted it attributed a control in a *nested* group
+ * to the outer one as well.
+ *
+ * The scrape survives as a suggestion in the panel and as the one-time source
+ * for the migration. It is no longer the truth.
+ *
+ * There was nowhere to put a list before this: `NodeProps` holds primitives,
+ * which is exactly why the values were scraped rather than declared. Not an
+ * oversight — a missing shape.
+ */
+export interface StateDecl {
+  /** Slugged: it reaches an attribute and a stylesheet selector. */
+  key: string;
+  /** Every value it can take, in the order the panel shows them. */
+  values: string[];
+  /**
+   * What ships in the file.
+   *
+   * What a visitor sees before touching anything, and for ever if they have no
+   * scripting. Was `switchDefault`.
+   */
+  initial: string;
+  /**
+   * Which one the canvas is showing. Never published.
+   *
+   * `SWITCH_SHOW_ALL` lays every case out at once, which is a working view
+   * rather than a case. Was `switchDesign`.
+   */
+  design?: string;
+}
+
 export interface StateRule {
   id: string;
   when: Test;
@@ -905,6 +945,20 @@ export interface SceneNode {
    * this by the factory — but nothing downstream reads anything else.
    */
   rules?: StyleRule[];
+
+  /**
+   * The state this element declares, if it declares one.
+   *
+   * Replaces three loose props — `switchKey`, `switchDefault`, `switchDesign` —
+   * that described one thing and had no relationship to each other. Folded by
+   * `hydrateDocument`, so a document saved before this reads identically and
+   * nothing downstream sees two spellings.
+   *
+   * One, not a list: an element carries exactly one `data-cre8-switch` and
+   * `stateFrom` settles exactly one value, so a second declaration would be a
+   * field nothing could ever write.
+   */
+  state?: StateDecl;
 
   /**
    * What this instance says, where its component let it differ.

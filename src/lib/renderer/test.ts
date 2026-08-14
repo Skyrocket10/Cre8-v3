@@ -46,6 +46,7 @@ import type {
   Value,
 } from '../document/types';
 import { slug } from '../document/schema';
+import { stateKeyOf, stateOf } from '../document/state';
 import { mintedIn, type Minted } from '../document/when';
 import type { TestTable } from '../runtime/behaviour';
 
@@ -361,10 +362,10 @@ export function foldedAttrs(node: SceneNode, record: CollectionRecord | null): s
  */
 export function unfinished(node: SceneNode): string | null {
   if (!node.assign?.length) return null;
-  if (!slug(node.props.switchKey)) {
+  if (!stateKeyOf(node)) {
     return 'This has no state name, so nothing is written when a rule matches.';
   }
-  if (needsRuntime(node) && !slug(node.props.switchDefault)) {
+  if (needsRuntime(node) && !slug(stateOf(node)?.initial)) {
     return 'This reads something typed on the page, so it needs an “Otherwise” — that is what a visitor sees before they type anything, and all they ever see with scripting off.';
   }
   return null;

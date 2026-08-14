@@ -283,6 +283,19 @@ check is what a design that silently dropped the rule instead would fail — and
 it fails there rather than quietly agreeing that a deleted rule draws no
 warning.
 
+An upgrade is checked for what it produces and then for who is holding it. The
+second half exists because `X5` is the first migration that *creates* a nested
+object, and that turns out to be a different kind of change: the room held raw
+D1 JSON while every client patched a hydrated copy, so an editor's
+`replace nodes/x/state/values` had no parent to land on, immer threw, and the
+room answered with a resync that silently discarded the edit — for ever, and
+only on documents older than the migration. So the hazard is established from
+the real patch a real inspector edit produces, applied to both shapes with the
+real immer, and then `room.ts` is required to be on the far side of it: exactly
+two places take a document from outside, and both run it through the same
+`hydrateDocument` everything else does. The count is asserted, because a third
+door added later would otherwise pass by not being looked at.
+
 An assignment that also writes a rule is checked by *comparison*: the same
 design built through the shortcut and built by hand, asserted to be the same
 document. What that leaves interesting is everything after — renaming the
@@ -430,7 +443,7 @@ preferring an installed copy over downloading one.
 | `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime — and does an anchored panel open against the button that opened it, on the side it was told, flipping rather than overflowing when there is no room |
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces. And does a state decided by what somebody types follow them as they type, put itself back when they clear the field, and land on the declared fallback when nothing is running |
-| `conditions` | Does each of the eleven condition shapes actually change what a visitor sees — including a comparison, which is not a selector and never will be: the compiler mints an attribute for it, and the check drives a field to watch the attribute go on, then off again — and does an "any of these" apply on both of its branches **and not when neither holds**, which is the only reading that tells an OR apart from a selector that matches everything — measured on one element either side of the state, so a rule that always applied would fail as loudly as one that never did. Seven of them had no control in the panel until `X1`: every `control` pseudo-class, `:active`, plain `:focus`, and the attribute test. And can a designer reach them — the When… menu is driven for real, offering "Ticked" on a checkbox and withholding it from a `div`, where it would compile to a selector that can never match |
+| `conditions` | Does each of the eleven condition shapes actually change what a visitor sees — including a comparison, which is not a selector and never will be: the compiler mints an attribute for it, and the check drives a field to watch the attribute go on, then off again — and does an "any of these" apply on both of its branches **and not when neither holds**, which is the only reading that tells an OR apart from a selector that matches everything — measured on one element either side of the state, so a rule that always applied would fail as loudly as one that never did. Seven of them had no control in the panel until `X1`: every `control` pseudo-class, `:active`, plain `:focus`, and the attribute test. And can a designer reach them — the When… menu is driven for real, offering "Ticked" on a checkbox and withholding it from a `div`, where it would compile to a selector that can never match. Last, the thing `X5` exists for: a case nothing sets is typed into the Switch section and read back **out of storage**, which is what caught the room holding an unmigrated document while every client patched a migrated one |
 | `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |
 | `press` | Does an element arrive as you scroll to it — and stay visible for a browser that cannot animate it, a visitor who asked for less motion, and a page too short to scroll. Does a jump land on its section, and does a copy reach the clipboard and say so |
 | `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added — and does a price stored as `1250000` read as `$1,250,000.00` on both surfaces, formatted by the publisher rather than by a script. And does a record put its own row into its own state — `price > 1000000 → premium` — the same answer on the canvas and in the file, one rule in the stylesheet, no script. And does a price mapped onto an opacity reach both surfaces as the same number on every row |

@@ -26,6 +26,7 @@ import { STYLE_VOCABULARY, type StyleSection } from '@/lib/document/style-vocabu
 import { getElement, type ElementDefinition } from '@/lib/document/schema';
 import type { Cre8Document, ElementType, SceneNode, StyleProp } from '@/lib/document/types';
 import { danglingReads } from '@/lib/document/factory';
+import { stateKeyOf } from '@/lib/document/state';
 import { collectionInScope } from './section-data';
 import { hasOwnContent } from './section-content';
 
@@ -178,7 +179,7 @@ export const SECTIONS: SectionSpec[] = [
     hint: 'Give what is inside a state — tabs, a filter, a pricing toggle',
     props: [],
     applies: (_node, ctx) => holdsChildren(ctx.def),
-    used: (node) => Boolean(node.props.switchKey),
+    used: (node) => Boolean(stateKeyOf(node)),
   },
   {
     id: 'value',

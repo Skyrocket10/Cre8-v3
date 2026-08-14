@@ -83,6 +83,33 @@ function permanent(error: unknown): boolean {
   return typeof status === 'number' && status >= 400 && status < 500;
 }
 
+/**
+ * The document, in the shape everybody patches against.
+ *
+ * The room is the single writer, but it was not the single *reader*: it held
+ * whatever JSON was in D1, while every client ran that same JSON through
+ * `hydrateDocument` on the way in. For years the difference was invisible,
+ * because every migration up to now rewrote fields that already existed and a
+ * patch to `nodes/x/props/y` applies to either shape.
+ *
+ * A migration that *creates* a nested object breaks that truce. Folding
+ * `switchKey` and friends into `node.state` means the editor sends
+ * `replace nodes/x/state/values` — a path with no parent in the room's copy,
+ * so `applyPatches` throws, the room answers with a resync, and the client
+ * dutifully throws its own edit away and re-derives the old declaration from
+ * the props it still has. Every subsequent edit does the same. Nothing errors
+ * and nothing saves: the switch section simply stops responding, for ever, and
+ * only for documents written before the migration.
+ *
+ * So the room hydrates too, and `hydrateDocument`'s claim to be the one gate
+ * every document passes through stops being an aspiration. The upgrade is not
+ * written back on its own — the next patch persists it — which keeps a read
+ * that changes nothing off the write path.
+ */
+function upgraded(document: unknown): Record<string, unknown> {
+  return hydrateDocument(document as Partial<Cre8Document>) as unknown as Record<string, unknown>;
+}
+
 /** What the alarm needs, since it fires with no request behind it. */
 interface PendingRepublish {
   projectId: string;
@@ -172,7 +199,7 @@ export class ProjectRoom implements DurableObject {
     if (!row) return;
 
     try {
-      this.doc = JSON.parse(row.document);
+      this.doc = upgraded(JSON.parse(row.document));
     } catch {
       this.doc = null;
     }
@@ -215,7 +242,10 @@ export class ProjectRoom implements DurableObject {
     const body = (await request.json()) as { document?: Record<string, unknown> };
     if (!body.document) return new Response('Missing document', { status: 400 });
 
-    this.doc = body.document;
+    // Upgraded on the way in for the same reason a load is: a restored
+    // snapshot is an *old* document by definition, and putting one back used
+    // to hand the room a shape none of its clients would ever patch against.
+    this.doc = upgraded(body.document);
     // A whole-document write *is* a load, and saying so stops the next read
     // from going back to D1 and overwriting it with the older copy there.
     this.loaded = true;

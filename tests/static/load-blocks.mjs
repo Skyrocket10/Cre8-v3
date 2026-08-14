@@ -43,6 +43,9 @@ export function loadBlocks() {
       'src/lib/document/conditions.ts',
       // And the structural half, which the generator plans a rule with.
       'src/lib/document/when.ts',
+      // What an element's state is, and what it can be — declared rather than
+      // scraped, which is a claim about data and therefore checkable.
+      'src/lib/document/state.ts',
       // The upgrade every stored document goes through on load. It runs on
       // every project every time and would otherwise be exercised only by
       // accident, which is a poor arrangement for the one piece of code that
@@ -97,6 +100,7 @@ export function loadBlocks() {
     vocabulary: require(path.join(OUT, 'document/style-vocabulary.js')),
     conditions: require(path.join(OUT, 'document/conditions.js')),
     when_: require(path.join(OUT, 'document/when.js')),
+    stateLib: require(path.join(OUT, 'document/state.js')),
     // The scheduling half: which rules fold at publish and which travel.
     testTable: require(path.join(OUT, 'renderer/test.js')).testTable,
     motion: require(path.join(OUT, 'renderer/motion.js')),
