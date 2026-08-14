@@ -51,8 +51,17 @@
  */
 import type { Carrier } from './events';
 import { EVENTS, carrierOf } from './events';
-import type { NodeAction, NodeEventBinding, SceneNode } from './types';
+import type { CollectionRecord, NodeAction, NodeEventBinding, SceneNode, Test } from './types';
 import { slug } from './schema';
+/*
+ * The scheduling rule and the evaluator, borrowed rather than restated.
+ *
+ * "Can this be answered when the file is written" has one answer in this
+ * codebase and it is `foldable`; a second opinion about it here would be a
+ * guard that folds for the stylesheet and travels for the action, on the same
+ * condition.
+ */
+import { evaluate, foldable } from '../renderer/test';
 
 /** The event a click-driven action hangs off. Named as the registry names it. */
 export const CLICK = 'onClick';
@@ -78,10 +87,11 @@ export function actionsFor(node: SceneNode, event: string = CLICK): NodeAction[]
  */
 export function stateSets(
   node: SceneNode,
-  event: string = CLICK
+  event: string = CLICK,
+  record?: CollectionRecord | null
 ): { state: string; value: string; quiet: boolean }[] {
   const out: { state: string; value: string; quiet: boolean }[] = [];
-  for (const action of actionsFor(node, event)) {
+  for (const action of keptFor(node, event, record)) {
     if (action.type === 'setState') {
       const value = slug(action.value);
       if (!value) continue;
@@ -184,12 +194,40 @@ export function valuesSetting(node: SceneNode, key: string): string[] {
  * separator. One clipboard action per node: two would be one overwriting the
  * other, so the last one authored wins and the panel offers a single field.
  */
-export function copyTextFor(node: SceneNode, event: string = CLICK): string {
+export function copyTextFor(
+  node: SceneNode,
+  event: string = CLICK,
+  record?: CollectionRecord | null
+): string {
   let text = '';
-  for (const action of actionsFor(node, event)) {
+  for (const action of keptFor(node, event, record)) {
     if (action.type === 'copy' && action.text) text = action.text;
   }
   return text;
+}
+
+/**
+ * The actions that survive planning, in the order they were written.
+ *
+ * The readers above used to walk `actionsFor` directly, which was right while
+ * every action in the list was an action in the file. A guard changes that: an
+ * `only` the publisher answered `false` means the action is not there, and a
+ * reader that did not know would put its value in the attribute anyway — a
+ * button whose condition failed, still setting the state, on a page with no
+ * script to stop it.
+ *
+ * By identity rather than by re-deciding, so there is exactly one place that
+ * knows what survives.
+ */
+export function keptFor(
+  node: SceneNode,
+  event: string = CLICK,
+  record?: CollectionRecord | null
+): NodeAction[] {
+  const list = actionsFor(node, event);
+  const plan = planActions(list, record);
+  const inPlan = new Set<NodeAction>([...plan.script, ...plan.native.map((one) => one.action)]);
+  return list.filter((action) => inPlan.has(action));
 }
 
 /**
@@ -232,6 +270,51 @@ export function runnable(action: NodeAction): boolean {
 }
 
 /* --------------------------------------------------------------------------
+ * "…but only when"
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The guard this element is gated by in the browser, or null.
+ *
+ * A guard that the publisher could answer is not here: `planActions` has
+ * already kept or dropped that action, and a decided condition has nothing
+ * left to travel. What reaches this is the other kind — a guard reading
+ * something a visitor can change — and it becomes one attribute on the
+ * element, because an element has one attribute to be gated by.
+ *
+ * ## Why one, when `only` is per action
+ *
+ * Because the two halves have different limits and it is worth being exact
+ * about which is which.
+ *
+ * A guard that **folds** is per action in the fullest sense: it is answered
+ * per row of a repeater, at publish, and two actions on one control can carry
+ * two completely different folded guards. Nothing here is involved.
+ *
+ * A guard that **does not fold** has to be an attribute, and there is one
+ * element. So an unfoldable guard gates the whole gesture, and a binding whose
+ * actions do not agree about it is a design a page cannot express —
+ * `planActions` refuses the ones that differ rather than running them under
+ * somebody else's condition, which is the same bargain two verbs wanting one
+ * `href` strike.
+ *
+ * Compared by shape rather than by identity: two actions written with the same
+ * condition are the same condition, and a designer who wrote it twice should
+ * not get a refusal for it.
+ */
+export function guardOf(node: SceneNode): Test | undefined {
+  for (const action of everyAction(node)) {
+    if (action.only && !foldable(action.only)) return action.only;
+  }
+  return undefined;
+}
+
+/** Whether two guards are the same condition. Absence counts as a guard too. */
+function sameGuard(a: Test | undefined, b: Test | undefined): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+/* --------------------------------------------------------------------------
  * The native-first compiler
  * ----------------------------------------------------------------------- */
 
@@ -252,6 +335,8 @@ export interface ActionPlan {
   native: Claim[];
   script: NodeAction[];
   refused: NodeAction[];
+  /** The guard the browser has to answer before any of it runs, if there is one. */
+  gated?: Test;
 }
 
 /**
@@ -274,14 +359,54 @@ export interface ActionPlan {
  *
  * An unrunnable action is neither: a `copy` with no text is an unfinished
  * thought, not a reason to ship two kilobytes of runtime.
+ *
+ * ## Guards
+ *
+ * A `record` makes the difference between the two schedules. With one in hand
+ * a foldable guard is *answered*: true and the action is as if it had never
+ * been conditional, false and it is not in the plan at all — no attribute, no
+ * entry in the table, nothing in the file. Without one — the canvas, where
+ * there is no row to be — a foldable guard is left alone rather than guessed
+ * at, so the editor draws the control the designer is working on.
+ *
+ * An unfoldable guard survives into `gated`, and every action in the plan has
+ * to agree about it, because it becomes one attribute on one element. The odd
+ * ones out are refused for the same reason a second `href` is: the markup has
+ * nowhere to put them, and running them under a condition their author did not
+ * write would be worse than saying so.
  */
-export function planActions(actions: readonly NodeAction[]): ActionPlan {
+export function planActions(
+  actions: readonly NodeAction[],
+  record?: CollectionRecord | null
+): ActionPlan {
   const native: Claim[] = [];
   const script: NodeAction[] = [];
   const refused: NodeAction[] = [];
   const taken = new Set<string>();
+  // The first unfoldable guard sets the terms; `guardOf` reads the node the
+  // same way, so the attribute the renderer mints and the condition the plan
+  // enforces are the same one by construction rather than by agreement.
+  const gated = actions.find((action) => action.only && !foldable(action.only))?.only;
 
   for (const action of actions) {
+    if (action.only) {
+      if (foldable(action.only)) {
+        // Undecidable stays: `evaluate` answers null for a foldable test with
+        // no record, which is the canvas. Only a flat `false` drops it.
+        if (record !== undefined && evaluate(action.only, record ?? null) === false) continue;
+      } else if (!sameGuard(action.only, gated)) {
+        refused.push(action);
+        continue;
+      }
+    } else if (gated) {
+      // An unguarded action on a gated element. Refused rather than run,
+      // because the attribute gates the element and there is no way to exempt
+      // one action from it — and quietly making it conditional would be a
+      // control that stops working for reasons nothing on screen explains.
+      refused.push(action);
+      continue;
+    }
+
     const carrier = carrierOf(action);
     if (carrier === null) {
       if (runnable(action)) script.push(action);
@@ -294,7 +419,7 @@ export function planActions(actions: readonly NodeAction[]): ActionPlan {
     taken.add(carrier);
     native.push({ carrier, action });
   }
-  return { native, script, refused };
+  return { native, script, refused, gated };
 }
 
 /** The action holding a carrier, or undefined. The question every caller asks. */

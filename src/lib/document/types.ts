@@ -701,8 +701,53 @@ export type RefSlot = 'popover' | 'anchorFor' | 'scrollTo';
  * table, `actions.ts:planActions` applies it, and the split is the whole point
  * of the vocabulary being this long: the authored shape is uniform and the
  * compiled shape is whatever is most native.
+ *
+ * `only` rides on top of all of it — see `Guarded` below.
  */
-export type NodeAction =
+export type NodeAction = ActionBody & Guarded;
+
+/**
+ * "…but only when."
+ *
+ * The condition Bubble puts on a workflow step, and the last thing in the
+ * audit's table of what a designer would try and could not. It is a `Test`
+ * rather than a new little language because it is the same question a style
+ * rule asks — *is this true right now* — and the codebase already has one
+ * evaluator, one fold/subscribe rule and one set of words for it.
+ *
+ * ## Two schedules, as everywhere else
+ *
+ * **Folds** — every operand is publish-time data, so the answer is known when
+ * the file is written. A true guard vanishes and the action is as if it were
+ * never conditional; a false one takes the action with it. The published page
+ * carries no guard, no attribute and no script, and a repeater's hundred rows
+ * each get the answer for their own record.
+ *
+ * **Does not fold** — the guard reads something a visitor can change, so it
+ * travels. It mints an attribute exactly as a comparison in a style rule does
+ * (X4), `testRuntime` turns that attribute on and off, and the behaviour
+ * runtime checks for it before doing anything. That is why this costs so
+ * little: the evaluator, the table, the published values and the folding were
+ * all built for style rules and are reused whole.
+ *
+ * ## What a visitor with no scripting gets
+ *
+ * Different by verb, and it has to be — a static file cannot conditionally
+ * have an `href`:
+ *
+ * - A verb the runtime performs (`setState`, `copy`, `toggleState`) does
+ *   nothing, which is what it does without a guard too.
+ * - A verb the markup carries (`navigate`, `submit`, `openPanel`, `scrollTo`)
+ *   *runs*. The link is in the file; nothing is there to stop it.
+ *
+ * Stated rather than chosen, because there is no second option to offer, and
+ * `unfinished()` says so on the node where it matters.
+ */
+export interface Guarded {
+  only?: Test;
+}
+
+type ActionBody =
   /**
    * Put a state into a value.
    *

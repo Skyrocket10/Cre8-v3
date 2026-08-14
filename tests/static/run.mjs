@@ -12247,6 +12247,168 @@ report.group('every verb compiles to the most native thing available');
     halfFlip(['shut', '']) === '' && halfFlip(undefined) === '' && halfFlip(['', 'open']) === '',
     `one half → "${halfFlip(['shut', ''])}" · none → "${halfFlip(undefined)}" · other half → "${halfFlip(['', 'open'])}"`
   );
+
+  /* --- …but only when ------------------------------------------------------ */
+
+  /*
+   * The same fold/subscribe split the whole execution model runs on, applied
+   * to what a control *does* rather than to how it looks.
+   */
+  const priceOver = (n) => ({
+    kind: 'compare',
+    left: { kind: 'field', key: 'price' },
+    op: 'gt',
+    right: { type: 'number', value: n },
+  });
+  const typed = {
+    kind: 'compare',
+    left: { kind: 'input', name: 'email' },
+    op: 'notEmpty',
+  };
+  const record = (price) => ({ id: 'r1', collectionId: 'c1', data: { price } });
+  const guarded = (only) => [{ type: 'setState', value: 'chosen', only }];
+
+  const kept = planActions(guarded(priceOver(100)), record(500));
+  const dropped = planActions(guarded(priceOver(100)), record(5));
+  report.check(
+    'a guard the publisher can answer is answered, and the action goes with it',
+    kept.script.length === 1 && dropped.script.length === 0 && dropped.refused.length === 0,
+    `over → ${kept.script.length} kept · under → ${dropped.script.length} kept, ${dropped.refused.length} refused`
+  );
+  report.check(
+    'and neither leaves a gate behind for the browser to answer again',
+    kept.gated === undefined && dropped.gated === undefined,
+    `${String(kept.gated)} / ${String(dropped.gated)}`
+  );
+  /*
+   * With no record there is no row to be, which is the canvas. A foldable
+   * guard is left alone rather than guessed at — dropping the action would
+   * take the control off the canvas the designer is editing it on, and
+   * `evaluate` says `null` rather than `false` for exactly this reason.
+   */
+  report.check(
+    'and on the canvas, where there is no record, it is left alone rather than guessed',
+    planActions(guarded(priceOver(100))).script.length === 1,
+    `${planActions(guarded(priceOver(100))).script.length} kept with nothing to evaluate against`
+  );
+
+  /*
+   * And the answer has to reach the *markup*, not only the plan.
+   *
+   * The readers that build the attribute — `stateSets`, `copyTextFor` — used
+   * to walk the action list directly, which was right until an action could be
+   * dropped. Asked at the plan level alone, a check cannot see the difference:
+   * removing the plan from those readers left every other guard check passing
+   * while a button whose condition had failed still carried its assignment
+   * into a page with no script to stop it.
+   */
+  const guardedNode = { events: [{ event: 'onClick', actions: guarded(priceOver(100)) }] };
+  report.check(
+    'and an action the guard dropped reaches no attribute either',
+    encodeSets(stateSets(guardedNode, 'onClick', record(5))) === '' &&
+      encodeSets(stateSets(guardedNode, 'onClick', record(500))) === 'chosen',
+    `under → "${encodeSets(stateSets(guardedNode, 'onClick', record(5)))}" · over → "${encodeSets(stateSets(guardedNode, 'onClick', record(500)))}"`
+  );
+
+  const live = planActions(guarded(typed));
+  report.check(
+    'a guard the publisher cannot answer travels instead',
+    live.script.length === 1 && JSON.stringify(live.gated) === JSON.stringify(typed),
+    live.gated ? 'the condition is on the plan' : 'nothing to travel'
+  );
+
+  /*
+   * One element, one attribute — so a binding whose actions disagree about
+   * their guard is asking for something a page cannot express. Both directions
+   * are refused, and the second is the one that would otherwise be a silent
+   * wrong: an *unguarded* action beside a guarded one would quietly become
+   * conditional, and a control that stops working for reasons nothing on
+   * screen explains is worse than one that says so.
+   */
+  const mixed = planActions([
+    { type: 'setState', value: 'a', only: typed },
+    { type: 'setState', value: 'b', only: { ...typed, left: { kind: 'input', name: 'other' } } },
+  ]);
+  report.check(
+    'two different live guards on one element: the second is refused, not run under the first',
+    mixed.script.length === 1 && mixed.refused.length === 1 && mixed.refused[0].value === 'b',
+    `kept ${mixed.script.map((a) => a.value).join(' ')} · refused ${mixed.refused.map((a) => a.value).join(' ')}`
+  );
+  const beside = planActions([
+    { type: 'setState', value: 'a', only: typed },
+    { type: 'copy', text: 'always' },
+  ]);
+  report.check(
+    'and an unguarded action beside a live guard is refused rather than quietly gated',
+    beside.script.length === 1 && beside.refused.length === 1 && beside.refused[0].type === 'copy',
+    `kept ${beside.script.map((a) => a.type).join(' ')} · refused ${beside.refused.map((a) => a.type).join(' ')}`
+  );
+  report.check(
+    'while the same guard written twice is the same guard',
+    planActions([
+      { type: 'setState', value: 'a', only: typed },
+      { type: 'copy', text: 'x', only: { ...typed } },
+    ]).refused.length === 0,
+    `${planActions([{ type: 'setState', value: 'a', only: typed }, { type: 'copy', text: 'x', only: { ...typed } }]).script.length} kept, none refused`
+  );
+
+  /* --- and what reaches the page ------------------------------------------ */
+
+  const guardPage = (only) =>
+    linkPage({
+      type: 'frame',
+      name: 'Gate',
+      props: { switchKey: 'gate', switchDefault: 'off' },
+      children: [
+        { type: 'input', name: 'Email', props: { name: 'email' } },
+        {
+          type: 'button',
+          name: 'Choose',
+          props: { label: 'Choose' },
+          events: [{ event: 'onClick', actions: [{ type: 'setState', value: 'chosen', only }] }],
+        },
+      ],
+    });
+
+  const liveGate = guardPage(typed);
+  report.check(
+    'a live guard names the attribute it waits for, and the attribute is not set yet',
+    /data-cre8-only="data-cre8-w-[^"]*-g"/.test(liveGate.html) &&
+      !new RegExp(`${/data-cre8-only="([^"]*)"/.exec(liveGate.html)?.[1]}=`).test(liveGate.html),
+    `${/data-cre8-only="[^"]*"/.exec(liveGate.html)?.[0] ?? 'no gate'} · off in the file, which is what a visitor with no scripting keeps`
+  );
+  report.check(
+    'and the condition travels in the table the evaluator already reads',
+    liveGate.html.includes('data-cre8-test') && liveGate.html.includes('"name":"email"'),
+    liveGate.html.includes('"kind":"compare"') ? 'the guard is in the table' : 'nothing travelled'
+  );
+  report.check(
+    'and the action it gates is still in the markup, because the browser decides',
+    /data-cre8-set="chosen"/.test(liveGate.html),
+    /data-cre8-set="[^"]*"/.exec(liveGate.html)?.[0] ?? 'the assignment was dropped'
+  );
+
+  /*
+   * And the mirror, which is what stops the three above from being satisfied
+   * by a build that gates nothing: a guard the publisher can answer leaves no
+   * trace of itself in the file at all — no pointer, no attribute, nothing for
+   * the browser to re-decide.
+   */
+  /*
+   * The markup, not the file. Every attribute name in the runtime is a string
+   * literal in the runtime, so `data-cre8-only` appears in any page that ships
+   * the script whether or not a single element is gated — the first version of
+   * this check failed for that reason while its own detail correctly read "no
+   * gate".
+   */
+  const markupOf = (html) =>
+    html.replace(/<script>[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '');
+  const foldedGate = markupOf(guardPage(priceOver(100)).html);
+  report.check(
+    'a guard that folds leaves no gate in the file',
+    !/data-cre8-only/.test(foldedGate) && /data-cre8-set="chosen"/.test(foldedGate),
+    `${/data-cre8-only="[^"]*"/.exec(foldedGate)?.[0] ?? 'no gate'} · ${/data-cre8-set="[^"]*"/.exec(foldedGate)?.[0] ?? 'and no assignment either'}`
+  );
 }
 
 

@@ -9,11 +9,13 @@
  */
 
 import {
+  CLICK,
   actionsFor,
   actsOnPress,
   claimed,
   copyTextFor,
   encodeSets,
+  guardOf,
   planActions,
   stateSets,
 } from '../document/actions';
@@ -31,6 +33,7 @@ import {
 import {
   foldable,
   foldedAttrs,
+  guardName,
   mintedFor,
   needsRuntime,
   publishedValues,
@@ -44,6 +47,7 @@ import {
   DRIVE_ATTR,
   EL_ATTR,
   ELSE_ATTR,
+  GUARD_ATTR,
   NOT_ATTR,
   QUIET_ATTR,
   RANGE_ATTR,
@@ -379,9 +383,9 @@ interface Pressed {
  * the designer put in the action list is the newer and more specific statement
  * of the same intent, exactly as `refs.scrollTo` already outranks `props.href`.
  */
-function pressed(node: SceneNode): Pressed {
+function pressed(node: SceneNode, record: CollectionRecord | null): Pressed {
   const props = node.props;
-  const plan = planActions(actionsFor(node));
+  const plan = planActions(actionsFor(node), record);
 
   const goes = claimed(plan, 'href');
   const jump = goes?.type === 'scrollTo' ? goes.ref.node : (node.refs?.scrollTo?.node ?? '');
@@ -428,7 +432,7 @@ function applySwitch(
   const props = node.props;
   const decl = stateOf(node);
   const key = decl?.key ?? '';
-  const sets = stateSets(node);
+  const sets = stateSets(node, CLICK, options.record ?? null);
   const set = encodeSets(sets);
   // Hiding is the stylesheet's job — these attributes exist so the *runtime*
   // can tell a tab's panel from a price that happens to answer to the same
@@ -446,6 +450,22 @@ function applySwitch(
    */
   const minted = mintedFor(node);
   for (const attr of foldedAttrs(node, options.record ?? null)) model.attrs[attr] = '';
+
+  /*
+   * "Only run this when…", named on the element.
+   *
+   * The attribute the guard *sets* is minted like any other comparison and
+   * turned on and off by `testRuntime`. This second one says which attribute
+   * that is, because the behaviour runtime is a separate closure with no
+   * access to the table and nothing to derive the name from — it reads a
+   * pointer rather than working it out, exactly as `data-cre8-test` is a
+   * pointer rather than the rules themselves.
+   *
+   * Only for a guard that could not be folded. A decided one has already
+   * kept or dropped its action in `planActions`, and writing an attribute
+   * about a settled question would ship a gate with nothing behind it.
+   */
+  if (guardOf(node)) model.attrs[GUARD_ATTR] = guardName(node.id);
 
   if (!key && !set && !when && !minted.length) return model;
 
@@ -834,8 +854,8 @@ function describeBase(
        * is a reasonable thing to build, and the runtime keys on the attribute
        * rather than on the element being a button.
        */
-      const copyText = copyTextFor(node);
-      const press = pressed(node);
+      const copyText = copyTextFor(node, CLICK, options.record ?? null);
+      const press = pressed(node, options.record ?? null);
       const tag = resolveTag(node.type, props, {
         opensPopover: Boolean(press.popover),
         scrollsTo: press.scrollsTo,
@@ -1225,7 +1245,7 @@ function describeBase(
     default: {
       // Every remaining type is a plain container: frame, section, container,
       // stack, grid, navigation.
-      const press = pressed(node);
+      const press = pressed(node, options.record ?? null);
       const tag = resolveTag(node.type, props, {
         scrollsTo: press.scrollsTo,
         goesTo: Boolean(press.href),

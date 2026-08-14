@@ -218,6 +218,21 @@ export const EL_ATTR = 'data-cre8-el';
  */
 export const COPY_ATTR = 'data-cre8-copy';
 /**
+ * Which attribute has to be present before this element does anything.
+ *
+ * A pointer, not the condition. The condition is a `Test` and it is already
+ * travelling in the table that `testRuntime` reads — this says *which of the
+ * attributes that runtime writes* gates the gesture, because the two runtimes
+ * are separate closures serialised separately and this one has neither the
+ * table nor an evaluator. Same arrangement as `data-cre8-test`, for the same
+ * reason, and it is what keeps `only` from needing a second copy of `holds`.
+ *
+ * Absent on all but a handful of elements: a guard that could be answered when
+ * the file was written has already decided whether its action is in the file
+ * at all.
+ */
+export const GUARD_ATTR = 'data-cre8-only';
+/**
  * Set for a moment after a copy, and then removed.
  *
  * Feedback without inventing a mechanism for it: this is an ordinary attribute,
@@ -552,6 +567,12 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
   function onClick(event: Fired): void {
     const target = event.target as Tagged | null;
     if (!target || !target.closest) return;
+
+    const gated = target.closest('[data-cre8-only]');
+    if (gated && !gated.hasAttribute(gated.getAttribute('data-cre8-only') || '')) {
+      event.preventDefault();
+      return;
+    }
 
     const copier = target.closest('[data-cre8-copy]');
     if (copier) {

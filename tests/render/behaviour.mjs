@@ -35,6 +35,33 @@ import { createReport } from '../report.mjs';
 const report = createReport();
 const browser = await launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+
+/**
+ * A page with scripting genuinely off.
+ *
+ * `javaScriptEnabled` is a **context** option, and Playwright ignores it on
+ * `newPage` — silently, with no warning and no error. Five checks in this file
+ * asked for it that way and got a perfectly ordinary scripted page; every one
+ * of them passed, because each asserted a value the page happens to have with
+ * or without the runtime. The first one that did not — a guarded action, which
+ * must not run without scripting and does run with it — is what found this.
+ *
+ * So the context is the unit, and it is made here rather than at each call
+ * site: the same mistake is one keystroke away and this is the only spelling
+ * that works.
+ */
+async function withoutScripting(url) {
+  const quiet = await browser.newContext({
+    javaScriptEnabled: false,
+    viewport: { width: 1440, height: 1000 },
+  });
+  const page = await quiet.newPage();
+  await page.goto(url, { waitUntil: 'load' });
+  // Closing the context rather than the page, so the next caller does not
+  // inherit a browser that is still refusing to run anything.
+  page.done = () => quiet.close();
+  return page;
+}
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('  [pageerror]', e.message));
 
@@ -198,6 +225,16 @@ try {
    * the ancestor-then-page lookup, and the loop that keeps `aria-pressed`
    * honest for a control that touches two states.
    *
+   * From 3790, for `only` — 99 bytes, and the last of the runtime additions
+   * this round. Four lines in `onClick`: find the nearest element carrying a
+   * gate, read which attribute it names, and refuse the gesture if that
+   * attribute is not there. It is four lines rather than an evaluator because
+   * the condition is answered by `testRuntime`, which already ships when a
+   * page needs one, and the answer arrives as an attribute — the same
+   * mechanism X4 built for a comparison in a style rule. A second copy of
+   * `holds` in this closure would have cost roughly a kilobyte and been a
+   * second implementation of the thing ARCHITECTURE §1 exists to have one of.
+   *
    * From 3680, for `toggleState` — 113 bytes, and the smallest of the four by
    * a distance. It buys the verb `setState` cannot express: a menu button that
    * both opens and closes, which until now had to be two controls, a
@@ -218,7 +255,7 @@ try {
    * a failure here by deleting comments or shortening names — neither saves
    * anything at all.
    */
-  const RUNTIME_BUDGET = 3790;
+  const RUNTIME_BUDGET = 3910;
   const source = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
   report.check(
     'and it is small enough to be read in one sitting',
@@ -979,9 +1016,8 @@ try {
    * the number is in the markup, so a comparison opened from a ZIP is one
    * frozen at the split the designer chose, with the handle sitting on it.
    */
-  const dead = await ctx.newPage({ javaScriptEnabled: false });
+  const dead = await withoutScripting(`${APP}/s/${id}/`);
   await dead.setViewportSize({ width: 1200, height: 900 });
-  await dead.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
   const still = await readSplit(dead, '[data-cre8-range="split"]');
   report.check(
     'with scripting off the comparison still shows, at the chosen split',
@@ -993,7 +1029,7 @@ try {
     (await dead.locator('[data-cre8-drive="split"]').inputValue()) === '50',
     `slider at ${await dead.locator('[data-cre8-drive="split"]').inputValue()}`
   );
-  await dead.close();
+  await dead.done();
 
   // The canvas holds the same number, from the same markup. Nothing here
   // drives it — a drag on the canvas is somebody reaching for the element —
@@ -1122,8 +1158,7 @@ try {
       );
       await typing.close();
 
-      const noScript = await ctx.newPage({ javaScriptEnabled: false });
-      await noScript.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      const noScript = await withoutScripting(`${APP}/s/${id}/`);
       report.check(
         'with scripting off the fallback is what a visitor gets, and keeps',
         (await noScript
@@ -1136,7 +1171,7 @@ try {
         await noScript.locator('input[name="email"]').isVisible(),
         'the form is there; only the flourish is missing'
       );
-      await noScript.close();
+      await noScript.done();
     }
   }
 
@@ -1287,8 +1322,7 @@ try {
       );
       await acting.close();
 
-      const stillWorks = await ctx.newPage({ javaScriptEnabled: false });
-      await stillWorks.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      const stillWorks = await withoutScripting(`${APP}/s/${id}/`);
       report.check(
         'with scripting off both groups are simply what the file said',
         (await stillWorks
@@ -1299,7 +1333,7 @@ try {
             .getAttribute('data-cre8-value')) === 'one',
         'the defaults ship in the markup, so a page with no script is a page at rest'
       );
-      await stillWorks.close();
+      await stillWorks.done();
     }
   }
 
@@ -1418,14 +1452,185 @@ try {
       );
       await flipping.close();
 
-      const noJs = await ctx.newPage({ javaScriptEnabled: false });
-      await noJs.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      const noJs = await withoutScripting(`${APP}/s/${id}/`);
       report.check(
         'with scripting off it rests on the case that shipped',
         (await noJs.locator('[data-cre8-switch="menu"]').getAttribute('data-cre8-value')) === 'shut',
         'a flip needs a script and says so by simply not moving'
       );
-      await noJs.close();
+      await noJs.done();
+    }
+  }
+
+  /* ------------------------------------------------- 13. …but only when */
+
+  /*
+   * A guard the browser has to answer, pressed on both sides of it.
+   *
+   * The mechanism is X4's: the condition mints an attribute, `testRuntime`
+   * turns it on and off, and the behaviour runtime reads it. So the three
+   * things worth asserting are the ones a second evaluator would have got
+   * wrong — that pressing does nothing before the condition holds, that it
+   * works after, and that the *file* ships with the gate closed, which is what
+   * a visitor with no scripting keeps for ever.
+   */
+  {
+    const doc = await getDocument(page, id);
+    const home = doc.pages.find((p) => p.isHome) ?? doc.pages[0];
+    const root = doc.nodes[home.rootNodeId];
+    /*
+     * `element`, not `input`, and that is the whole scoping story for a guard.
+     *
+     * An `input` operand searches inside the node that owns the rule, which is
+     * right for a style rule — those live on the container and read a control
+     * within it. A guard lives on the *button*, and the field it reads is a
+     * sibling, so `input` would look inside the button, find nothing, and
+     * answer `null` for ever: a gate that never opens, silently. `element`
+     * searches the page, which is what V1 lifted the scoping for.
+     *
+     * Written down here because the first version of this fixture used
+     * `input`, and the failure was a passing button that did nothing.
+     */
+    const onlyTyped = {
+      kind: 'compare',
+      left: { kind: 'element', ref: { node: 'inp0only02' } },
+      op: 'notEmpty',
+    };
+
+    Object.assign(doc.nodes, {
+      gat0only01: node('gat0only01', 'frame', 'Gate', {
+        parentId: root.id,
+        children: ['inp0only02', 'btn0only03', 'out0only04'],
+        props: { switchKey: 'deal', switchDefault: 'none' },
+        styles: { desktop: { display: 'flex', flexDirection: 'column', padding: '20px' } },
+      }),
+      inp0only02: node('inp0only02', 'input', 'Coupon', {
+        parentId: 'gat0only01',
+        props: { name: 'coupon', placeholder: 'Code' },
+      }),
+      btn0only03: node('btn0only03', 'button', 'Apply', {
+        parentId: 'gat0only01',
+        props: { label: 'Apply' },
+        events: [
+          {
+            event: 'onClick',
+            actions: [{ type: 'setState', value: 'applied', only: onlyTyped }],
+          },
+        ],
+      }),
+      out0only04: node('out0only04', 'paragraph', 'Result', {
+        parentId: 'gat0only01',
+        props: { text: 'Discount applied' },
+        rules: [
+          {
+            id: 'rul0only01',
+            when: [{ kind: 'state', key: 'deal', op: 'isnt', values: ['applied'] }],
+            apply: { display: 'none' },
+          },
+        ],
+      }),
+    });
+    root.children.push('gat0only01');
+
+    const seeded = await saveDocument(page, doc);
+    if (report.check('the document with a guarded action is accepted', seeded === 200, `HTTP ${seeded}`)) {
+      await publish(page);
+      const gateHtml = await (await fetch(`${APP}/s/${id}/`)).text();
+      const markup = gateHtml.replace(/<script>[\s\S]*?<\/script>/g, '');
+      const pointer = /data-cre8-only="([^"]+)"/.exec(markup)?.[1] ?? '';
+
+      report.check(
+        'the file names the attribute the gesture waits for',
+        Boolean(pointer) && pointer.endsWith('-g'),
+        pointer || 'no gate in the markup'
+      );
+      report.check(
+        'and ships with it off, which is what a visitor with no scripting keeps',
+        Boolean(pointer) && !markup.includes(`${pointer}=`),
+        markup.includes(`${pointer}=`) ? 'the gate shipped open' : 'closed in the file'
+      );
+
+      const gating = await ctx.newPage();
+      await gating.goto(`${APP}/s/${id}/`, { waitUntil: 'load' });
+      const deal = gating.locator('[data-cre8-switch="deal"]');
+      const apply = gating.locator('button:has-text("Apply")').first();
+
+      await apply.click();
+      await gating.waitForTimeout(150);
+      report.check(
+        'pressing it before the condition holds does nothing at all',
+        (await deal.getAttribute('data-cre8-value')) === 'none',
+        `${await deal.getAttribute('data-cre8-value')} — the button is there and the press is refused`
+      );
+
+      await gating.locator('input[name="coupon"]').fill('SAVE20');
+      await gating.waitForTimeout(200);
+      await apply.click();
+      await gating.waitForTimeout(150);
+      report.check(
+        'and once it holds, the same press works',
+        (await deal.getAttribute('data-cre8-value')) === 'applied',
+        `${await deal.getAttribute('data-cre8-value')} — the same button, the same gesture`
+      );
+      /*
+       * Back again, which is what tells a guard from a one-way latch. A
+       * runtime that only ever added the attribute would pass both checks
+       * above and let a cleared field keep the button working.
+       */
+      const gateOn = () => apply.evaluate((el) => el.hasAttribute(el.getAttribute('data-cre8-only')));
+      const whileTyped = await gateOn();
+      await gating.locator('input[name="coupon"]').fill('');
+      await gating.waitForTimeout(200);
+      /*
+       * The gate itself, not the state it let through.
+       *
+       * Written first as "press it again and the state does not change", which
+       * is vacuous: the action sets `applied` and the state is already
+       * `applied`, so a guard that had stopped working entirely would give the
+       * same reading. What tells them apart is the attribute — on while the
+       * field had something in it, off once it does not.
+       */
+      report.check(
+        'and clearing the field closes the gate again',
+        whileTyped === true && (await gateOn()) === false,
+        `typed: ${whileTyped} → cleared: ${await gateOn()}`
+      );
+      await gating.close();
+
+      /*
+       * The falsification the plan names, stated as what the visitor gets
+       * rather than as what is absent from the page: a guard that has to be
+       * answered in the browser is never answered, so the action never runs.
+       * That is the honest fallback for a verb the runtime performs — it is
+       * what an unguarded one does without scripting too.
+       */
+      const noScript = await withoutScripting(`${APP}/s/${id}/`);
+      await noScript.locator('input[name="coupon"]').fill('SAVE20');
+      /*
+       * `force`, because Playwright's actionability wait times out here and
+       * the browser's event dispatch does not. This page is twelve fixtures
+       * deep by now and something above the button fails the hit test; with
+       * scripting off the press cannot do anything either way, so the check
+       * sends it rather than spending thirty seconds waiting for permission
+       * to. What is being asserted is what the visitor is left with, and that
+       * is read below.
+       */
+      await noScript.locator('button:has-text("Apply")').first().click({ force: true });
+      await noScript.waitForTimeout(150);
+      const restingAt = await noScript
+        .locator('[data-cre8-switch="deal"]')
+        .getAttribute('data-cre8-value');
+      report.check(
+        'with scripting off the guarded action never runs, whatever is typed',
+        restingAt === 'none',
+        `${restingAt} — the state the file shipped, which is the fallback for every verb the runtime performs`
+      );
+      report.check(
+        'and the page is otherwise intact rather than half-built',
+        (await noScript.locator('input[name="coupon"]').inputValue()) === 'SAVE20',
+        'the field still works; only the conditional flourish is missing'
+      );
+      await noScript.done();
     }
   }
 } catch (error) {

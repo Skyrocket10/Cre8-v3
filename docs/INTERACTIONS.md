@@ -372,7 +372,7 @@ Each is independently shippable and independently falsifiable.
 | **X4** | ~~A comparison in a style rule mints its own answer~~ — **shipped**, as an attribute rather than a state | X2 |
 | **X5** | ~~States are declared, not scraped~~ — **shipped**; it also found the collaboration bug below | — |
 | **X6** | ~~Events become a registry; actions grow verbs~~ — **shipped**; the model and the compiler, not the panel | X5 |
-| **X7** | `only` on an action | X6 |
+| **X7** | ~~`only` on an action~~ — **shipped**; it also found five vacuous no-script checks | X6 |
 | **X8** | One "When pressed" list, absorbing Link / Relative-to / Form | X6 |
 | **X9** | Prove it in a browser; rewrite both docs | all |
 
@@ -398,6 +398,50 @@ How each is falsified — the check that must fail against the unfixed code:
   absent.
 - **X8** — extend U3's reachability sweep: every prop reachable before is
   reachable after.
+
+### 4.0.5 X7 — a guard, and the checks that were not checking
+
+`only` is a `Test`, on an action, and it costs almost nothing because X4
+already built the hard half. Two schedules, as everywhere else:
+
+- **It folds.** Every operand is publish-time data, so the publisher answers
+  it. A true guard vanishes and the action is as if it had never been
+  conditional; a false one takes the action with it. No attribute, no entry in
+  any table, no script — and in a repeater each row gets the answer for its own
+  record.
+- **It does not fold.** The guard mints an attribute exactly as a comparison in
+  a style rule does, `testRuntime` turns it on and off, and the behaviour
+  runtime checks for it before doing anything. Ninety-nine bytes, because the
+  evaluator, the table, the published values and the folding were all built
+  for style rules and are reused whole. A second copy of `holds` in the
+  behaviour closure would have cost about a kilobyte and been the second
+  implementation ARCHITECTURE §1 exists to have one of.
+
+One limit, stated rather than discovered: an unfoldable guard becomes **one
+attribute on one element**, so it gates the whole gesture. A binding whose
+actions disagree about their guard — two different conditions, or a guarded
+action beside an unguarded one — has the odd ones out refused, the same bargain
+two verbs wanting one `href` strike. A guard that *folds* has no such limit: it
+is answered per action, per row.
+
+And what a visitor with no scripting gets differs by verb, because a static
+file cannot conditionally have an `href`. A verb the runtime performs does
+nothing, which is what it does unguarded. A verb the markup carries *runs*.
+`unfinished()` says so on the node where it matters — "only when" reads like a
+lock and is not one.
+
+**What X7 found.** `javaScriptEnabled` is a Playwright **context** option, and
+it is ignored on `newPage` — silently, with no warning. Five checks in the
+behaviour suite asked for a script-free page that way and got an ordinary
+scripted one. All five passed, because each asserted a value the page happens
+to have either way. The first check whose expected value *differs* with and
+without the runtime — a guarded action, which must not run without scripting
+and does run with it — is what surfaced it.
+
+So the project's no-script guarantee, which is load-bearing in the execution
+model and named in three docs, had been checked for months by pages that had
+scripting. It is checked by contexts now, through one helper, because the wrong
+spelling is one keystroke away and reads identically.
 
 ### 4.0 What X6 shipped, and what it deliberately did not
 
