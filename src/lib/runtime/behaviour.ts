@@ -286,13 +286,23 @@ export const ELSE_ATTR = 'data-cre8-else';
 type TestRaw = string | number | boolean | null | undefined;
 /** The record values one element publishes, keyed by field. */
 type TestValues = Record<string, TestRaw>;
-type TestOperand = { kind: string; key?: string; name?: string; ref?: { node: string } };
-interface TestNode {
+export type TestOperand = { kind: string; key?: string; name?: string; ref?: { node: string } };
+/**
+ * A constant, on the wire.
+ *
+ * Told from an operand by having a `type` rather than by carrying a tag: the
+ * document says `kind: 'literal'`, and `renderer/test.ts` takes that back off
+ * on the way out because down here the shape already says it. Which side of
+ * the union a `right` is on is therefore `right.type !== undefined`, and that
+ * is the only place in this file that has to know.
+ */
+export type TestConst = { type: string; value: string | number | boolean };
+export interface TestNode {
   kind: string;
   tests?: TestNode[];
   left?: TestOperand;
   op?: string;
-  right?: { type: string; value: string | number | boolean };
+  right?: TestConst | TestOperand;
 }
 /**
  * One rule the browser has to answer, in either of the two shapes.
@@ -694,10 +704,25 @@ export function testRuntime(root: Host, live: boolean, tests: TestTable): () => 
 
     const right = test.right;
     if (!right) return null;
-    if (right.type === 'number') {
+    // A constant carries the declared type and everything else is another
+    // operand — the second control in "Confirm matches Password", or a field
+    // this side of the comparison could not fold because the other side
+    // travels. `undefined` is a control that is not on the page, which is not
+    // an empty one.
+    const declared = (right as TestConst).type;
+    const want = declared
+      ? (right as TestConst).value
+      : operand(right as TestOperand, holder, values);
+    if (want === undefined) return null;
+    // The right side says what the comparison is made in — declared when
+    // somebody typed the value, and otherwise whatever it turned out to hold.
+    // The left is coerced to that, which is what this has always done; all
+    // that is new is where the answer comes from when nobody typed one.
+    const as = declared || typeof want;
+    if (as === 'number') {
       const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
-      if (!Number.isFinite(n)) return null;
-      const to = right.value as number;
+      const to = typeof want === 'number' ? want : Number(String(want).trim());
+      if (!Number.isFinite(n) || !Number.isFinite(to)) return null;
       if (op === 'eq') return n === to;
       if (op === 'neq') return n !== to;
       if (op === 'gt') return n > to;
@@ -706,17 +731,17 @@ export function testRuntime(root: Host, live: boolean, tests: TestTable): () => 
       if (op === 'lte') return n <= to;
       return null;
     }
-    if (right.type === 'boolean') {
+    if (as === 'boolean') {
       if (typeof raw !== 'boolean') return null;
-      if (op === 'eq') return raw === right.value;
-      if (op === 'neq') return raw !== right.value;
+      if (op === 'eq') return raw === want;
+      if (op === 'neq') return raw !== want;
       return null;
     }
     const text = absent ? '' : String(raw);
-    const want = String(right.value);
-    if (op === 'eq') return text === want;
-    if (op === 'neq') return text !== want;
-    if (op === 'contains') return text.toLowerCase().indexOf(want.toLowerCase()) >= 0;
+    const to = String(want);
+    if (op === 'eq') return text === to;
+    if (op === 'neq') return text !== to;
+    if (op === 'contains') return text.toLowerCase().indexOf(to.toLowerCase()) >= 0;
     return null;
   }
 

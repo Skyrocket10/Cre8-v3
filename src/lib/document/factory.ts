@@ -559,10 +559,20 @@ export function* everyRef(
   }
 }
 
-/** Every element reference in a Test, however deeply grouped. */
+/**
+ * Every element reference in a Test, however deeply grouped.
+ *
+ * Both sides of a comparison. This read `left` alone while `right` could only
+ * be a constant, and the day `right` became a `Value` was the day a rule could
+ * point at an element from a place integrity never looked — which would leave
+ * a reference to a deleted node reported by nothing and repaired by nobody.
+ */
 function refsInTest(test: Test): Ref[] {
   if (test.kind === 'compare') {
-    return test.left.kind === 'element' ? [test.left.ref] : [];
+    const out: Ref[] = [];
+    if (test.left.kind === 'element') out.push(test.left.ref);
+    if (test.right?.kind === 'element') out.push(test.right.ref);
+    return out;
   }
   if (test.kind === 'every' || test.kind === 'some') return test.tests.flatMap(refsInTest);
   return [];

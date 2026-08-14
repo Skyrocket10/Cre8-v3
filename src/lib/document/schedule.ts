@@ -12,13 +12,44 @@
  * questions worth asking of the pair.
  */
 
-import type { CollectionRecord, CompareOp, Test, TestLiteral } from './types';
+import type { CollectionRecord, CompareOp, Test, TestLiteral, Value } from './types';
 
 /** True, false, or "not from here". */
 export type Verdict = boolean | null;
 
 /** What a record's field holds. */
 type Raw = string | number | boolean | null | undefined;
+
+/**
+ * An operand this evaluator could resolve, and how much it knows about it.
+ *
+ * `type` is the declared one, and only a literal has it — which is the whole
+ * of the coercion story: a comparison against a constant is made *in the type
+ * that constant was typed as*, and a comparison against a field is made in
+ * whatever that field turned out to hold. See `compare`.
+ *
+ * `has` separates absent from present-and-empty, because `empty` is the
+ * operator that exists to tell them apart.
+ */
+type Known = { raw: Raw; has: boolean; type?: TestLiteral['type'] };
+
+/**
+ * What a Value is worth at publish time, or `null` for "not from here".
+ *
+ * The scheduling rule in one function, and `foldable` is the same question
+ * asked without a record: a literal is known because somebody typed it, a
+ * field is known because the record is right here, and a control's value is
+ * not known because nobody has typed anything yet. That last one is not
+ * `false` — "empty because the page has not been visited" is the absence of a
+ * fact rather than a fact.
+ */
+function known(value: Value, record: CollectionRecord | null): Known | null {
+  if (value.kind === 'literal') return { raw: value.value, has: true, type: value.type };
+  if (value.kind !== 'field') return null;
+  if (!record) return null;
+  const has = value.key in record.data;
+  return { raw: has ? (record.data[value.key] as Raw) : undefined, has };
+}
 
 /* --------------------------------------------------------------------------
  * Evaluating
@@ -39,15 +70,20 @@ export function evaluate(test: Test, record: CollectionRecord | null): Verdict {
       // answer. Nobody has typed anything when a page is being published, and
       // "empty because nothing has been typed yet" is not a fact about the
       // page — it is the absence of one.
-      if (test.left.kind !== 'field') return null;
-      if (!record) return null;
+      const left = known(test.left, record);
+      if (!left) return null;
       // Absent and present-but-empty are different, and only the second is a
       // value. `empty` is the operator that exists to tell them apart, so it
       // is the one operator a missing field can still answer.
-      const has = test.left.key in record.data;
-      const raw = has ? record.data[test.left.key] : undefined;
-      if (!has && test.op !== 'empty' && test.op !== 'notEmpty') return null;
-      return compare(raw, test.op, test.right);
+      if (test.op === 'empty' || test.op === 'notEmpty') return compare(left.raw, test.op, null);
+      if (!left.has) return null;
+      // The same three questions of the other side, which is what makes
+      // `Price > Budget` sayable: a right-hand operand that is absent from
+      // this record leaves the comparison undecided rather than false, exactly
+      // as a missing left-hand one does.
+      const right = test.right ? known(test.right, record) : null;
+      if (!right || !right.has) return null;
+      return compare(left.raw, test.op, right);
     }
     case 'every': {
       // One false settles it. One undecidable, with no false, leaves the whole
@@ -81,25 +117,37 @@ export function evaluate(test: Test, record: CollectionRecord | null): Verdict {
   }
 }
 
-function compare(raw: Raw, op: CompareOp, right: TestLiteral | undefined): Verdict {
+function compare(raw: Raw, op: CompareOp, right: Known | null): Verdict {
   const absent = raw === null || raw === undefined || raw === '';
   if (op === 'empty') return absent;
   if (op === 'notEmpty') return !absent;
   if (!right) return null;
 
-  // Types are declared, never inferred, and a mismatch is undecidable rather
-  // than false: `price > "sold"` has no answer, and answering it would make a
-  // typo look like a design decision.
-  if (right.type === 'number') {
+  /*
+   * The right side says what type the comparison is made in, and the left is
+   * coerced to it. A constant declares one, because `literalFor` typed it from
+   * the field the sentence is about; a field does not, so what it holds is the
+   * witness instead — which is not inference in the sense the rule forbids,
+   * because the alternative is not "ask the declaration", it is "have no
+   * answer at all".
+   *
+   * A mismatch is still undecidable rather than false: `price > "sold"` has no
+   * answer, and answering it would make a typo look like a design decision.
+   * This mirrors `testRuntime`'s `holds` line for line, and it has to — the
+   * canvas, the file and the browser are one renderer's three surfaces.
+   */
+  const as = right.type ?? typeof right.raw;
+  if (as === 'number') {
     const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
-    if (!Number.isFinite(n)) return null;
-    return ordered(n, op, right.value);
+    const to = typeof right.raw === 'number' ? right.raw : Number(String(right.raw).trim());
+    if (!Number.isFinite(n) || !Number.isFinite(to)) return null;
+    return ordered(n, op, to);
   }
 
-  if (right.type === 'boolean') {
+  if (as === 'boolean') {
     if (typeof raw !== 'boolean') return null;
-    if (op === 'eq') return raw === right.value;
-    if (op === 'neq') return raw !== right.value;
+    if (op === 'eq') return raw === right.raw;
+    if (op === 'neq') return raw !== right.raw;
     return null;
   }
 
@@ -107,13 +155,14 @@ function compare(raw: Raw, op: CompareOp, right: TestLiteral | undefined): Verdi
   // code-point-wise: "is this name greater than that one" is a locale
   // question, and locale questions are the ones this codebase does not answer.
   const text = absent ? '' : String(raw);
+  const want = String(right.raw);
   switch (op) {
     case 'eq':
-      return text === right.value;
+      return text === want;
     case 'neq':
-      return text !== right.value;
+      return text !== want;
     case 'contains':
-      return text.toLowerCase().includes(right.value.toLowerCase());
+      return text.toLowerCase().includes(want.toLowerCase());
     default:
       return null;
   }
@@ -150,7 +199,11 @@ function ordered(left: number, op: CompareOp, right: number): Verdict {
 export function foldable(test: Test): boolean {
   switch (test.kind) {
     case 'compare':
-      return test.left.kind === 'field';
+      // Every operand, not only the first. A comparison folds when both sides
+      // do, and `foldableValue` is the whole of the rule — it is asked of one
+      // Value at a time so that the answer does not have to be rewritten each
+      // time a Value can be made of more parts.
+      return foldableValue(test.left) && (!test.right || foldableValue(test.right));
     case 'every':
     case 'some':
       return test.tests.every(foldable);
@@ -158,4 +211,16 @@ export function foldable(test: Test): boolean {
       // A Condition is resolved by the browser, by definition.
       return false;
   }
+}
+
+/**
+ * Whether one operand is known when the site is published.
+ *
+ * The two that are: a field, because the record is compiled into the page, and
+ * a literal, because somebody typed it into the panel. The two that are not
+ * are the two that read a form control, and they are why there is a runtime at
+ * all.
+ */
+export function foldableValue(value: Value): boolean {
+  return value.kind === 'field' || value.kind === 'literal';
 }

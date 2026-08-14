@@ -1951,6 +1951,48 @@ report.group('a reference is a thing the document knows about');
     );
   }
 
+  /*
+   * And the same walk on the operand that only exists since E1.
+   *
+   * `refsInTest` read `left` alone, which was complete while `right` could
+   * only be a constant. A rule comparing a control on the right would then
+   * point at a node that integrity never looked at: delete the element and
+   * nothing reports it, nothing prunes it, and the rule silently stops
+   * resolving. Built separately from the block above so the *only* reference
+   * in the document is the right-hand one — sharing that fixture would have
+   * let the left-hand ref answer for both.
+   */
+  {
+    const { doc: d7, panel: p7, beside: b7 } = wired();
+    const reader = d7.nodes[p7.id];
+    reader.state = { key: 'form', values: [], initial: '' };
+    reader.props.switchDefault = 'idle';
+    reader.assign = [
+      {
+        id: 'r1',
+        when: {
+          kind: 'compare',
+          left: { kind: 'field', key: 'wanted' },
+          op: 'eq',
+          right: { kind: 'element', ref: { node: b7.id } },
+        },
+        value: 'ready',
+      },
+    ];
+    const found = [...everyRef(d7.nodes)].filter((one) => one.slot === 'expression');
+    report.check(
+      'a reference on the right of a comparison is found by the same walk',
+      found.length === 1 && found[0]?.ref.node === b7.id,
+      `${found.length} expression references, ${found[0]?.ref.node ?? 'none'}`
+    );
+    ops.removeNodes(d7, [b7.id]);
+    report.check(
+      'and deleting what it reads is reported rather than going quiet',
+      danglingReads(d7.nodes).length === 1 && danglingReads(d7.nodes)[0]?.rule === 'r1',
+      `${danglingReads(d7.nodes).length} reported`
+    );
+  }
+
   report.check(
     'the cleanup only removes what is actually gone',
     (() => {
@@ -2107,6 +2149,88 @@ report.group('a document saved before rules still opens');
     JSON.stringify(at(9).bind) === '{"text":{"value":{"kind":"field","key":"title"}}}',
     JSON.stringify(at(9).bind)
   );
+
+  /*
+   * A comparison's constant, which is every comparison anybody has written.
+   *
+   * `right` was `{ type, value }` and is now a tagged `Value`, so an untagged
+   * one is a document from before E1 — and left untagged it stops being a
+   * literal to `foldable`, which means every existing `Price is over 500000`
+   * silently stops folding and starts travelling. Three places hold a Test and
+   * all three are walked; the rule below is deliberately inside a group, on
+   * the axis (`only`) that came last, because that is the one a walk written
+   * against `rules` alone would miss.
+   */
+  {
+    const before = {
+      ...createEmptyDocument('Operands'),
+      nodes: {
+        n1: {
+          id: 'n1', type: 'frame', name: 'Card', parentId: null, children: [],
+          props: {}, styles: {}, meta: {},
+          rules: [
+            {
+              id: 'r1',
+              when: { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { type: 'number', value: 500000 } },
+              apply: { color: 'red' },
+            },
+          ],
+          assign: [
+            {
+              id: 'a1',
+              when: {
+                kind: 'every',
+                tests: [
+                  { kind: 'compare', left: { kind: 'field', key: 'status' }, op: 'eq', right: { type: 'text', value: 'sold' } },
+                ],
+              },
+              value: 'gone',
+            },
+          ],
+          events: [
+            {
+              event: 'onClick',
+              actions: [
+                {
+                  type: 'copy',
+                  text: 'X',
+                  only: { kind: 'compare', left: { kind: 'field', key: 'ok' }, op: 'eq', right: { type: 'boolean', value: true } },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    const after = migrateDocument(JSON.parse(JSON.stringify(before)));
+    const node = after.nodes.n1;
+    const dear = {
+      id: 'r1', collectionId: 'c', position: 0, published: true,
+      data: { price: 900000 }, createdAt: 0, updatedAt: 0,
+    };
+    const rights = [
+      node.rules[0].when.right,
+      node.assign[0].when.tests[0].right,
+      node.events[0].actions[0].only.right,
+    ];
+    report.check(
+      'a comparison written before both sides were Values gets its tag',
+      rights.every((right) => right?.kind === 'literal'),
+      rights.map((right) => `${right?.kind ?? 'untagged'}:${right?.type}`).join(' · ')
+    );
+    report.check(
+      'and it still means what it meant, which is that it still folds',
+      tests.foldable(node.rules[0].when) === true &&
+        tests.foldable(node.assign[0].when) === true &&
+        tests.evaluate(node.rules[0].when, dear) === true,
+      `folds ${tests.foldable(node.rules[0].when)} · answers ${tests.evaluate(node.rules[0].when, dear)}`
+    );
+    report.check(
+      'and running it again does not tag the tag',
+      JSON.stringify(migrateDocument(JSON.parse(JSON.stringify(after)))) === JSON.stringify(after),
+      JSON.stringify(after.nodes.n1.rules[0].when.right)
+    );
+  }
 
   // Running it twice is not a hypothetical: the version is stamped by the
   // same function, so anything that reads a half-migrated document — a
@@ -3193,13 +3317,13 @@ report.group('a record decides what state an element is in');
     kind: 'compare',
     left: { kind: 'field', key },
     op: 'gt',
-    right: { type: 'number', value },
+    right: { kind: 'literal', type: 'number', value },
   });
   const is = (key, value) => ({
     kind: 'compare',
     left: { kind: 'field', key },
     op: 'eq',
-    right: { type: 'text', value },
+    right: { kind: 'literal', type: 'text', value },
   });
 
   const house = record({ price: 750000, status: 'available', featured: true, note: '' });
@@ -3231,7 +3355,7 @@ report.group('a record decides what state an element is in');
   report.check(
     'comparing a number against text is undecided rather than false',
     evaluate(
-      { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { type: 'text', value: 'sold' } },
+      { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { kind: 'literal', type: 'text', value: 'sold' } },
       house
     ) === null
   );
@@ -3371,7 +3495,7 @@ report.group('a record decides what state an element is in');
       kind: 'compare',
       left: { kind: 'field', key: 'price' },
       op: 'lt',
-      right: { type: 'number', value: 500000 },
+      right: { kind: 'literal', type: 'number', value: 500000 },
     })
   );
   report.check(
@@ -3619,7 +3743,7 @@ report.group('a record decides what state an element is in');
 report.group('a Test the browser has to answer agrees with the one the publisher does');
 
 {
-  const { evaluate, stateFrom, foldable, needsRuntime, testTable, publishedValues, unfinished } =
+  const { evaluate, stateFrom, foldable, needsRuntime, testTable, lowerTest, publishedValues, unfinished } =
     tests;
   const { testRuntime } = behaviour;
 
@@ -3703,7 +3827,29 @@ report.group('a Test the browser has to answer agrees with the one the publisher
     updatedAt: 0,
   });
 
-  /** What the runtime settles a node's state to, given a record. */
+  const bandNode = (assign) => ({
+    id: 'n1', type: 'frame', name: 'Card', parentId: null, children: [],
+    props: {}, styles: {}, meta: {},
+    state: { key: 'band', values: ['else'], initial: 'else' }, assign,
+  });
+
+  /**
+   * What the runtime settles a node's state to, given a record.
+   *
+   * Through `lowerTest`, not by handing `testRuntime` the stored Test.
+   *
+   * Those were the same object until a `Value` grew a tag the browser does not
+   * read, and this differential is exactly the check that must not be fed the
+   * document shape when the wire shape is what ships. Fed the stored one it
+   * would keep passing while every real page carried something else — which is
+   * the "test the claim, not a proxy" rule in `tests/README.md`, and the wire
+   * is the claim.
+   *
+   * `lowerTest` rather than `testTable` because the table is allowed to be
+   * empty: every rule in this matrix folds, so `needsRuntime` is false and a
+   * real page would ship none of them. The differential exists to ask the
+   * runtime the question anyway, and compare the two answers.
+   */
   const runtimeAnswer = (assign, data) => {
     const holder = el({
       'data-cre8-switch': 'band',
@@ -3713,19 +3859,14 @@ report.group('a Test the browser has to answer agrees with the one the publisher
       'data-cre8-vals': JSON.stringify(data),
     });
     const root = el({}, [holder]);
-    testRuntime(hostFor(root), false, { n1: assign.map((r) => ({ when: r.when, value: r.value })) });
+    testRuntime(hostFor(root), false, {
+      n1: assign.map((r) => ({ when: lowerTest(r.when), value: r.value })),
+    });
     return holder.getAttribute('data-cre8-value');
   };
 
   /** And what the publisher would have settled it to. */
-  const publishAnswer = (assign, data) => {
-    const node = {
-      id: 'n1', type: 'frame', name: 'Card', parentId: null, children: [],
-      props: {}, styles: {}, meta: {},
-      state: { key: 'band', values: ['else'], initial: 'else' }, assign,
-    };
-    return stateFrom(node, record(data)) ?? 'else';
-  };
+  const publishAnswer = (assign, data) => stateFrom(bandNode(assign), record(data)) ?? 'else';
 
   /*
    * Fractions are in here deliberately. Written first with whole numbers only,
@@ -3754,7 +3895,9 @@ report.group('a Test the browser has to answer agrees with the one the publisher
           kind: 'compare',
           left: { kind: 'field', key: 'f' },
           op,
-          ...(op === 'empty' || op === 'notEmpty' ? {} : { right: { type, value } }),
+          ...(op === 'empty' || op === 'notEmpty'
+            ? {}
+            : { right: { kind: 'literal', type, value } }),
         };
         const rules = [{ id: 'x', when, value: 'yes' }];
         const data = { f: held };
@@ -3781,7 +3924,7 @@ report.group('a Test the browser has to answer agrees with the one the publisher
       kind: 'compare',
       left: { kind: 'field', key: 'missing' },
       op,
-      ...(op === 'empty' || op === 'notEmpty' ? {} : { right: { type: 'text', value: 'x' } }),
+      ...(op === 'empty' || op === 'notEmpty' ? {} : { right: { kind: 'literal', type: 'text', value: 'x' } }),
     };
     const rules = [{ id: 'x', when, value: 'yes' }];
     const a = publishAnswer(rules, { other: 1 });
@@ -3796,8 +3939,8 @@ report.group('a Test the browser has to answer agrees with the one the publisher
 
   // And arbitration, which each side implements in its own loop.
   const ordered = [
-    { id: 'a', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { type: 'number', value: 100 } }, value: 'mid' },
-    { id: 'b', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { type: 'number', value: 500 } }, value: 'high' },
+    { id: 'a', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { kind: 'literal', type: 'number', value: 100 } }, value: 'mid' },
+    { id: 'b', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { kind: 'literal', type: 'number', value: 500 } }, value: 'high' },
   ];
   report.check(
     'and they arbitrate two matching rules the same way',
@@ -3810,8 +3953,227 @@ report.group('a Test the browser has to answer agrees with the one the publisher
   );
 
   /* ----------------------------------------------------------------------
-   * The operand only the browser can read
+   * E1 — the other side of the operator is a Value too
+   *
+   * `right` was a `TestLiteral`, so a comparison could only ever ask about a
+   * constant. Everything below is a rule that could not be *written* before,
+   * which is the shape of falsification `docs/VALUES.md` §5 asks for: not "the
+   * answer is wrong" but "the sentence does not exist".
    * ------------------------------------------------------------------- */
+
+  const overBudget = {
+    kind: 'compare',
+    left: { kind: 'field', key: 'price' },
+    op: 'gt',
+    right: { kind: 'field', key: 'budget' },
+  };
+  const budgetRules = [{ id: 'b', when: overBudget, value: 'yes' }];
+
+  /*
+   * One rule, two rows, two answers — and the two rows differ only in a field
+   * the *right* side reads. A literal-only model cannot express this rule at
+   * all: `price > 500000` is one number for every row, and the whole point of
+   * the pair below is that no single constant separates them.
+   */
+  report.check(
+    'a rule can compare two fields of one record',
+    publishAnswer(budgetRules, { price: 900000, budget: 750000 }) === 'yes' &&
+      publishAnswer(budgetRules, { price: 600000, budget: 750000 }) === 'else',
+    `900k over 750k → ${publishAnswer(budgetRules, { price: 900000, budget: 750000 })} · ` +
+      `600k over 750k → ${publishAnswer(budgetRules, { price: 600000, budget: 750000 })}`
+  );
+  /*
+   * And the half that says the first check is about the *operand* rather than
+   * about `gt`: two rows with the same price and different budgets. A constant
+   * cannot see a budget, so no constant separates them — swept rather than
+   * argued, because "no constant can" is the kind of claim that is easy to
+   * believe and cheap to drive. The field comparison separating the same pair
+   * is what stops the sweep from being a check that cannot fail.
+   */
+  {
+    const rowA = { price: 900000, budget: 750000 };
+    const rowB = { price: 900000, budget: 950000 };
+    const constants = [];
+    for (let n = 0; n <= 1200000; n += 50000) constants.push(n);
+    const blind = constants.every((n) => {
+      const literal = [
+        { id: 'l', when: { ...overBudget, right: { kind: 'literal', type: 'number', value: n } }, value: 'yes' },
+      ];
+      return publishAnswer(literal, rowA) === publishAnswer(literal, rowB);
+    });
+    report.check(
+      'and no constant could have separated those two rows, where a field does',
+      blind && publishAnswer(budgetRules, rowA) !== publishAnswer(budgetRules, rowB),
+      `${constants.length} constants all answer both rows alike; the field answers ` +
+        `${publishAnswer(budgetRules, rowA)} and ${publishAnswer(budgetRules, rowB)}`
+    );
+  }
+
+  report.check(
+    'a comparison between two fields still folds, so it costs nothing to run',
+    foldable(overBudget) === true &&
+      foldable({ ...overBudget, right: { kind: 'input', name: 'offer' } }) === false,
+    `field↔field ${foldable(overBudget)} · field↔control ${foldable({ ...overBudget, right: { kind: 'input', name: 'offer' } })}`
+  );
+
+  /*
+   * The one that would have gone wrong silently.
+   *
+   * `publishedValues` ships exactly the fields a Test reads, and `fieldsRead`
+   * walked `left` alone. Miss the right-hand field and the runtime looks it up
+   * in `data-cre8-vals`, does not find it, and answers `null` for ever — a
+   * rule that never fires, on a page that carries no sign of why.
+   */
+  {
+    const live = {
+      kind: 'every',
+      tests: [{ kind: 'compare', left: { kind: 'input', name: 'offer' }, op: 'notEmpty' }, overBudget],
+    };
+    const node = {
+      id: 'n8', type: 'frame', name: 'Card', parentId: null, children: [],
+      props: {}, styles: {}, meta: {},
+      state: { key: 'band', values: ['else'], initial: 'else' },
+      assign: [{ id: 'b', when: live, value: 'yes' }],
+    };
+    const shipped = publishedValues(node, record({ price: 900000, budget: 750000, other: 1 }));
+    report.check(
+      'a field read on the right is published for the runtime to find',
+      shipped?.price === 900000 && shipped?.budget === 750000 && !('other' in (shipped ?? {})),
+      `shipped ${JSON.stringify(shipped)}`
+    );
+  }
+
+  /*
+   * And the differential again, over the shape the matrix above cannot make:
+   * a right-hand operand that is not a constant. Same rule, same record, both
+   * evaluators — the pair that has caught every disagreement so far.
+   */
+  {
+    const rows = [
+      { price: 900000, budget: 750000 },
+      { price: 600000, budget: 750000 },
+      { price: 750000, budget: 750000 },
+      { price: '900000', budget: 750000 },
+      { price: 'sold', budget: 750000 },
+      { budget: 750000 },
+      { price: 900000 },
+    ];
+    const split = [];
+    for (const op of ['eq', 'neq', 'gt', 'gte', 'lt', 'lte']) {
+      for (const data of rows) {
+        const rules = [{ id: 'b', when: { ...overBudget, op }, value: 'yes' }];
+        const a = publishAnswer(rules, data);
+        const b = runtimeAnswer(rules, data);
+        if (a !== b) split.push(`${JSON.stringify(data)} ${op} → ${a} vs ${b}`);
+      }
+    }
+    report.check(
+      'the two evaluators agree about a field on the right as well',
+      split.length === 0,
+      split.length ? split.slice(0, 3).join(' | ') : `${6 * rows.length} comparisons agree`
+    );
+  }
+
+  /*
+   * Two controls, which is the case that has to travel: "Confirm matches
+   * Password" is unanswerable in a file and is the reason a live right-hand
+   * operand exists at all.
+   */
+  {
+    const match = {
+      kind: 'compare',
+      left: { kind: 'input', name: 'confirm' },
+      op: 'eq',
+      right: { kind: 'input', name: 'password' },
+    };
+    const answer = (typed, again) => {
+      const holder = el(
+        {
+          'data-cre8-switch': 'form',
+          'data-cre8-value': 'no',
+          'data-cre8-else': 'no',
+          'data-cre8-test': 'n7',
+        },
+        [el({ name: 'password', value: typed }), el({ name: 'confirm', value: again })]
+      );
+      testRuntime(hostFor(el({}, [holder])), false, {
+        n7: [{ when: lowerTest(match), value: 'same' }],
+      });
+      return holder.getAttribute('data-cre8-value');
+    };
+    report.check(
+      'two form controls can be compared against each other, in the browser',
+      answer('hunter2', 'hunter2') === 'same' && answer('hunter2', 'hunter3') === 'no',
+      `matching → ${answer('hunter2', 'hunter2')} · differing → ${answer('hunter2', 'hunter3')}`
+    );
+    report.check(
+      'and the publisher declines it rather than deciding it in the file',
+      evaluate(match, record({})) === null && foldable(match) === false
+    );
+  }
+
+  /*
+   * The wire shape, which is the whole of why the byte baseline did not move.
+   *
+   * A document says `kind: 'literal'`; the browser infers it from the `type`
+   * being there, so the tag is dropped on the way out. Checked on the JSON
+   * because JSON is what ships — an assertion about the object would pass on a
+   * key the serialiser still writes.
+   */
+  {
+    const stored = { ...overBudget, right: { kind: 'literal', type: 'number', value: 500000 } };
+    const wire = JSON.stringify(lowerTest(stored));
+    report.check(
+      'a constant travels without the tag the document keeps',
+      wire === '{"kind":"compare","left":{"kind":"field","key":"price"},"op":"gt","right":{"type":"number","value":500000}}',
+      wire
+    );
+    report.check(
+      'and an operand that is not a constant travels whole',
+      JSON.stringify(lowerTest(overBudget)).includes('"right":{"kind":"field","key":"budget"}'),
+      JSON.stringify(lowerTest(overBudget))
+    );
+    report.check(
+      'the tag is dropped inside a group too, not only at the top',
+      !JSON.stringify(lowerTest({ kind: 'every', tests: [stored, stored] })).includes('literal'),
+      JSON.stringify(lowerTest({ kind: 'every', tests: [stored, stored] }))
+    );
+  }
+
+  /*
+   * The overlap warning, narrowed. `> Budget` and `< Deposit` are two
+   * half-lines whose ends move per row, so on some row they certainly overlap
+   * — and this function's contract is to stay quiet about anything it cannot
+   * demonstrate.
+   */
+  {
+    const gtLiteral = { ...overBudget, op: 'gt', right: { kind: 'literal', type: 'number', value: 100 } };
+    const ltLiteral = { ...overBudget, op: 'lt', right: { kind: 'literal', type: 'number', value: 500 } };
+    /*
+     * Two equalities against two *different* fields, which is the pair that
+     * catches a guard written as "do the operands declare the same type". They
+     * both declare nothing, so that reading passes them through — and then
+     * compares two `undefined`s, finds them equal, and reports an overlap
+     * between `Status is Wanted` and `Status is Fallback`. Which is a warning
+     * about a row nobody has seen yet.
+     */
+    const eqWanted = {
+      kind: 'compare',
+      left: { kind: 'field', key: 'status' },
+      op: 'eq',
+      right: { kind: 'field', key: 'wanted' },
+    };
+    const eqFallback = { ...eqWanted, right: { kind: 'field', key: 'fallback' } };
+    report.check(
+      'the overlap warning goes quiet once an operand stops being a constant',
+      tests.provablyOverlap(gtLiteral, ltLiteral) === true &&
+        tests.provablyOverlap(overBudget, ltLiteral) === false &&
+        tests.provablyOverlap(eqWanted, eqFallback) === false,
+      `both constant ${tests.provablyOverlap(gtLiteral, ltLiteral)} · ` +
+        `one field ${tests.provablyOverlap(overBudget, ltLiteral)} · ` +
+        `two fields ${tests.provablyOverlap(eqWanted, eqFallback)}`
+    );
+  }
 
   const typedTest = {
     kind: 'compare',
@@ -3981,7 +4343,7 @@ report.group('a Test the browser has to answer agrees with the one the publisher
     props: {}, styles: {}, meta: {},
     state: { key: 'form', values: ['waiting'], initial: 'waiting' },
     assign: [
-      { id: 'p', when: { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { type: 'number', value: 5 } }, value: 'dear' },
+      { id: 'p', when: { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { kind: 'literal', type: 'number', value: 5 } }, value: 'dear' },
       { id: 't', when: typedTest, value: 'ready' },
     ],
   };
@@ -4091,7 +4453,7 @@ report.group('a Test the browser has to answer agrees with the one the publisher
     };
 
     const planIs = (value) => ({
-      kind: 'compare', left: { kind: 'field', key: 'plan' }, op: 'eq', right: { type: 'text', value },
+      kind: 'compare', left: { kind: 'field', key: 'plan' }, op: 'eq', right: { kind: 'literal', type: 'text', value },
     });
 
     const live = build([
@@ -4273,7 +4635,7 @@ report.group('a Test the browser has to answer agrees with the one the publisher
 
   report.check(
     'the differential would notice the two disagreeing',
-    publishAnswer([{ id: 'x', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { type: 'number', value: 5 } }, value: 'yes' }], { f: 9 }) ===
+    publishAnswer([{ id: 'x', when: { kind: 'compare', left: { kind: 'field', key: 'f' }, op: 'gt', right: { kind: 'literal', type: 'number', value: 5 } }, value: 'yes' }], { f: 9 }) ===
       'yes',
     'the matrix contains cases that answer yes as well as cases that answer else'
   );
@@ -4322,7 +4684,7 @@ report.group('an assignment can write the rule you would have written');
           kind: 'compare',
           left: { kind: 'field', key: 'price' },
           op: 'gt',
-          right: { type: 'number', value: 500000 },
+          right: { kind: 'literal', type: 'number', value: 500000 },
         },
         value,
       },
@@ -8888,7 +9250,6 @@ report.group('an expression is described in one place');
     !/case '(pointer|attr|data)':/.test(rules),
     'the switch that used to live here is in the builder'
   );
-
   /*
    * And the projection really is one function used two ways, rather than two
    * that happen to agree today.
@@ -12717,7 +13078,7 @@ report.group('every verb compiles to the most native thing available');
     kind: 'compare',
     left: { kind: 'field', key: 'price' },
     op: 'gt',
-    right: { type: 'number', value: n },
+    right: { kind: 'literal', type: 'number', value: n },
   });
   const typed = {
     kind: 'compare',
@@ -13694,13 +14055,13 @@ report.group('a comparison in a style rule mints its own answer');
     kind: 'compare',
     left: { kind: 'field', key: 'price' },
     op: 'gt',
-    right: { type: 'number', value: 500000 },
+    right: { kind: 'literal', type: 'number', value: 500000 },
   };
   const sold = {
     kind: 'compare',
     left: { kind: 'field', key: 'status' },
     op: 'eq',
-    right: { type: 'text', value: 'sold' },
+    right: { kind: 'literal', type: 'text', value: 'sold' },
   };
   const hover = { kind: 'pointer', pseudo: 'hover' };
 

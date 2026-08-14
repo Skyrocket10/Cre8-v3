@@ -327,7 +327,13 @@ export function testSentence(options: {
       ? left.key
       : left.kind === 'input'
         ? `${TYPED}${left.name}`
-        : `${ON_PAGE}${left.ref.node}`;
+        : left.kind === 'element'
+          ? `${ON_PAGE}${left.ref.node}`
+          : // A constant on the *left* is a comparison with nothing to compare.
+            // The model allows it because both operands are one type — that
+            // symmetry is the whole of E1 — and this panel never writes one, so
+            // it renders as a source nobody chose and the chip is the way out.
+            '';
   const field =
     left.kind === 'field' ? fields.find((f) => f.key === left.key) : AS_TEXT;
   const operators = field ? OPS_FOR[field.type] : [];
@@ -416,7 +422,55 @@ export function testSentence(options: {
   });
 
   if (needsOperand(test.op) && field) {
-    if (field.type === 'boolean') {
+    /*
+     * The other fields this one can be compared against.
+     *
+     * Same declared type only, and it is worth being strict about: `Price` and
+     * `Title` compile to a comparison that is undecidable on every row, which
+     * is the *offer a step the head cannot do* failure `VALUES.md` §3.5 names
+     * — a rule that silently never fires, with nothing anywhere saying why.
+     *
+     * Only over the record, and only when the left side reads the record too.
+     * A comparison whose left is a form control is answered in the browser
+     * against what somebody typed, and the fields there are the ones on the
+     * row this element was drawn for — which, off a repeater, is no row at all.
+     */
+    const others =
+      left.kind === 'field'
+        ? fields.filter((f) => f.type === field.type && f.key !== left.key)
+        : [];
+    const against = test.right?.kind === 'field' ? test.right.key : '';
+    const pickField = (key: string) => onChange?.({ ...test, right: { kind: 'field', key } });
+
+    if (against) {
+      /*
+       * Pointed at another field, so the chip names it — and its menu is the
+       * way back, with the constant first because that is what it was before
+       * and what most sentences want. `unknownField` keeps a rule readable
+       * after somebody deletes the field it compares against: a chip falling
+       * through to its placeholder says *nothing was chosen*, which is the
+       * opposite of what happened. Same reasoning as `orphaned`, one operand
+       * along.
+       */
+      const known = others.some((f) => f.key === against);
+      parts.push({
+        kind: 'pick',
+        key: 'value',
+        value: against,
+        menuWidth: 200,
+        options: [
+          { value: AS_TYPED, label: 'a value you type' },
+          ...others.map((f) => ({ value: f.key, label: f.label })),
+          ...(known ? [] : [{ value: against, label: `${against} — no longer a field` }]),
+        ],
+        onChange:
+          onChange &&
+          ((key) =>
+            key === AS_TYPED
+              ? onChange({ ...test, right: literalFor(field.type, '') })
+              : pickField(key)),
+      });
+    } else if (field.type === 'boolean') {
       parts.push({
         kind: 'pick',
         key: 'value',
@@ -425,8 +479,14 @@ export function testSentence(options: {
         options: [
           { value: 'true', label: 'ticked' },
           { value: 'false', label: 'not ticked' },
+          ...others.map((f) => ({ value: `${A_FIELD}${f.key}`, label: f.label })),
         ],
-        onChange: onChange && ((raw) => onChange({ ...test, right: literalFor('boolean', raw) })),
+        onChange:
+          onChange &&
+          ((raw) =>
+            raw.startsWith(A_FIELD)
+              ? pickField(raw.slice(A_FIELD.length))
+              : onChange({ ...test, right: literalFor('boolean', raw) })),
       });
     } else if (field.type === 'select' && field.options?.length) {
       parts.push({
@@ -435,8 +495,16 @@ export function testSentence(options: {
         value: literalText(test.right),
         placeholder: 'a value',
         menuWidth: 180,
-        options: field.options.map((option) => ({ value: option, label: option })),
-        onChange: onChange && ((raw) => onChange({ ...test, right: literalFor(field.type, raw) })),
+        options: [
+          ...field.options.map((option) => ({ value: option, label: option })),
+          ...others.map((f) => ({ value: `${A_FIELD}${f.key}`, label: f.label })),
+        ],
+        onChange:
+          onChange &&
+          ((raw) =>
+            raw.startsWith(A_FIELD)
+              ? pickField(raw.slice(A_FIELD.length))
+              : onChange({ ...test, right: literalFor(field.type, raw) })),
       });
     } else {
       parts.push({
@@ -446,6 +514,11 @@ export function testSentence(options: {
         placeholder: field.type === 'number' ? '0' : 'value',
         numeric: field.type === 'number',
         onChange: onChange && ((raw) => onChange({ ...test, right: literalFor(field.type, raw) })),
+        // The box keeps its width and gains a chevron. See `Part`'s `type`
+        // member for why this is one chip rather than two.
+        options: others.map((f) => ({ value: f.key, label: f.label })),
+        menuWidth: 200,
+        onPick: onChange && pickField,
       });
     }
   }
@@ -466,6 +539,17 @@ const TYPED = 'typed:';
  * in strings, and the three kinds of source have to stay tellable apart.
  */
 const ON_PAGE = 'on-page:';
+/**
+ * The same trick on the right-hand operand, where the strings collide harder.
+ *
+ * A `select` field's options and a boolean's `true`/`false` are raw values in
+ * the same menu as the fields to compare against, and a collection with a
+ * field keyed `true` is not a hypothetical. So the field entries are prefixed
+ * and the constants are not — the constants are what the menu was already for.
+ */
+const A_FIELD = 'field:';
+/** And the way back, in the menu the chip grows once it names a field. */
+const AS_TYPED = 'typed\u0000';
 /**
  * What an element reference reads as once its element is gone.
  *
@@ -1061,14 +1145,24 @@ export function conditionSentence(options: {
  * functions agreeing when `when` was a list of conditions this walked itself;
  * now it is one function called twice, with and without handlers.
  */
-export function ruleSentence(rule: StyleRule): Part[] {
+export function ruleSentence(rule: StyleRule, fields: Field[] = []): Part[] {
   if (!rule.when) {
     return [
       { kind: 'word', text: 'Always', key: 'always' },
       ...(rule.part ? [{ kind: 'word' as const, text: `· ${rule.part}`, key: 'part' }] : []),
     ];
   }
-  const parts = testSentence({ test: rule.when, fields: [], opening: '' });
+  /*
+   * `fields` is what turns `a field …` into `Asking price`.
+   *
+   * It was hard-coded empty here, so a rule conditioned on the record read as
+   * "a field is" in the row above the sentence that spelled it out correctly —
+   * the placeholder for *nothing chosen*, over a rule where something plainly
+   * had been. Harmless while a field comparison in a style rule was an
+   * unusual thing to write, and not once E1 made "when Price is over Budget"
+   * the reason the panel exists.
+   */
+  const parts = testSentence({ test: rule.when, fields, opening: '' });
   if (rule.part) parts.push({ kind: 'word', text: `· ${rule.part}`, key: 'part' });
   return parts;
 }

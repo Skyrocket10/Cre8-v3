@@ -54,8 +54,32 @@ const EMPTY_FIELDS: Field[] = [];
  * said "hover" is the small version of that, and "state is annual" over a
  * control set to something else is the large one.
  */
-export function describeRule(rule: StyleRule): string {
-  return partsToText(ruleSentence(rule));
+export function describeRule(rule: StyleRule, fields: Field[] = EMPTY_FIELDS): string {
+  return partsToText(ruleSentence(rule, fields));
+}
+
+/**
+ * The record's fields, when the selected element sits inside one.
+ *
+ * The same walk the Data section does and by the same function, because a
+ * panel that disagreed with the canvas about which record is in scope would be
+ * worse than no panel — and here it would be worse still: a comparison against
+ * a field that is not really in scope compiles to an attribute nothing ever
+ * sets.
+ *
+ * A hook rather than a line inside `RulesSection` because two things need it
+ * and the second is a floor above: the "Editing …" banner names the rule, and
+ * naming it without the fields is how it came to read "editing a field is".
+ */
+export function useScopeFields(): Field[] {
+  return useEditor((s) => {
+    const id = s.selection[0];
+    const node = id ? s.doc.nodes[id] : undefined;
+    if (!node || !s.doc.collections?.length) return EMPTY_FIELDS;
+    const page = s.doc.pages.find((one) => one.id === s.activePageId);
+    const scope = collectionInScope(s.doc.nodes, node, s.doc.collections, page?.dynamic?.collection);
+    return scope?.fields ?? EMPTY_FIELDS;
+  });
 }
 
 /** What a rule changes, in the shortest form that is still true. */
@@ -193,23 +217,7 @@ export function RulesSection() {
   // built inside the selector it would be a fresh array on every store update
   // and re-render the panel for an edit three sections away.
   const controls = useMemo(() => (type ? controlPseudosFor(type) : []), [type]);
-  /*
-   * The record's fields, when this element sits inside one.
-   *
-   * The same walk the Data section does and by the same function, because a
-   * panel that disagreed with the canvas about which record is in scope would
-   * be worse than no panel — and here it would be worse still: a comparison
-   * against a field that is not really in scope compiles to an attribute
-   * nothing ever sets.
-   */
-  const fields = useEditor((s) => {
-    const id = s.selection[0];
-    const node = id ? s.doc.nodes[id] : undefined;
-    if (!node || !s.doc.collections?.length) return EMPTY_FIELDS;
-    const page = s.doc.pages.find((one) => one.id === s.activePageId);
-    const scope = collectionInScope(s.doc.nodes, node, s.doc.collections, page?.dynamic?.collection);
-    return scope?.fields ?? EMPTY_FIELDS;
-  });
+  const fields = useScopeFields();
 
   const list = rules ?? [];
 
@@ -384,6 +392,11 @@ function RuleRow({
         <button
           type="button"
           onClick={() => store().setActiveRule(active ? null : rule.id)}
+          // Addressable, for the same reason a layer row is: the row is what
+          // a rule *is* to somebody reading the panel, and a check that has to
+          // find it by counting buttons is a check that breaks when a button
+          // is added beside it.
+          data-rule-row={rule.id}
           className="flex min-w-0 flex-1 flex-col items-start text-left"
         >
           <span
@@ -392,7 +405,7 @@ function RuleRow({
               active ? 'text-[var(--accent)]' : 'text-[var(--text)]'
             )}
           >
-            {describeRule(rule)}
+            {describeRule(rule, fields)}
           </span>
           <span className="truncate text-[10px] text-[var(--text-faint)]">{summarise(rule)}</span>
         </button>

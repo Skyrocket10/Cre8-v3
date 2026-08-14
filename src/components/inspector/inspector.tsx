@@ -34,7 +34,7 @@ import { openContextMenu } from '../ui/context-menu';
 import type { SceneNode, StyleProp } from '@/lib/document/types';
 
 import { DataSection } from './section-data';
-import { RulesSection, describeRule } from './section-rules';
+import { RulesSection, describeRule, useScopeFields } from './section-rules';
 import { LayoutSection, PlacementSection, SizeSection, SpacingSection } from './sections-layout';
 import {
   AdvancedSection,
@@ -205,6 +205,9 @@ function SingleSelection() {
   });
   const activeRuleId = useEditor((s) => s.activeRuleId);
   const activeRule = node?.rules?.find((rule) => rule.id === activeRuleId);
+  // The same fields the rules panel names its chips from, so the banner and
+  // the row underneath it cannot describe one rule two ways.
+  const scopeFields = useScopeFields();
 
   if (!node) return null;
   const def = getElement(node.type);
@@ -244,7 +247,7 @@ function SingleSelection() {
         >
           <Layers2 size={11} className="shrink-0" />
           <span className="flex-1 truncate font-medium">
-            Editing {describeRule(activeRule).toLowerCase()}
+            Editing {describeRule(activeRule, scopeFields).toLowerCase()}
           </span>
           <span className="shrink-0 opacity-70">Back to base</span>
         </button>

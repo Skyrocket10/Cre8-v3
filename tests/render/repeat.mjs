@@ -180,7 +180,7 @@ try {
               kind: 'compare',
               left: { kind: 'field', key: 'price' },
               op: 'gt',
-              right: { type: 'number', value: 1000000 },
+              right: { kind: 'literal', type: 'number', value: 1000000 },
             },
             value: 'premium',
           },

@@ -23,6 +23,9 @@ import {
   type StateStyles,
   type StyleDecl,
   type StyleRule,
+  type Test,
+  type TestLiteral,
+  type Value,
 } from './types';
 
 /** Which pseudo-class each of the old state names meant. */
@@ -226,6 +229,38 @@ export function migrateActions(node: SceneNode): void {
   delete node.props.copyText;
 }
 
+/**
+ * A comparison's operand, once a constant became a `Value`.
+ *
+ * `right` was a `TestLiteral` — `{ type, value }` and nothing else — so every
+ * stored comparison carries an operand with no tag on it. Recognised by shape,
+ * like everything else here: a `kind` already there is a document written
+ * since, and a `type` with no `kind` is one written before.
+ *
+ * The tag is what makes both sides of a comparison the same type, so this is
+ * the step that lets `Price > Budget` exist at all. It changes what a document
+ * *is* and nothing about what any of them *mean* — `lower()` takes the tag
+ * straight back off on the way to the browser, so a page published either side
+ * of this migration is the same bytes.
+ */
+function migrateOperands(node: SceneNode): void {
+  const tag = (test: Test): void => {
+    if (test.kind === 'every' || test.kind === 'some') {
+      test.tests.forEach(tag);
+      return;
+    }
+    if (test.kind !== 'compare') return;
+    const right = test.right as (Value | TestLiteral) | undefined;
+    if (right && !('kind' in right)) test.right = { kind: 'literal', ...right };
+  };
+
+  for (const rule of node.rules ?? []) if (rule.when) tag(rule.when);
+  for (const rule of node.assign ?? []) tag(rule.when);
+  for (const binding of node.events ?? []) {
+    for (const action of binding.actions) if (action.only) tag(action.only);
+  }
+}
+
 function migrateNode(node: SceneNode): void {
   migrateBindings(node);
   migrateRefs(node);
@@ -252,6 +287,11 @@ function migrateNode(node: SceneNode): void {
   // before it runs would turn every legacy pressed style into a rule with no
   // condition — a hover state that is simply always on.
   migrateActions(node);
+
+  // After everything that can *make* a rule or an action, because it tags what
+  // is there rather than converting a shape — a comparison produced above by
+  // an older spelling has to be tagged too.
+  migrateOperands(node);
 }
 
 /**

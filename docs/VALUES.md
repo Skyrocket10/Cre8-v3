@@ -33,20 +33,21 @@ reference. `Format` looks like it fills the gap and does not: it is a terminal
 decoration applied on the way to the DOM, one per binding, never an input to
 anything.
 
-### 1.2 A comparison cannot have a value on its right
+### 1.2 A comparison cannot have a value on its right — closed by E1
 
 ```ts
 | { kind: 'compare'; left: Value; op: CompareOp; right?: TestLiteral }
 ```
 
-`right` is a **literal**. So "when Price is over 500000" is sayable and
+`right` was a **literal**. So "when Price is over 500000" was sayable and
 
 > when **Price** is over **Budget**
 
-is not — two fields of one record cannot be compared, at all, anywhere in the
-product. This is the cheapest gap in the document and the most obviously
-missing: it needs no new evaluator, no new runtime and no new UI, only the same
-type on both sides of the operator.
+was not — two fields of one record could not be compared, at all, anywhere in
+the product. The cheapest gap in the document and the most obviously missing:
+no new evaluator, no new runtime and no new UI, only the same type on both
+sides of the operator. §5.1 records what it actually cost, which was one more
+thing than that.
 
 ### 1.3 A reference is declared and cannot be followed
 
@@ -72,7 +73,7 @@ them.
 | Show a field | `Current cell's Post's Title` | ✔ |
 | Format it | `:formatted as 1,000.00` | ✔ |
 | Compare a field to a number | conditional | ✔ |
-| **Compare two fields** | `Price > Budget` | ✘ not in the model |
+| Compare two fields | `Price > Budget` | ✔ **E1** |
 | **Follow a reference** | `Post's Author's Name` | ✘ declared, unreadable |
 | **Arithmetic** | `Price × Quantity` | ✘ |
 | **Round, then use it** | `:rounded to 0` | ✘ formatting is terminal |
@@ -82,7 +83,9 @@ them.
 | **Join text** | `First & " " & Last` | ✘ |
 | Current User | `Current User's Email` | ✘ **and stays ✘** — see §4 |
 
-Nine of eleven, and eight of the nine are the same missing idea.
+Nine of eleven when this was written, and eight of the nine were the same
+missing idea. E1 closed the first — and closed it by making both operands one
+type, which is the same idea, arriving one member at a time.
 
 ---
 
@@ -132,16 +135,25 @@ follows.
 
 ```ts
 type Head =
-  | { kind: 'field'; key: string }        // as today
-  | { kind: 'input'; name: string }       // as today
-  | { kind: 'element'; ref: Ref }         // as today
-  | { kind: 'literal'; value: TestLiteral }   // new
-  | { kind: 'records'; collection: string };  // new — a list
+  | { kind: 'field'; key: string }             // as today
+  | { kind: 'input'; name: string }            // as today
+  | { kind: 'element'; ref: Ref }              // as today
+  | ({ kind: 'literal' } & TestLiteral)        // E1 — a constant
+  | { kind: 'records'; collection: string };   // new — a list
 ```
 
 `literal` is what makes `compare.right` a `Value` rather than a special case:
 a constant is a chain of length zero over a literal head. One type on both
 sides of every operator, and §1.2 closes without a new mechanism.
+
+Flattened rather than nested — `{ kind, type, value }`, not
+`{ kind, value: { type, value } }`, which is what this proposed. The nesting
+reads better and is not idempotent: a migration that recognises its own output
+by shape has to be able to run twice, and `{ kind: 'literal', value: <the
+literal> }` wraps a second time on the second pass. The flat form is
+`TestLiteral` with a tag on it, so `right.type` and `right.value` keep meaning
+what they meant in both evaluators and the migration is a no-op the second
+time by construction.
 
 `records` is the list head. It is the only new *source*, and everything in §1.4
 is a step over it.
@@ -246,7 +258,7 @@ unfixed code.
 
 | | | Falsified by |
 |---|---|---|
-| **E1** | `compare.right` becomes a `Value`; a `literal` head | Compare two fields of one record and see the rule apply on one row and not another. A literal-only model cannot express the rule at all |
+| **E1** ✔ | `compare.right` becomes a `Value`; a `literal` head | Compare two fields of one record and see the rule apply on one row and not another. A literal-only model cannot express the rule at all |
 | **E2** | `Value` becomes `{ head, steps }`, `foldable` and both evaluators walk it — **zero steps defined** | Publish all ten templates: byte-identical. The migration is the whole of it |
 | **E3** | `follow` and `field`: a reference is readable | A post's author's name on the page. Falsified by deleting the author record and seeing the binding fall back rather than print an id |
 | **E4** | The list head and `count`, `first`, `last` | "3 comments" from a real collection, and 0 when there are none — the empty case is the one that reads as broken |
@@ -260,6 +272,44 @@ the shape of every `Value` in every stored document while changing nothing
 about what any of them mean, which is exactly the class of change
 `publish-dump.mjs` exists for: ten templates, byte-identical, or the migration
 is wrong.
+
+### 5.1 What E1 turned out to cost
+
+Built. `tests/render/values.mjs` drives the panel and reads the published
+file: pick the field from the When… menu, change the operator through its
+chip, point the value chip at another field through the chevron inside it, and
+one of two listings **with the same price** comes out painted. Sixteen static
+checks, fourteen of them falsified one mutation at a time.
+
+Four things are worth writing down, because three of them were not in the plan
+above and one of them changes E2.
+
+**The wire stopped being the document, and that is the seam E2 needs.**
+`testTable` put the stored `Test` straight into the page — the two types
+coincided by coincidence, not by design. `kind: 'literal'` is the first thing a
+`Value` carries that the browser does not read, so `lowerTest` now takes it
+back off on the way out. Ten templates published **byte-identical**, which is
+the whole argument: the model got wider and no page got longer. E2 lowers a
+`{head, steps}` the same way, and its byte gate means something because this
+seam exists.
+
+**Both evaluators grew the same four lines, not two implementations.** The
+right operand resolves through the same `operand()` the left has always used,
+and the type the comparison is made in comes from the right — declared when
+somebody typed the value, and otherwise whatever it turned out to hold. A
+differential over 900-odd literal comparisons and 42 field-against-field ones
+holds them together.
+
+**Two live controls can be compared, which was not asked for and is nearly
+free.** "Confirm matches Password" is the one comparison that genuinely cannot
+fold, and it fell out of making `right` a `Value` rather than being built.
+
+**Three walks read `left` alone and all three were wrong the moment `right`
+existed** — `fieldsRead` (so `publishedValues` would have shipped a field
+short, and the runtime would have answered `null` for ever), `inputsRead`, and
+`refsInTest` (so a reference on the right would have been invisible to
+integrity). They are now one `operandsIn` derived three ways, which is the
+`content-props.ts` move: two lists kept in step by nobody drift, silently.
 
 ---
 

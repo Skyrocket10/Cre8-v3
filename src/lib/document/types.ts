@@ -394,7 +394,15 @@ export type Condition =
  * Tests
  * ----------------------------------------------------------------------- */
 
-/** What a `Value` may be compared against. Typed, never inferred from spelling. */
+/**
+ * A constant, typed. Never inferred from spelling.
+ *
+ * Declared here rather than inside `Value` because it is the *type witness*
+ * for a comparison and two things need it under that name: `literalFor`, which
+ * mints one from the field the sentence is about, and both evaluators, which
+ * coerce the other operand to it. `Value`'s `literal` member is this with a
+ * tag on it.
+ */
 export type TestLiteral =
   | { type: 'text'; value: string }
   | { type: 'number'; value: number }
@@ -429,10 +437,16 @@ export type CompareOp =
  *
  * A comparison reads raw values. There is no `format` here and no way to reach
  * one: `Format` hangs off `Binding`, and a Test only ever sees a `Value`.
+ *
+ * Both sides of a comparison are `Value`s, which is one type where there used
+ * to be two: `right` was a `TestLiteral`, so a comparison could only ever ask
+ * about a constant and `Price > Budget` was unsayable anywhere in the product.
+ * A constant is now a `Value` too — see `Value`'s `literal` member — so the
+ * symmetry costs a member rather than a mechanism.
  */
 export type Test =
   | Condition
-  | { kind: 'compare'; left: Value; op: CompareOp; right?: TestLiteral }
+  | { kind: 'compare'; left: Value; op: CompareOp; right?: Value }
   | { kind: 'every'; tests: Test[] }
   | { kind: 'some'; tests: Test[] };
 
@@ -840,9 +854,16 @@ export interface NodeDataBinding {
 /**
  * Something an expression can read.
  *
- * One kind today, written as a discriminated union because the next ones —
- * an input's value, a declared constant, a page parameter — arrive without a
- * migration if the tag is already there. See docs/EXPRESSIONS.md.
+ * Four kinds, and the fourth is the one that changed what the others are for.
+ * `literal` makes a constant a Value rather than a special case, so a
+ * comparison has the same type on both sides of its operator and two fields of
+ * one record can finally be compared — which `docs/VALUES.md` §1.2 records as
+ * the cheapest gap in the model and the most obviously missing.
+ *
+ * The three that read something are what decide *when* an expression runs:
+ * `field` and `literal` are known at publish, `input` and `element` are not,
+ * and `foldable` derives the schedule from that rather than anybody choosing
+ * it. See docs/EXPRESSIONS.md.
  */
 export type Value =
   /** A field of whatever record is in scope. `key`, never `label`: renaming a field must not break a page. */
@@ -880,7 +901,20 @@ export type Value =
    * codebase does not trade away. That case needs dependency tracking in the
    * canvas memo and is honestly a different piece of work.
    */
-  | { kind: 'element'; ref: Ref };
+  | { kind: 'element'; ref: Ref }
+  /**
+   * A constant somebody typed, with the type it was typed *as*.
+   *
+   * `TestLiteral` with a tag on it, rather than a fourth spelling of the same
+   * three cases: the type is declared once, in `literalFor`, from the field
+   * the sentence is about — and this is the only member that carries one,
+   * which is what makes it the witness the two evaluators coerce against.
+   *
+   * A literal is also the reason nothing here needs a "constant" step: it is a
+   * chain of length zero, and the two sides of `Price > 500000` and
+   * `Price > Budget` are the same type either way.
+   */
+  | ({ kind: 'literal' } & TestLiteral);
 
 /**
  * A presentation transform. Never part of a `Value`, and that is the point.

@@ -40,7 +40,7 @@
 
 import { DATA_SOURCES } from '../runtime/data';
 import { OPS_FOR } from '../renderer/test';
-import type { Condition, ElementType, Field, Test, TestLiteral } from './types';
+import type { Condition, ElementType, Field, Test, Value } from './types';
 
 /** The pointer pseudo-classes, derived so a new one cannot be forgotten here. */
 export type PointerPseudo = Extract<Condition, { kind: 'pointer' }>['pseudo'];
@@ -367,8 +367,8 @@ const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1
  * `When ⟨Price⟩ ⟨is over⟩ ⟨0⟩` is one to edit, where `When ⟨⟩ ⟨⟩ ⟨⟩` is a form
  * again.
  */
-function literalSeed(field: Field): TestLiteral {
-  if (field.type === 'number') return { type: 'number', value: 0 };
-  if (field.type === 'boolean') return { type: 'boolean', value: true };
-  return { type: 'text', value: '' };
+function literalSeed(field: Field): Value {
+  if (field.type === 'number') return { kind: 'literal', type: 'number', value: 0 };
+  if (field.type === 'boolean') return { kind: 'literal', type: 'boolean', value: true };
+  return { kind: 'literal', type: 'text', value: '' };
 }

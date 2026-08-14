@@ -57,7 +57,7 @@ import { actionsFor, guardOf, planActions } from '../document/actions';
  * care about.
  */
 import { evaluate, foldable, type Verdict } from '../document/schedule';
-import type { TestTable } from '../runtime/behaviour';
+import type { TestConst, TestNode, TestOperand, TestTable } from '../runtime/behaviour';
 
 export { evaluate, foldable };
 export type { Verdict };
@@ -95,36 +95,59 @@ export function stateFrom(node: SceneNode, record: CollectionRecord | null): str
  * ----------------------------------------------------------------------- */
 
 /**
+ * Every operand in a Test, however deeply grouped.
+ *
+ * The three functions under this used to be three copies of one walk, each
+ * reading `left` and each having to be found and changed the day a comparison
+ * grew a second operand — which is the day this was written. Declared once and
+ * derived three times, for the reason `content-props.ts` gives: two lists kept
+ * in step by nobody drift, and they drift silently.
+ *
+ * Order is source order — left before right, and a group's members in the
+ * order they were written — because one caller prints them.
+ */
+export function operandsIn(test: Test): Value[] {
+  const out: Value[] = [];
+  const walk = (inner: Test): void => {
+    if (inner.kind === 'compare') {
+      out.push(inner.left);
+      if (inner.right) out.push(inner.right);
+    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
+  };
+  walk(test);
+  return out;
+}
+
+/** The distinct operands of one kind, in source order. */
+function readsOfKind<K extends Value['kind']>(
+  test: Test,
+  kind: K,
+  name: (value: Extract<Value, { kind: K }>) => string
+): string[] {
+  const found = new Set<string>();
+  for (const value of operandsIn(test)) {
+    if (value.kind === kind) found.add(name(value as Extract<Value, { kind: K }>));
+  }
+  return [...found];
+}
+
+/**
  * Every field key a Test depends on.
  *
  * Two callers with quite different reasons. Deleting a field has to clear the
  * assignments that read it, for the same reason it clears bindings: an
  * assignment pointing at a field that no longer exists silently stops
  * resolving, and "the state never comes on any more" is not a diagnosable
- * symptom. And the execution model needs it — a Test whose dependencies are
- * all record fields is one that folds.
+ * symptom. And the execution model needs it — `publishedValues` ships exactly
+ * these, so a field this misses is one the runtime answers `null` to for ever.
  */
 export function fieldsRead(test: Test): string[] {
-  const found = new Set<string>();
-  const walk = (inner: Test): void => {
-    if (inner.kind === 'compare') {
-      if (inner.left.kind === 'field') found.add(inner.left.key);
-    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
-  };
-  walk(test);
-  return [...found];
+  return readsOfKind(test, 'field', (value) => value.key);
 }
 
 /** Every form control a Test reads, by name. */
 export function inputsRead(test: Test): string[] {
-  const found = new Set<string>();
-  const walk = (inner: Test): void => {
-    if (inner.kind === 'compare') {
-      if (inner.left.kind === 'input') found.add(inner.left.name);
-    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
-  };
-  walk(test);
-  return [...found];
+  return readsOfKind(test, 'input', (value) => value.name);
 }
 
 /**
@@ -135,14 +158,7 @@ export function inputsRead(test: Test): string[] {
  * how the editor knows when to warn, and how a check knows what to plant.
  */
 export function elementsRead(test: Test): string[] {
-  const found = new Set<string>();
-  const walk = (inner: Test): void => {
-    if (inner.kind === 'compare') {
-      if (inner.left.kind === 'element') found.add(inner.left.ref.node);
-    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
-  };
-  walk(test);
-  return [...found];
+  return readsOfKind(test, 'element', (value) => value.ref.node);
 }
 
 
@@ -316,7 +332,7 @@ export function testTable(
     const node = nodes[id];
     if (!node || !needsRuntime(node)) continue;
     const rules = [
-      ...(node.assign ?? []).map((rule) => ({ when: rule.when, value: slug(rule.value) })),
+      ...(node.assign ?? []).map((rule) => ({ when: lowerTest(rule.when), value: slug(rule.value) })),
       /*
        * And the minted ones, which set an attribute rather than choosing a
        * value. They travel in the same table because they are answered by the
@@ -324,11 +340,43 @@ export function testTable(
        * table would mean a second copy of `holds`, and the runtime is
        * serialised with `toString()` and cannot share one.
        */
-      ...mintedFor(node).map((one) => ({ when: one.when, attr: one.attr })),
+      ...mintedFor(node).map((one) => ({ when: lowerTest(one.when), attr: one.attr })),
     ];
     if (rules.length) table[id] = rules;
   }
   return table;
+}
+
+/**
+ * A Test as the browser needs it, which is not a Test as the document holds it.
+ *
+ * The two used to be the same object and that was a coincidence rather than a
+ * design — `testTable` put the stored Test straight into the page. It stops
+ * being true the moment a `Value` carries anything the runtime does not read,
+ * and `kind: 'literal'` is the first such thing: down there an operand with a
+ * `type` *is* a literal, so the tag is four hundred bytes of nothing across a
+ * site.
+ *
+ * Kept to dropping, deliberately. Resolving anything here — folding a field
+ * because the record is to hand — would be a second evaluator living beside
+ * `evaluate`, and two of those disagreeing is the failure this codebase is
+ * most careful about. The runtime reads a foldable operand the same way it
+ * always has, out of the values published on the element.
+ */
+export function lowerTest(test: Test): TestNode {
+  if (test.kind === 'every' || test.kind === 'some') {
+    return { kind: test.kind, tests: test.tests.map(lowerTest) };
+  }
+  if (test.kind !== 'compare') return test as unknown as TestNode;
+  const out: TestNode = { kind: 'compare', left: test.left, op: test.op };
+  if (test.right) out.right = bare(test.right);
+  return out;
+}
+
+/** An operand with the tag the runtime infers from its shape taken back off. */
+function bare(value: Value): TestConst | TestOperand {
+  if (value.kind !== 'literal') return value;
+  return { type: value.type, value: value.value };
 }
 
 /**
@@ -408,17 +456,30 @@ export function needsOperand(op: CompareOp): boolean {
  * string against a text field is the string; and nothing anywhere guesses
  * which was meant.
  */
-export function literalFor(type: FieldType, raw: string): TestLiteral {
+export function literalFor(type: FieldType, raw: string): Value {
   if (type === 'number') {
     const n = Number(raw.trim());
-    return { type: 'number', value: Number.isFinite(n) ? n : 0 };
+    return { kind: 'literal', type: 'number', value: Number.isFinite(n) ? n : 0 };
   }
-  if (type === 'boolean') return { type: 'boolean', value: raw === 'true' };
-  return { type: 'text', value: raw };
+  if (type === 'boolean') return { kind: 'literal', type: 'boolean', value: raw === 'true' };
+  return { kind: 'literal', type: 'text', value: raw };
+}
+
+/**
+ * The literal inside a Value, or nothing.
+ *
+ * Two callers, and they want it for opposite reasons: the panel needs the text
+ * to put in a box, and `provablyOverlap` needs to know it is looking at a
+ * constant before it claims two rules can both hold. Both of them have to ask,
+ * because an operand is no longer a constant by construction.
+ */
+export function asLiteral(value: Value | undefined): TestLiteral | undefined {
+  return value?.kind === 'literal' ? value : undefined;
 }
 
 /** The literal as the editor should show it in an input. */
-export function literalText(literal: TestLiteral | undefined): string {
+export function literalText(value: Value | undefined): string {
+  const literal = asLiteral(value);
   if (!literal) return '';
   return String(literal.value);
 }
@@ -457,18 +518,29 @@ export function provablyOverlap(a: Test, b: Test): boolean {
       (a.op === 'notEmpty' && b.op === 'empty')
     );
   }
-  if (!a.right || !b.right || a.right.type !== b.right.type) return false;
+  /*
+   * And both operands have to be constants, which is new and is a *narrowing*.
+   *
+   * Everything below reasons about the numbers and strings somebody typed:
+   * `> 100` and `< 50` cannot both hold because 100 and 50 are known here.
+   * `> Budget` and `< Deposit` are two half-lines whose ends are only known
+   * per row, and on some row they certainly do overlap — so the honest answer
+   * is the one this function gives to everything it cannot demonstrate.
+   */
+  const left = asLiteral(a.right);
+  const right = asLiteral(b.right);
+  if (!left || !right || left.type !== right.type) return false;
 
-  if (a.right.type === 'number' && b.right.type === 'number') {
-    return numbersOverlap(a.op, a.right.value, b.op, b.right.value);
+  if (left.type === 'number' && right.type === 'number') {
+    return numbersOverlap(a.op, left.value, b.op, right.value);
   }
 
   // Equality on text: two Tests wanting different values cannot both hold; the
   // same value obviously can. `contains` is left undecided — one substring can
   // sit inside another and proving it needs the values, not the operators.
-  if (a.op === 'eq' && b.op === 'eq') return a.right.value === b.right.value;
-  if (a.op === 'eq' && b.op === 'neq') return a.right.value !== b.right.value;
-  if (a.op === 'neq' && b.op === 'eq') return a.right.value !== b.right.value;
+  if (a.op === 'eq' && b.op === 'eq') return left.value === right.value;
+  if (a.op === 'eq' && b.op === 'neq') return left.value !== right.value;
+  if (a.op === 'neq' && b.op === 'eq') return left.value !== right.value;
   return false;
 }
 
@@ -476,6 +548,7 @@ export function provablyOverlap(a: Test, b: Test): boolean {
 function operandName(value: Value): string {
   if (value.kind === 'field') return value.key;
   if (value.kind === 'input') return value.name;
+  if (value.kind === 'literal') return `=${String(value.value)}`;
   // The node id, which is exactly the identity wanted: two rules reading the
   // same element overlap, and two reading different ones do not, whatever
   // those elements happen to be called.

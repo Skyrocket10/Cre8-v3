@@ -35,7 +35,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils/cn';
-import { Select, TextInput, type SelectOption } from './primitives';
+import { Popover, Select, TextInput, type SelectOption } from './primitives';
 
 /** One piece of a sentence. */
 export type Part =
@@ -52,7 +52,19 @@ export type Part =
       /** How wide the menu should be. The chip itself is sized by its label. */
       menuWidth?: number;
     }
-  /** A typed value. */
+  /**
+   * A typed value, and optionally the other things it could be instead.
+   *
+   * `options` is what keeps a comparison one chip wide now that its right side
+   * can be a field rather than only a constant. The alternative — a picker
+   * saying *what kind of thing* beside a box saying *which* — is two chips for
+   * a choice that is nearly always "the one I typed", in a 288px column where
+   * X12 had to give the operand its own line to fit one.
+   *
+   * So the box keeps a small chevron, and picking from it swaps the whole chip
+   * for a `pick`. The way back is that pick's own menu. One chip either way,
+   * and neither state is a dead end.
+   */
   | {
       kind: 'type';
       key: string;
@@ -60,6 +72,9 @@ export type Part =
       placeholder?: string;
       numeric?: boolean;
       onChange?: (value: string) => void;
+      options?: SelectOption<string>[];
+      onPick?: (value: string) => void;
+      menuWidth?: number;
     }
   /** A button that ends a clause: remove, add another. */
   | { kind: 'action'; key: string; label: React.ReactNode; title?: string; onClick: () => void }
@@ -158,7 +173,7 @@ function Piece({ part }: { part: Part }) {
 
     case 'type': {
       if (!part.onChange) return <Prose>{part.value || part.placeholder || '…'}</Prose>;
-      return (
+      const box = (
         <TextInput
           // Sized to its content, with a floor so an empty one is still a
           // target worth clicking and a ceiling so a long value wraps the
@@ -170,6 +185,55 @@ function Piece({ part }: { part: Part }) {
           inputMode={part.numeric ? 'numeric' : undefined}
           onValueChange={part.onChange}
         />
+      );
+      const swap = part.onPick;
+      if (!swap || !part.options?.length) return box;
+      return (
+        // One chip, two controls: the box keeps the whole width it had, and
+        // the chevron is tucked inside its right edge rather than added beside
+        // it. `-ml-*` is what makes that a chip with a button in it instead of
+        // a chip and a button — the sentence must not gain a gap here.
+        <span className="inline-flex items-center">
+          {box}
+          <Popover
+            width={part.menuWidth ?? 200}
+            align="end"
+            trigger={({ toggle, ref }) => (
+              <button
+                ref={ref}
+                type="button"
+                onClick={toggle}
+                // Named for what it offers rather than for its shape: a
+                // screen reader landing on a bare chevron next to a text box
+                // has no way to know the two are one control.
+                aria-label="Compare against something else"
+                className="-ml-4 flex size-4 items-center justify-center rounded-[3px] text-[var(--accent)] hover:bg-[var(--accent-subtle)]"
+              >
+                <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 4.5 6 7.5 9 4.5" />
+                </svg>
+              </button>
+            )}
+          >
+            {(close) => (
+              <div className="p-1">
+                {part.options!.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      swap(option.value);
+                      close();
+                    }}
+                    className="block w-full truncate rounded px-2 py-1 text-left text-[11.5px] text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Popover>
+        </span>
       );
     }
 
