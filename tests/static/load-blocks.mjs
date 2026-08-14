@@ -97,6 +97,8 @@ export function loadBlocks() {
     vocabulary: require(path.join(OUT, 'document/style-vocabulary.js')),
     conditions: require(path.join(OUT, 'document/conditions.js')),
     when_: require(path.join(OUT, 'document/when.js')),
+    // The scheduling half: which rules fold at publish and which travel.
+    testTable: require(path.join(OUT, 'renderer/test.js')).testTable,
     motion: require(path.join(OUT, 'renderer/motion.js')),
     // References, on their own: "one walk services all of them" is a claim
     // about a function, and the cleanup that was missing for years is the

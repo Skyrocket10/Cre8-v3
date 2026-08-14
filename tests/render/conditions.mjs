@@ -70,6 +70,7 @@ const PAINT = {
   focus: 'rgb(0, 130, 160)',
   attr: 'rgb(150, 90, 40)',
   either: 'rgb(40, 40, 40)',
+  typed: 'rgb(90, 20, 120)',
 };
 
 /**
@@ -172,6 +173,36 @@ try {
       parentId: 'grpo',
       props: { label: 'Go annual' },
       events: [{ event: 'onClick', actions: [{ type: 'setState', value: 'annual' }] }],
+    }),
+    /*
+     * A comparison in a style rule, against something typed.
+     *
+     * The half of minting a browser has to answer: the value is not knowable
+     * when the page is published, so the compiler ships the comparison and the
+     * runtime turns the attribute on and off as somebody types. The folded
+     * half — a comparison against a record — is checked in the static suite,
+     * where a record can be handed to the publisher directly.
+     */
+    node('inpw', 'input', 'Watched', {
+      parentId: root.id,
+      props: { inputType: 'text', name: 'watched', placeholder: 'Type here' },
+    }),
+    node('cmpx', 'text', 'Follows what is typed', {
+      parentId: root.id,
+      props: { text: 'Follows what is typed' },
+      rules: [
+        paints(
+          'cmpx',
+          /*
+           * By element, not by name. `input` looks for a control *inside* the
+           * node that owns the rule, and this text sits beside the field
+           * rather than around it — which is the ordinary arrangement and the
+           * reason the element operand exists at all.
+           */
+          { kind: 'compare', left: { kind: 'element', ref: { node: 'inpw' } }, op: 'notEmpty' },
+          PAINT.typed
+        ),
+      ],
     }),
     node('deto', 'details', 'Openable', {
       parentId: root.id,
@@ -351,6 +382,50 @@ try {
       'either way: and neither branch means it does not apply',
       neither !== PAINT.either,
       `neither ${neither} · hovered ${hovered} · annual ${stated}`
+    );
+  }
+
+  /* --------------------------------------------------------------- mint -- */
+
+  {
+    /*
+     * A comparison reads a form control, so the rule on this element is not
+     * about this element at all — which is why the intermediate is an
+     * attribute the compiler owns rather than a state. The three readings are
+     * the same three the OR case needs: before, during, and back again.
+     */
+    const el = page.locator('.c-cmpx').first();
+    const field = page.locator('.c-inpw').first();
+    const read = () => el.evaluate((n) => getComputedStyle(n).backgroundColor);
+
+    const blank = await read();
+    await field.fill('something');
+    await page.waitForTimeout(120);
+    const typed = await read();
+    await field.fill('');
+    await page.waitForTimeout(120);
+    const cleared = await read();
+
+    report.check('a comparison paints once the field has something in it', typed === PAINT.typed, typed);
+    report.check(
+      'and does not before anything is typed',
+      blank !== PAINT.typed,
+      `blank ${blank} · typed ${typed}`
+    );
+    /*
+     * And back. A rule that only ever turned on would pass both readings
+     * above and leave every visitor stuck in the styled state the moment they
+     * touched the field once.
+     */
+    report.check(
+      'and comes off again when the field is emptied',
+      cleared === blank,
+      `typed ${typed} → cleared ${cleared}`
+    );
+    report.check(
+      'the element carries the compiler’s attribute, not a state',
+      await el.evaluate((n) => n.hasAttribute('data-cre8-test') && !n.hasAttribute('data-cre8-switch')),
+      await el.evaluate((n) => n.getAttributeNames().join(' '))
     );
   }
 

@@ -19,7 +19,14 @@ import {
   type Page,
   type SceneNode,
 } from '../document/types';
-import { needsRuntime, publishedValues, stateFrom } from './test';
+import {
+  foldable,
+  foldedAttrs,
+  mintedFor,
+  needsRuntime,
+  publishedValues,
+  stateFrom,
+} from './test';
 import { varsFor } from './values';
 import { caseOf, variantsOf, type Variant } from './variants';
 import { iconMarkup } from './icons';
@@ -354,7 +361,32 @@ function applySwitch(
   // can tell a tab's panel from a price that happens to answer to the same
   // value, which it cannot read out of a rule.
   const when = caseOf(node, variant);
-  if (!key && !set && !when) return model;
+  /*
+   * A minted comparison lives outside all of this.
+   *
+   * The switch machinery below is gated on the node declaring a state, and a
+   * comparison hoisted out of a style rule has nothing to do with one — it is
+   * on whatever element the designer styled, which usually declares no state
+   * at all. So it is written first, and the early return has to know about it
+   * or a card styled by a price comparison would leave with no attribute and
+   * the rule would never match.
+   */
+  const minted = mintedFor(node);
+  for (const attr of foldedAttrs(node, options.record ?? null)) model.attrs[attr] = '';
+
+  if (!key && !set && !when && !minted.length) return model;
+
+  /*
+   * And the pointer into the shared table, when a minted comparison cannot be
+   * decided until somebody types. Written here rather than inside the switch
+   * block for the same reason: this node may have no state, and the runtime
+   * still has to find it.
+   */
+  if (!key && minted.some((one) => !foldable(one.when))) {
+    model.attrs[TEST_ATTR] = node.id;
+    const values = publishedValues(node, options.record ?? null);
+    if (values) model.attrs[VALUES_ATTR] = JSON.stringify(values);
+  }
 
   if (key) {
     const showAll = mode === 'edit' && props.switchDesign === SWITCH_SHOW_ALL;

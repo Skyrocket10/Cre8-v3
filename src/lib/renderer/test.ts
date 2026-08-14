@@ -46,6 +46,7 @@ import type {
   Value,
 } from '../document/types';
 import { slug } from '../document/schema';
+import { mintedIn, type Minted } from '../document/when';
 import type { TestTable } from '../runtime/behaviour';
 
 /** True, false, or "not from here". */
@@ -299,9 +300,49 @@ export function simplify(test: Test): Test | null {
   return { ...test, tests: inner };
 }
 
-/** Whether any of a node's assignments has to be evaluated in the browser. */
+/**
+ * Every comparison this node's style rules mint, with the attribute each sets.
+ *
+ * A style rule cannot hold a comparison in a selector, so the compiler hoists
+ * it: `when.ts` swaps it for an attribute and hands back the pair. This is the
+ * half the *renderer* needs — what to write on the element, and what to ship
+ * to the browser when the answer is not knowable yet.
+ */
+export function mintedFor(node: SceneNode): Minted[] {
+  const out: Minted[] = [];
+  for (const rule of node.rules ?? []) out.push(...mintedIn(rule.when, rule.id));
+  return out;
+}
+
+/**
+ * Whether anything on this node has to be evaluated in the browser.
+ *
+ * Assignments and minted comparisons alike. They are two authoring routes to
+ * one mechanism — a Test whose answer decides how the element looks — and the
+ * scheduling decision is the same for both: fold when every operand is
+ * publish-time data, subscribe when any of them can change afterwards.
+ */
 export function needsRuntime(node: SceneNode): boolean {
-  return (node.assign ?? []).some((rule) => !foldable(rule.when));
+  return (
+    (node.assign ?? []).some((rule) => !foldable(rule.when)) ||
+    mintedFor(node).some((one) => !foldable(one.when))
+  );
+}
+
+/**
+ * The minted attributes that are already decided, and can go in the markup.
+ *
+ * `true` writes the attribute, `false` leaves it off, and `null` — cannot
+ * decide here — leaves it off too. That is not a guess: an undecidable
+ * comparison is one the runtime will answer, and off is what a visitor with no
+ * scripting sees, which is the fallback the execution model requires anyway.
+ */
+export function foldedAttrs(node: SceneNode, record: CollectionRecord | null): string[] {
+  const on: string[] = [];
+  for (const one of mintedFor(node)) {
+    if (evaluate(one.when, record) === true) on.push(one.attr);
+  }
+  return on;
 }
 
 /**
@@ -353,8 +394,19 @@ export function testTable(
   const table: TestTable = {};
   for (const id of nodeIds) {
     const node = nodes[id];
-    if (!node?.assign?.length || !needsRuntime(node)) continue;
-    table[id] = node.assign.map((rule) => ({ when: rule.when, value: slug(rule.value) }));
+    if (!node || !needsRuntime(node)) continue;
+    const rules = [
+      ...(node.assign ?? []).map((rule) => ({ when: rule.when, value: slug(rule.value) })),
+      /*
+       * And the minted ones, which set an attribute rather than choosing a
+       * value. They travel in the same table because they are answered by the
+       * same evaluator over the same published values — giving them a second
+       * table would mean a second copy of `holds`, and the runtime is
+       * serialised with `toString()` and cannot share one.
+       */
+      ...mintedFor(node).map((one) => ({ when: one.when, attr: one.attr })),
+    ];
+    if (rules.length) table[id] = rules;
   }
   return table;
 }
@@ -371,9 +423,12 @@ export function publishedValues(
   node: SceneNode,
   record: CollectionRecord | null
 ): Record<string, unknown> | null {
-  if (!node.assign?.length || !needsRuntime(node) || !record) return null;
+  if (!needsRuntime(node) || !record) return null;
   const wanted = new Set<string>();
-  for (const rule of node.assign) for (const key of fieldsRead(rule.when)) wanted.add(key);
+  for (const rule of node.assign ?? []) for (const key of fieldsRead(rule.when)) wanted.add(key);
+  // A minted comparison reads the record too, and a rule shipped without the
+  // values it reads is one the runtime answers `null` to for ever.
+  for (const one of mintedFor(node)) for (const key of fieldsRead(one.when)) wanted.add(key);
   if (!wanted.size) return null;
 
   const out: Record<string, unknown> = {};

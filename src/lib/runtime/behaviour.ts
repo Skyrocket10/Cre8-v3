@@ -258,10 +258,21 @@ interface TestNode {
   op?: string;
   right?: { type: string; value: string | number | boolean };
 }
-/** One assignment: when this holds, the state becomes that. */
+/**
+ * One rule the browser has to answer, in either of the two shapes.
+ *
+ * `value` is an assignment: when this holds, the node's state becomes that.
+ * `attr` is a comparison the compiler minted out of a style rule, which a
+ * selector could not hold — when it holds, that attribute goes on the element
+ * and a rule keyed on it applies. Two authoring routes, one evaluator, one
+ * table: the alternative was a second copy of `holds` down here, and this
+ * function is serialised with `toString()` and can share nothing.
+ */
 export interface RuntimeRule {
   when: TestNode;
-  value: string;
+  value?: string;
+  /** Set when this rule turns an attribute on rather than choosing a value. */
+  attr?: string;
 }
 /** Every node's rules, keyed by the node they belong to. Shared across rows. */
 export type TestTable = Record<string, RuntimeRule[]>;
@@ -681,9 +692,23 @@ export function testRuntime(root: Host, live: boolean, tests: TestTable): () => 
       }
 
       let chosen: string | null = null;
+      let assigns = false;
       for (let r = 0; r < rules.length; r++) {
-        if (holds(rules[r]!.when, holder, values) === true) chosen = rules[r]!.value;
+        const rule = rules[r]!;
+        const verdict = holds(rule.when, holder, values);
+        const attr = rule.attr;
+        if (attr) {
+          if (verdict === true) holder.setAttribute(attr, '');
+          else holder.removeAttribute(attr);
+          continue;
+        }
+        assigns = true;
+        if (verdict === true) chosen = rule.value || '';
       }
+      // Only when something here actually assigns one. A node whose rules are
+      // all minted comparisons may carry no state at all, and writing one onto
+      // it would put a value on an element with nothing to read it.
+      if (!assigns) continue;
       const settled = chosen === null ? holder.getAttribute('data-cre8-else') || '' : chosen;
       // No `sync` here. That keeps `aria-pressed` honest on the controls that
       // *set* a state, and a state decided by a Test has none — nothing clicks

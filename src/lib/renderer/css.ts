@@ -14,7 +14,7 @@
  */
 
 import { nodeClass, stateOwner, variantClass, variantsOf } from './variants';
-import { branchesOf } from '../document/when';
+import { branchesOf, plannedWhen } from '../document/when';
 import {
   BREAKPOINT_DEFS,
   BREAKPOINT_ORDER,
@@ -728,7 +728,13 @@ function ruleSelector(
    * what this produced when `when` was a list, which is the property the
    * whole widening is verified against.
    */
-  const branches = branchesOf(rule.when);
+  /*
+   * The planned form, not the authored one: a comparison cannot be a selector,
+   * so it is swapped for the attribute that carries its answer. `element-model`
+   * writes that attribute — at publish when the comparison folds, from the
+   * runtime when it cannot — and this side never learns which.
+   */
+  const branches = branchesOf(plannedWhen(rule.when, rule.id));
   if (!branches) return null;
 
   const part = rule.part ? `::${rule.part}` : '';
@@ -766,7 +772,7 @@ function ruleSelector(
  * under the cursor, which is exactly what the suppression exists to stop.
  */
 function isInteraction(rule: StyleRule): boolean {
-  return (branchesOf(rule.when) ?? []).some((branch) =>
+  return (branchesOf(plannedWhen(rule.when, rule.id)) ?? []).some((branch) =>
     branch.some((c) => c.kind === 'pointer')
   );
 }

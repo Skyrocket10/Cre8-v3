@@ -39,7 +39,8 @@
  */
 
 import { DATA_SOURCES } from '../runtime/data';
-import type { Condition, ElementType } from './types';
+import { OPS_FOR } from '../renderer/test';
+import type { Condition, ElementType, Field, Test, TestLiteral } from './types';
 
 /** The pointer pseudo-classes, derived so a new one cannot be forgotten here. */
 export type PointerPseudo = Extract<Condition, { kind: 'pointer' }>['pseudo'];
@@ -209,8 +210,16 @@ export interface ConditionOffer {
   group: string;
   label: string;
   hint: string;
-  /** The conditions the new rule carries. Empty for a part-only rule. */
-  when: Condition[];
+  /**
+   * The rule this offer starts, in the authoring shorthand.
+   *
+   * A `Test` rather than a list of conditions for exactly one entry: a
+   * comparison against a record field is not a `Condition` and never will be —
+   * a selector cannot read a record. It is offered here all the same, because
+   * to the person adding it a field is one more thing that can be true, and
+   * the compiler is what knows the difference.
+   */
+  when: Condition[] | Test;
   /** A pseudo-element the rule targets instead of the element itself. */
   part?: 'backdrop';
 }
@@ -219,6 +228,8 @@ export interface OfferContext {
   type: ElementType;
   /** The states this element can talk about, nearest first. */
   states: { key: string; values: string[] }[];
+  /** The record's fields, when this element sits inside one. Usually none. */
+  fields?: Field[];
 }
 
 /**
@@ -287,6 +298,32 @@ export function conditionOffers(ctx: OfferContext): ConditionOffer[] {
     });
   }
 
+  /*
+   * The record, when there is one in scope.
+   *
+   * This is the entry that closes the audit's worst finding. Making a card red
+   * when its price is over half a million used to be five steps across two
+   * panels and an invented intermediate name; it is now one line in this menu,
+   * and the name still exists — the compiler mints it.
+   */
+  for (const field of ctx.fields ?? []) {
+    const op = OPS_FOR[field.type][0] ?? 'eq';
+    offers.push({
+      key: `field-${field.key}`,
+      group: 'From the record',
+      label: field.label,
+      hint: `Compare what this row holds in ${field.label}`,
+      when: {
+        kind: 'compare',
+        left: { kind: 'field', key: field.key },
+        op,
+        ...(op === 'empty' || op === 'notEmpty'
+          ? {}
+          : { right: literalSeed(field) }),
+      },
+    });
+  }
+
   for (const attr of SUGGESTED_ATTRS) {
     offers.push({
       key: `attr-${attr.name}`,
@@ -320,3 +357,18 @@ export function offerGroups(offers: ConditionOffer[]): string[] {
 
 /** A shared label, capitalised for a menu entry that stands on its own. */
 const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/**
+ * A blank operand of the right type.
+ *
+ * Typed from the field rather than from the spelling of anything, which is the
+ * rule the interaction model states: *types are declared, never inferred*. The
+ * sentence is grammatical from the moment it appears — a new condition reading
+ * `When ⟨Price⟩ ⟨is over⟩ ⟨0⟩` is one to edit, where `When ⟨⟩ ⟨⟩ ⟨⟩` is a form
+ * again.
+ */
+function literalSeed(field: Field): TestLiteral {
+  if (field.type === 'number') return { type: 'number', value: 0 };
+  if (field.type === 'boolean') return { type: 'boolean', value: true };
+  return { type: 'text', value: '' };
+}

@@ -369,7 +369,7 @@ Each is independently shippable and independently falsifiable.
 | **X1** | ~~Reach the seven unreachable condition shapes~~ — **shipped** | nothing — shipped first |
 | **X2** | ~~`StyleRule.when` becomes a `Test`; the planner; byte-identical output~~ — **shipped** | — |
 | **X3** | ~~OR compiles to a selector list~~ — **shipped** | X2 |
-| **X4** | A comparison in a style rule mints its own state | X2 |
+| **X4** | ~~A comparison in a style rule mints its own answer~~ — **shipped**, as an attribute rather than a state | X2 |
 | **X5** | States are declared, not scraped | — |
 | **X6** | Events become a registry; actions grow verbs | X5 |
 | **X7** | `only` on an action | X6 |

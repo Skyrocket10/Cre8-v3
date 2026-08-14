@@ -31,7 +31,7 @@ import {
 } from '@/lib/document/conditions';
 import { eachCondition, replaceCondition, unreachable } from '@/lib/document/when';
 import { slug, slugList } from '@/lib/document/schema';
-import type { Condition, ElementType, StyleRule, Test } from '@/lib/document/types';
+import type { Condition, ElementType, Field, StyleRule, Test } from '@/lib/document/types';
 import { DATA_SOURCES, QUERY_PREFIX, describeSource } from '@/lib/runtime/data';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
@@ -39,6 +39,10 @@ import { Popover, Section, Segmented, Select, TextInput, Tooltip } from '../ui/p
 import { Sentence, partsToText } from '../ui/sentence';
 import { ruleSentence, testSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
+import { collectionInScope } from './section-data';
+
+/** One array, so a node with no record in scope does not re-render the panel. */
+const EMPTY_FIELDS: Field[] = [];
 
 /**
  * A rule as a sentence, for the row and for the "editing" banner.
@@ -185,6 +189,23 @@ export function RulesSection() {
   // built inside the selector it would be a fresh array on every store update
   // and re-render the panel for an edit three sections away.
   const controls = useMemo(() => (type ? controlPseudosFor(type) : []), [type]);
+  /*
+   * The record's fields, when this element sits inside one.
+   *
+   * The same walk the Data section does and by the same function, because a
+   * panel that disagreed with the canvas about which record is in scope would
+   * be worse than no panel — and here it would be worse still: a comparison
+   * against a field that is not really in scope compiles to an attribute
+   * nothing ever sets.
+   */
+  const fields = useEditor((s) => {
+    const id = s.selection[0];
+    const node = id ? s.doc.nodes[id] : undefined;
+    if (!node || !s.doc.collections?.length) return EMPTY_FIELDS;
+    const page = s.doc.pages.find((one) => one.id === s.activePageId);
+    const scope = collectionInScope(s.doc.nodes, node, s.doc.collections, page?.dynamic?.collection);
+    return scope?.fields ?? EMPTY_FIELDS;
+  });
 
   const list = rules ?? [];
 
@@ -207,10 +228,11 @@ export function RulesSection() {
             last={index === list.length - 1}
             states={states}
             controls={controls}
+            fields={fields}
           />
         ))}
 
-        {type && <AddCondition type={type} states={states} />}
+        {type && <AddCondition type={type} states={states} fields={fields} />}
       </InspectorGroup>
     </Section>
   );
@@ -229,8 +251,19 @@ export function RulesSection() {
  * between *focused* and *focused by keyboard* is the whole reason a designer
  * picks one over the other, and a chip label has nowhere to explain it.
  */
-function AddCondition({ type, states }: { type: ElementType; states: { key: string; values: string[] }[] }) {
-  const offers = useMemo(() => conditionOffers({ type, states }), [type, states]);
+function AddCondition({
+  type,
+  states,
+  fields,
+}: {
+  type: ElementType;
+  states: { key: string; values: string[] }[];
+  fields: Field[];
+}) {
+  const offers = useMemo(
+    () => conditionOffers({ type, states, fields }),
+    [type, states, fields]
+  );
   const groups = offerGroups(offers);
 
   return (
@@ -292,6 +325,7 @@ function RuleRow({
   last,
   states,
   controls,
+  fields,
 }: {
   rule: StyleRule;
   active: boolean;
@@ -299,6 +333,7 @@ function RuleRow({
   last: boolean;
   states: { key: string; values: string[] }[];
   controls: ControlPseudo[];
+  fields: Field[];
 }) {
   const store = useEditor.getState;
 
@@ -412,10 +447,14 @@ function RuleRow({
               <Sentence
                 parts={testSentence({
                   test: rule.when,
-                  // A style rule compares nothing: there is no record in scope
-                  // and most pages have no collection at all. What it grows by
-                  // is another browser condition, which is what `newLeaf` says.
-                  fields: [],
+                  /*
+                   * The record's fields, so a comparison already on the rule
+                   * renders as a sentence rather than as an unnamed chip. What
+                   * "+ condition" adds is still a browser condition — a
+                   * comparison is reached from the When… menu, where it sits
+                   * beside everything else that can be true.
+                   */
+                  fields,
                   states,
                   controlStates: controls,
                   newLeaf: () => ({ kind: 'pointer', pseudo: 'hover' }),

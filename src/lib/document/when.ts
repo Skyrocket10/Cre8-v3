@@ -123,6 +123,93 @@ export function conditionsOf(when: Test | undefined): Condition[] | null {
   return branches && branches.length === 1 ? branches[0]! : null;
 }
 
+/* --------------------------------------------------------------------------
+ * Minting: a comparison the stylesheet can answer
+ * ----------------------------------------------------------------------- */
+
+/**
+ * The attribute a minted comparison turns on.
+ *
+ * ## Why an attribute rather than a state
+ *
+ * The plan for this said *mint a state*, because that is what a designer had
+ * been doing by hand: name a state, assign it from a comparison, condition a
+ * style rule on it. Five steps for one sentence, and the fix was supposed to
+ * be the compiler doing those steps instead of the person.
+ *
+ * A state cannot carry it. An element holds exactly one `data-cre8-switch`
+ * and `stateFrom` settles exactly one value, so minting onto a node's state
+ * would collide with whatever that node's switch was already for, and two
+ * comparisons on one node could not both be true. Neither is a corner case:
+ * "red when it is expensive **and** faded when it is sold" is two.
+ *
+ * An attribute has none of those problems. Each minted comparison gets its
+ * own, present or absent, any number per element, and `attr` conditions have
+ * compiled since long before this — so the generator learns nothing new. The
+ * intermediate variable still exists, which was always the point; it is a
+ * better-shaped one than the plan guessed, and the designer still never types
+ * it.
+ */
+export const MINT_PREFIX = 'data-cre8-w-';
+
+export interface Minted {
+  /** The attribute this comparison turns on when it holds. */
+  attr: string;
+  /** The comparison, as the evaluator and the runtime both want it. */
+  when: Test;
+}
+
+/**
+ * The attribute for one comparison, from the rule that owns it.
+ *
+ * Derived from the rule id and the comparison's position, never from a
+ * counter: the same document has to publish the same bytes twice, or D6's
+ * write-only-what-changed cannot tell an edit from a rebuild. Rule ids are
+ * `uid()` output — lowercase letters and digits — so this needs no escaping to
+ * sit in a selector, by the same argument that lets a state key go in one.
+ */
+const mintName = (ruleId: string, index: number) => `${MINT_PREFIX}${ruleId}-${index}`;
+
+/** Every comparison in a rule's `when`, in walk order, with its attribute. */
+export function mintedIn(when: Test | undefined, ruleId: string): Minted[] {
+  const found: Minted[] = [];
+  const walk = (inner: Test | undefined): void => {
+    if (!inner) return;
+    if (inner.kind === 'every' || inner.kind === 'some') {
+      for (const one of inner.tests) walk(one);
+      return;
+    }
+    if (inner.kind === 'compare') {
+      found.push({ attr: mintName(ruleId, found.length), when: inner });
+    }
+  };
+  walk(when);
+  return found;
+}
+
+/**
+ * The same `when`, with every comparison swapped for the attribute it sets.
+ *
+ * What the generator compiles. The walk is the same walk `mintedIn` does and
+ * in the same order, so the *n*th comparison and the *n*th attribute are the
+ * same one — the two functions are a pair and editing one without the other
+ * would silently pair a rule with somebody else's answer.
+ */
+export function plannedWhen(when: Test | undefined, ruleId: string): Test | undefined {
+  if (!when) return undefined;
+  let index = 0;
+  const walk = (inner: Test): Test => {
+    if (inner.kind === 'every' || inner.kind === 'some') {
+      return { ...inner, tests: inner.tests.map(walk) };
+    }
+    if (inner.kind === 'compare') {
+      return { kind: 'attr', name: mintName(ruleId, index++), op: 'is', values: [''] };
+    }
+    return inner;
+  };
+  return walk(when);
+}
+
 /**
  * Every condition in a Test, in order.
  *

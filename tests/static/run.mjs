@@ -58,6 +58,7 @@ const {
   vocabulary,
   conditions,
   when_,
+  testTable,
   motion,
   everyRef,
   pruneRefs,
@@ -3772,6 +3773,59 @@ report.group('a Test the browser has to answer agrees with the one the publisher
       'and the disposer takes them away again',
       host.bound.length === 0,
       host.bound.join(', ') || 'clean'
+    );
+  }
+
+  /* --- A minted comparison, in the runtime ------------------------------- */
+
+  /*
+   * The other rule shape the table carries. A comparison hoisted out of a
+   * style rule sets an attribute rather than choosing a value, and the element
+   * it sits on usually declares no state at all — which is the case the old
+   * machinery could not serve and the reason the intermediate is an attribute
+   * rather than a state.
+   */
+  {
+    const control = el({ name: 'email' });
+    control.value = 'someone@example.test';
+    const holder = el({ 'data-cre8-test': 'n5' }, [control]);
+    const attr = 'data-cre8-w-r1-0';
+    const rules = [
+      { when: { kind: 'compare', left: { kind: 'input', name: 'email' }, op: 'notEmpty' }, attr },
+    ];
+    testRuntime(hostFor(el({}, [holder])), false, { n5: rules });
+    report.check(
+      'a minted comparison that holds turns its attribute on',
+      holder.getAttribute(attr) === '',
+      JSON.stringify(holder.getAttribute(attr))
+    );
+    /*
+     * And nothing else. Writing a state onto an element that declares none
+     * would be a value nothing can read, and it would arrive on every element
+     * a style rule happened to compare on — which is most of them, once this
+     * feature is used.
+     */
+    report.check(
+      'and does not invent a state on an element that has none',
+      holder.getAttribute('data-cre8-value') === null,
+      JSON.stringify(holder.getAttribute('data-cre8-value'))
+    );
+
+    /*
+     * Off again, on the element that was on.
+     *
+     * The first version of this built a *fresh* element with an empty control
+     * and checked the attribute was absent — which it was, because nothing had
+     * ever put it there. Deleting the `removeAttribute` entirely left that
+     * check green. Turning a state off is a different claim from never turning
+     * it on, and only one element can make it.
+     */
+    control.value = '';
+    testRuntime(hostFor(el({}, [holder])), false, { n5: rules });
+    report.check(
+      'and turns it off again when the comparison stops holding',
+      holder.getAttribute(attr) === null,
+      JSON.stringify(holder.getAttribute(attr))
     );
   }
 
@@ -12244,10 +12298,287 @@ report.group('one condition language, and OR in the stylesheet');
       .every((one) => !/:(hover|checked)(?![^(]*\))/.test(one.replace(/:where\([^)]*\)/g, ''))),
     orCss.split('\n')[0] ?? ''
   );
+  /*
+   * A comparison used to emit nothing, and that was the right answer until it
+   * stopped being one.
+   *
+   * `branchesOf` still refuses it — a comparison is not a selector and never
+   * will be — but the generator no longer sees the authored form. `plannedWhen`
+   * swaps the comparison for the attribute that carries its answer, so a style
+   * rule reading a record field compiles to an ordinary attribute selector and
+   * the value is written on the element instead.
+   */
+  const mintedCss = ruleOn(compare);
   report.check(
-    'a rule the generator cannot resolve emits nothing at all',
-    ruleOn(compare).trim() === '',
-    JSON.stringify(ruleOn(compare).slice(0, 80))
+    'a comparison compiles to the attribute the compiler minted for it',
+    /\[data-cre8-w-[a-z0-9]+-0=""\]/.test(mintedCss) && mintedCss.includes('rgb(9, 9, 9)'),
+    mintedCss.split('\n')[0] ?? 'nothing emitted'
+  );
+  report.check(
+    'and the comparison itself is nowhere in the stylesheet',
+    !/price|\bgt\b/.test(mintedCss),
+    mintedCss.split('\n')[0] ?? ''
+  );
+}
+
+/* ==========================================================================
+ * A comparison in a style rule mints its own answer
+ * ======================================================================= */
+
+report.group('a comparison in a style rule mints its own answer');
+
+{
+  const { mintedIn, plannedWhen, MINT_PREFIX } = when_;
+
+  const priceOver = {
+    kind: 'compare',
+    left: { kind: 'field', key: 'price' },
+    op: 'gt',
+    right: { type: 'number', value: 500000 },
+  };
+  const sold = {
+    kind: 'compare',
+    left: { kind: 'field', key: 'status' },
+    op: 'eq',
+    right: { type: 'text', value: 'sold' },
+  };
+  const hover = { kind: 'pointer', pseudo: 'hover' };
+
+  /* --- The pair, and that it is a pair ------------------------------------ */
+
+  report.check(
+    'a comparison is hoisted out and given an attribute',
+    (() => {
+      const minted = mintedIn(priceOver, 'r1');
+      return minted.length === 1 && minted[0].attr === `${MINT_PREFIX}r1-0`;
+    })(),
+    mintedIn(priceOver, 'r1')[0]?.attr ?? 'nothing minted'
+  );
+  report.check(
+    'and the rule the generator compiles names that attribute instead',
+    (() => {
+      const planned = plannedWhen(priceOver, 'r1');
+      return planned?.kind === 'attr' && planned.name === `${MINT_PREFIX}r1-0`;
+    })(),
+    JSON.stringify(plannedWhen(priceOver, 'r1'))
+  );
+
+  /*
+   * Two comparisons on one rule, which is the case that rules out minting a
+   * *state* instead: an element carries one `data-cre8-switch` and settles one
+   * value, so "red when expensive and faded when sold" could not have both.
+   * The two walks have to agree about which is which, or a rule ends up
+   * reading somebody else's answer.
+   */
+  const both = { kind: 'every', tests: [priceOver, hover, sold] };
+  report.check(
+    'two comparisons on one rule get one attribute each, in the same order',
+    (() => {
+      const minted = mintedIn(both, 'r2');
+      const planned = plannedWhen(both, 'r2');
+      const names = planned.tests.filter((t) => t.kind === 'attr').map((t) => t.name);
+      return (
+        minted.length === 2 &&
+        minted[0].when.left.key === 'price' &&
+        minted[1].when.left.key === 'status' &&
+        names.join(' ') === minted.map((m) => m.attr).join(' ')
+      );
+    })(),
+    mintedIn(both, 'r2').map((m) => `${m.when.left.key}→${m.attr}`).join(' ')
+  );
+  report.check(
+    'and everything that was already a selector is left alone',
+    plannedWhen(both, 'r2').tests[1]?.kind === 'pointer',
+    plannedWhen(both, 'r2').tests.map((t) => t.kind).join(' ')
+  );
+
+  /*
+   * Stable across publishes. Derived from the rule id, never a counter — D6
+   * writes only what changed, and it cannot tell an edit from a rebuild if the
+   * same document produces different bytes twice.
+   */
+  report.check(
+    'the attribute is the same on every publish of the same document',
+    mintedIn(both, 'r2')[0].attr === mintedIn(both, 'r2')[0].attr &&
+      mintedIn(both, 'r2')[1].attr !== mintedIn(both, 'r3')[1].attr,
+    `${mintedIn(both, 'r2')[1].attr} vs ${mintedIn(both, 'r3')[1].attr}`
+  );
+
+  /* --- Folded at publish, or shipped -------------------------------------- */
+
+  const cardWith = (whenTest) => {
+    const doc = createEmptyDocument('Mint');
+    const root = doc.nodes[doc.pages[0].rootNodeId];
+    doc.nodes.card = {
+      id: 'card',
+      type: 'container',
+      name: 'Card',
+      parentId: root.id,
+      children: [],
+      props: {},
+      styles: {},
+      meta: {},
+      rules: [{ id: 'r1', when: whenTest, apply: { color: 'rgb(7, 7, 7)' } }],
+    };
+    root.children.push('card');
+    return doc;
+  };
+
+  const record = { id: 'rec1', slug: 'a', data: { price: 900000, status: 'sold' } };
+  const cheap = { id: 'rec2', slug: 'b', data: { price: 100, status: 'free' } };
+
+  const attrsOn = (doc, rec) =>
+    renderNodeToHtml(doc, 'card', { mode: 'publish', record: rec }) ?? '';
+
+  report.check(
+    'a comparison that folds writes its attribute straight into the markup',
+    attrsOn(cardWith(priceOver), record).includes(`${MINT_PREFIX}r1-0=""`),
+    attrsOn(cardWith(priceOver), record).slice(0, 110)
+  );
+  report.check(
+    'and leaves it off for a record the comparison is false of',
+    !attrsOn(cardWith(priceOver), cheap).includes(`${MINT_PREFIX}r1-0`),
+    attrsOn(cardWith(priceOver), cheap).slice(0, 110)
+  );
+  /*
+   * The one that matters most: a folded comparison ships no pointer into the
+   * test table, because there is nothing left for the browser to work out.
+   * That is the whole "no script where CSS can do the work" claim, applied to
+   * the feature most likely to break it.
+   */
+  report.check(
+    'a folded comparison ships nothing for the runtime to do',
+    !attrsOn(cardWith(priceOver), record).includes('data-cre8-test'),
+    attrsOn(cardWith(priceOver), record).slice(0, 110)
+  );
+  report.check(
+    'and the table it would have travelled in is empty',
+    Object.keys(testTable(cardWith(priceOver).nodes, ['card'])).length === 0,
+    JSON.stringify(testTable(cardWith(priceOver).nodes, ['card']))
+  );
+
+  /*
+   * A comparison against something typed cannot fold, so it travels — and the
+   * node carries no state of its own, which is exactly the case the old
+   * machinery could not serve.
+   */
+  const typed = {
+    kind: 'compare',
+    left: { kind: 'input', name: 'email' },
+    op: 'notEmpty',
+  };
+  const shipped = testTable(cardWith(typed).nodes, ['card']);
+  report.check(
+    'a comparison that cannot fold travels to the browser, as an attribute rule',
+    shipped.card?.length === 1 &&
+      shipped.card[0].attr === `${MINT_PREFIX}r1-0` &&
+      shipped.card[0].value === undefined,
+    JSON.stringify(shipped.card ?? null)
+  );
+  report.check(
+    'and the element carries the pointer to it, with no state of its own',
+    attrsOn(cardWith(typed), null).includes('data-cre8-test') &&
+      !attrsOn(cardWith(typed), null).includes('data-cre8-switch'),
+    attrsOn(cardWith(typed), null).slice(0, 130)
+  );
+
+  /*
+   * An undecided comparison writes nothing, and this is the check the rest of
+   * the section cannot make.
+   *
+   * Every fixture above is decided — a record where the price really is over
+   * half a million, or really is not — so all of them pass equally against a
+   * publisher that wrote the attribute whenever the answer was *not false*.
+   * The third answer is the one that matters: nobody has typed anything when a
+   * page is published, and writing the attribute then would show every visitor
+   * the styled state permanently, and show it for ever to one with no
+   * scripting. Off is the fallback the execution model requires.
+   */
+  report.check(
+    'an undecided comparison leaves its attribute off until the browser answers',
+    !attrsOn(cardWith(typed), null).includes(`${MINT_PREFIX}r1-0=""`),
+    attrsOn(cardWith(typed), null).slice(0, 130)
+  );
+  report.check(
+    'and so does a record comparison on an element with no record at all',
+    !attrsOn(cardWith(priceOver), null).includes(`${MINT_PREFIX}r1-0=""`),
+    attrsOn(cardWith(priceOver), null).slice(0, 130)
+  );
+
+  /* --- The same design, authored both ways -------------------------------- */
+
+  /*
+   * The falsification this stage was specified against: a designer who does
+   * the five steps by hand and a designer who writes one sentence should get
+   * the same page. They cannot get the same *bytes* — the hand-built version
+   * names a state, and a state is a different mechanism with a different
+   * attribute — so what is compared is what a visitor can tell apart: which
+   * elements the declaration lands on, for the same record.
+   */
+  const byHand = (() => {
+    const doc = createEmptyDocument('By hand');
+    const root = doc.nodes[doc.pages[0].rootNodeId];
+    doc.nodes.card = {
+      id: 'card',
+      type: 'container',
+      name: 'Card',
+      parentId: root.id,
+      children: [],
+      props: { switchKey: 'band', switchDefault: 'plain' },
+      styles: {},
+      meta: {},
+      assign: [{ id: 'a1', when: priceOver, value: 'premium' }],
+      rules: [
+        {
+          id: 'r1',
+          when: { kind: 'state', key: 'band', op: 'is', values: ['premium'] },
+          apply: { color: 'rgb(7, 7, 7)' },
+        },
+      ],
+    };
+    root.children.push('card');
+    return doc;
+  })();
+
+  /**
+   * Whether the rule's selector is satisfied by the element it is written for.
+   *
+   * *Every* attribute test in it, not the first. The first version read one,
+   * and for the hand-built version that one was `[data-cre8-switch="band"]` —
+   * which both records carry, because it names the group rather than the
+   * value. It reported the cheap record as painted and the check caught it,
+   * which is the only reason this comment exists.
+   *
+   * Both rules here are anchored on the element itself, so every test in the
+   * selector is a test of this element's own attributes. A rule anchored on an
+   * ancestor would need the tree, and none is written that way.
+   */
+  const paints = (doc, rec) => {
+    const html = attrsOn(doc, rec);
+    const css = generateNodeCss(doc.nodes, { mode: 'media', includeStates: true });
+    const rule = css.split('\n').find((line) => line.includes('.c-card') && line.includes(':where'));
+    if (!rule) return 'no rule';
+    const tests = [...rule.matchAll(/\[([a-z0-9-]+)(~?)="([^"]*)"\]/g)];
+    if (!tests.length) return 'no attribute test';
+    const held = (name) => new RegExp(`${name}="([^"]*)"`).exec(html)?.[1];
+    return tests.every(([, name, fuzzy, value]) => {
+      const have = held(name);
+      if (have === undefined) return false;
+      return fuzzy ? have.split(/\s+/).includes(value) : have === value;
+    })
+      ? 'painted'
+      : 'plain';
+  };
+
+  report.check(
+    'one sentence paints exactly what the five-step version painted',
+    paints(cardWith(priceOver), record) === 'painted' && paints(byHand, record) === 'painted',
+    `minted ${paints(cardWith(priceOver), record)} · by hand ${paints(byHand, record)}`
+  );
+  report.check(
+    'and both leave the same record alone',
+    paints(cardWith(priceOver), cheap) === 'plain' && paints(byHand, cheap) === 'plain',
+    `minted ${paints(cardWith(priceOver), cheap)} · by hand ${paints(byHand, cheap)}`
   );
 }
 

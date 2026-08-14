@@ -355,7 +355,16 @@ try {
      * the document element.
      */
     const entry = (source) => {
-      const call = /^\(function \w*\([\s\S]*\)\((.*?)\)\s*$/.exec(source.trim());
+      /*
+       * `[\w$]` rather than `\w`, and the difference cost a green run.
+       *
+       * The comment above says a name is not an invariant under minification —
+       * and then the pattern assumed one anyway, because every name esbuild
+       * had happened to pick so far was letters. An unrelated edit to the
+       * runtime shifted the mangler onto `$i`, `\w` does not match `$`, and a
+       * check written specifically not to care about the name failed on it.
+       */
+      const call = /^\(function [\w$]*\([\s\S]*\)\((.*?)\)\s*$/.exec(source.trim());
       return call ? `(${call[1].replace(/["']/g, '')})` : `unrecognised: ${source.slice(0, 40)}`;
     };
     if (worker.scripts.length || local.scripts.length) {

@@ -37,6 +37,7 @@ import type {
   StyleDecl,
   StyleProp,
   Condition,
+  Test,
   Part,
   StyleRule,
 } from '../document/types';
@@ -343,7 +344,7 @@ interface EditorActions {
    */
   dropStyles(props: StyleProp[], label: string): void;
   setActiveRule(ruleId: string | null): void;
-  addRule(when: Condition[], part?: Part): string | null;
+  addRule(when: Condition[] | Test, part?: Part): string | null;
   removeRule(ruleId: string): void;
   moveRule(ruleId: string, delta: number): void;
   updateRule(ruleId: string, patch: Partial<Pick<StyleRule, 'when' | 'part' | 'breakpoint'>>): void;
