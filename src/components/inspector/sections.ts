@@ -279,9 +279,20 @@ export const SECTIONS: SectionSpec[] = [
   {
     id: 'rules',
     perElement: true,
-    title: 'Rules',
+    /*
+     * The name the panel already shows.
+     *
+     * This said "Rules" while `RulesSection` rendered a header reading
+     * "States & conditions", so the Add menu offered one thing and produced a
+     * section headed another — and the remove button, which takes its label
+     * from here, offered to remove something the designer could not see. The
+     * two names are independent by construction: a renderer supplies its own
+     * `<Section title>` and nothing compares it to this. The visible one wins,
+     * because it is the one somebody has already learned.
+     */
+    title: 'States & conditions',
     group: 'Behaviour',
-    hint: 'Look different when hovered, pressed, or while a switch is on',
+    hint: 'Look different when hovered, ticked, unavailable, or while a switch is on',
     props: [],
     used: (node) => Boolean(node.rules?.length),
     permanent: false,

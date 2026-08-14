@@ -366,7 +366,7 @@ Each is independently shippable and independently falsifiable.
 
 | | | Depends on |
 |---|---|---|
-| **X1** | Reach the seven unreachable condition shapes | nothing — ship first |
+| **X1** | ~~Reach the seven unreachable condition shapes~~ — **shipped** | nothing — shipped first |
 | **X2** | `StyleRule.when` becomes a `Test`; the planner; byte-identical output | — |
 | **X3** | OR compiles to a selector list | X2 |
 | **X4** | A comparison in a style rule mints its own state | X2 |

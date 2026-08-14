@@ -36,6 +36,11 @@ export function loadBlocks() {
       // audit that produced it, and a regex over the panel source is exactly
       // the way that audit used to have to be done.
       'src/lib/document/style-vocabulary.ts',
+      // The condition vocabulary: the words for each shape, and where a
+      // control pseudo-class can actually be true. Data for the same reason
+      // the style vocabulary is — the claim it makes is that the panel can
+      // author everything `css.ts` compiles, and that is checkable.
+      'src/lib/document/conditions.ts',
       // The upgrade every stored document goes through on load. It runs on
       // every project every time and would otherwise be exercised only by
       // accident, which is a poor arrangement for the one piece of code that
@@ -88,6 +93,7 @@ export function loadBlocks() {
     readCase: require(path.join(OUT, 'document/schema.js')).readCase,
     anchorId: require(path.join(OUT, 'document/schema.js')).anchorId,
     vocabulary: require(path.join(OUT, 'document/style-vocabulary.js')),
+    conditions: require(path.join(OUT, 'document/conditions.js')),
     motion: require(path.join(OUT, 'renderer/motion.js')),
     // References, on their own: "one walk services all of them" is a claim
     // about a function, and the cleanup that was missing for years is the

@@ -24,6 +24,7 @@ const SUITES = [
   ['native', 'native primitives behave without a runtime'],
   ['tables', 'tabular markup survives the parser'],
   ['behaviour', 'switches work, and the CSS does the work'],
+  ['conditions', 'every condition shape, driven in a real browser'],
   ['data', 'conditions on the visit, resolved before the first paint'],
   ['press', 'what arrives as you scroll, and what a press does'],
   ['repeat', 'a bound list, on the canvas and in the file'],

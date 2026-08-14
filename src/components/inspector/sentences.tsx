@@ -36,6 +36,16 @@ import type {
 } from '@/lib/document/types';
 import { slugList } from '@/lib/document/schema';
 import {
+  CONTROL_HINTS,
+  CONTROL_LABELS,
+  POINTER_HINTS,
+  POINTER_LABELS,
+  attrName,
+  attrValue,
+  type ControlPseudo,
+  type PointerPseudo,
+} from '@/lib/document/conditions';
+import {
   DATE_PATTERNS,
   FORMAT_LABELS,
   defaultFormat,
@@ -607,20 +617,119 @@ export function bindingSentence(options: {
  * ----------------------------------------------------------------------- */
 
 /**
- * `⟨plan⟩ ⟨is⟩ ⟨annual⟩`, or the prose form for the kinds with no editor.
+ * `⟨plan⟩ ⟨is⟩ ⟨annual⟩`, and the same for every other kind of condition.
  *
- * Handlers are optional per usual, and are only ever supplied for `state` and
- * `data` — the two the panel can edit. A pointer condition has nothing to
- * choose: it is hover, and the way to change it is to make a different rule.
+ * This used to say that handlers were "only ever supplied for `state` and
+ * `data` — the two the panel can edit", and that a pointer condition had
+ * nothing to choose because *it is hover*. Both halves were true of the panel
+ * and neither was true of the generator, which has compiled four pointer
+ * pseudo-classes, four control pseudo-classes and an attribute test the whole
+ * time. A rule carrying one of those rendered as an unclickable phrase —
+ * "the control is checked" — which reads as a description of something the
+ * designer is not allowed to touch, and was in fact a description of something
+ * nothing could produce.
+ *
+ * Every kind is now a sentence with chips in it. The words come from
+ * `document/conditions.ts` so the menu that offers a shape, the chip that
+ * edits it and the heading that summarises it cannot disagree about what it is
+ * called.
  */
 export function conditionSentence(options: {
   condition: Condition;
   states?: { key: string; values: string[] }[];
+  /**
+   * The control states this element can actually be in.
+   *
+   * Passed in rather than worked out here because it depends on the node and
+   * this file only ever sees the condition. Empty is the honest answer for
+   * most elements: a `div` is never ticked.
+   */
+  controls?: ControlPseudo[];
   onChange?: (next: Condition) => void;
   keyPrefix?: string;
 }): Part[] {
-  const { condition, states = [], onChange, keyPrefix = '' } = options;
+  const { condition, states = [], controls = [], onChange, keyPrefix = '' } = options;
   const k = (name: string) => `${keyPrefix}${name}`;
+
+  if (condition.kind === 'pointer' && onChange) {
+    return [
+      {
+        kind: 'pick',
+        key: k('pointer'),
+        value: condition.pseudo,
+        menuWidth: 220,
+        options: pointerOptions(),
+        onChange: (pseudo) => onChange({ kind: 'pointer', pseudo: pseudo as PointerPseudo }),
+      },
+    ];
+  }
+
+  if (condition.kind === 'control' && onChange) {
+    /*
+     * A pseudo-class the element cannot be in is still offered — as the one it
+     * currently says. A block can plant a condition the panel would not have
+     * built, and changing an element's type leaves whatever rules it had.
+     * Dropping the value would make the chip fall through to its placeholder,
+     * so a rule that says something specific and impossible would read as a
+     * rule nobody had finished writing. Those want opposite responses.
+     */
+    const offered = controls.includes(condition.pseudo)
+      ? controls
+      : [...controls, condition.pseudo];
+    return [
+      {
+        kind: 'pick',
+        key: k('control'),
+        value: condition.pseudo,
+        menuWidth: 220,
+        options: offered.map((pseudo) => ({
+          value: pseudo,
+          label: CONTROL_LABELS[pseudo],
+          hint: CONTROL_HINTS[pseudo],
+        })),
+        onChange: (pseudo) => onChange({ kind: 'control', pseudo: pseudo as ControlPseudo }),
+      },
+    ];
+  }
+
+  if (condition.kind === 'attr' && onChange) {
+    return [
+      {
+        kind: 'type',
+        key: k('attr'),
+        value: condition.name,
+        placeholder: 'aria-expanded',
+        // Narrowed to what an attribute name may contain, for the same reason
+        // `slug` narrows a state key: this string reaches a selector unquoted,
+        // and a space in it would end the attribute test early.
+        onChange: (raw) => {
+          const name = attrName(raw);
+          if (name) onChange({ ...condition, name });
+        },
+      },
+      {
+        kind: 'pick',
+        key: k('attr-op'),
+        value: condition.op,
+        menuWidth: 130,
+        options: [
+          { value: 'is', label: 'is' },
+          { value: 'isNot', label: 'is not' },
+        ],
+        onChange: (op) => onChange({ ...condition, op: op as 'is' | 'isNot' }),
+      },
+      {
+        kind: 'type',
+        key: k('attr-value'),
+        value: condition.values.join(' '),
+        // An attribute can be present with no value — `<details open>` — and
+        // that is a real thing to style on, so an empty box is a meaning
+        // rather than an unfinished sentence.
+        placeholder: 'set at all',
+        onChange: (raw) => onChange({ ...condition, values: [attrValue(raw)] }),
+      },
+    ];
+  }
 
   if (condition.kind === 'state' && onChange) {
     const chosen = states.find((state) => state.key === condition.key);
@@ -726,6 +835,21 @@ export function ruleSentence(rule: StyleRule): Part[] {
   return parts;
 }
 
+/**
+ * Every pointer state, in a fixed order, straight off the label map.
+ *
+ * Total by construction: a pseudo-class added to `Condition` gets a label —
+ * the `Record` makes that a compile error otherwise — and appears in the menu
+ * the same day, rather than waiting for somebody to notice a second list.
+ */
+function pointerOptions() {
+  return (Object.keys(POINTER_LABELS) as PointerPseudo[]).map((pseudo) => ({
+    value: pseudo,
+    label: POINTER_LABELS[pseudo],
+    hint: POINTER_HINTS[pseudo],
+  }));
+}
+
 /** What a Test says when it is not a plain comparison. */
 function describeOther(test: Test): string {
   switch (test.kind) {
@@ -734,13 +858,23 @@ function describeOther(test: Test): string {
     case 'some':
       return `any of ${test.tests.length} conditions holds`;
     case 'pointer':
-      return `the pointer is ${test.pseudo}`;
+      // The same words the chip shows. Two spellings of one condition — a row
+      // reading "the pointer is focus-visible" over an editor offering
+      // "focused by keyboard" — is the drift this file exists to prevent.
+      return POINTER_LABELS[test.pseudo];
     case 'control':
-      return `the control is ${test.pseudo}`;
+      return CONTROL_LABELS[test.pseudo];
     case 'state':
       return `${test.key || 'the nearest state'} ${test.op === 'is' ? 'is' : 'is not'} ${test.values.join(' or ')}`;
-    case 'attr':
-      return `${test.name} ${test.op === 'is' ? 'is' : 'is not'} ${test.values.join(' or ')}`;
+    case 'attr': {
+      // An empty value is "present at all" rather than "equal to nothing",
+      // which is what `<details open>` means and what the chip's placeholder
+      // says. Reading it back as `open is ` would look like a half-written
+      // rule instead of the finished one it is.
+      const values = test.values.filter(Boolean);
+      if (!values.length) return `${test.name} is ${test.op === 'is' ? '' : 'not '}set at all`;
+      return `${test.name} ${test.op === 'is' ? 'is' : 'is not'} ${values.join(' or ')}`;
+    }
     case 'data':
       return `${test.source} ${test.op === 'is' ? 'is' : 'is not'} ${test.values.join(' or ')}`;
     default:

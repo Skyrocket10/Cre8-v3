@@ -38,6 +38,7 @@ const {
   isInteractive,
   anchorId,
   vocabulary,
+  conditions,
   motion,
   everyRef,
   pruneRefs,
@@ -6169,11 +6170,26 @@ report.group('the editor knows whether it is editing the page or an overlay');
       (content.match(/<BackdropControls \/>/g) ?? []).length === 2,
     'on both the popover and the dialog'
   );
+  /*
+   * The two doors still write one rule.
+   *
+   * The overlay's control is a literal call and stays checked as one. The
+   * Conditions panel's door stopped being a literal when the add menu became
+   * a table, so that half is read as the value the table holds — which is the
+   * better half of the check anyway: it compares the rule rather than the
+   * spelling of the call that makes it.
+   */
+  const backdropOffer = conditions
+    .conditionOffers({ type: 'dialog', states: [] })
+    .find((offer) => offer.part === 'backdrop');
   report.check(
     'and it writes the same rule the Conditions panel would, so nothing new is stored',
     /addRule\(\[\], 'backdrop'\)/.test(content) &&
-      /addRule\(\[\], 'backdrop'\)/.test(read(path.join('src', 'components', 'inspector', 'section-rules.tsx'))),
-    "part: 'backdrop', from either door"
+      Boolean(backdropOffer) &&
+      backdropOffer.when.length === 0,
+    backdropOffer
+      ? `part: '${backdropOffer.part}', ${backdropOffer.when.length} conditions, from either door`
+      : 'the menu no longer offers a backdrop'
   );
 
   /* --- Falsification ------------------------------------------------------ */
@@ -11950,6 +11966,341 @@ report.group('the gallery is the library, and stays the library');
       `${shown.size} captions found for ${BLOCKS.length} blocks`
     );
   }
+}
+
+/* ==========================================================================
+ * Every condition the generator compiles can be authored
+ * ======================================================================= */
+
+report.group('every condition the generator compiles can be authored');
+
+{
+  /*
+   * The gap this group exists to close, and the reason it is checked from the
+   * generator's side rather than the panel's.
+   *
+   * `conditionParts` compiled eleven condition shapes and the panel offered
+   * four. Nothing was broken — the CSS for the other seven was written,
+   * commented and correct — so nothing failed, nothing warned, and the only
+   * symptom was a designer who could not style a ticked checkbox. Two of the
+   * seven existed in real documents purely because `blocks/kit.ts` hand-writes
+   * them, which is the shape of the problem in one line: the capability was
+   * reachable from code and not from the product.
+   *
+   * A check written from the panel's side would have passed the whole time. So
+   * the generator is the source of truth here: whatever `css.ts` knows how to
+   * compile, the panel must know how to make.
+   */
+  const source = (file) =>
+    readFileSync(path.join(ROOT, file), 'utf8')
+      // Comments name every one of these shapes while explaining them — this
+      // group's own docblock does it twice — so a scan that read them would
+      // find whatever it was looking for and prove nothing.
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+
+  const css = source('src/lib/renderer/css.ts');
+  const panel = source('src/components/inspector/section-rules.tsx');
+  const sentence = source('src/components/inspector/sentences.tsx');
+  const types = source('src/lib/document/types.ts');
+
+  /* --- The eleven shapes, read off the generator ------------------------- */
+
+  /*
+   * The kinds are the `case` labels inside `conditionParts`, which is the one
+   * function that turns a condition into selector text. Scoped to that
+   * function rather than to the file: `css.ts` mentions most of these words
+   * elsewhere, and a scan over the whole file would count `readCase` and the
+   * variant expansion as evidence the panel does not provide.
+   */
+  const partsBody = css.slice(
+    css.indexOf('function conditionParts('),
+    css.indexOf('function ruleSelector(')
+  );
+  const compiledKinds = [...partsBody.matchAll(/case '([a-z]+)':/g)].map((m) => m[1]).sort();
+
+  report.check(
+    'the scan found the generator’s condition kinds',
+    compiledKinds.length === 5,
+    compiledKinds.join(' ') || 'nothing — conditionParts moved or was renamed'
+  );
+
+  // The pseudo-classes are on the type rather than in the generator, which
+  // passes them straight through to `:${pseudo}`.
+  const pseudosOf = (kind) => {
+    const line = new RegExp(`kind: '${kind}'; pseudo: ([^}]+)}`).exec(types);
+    return line ? [...line[1].matchAll(/'([a-z-]+)'/g)].map((m) => m[1]).sort() : [];
+  };
+  const pointerPseudos = pseudosOf('pointer');
+  const controlPseudos = pseudosOf('control');
+
+  report.check(
+    'the scan found both sets of pseudo-classes',
+    pointerPseudos.length === 4 && controlPseudos.length === 4,
+    `pointer: ${pointerPseudos.join(' ')} · control: ${controlPseudos.join(' ')}`
+  );
+
+  const shapes = compiledKinds.length + pointerPseudos.length + controlPseudos.length - 2;
+  report.check(
+    'the generator compiles eleven distinct condition shapes',
+    shapes === 11,
+    `${shapes} shapes`
+  );
+
+  /* --- The panel can make every one of them ------------------------------ */
+
+  /*
+   * What the add menu can produce, asked of the menu rather than of its
+   * source text.
+   *
+   * The first version of this scraped `kind: '…'` literals out of
+   * `section-rules.tsx`, and it survived being falsified: deleting the
+   * attribute group left the literal sitting in the callback of a `.map` over
+   * an empty list, so the scan still found it and the check still passed. A
+   * check that reads code which can no longer run is not a check.
+   *
+   * `conditionOffers` is the table the menu renders, so calling it is asking
+   * the real question. Every element type is asked, because most of the
+   * shapes are offered on some types and not others and a sweep over one node
+   * would miss whichever half it did not pick.
+   */
+  const offeredKinds = new Set();
+  const offerCounts = new Map();
+  for (const type of Object.keys(ELEMENTS)) {
+    for (const offer of conditions.conditionOffers({
+      type,
+      // A state to name, so the state offer is reachable. Its absence when
+      // nothing declares one is deliberate and checked separately below.
+      states: [{ key: 'plan', values: ['annual'] }],
+    })) {
+      for (const one of offer.when) offeredKinds.add(one.kind);
+      offerCounts.set(type, (offerCounts.get(type) ?? 0) + 1);
+    }
+  }
+  for (const kind of compiledKinds) {
+    report.check(
+      `the panel can add a '${kind}' condition`,
+      offeredKinds.has(kind),
+      offeredKinds.has(kind) ? '' : `no element type is offered kind: '${kind}'`
+    );
+  }
+
+  /*
+   * And that the menu still renders the table rather than a second list
+   * written beside it. Everything above would keep passing if the panel
+   * stopped calling the function.
+   */
+  report.check(
+    'the menu is the offer table rather than a copy of it',
+    /conditionOffers\(/.test(panel) && /addRule\(offer\.when, offer\.part\)/.test(panel),
+    'section-rules.tsx maps over conditionOffers'
+  );
+
+  /* --- Offered where they can be true, and not where they cannot --------- */
+
+  const offersFor = (type) =>
+    conditions.conditionOffers({ type, states: [] }).map((offer) => offer.key);
+
+  report.check(
+    'a checkbox is offered the ticked condition',
+    offersFor('checkbox').includes('control-checked'),
+    offersFor('checkbox').filter((key) => key.startsWith('control-')).join(' ')
+  );
+  report.check(
+    'a plain container is offered no control condition at all',
+    !offersFor('container').some((key) => key.startsWith('control-')),
+    offersFor('container').join(' ')
+  );
+  report.check(
+    'the backdrop is offered on an overlay and nowhere else',
+    offersFor('dialog').includes('backdrop') &&
+      offersFor('popover').includes('backdrop') &&
+      !offersFor('section').includes('backdrop'),
+    `dialog ${offersFor('dialog').includes('backdrop')} · section ${offersFor('section').includes('backdrop')}`
+  );
+  report.check(
+    'a state is offered only when something declares one',
+    !offersFor('container').includes('state') &&
+      conditions
+        .conditionOffers({ type: 'container', states: [{ key: 'plan', values: ['annual'] }] })
+        .some((offer) => offer.key === 'state'),
+    offersFor('container').join(' ')
+  );
+
+  /*
+   * The pseudo-classes are not literals in the panel — the menu maps over the
+   * label records — so the check follows the same route the menu does, and
+   * asserts the records are total and every entry is a real pseudo-class.
+   * Totality alone is a compile-time fact and would be vacuous here; that an
+   * entry names something the generator will accept is not.
+   */
+  const { POINTER_LABELS, CONTROL_LABELS, POINTER_HINTS, CONTROL_HINTS } = conditions;
+  report.check(
+    'every pointer pseudo-class has a word and an explanation',
+    pointerPseudos.every((p) => POINTER_LABELS[p] && POINTER_HINTS[p]) &&
+      Object.keys(POINTER_LABELS).sort().join(' ') === pointerPseudos.join(' '),
+    Object.keys(POINTER_LABELS).sort().join(' ')
+  );
+  report.check(
+    'every control pseudo-class has a word and an explanation',
+    controlPseudos.every((p) => CONTROL_LABELS[p] && CONTROL_HINTS[p]) &&
+      Object.keys(CONTROL_LABELS).sort().join(' ') === controlPseudos.join(' '),
+    Object.keys(CONTROL_LABELS).sort().join(' ')
+  );
+
+  /*
+   * And that each control pseudo-class is offered on at least one element.
+   *
+   * The one thing `Record<ControlPseudo, ElementType[]>` cannot catch: an
+   * empty list compiles, and makes that pseudo-class unreachable everywhere
+   * while looking exactly like a considered decision.
+   */
+  for (const pseudo of controlPseudos) {
+    const on = Object.keys(ELEMENTS).filter((type) => conditions.controlApplies(type, pseudo));
+    report.check(
+      `'${pseudo}' is offered on the elements it can be true of`,
+      on.length > 0,
+      on.join(' ') || 'no element type — the rule can never be authored'
+    );
+  }
+
+  /* --- And can edit every one of them ------------------------------------ */
+
+  /*
+   * Reaching a shape is half of it. A rule that can be created and then only
+   * described — which is what `attr` and `control` were, printing prose like
+   * "the control is checked" — is a rule the designer cannot correct.
+   *
+   * `conditionSentence` returns editable parts only inside a branch guarded by
+   * `onChange`; anything falling past those reaches `describeOther` and is
+   * prose. So the check is that each kind has such a branch.
+   */
+  for (const kind of compiledKinds) {
+    const guarded = new RegExp(`condition\\.kind === '${kind}' && onChange`).test(sentence);
+    report.check(
+      `a '${kind}' condition can be edited, not only described`,
+      guarded,
+      guarded ? '' : `conditionSentence falls through to prose for '${kind}'`
+    );
+  }
+
+  /* --- The attribute name cannot break the selector ---------------------- */
+
+  /*
+   * `conditionParts` writes `[${name}="${value}"]` unescaped, which was safe
+   * while the only source of both was a literal in `blocks/kit.ts`. A text
+   * field in the panel is a new source, and a space in a name would end the
+   * attribute test early — turning the rest of what somebody typed into
+   * selector syntax and dropping every rule after the point it stops parsing.
+   */
+  const nastyName = 'a b"c\\d\ne';
+  report.check(
+    'an attribute name is narrowed to what a selector accepts',
+    conditions.attrName(nastyName) === 'abcde',
+    conditions.attrName(nastyName)
+  );
+  report.check(
+    'an attribute name cannot start with a non-letter',
+    conditions.attrName('1st-thing') === 'st-thing',
+    conditions.attrName('1st-thing')
+  );
+  /*
+   * A value is treated far more loosely than a name, and has to be: narrowing
+   * it to an identifier would refuse `?ref=acme`, which is a value a `data`
+   * condition is built to carry. Only the three characters that would end the
+   * quoted string go.
+   */
+  const nastyValue = '?ref=acme "x" \\y\nz';
+  report.check(
+    'an attribute value keeps everything except what breaks out of the quotes',
+    conditions.attrValue(nastyValue) === '?ref=acme x yz',
+    JSON.stringify(conditions.attrValue(nastyValue))
+  );
+
+  /*
+   * Each sanitiser handed the thing it exists to reject. Without this pair a
+   * function that returned its input unchanged would pass everything above
+   * that happens to contain no dangerous character.
+   */
+  report.check(
+    'the name check would fail an unnarrowed name',
+    attrNameWouldBreak('data cre8') && !attrNameWouldBreak(conditions.attrName('data cre8')),
+    conditions.attrName('data cre8')
+  );
+  report.check(
+    'the value check would fail an unnarrowed value',
+    attrValueWouldBreak('say "hi"') && !attrValueWouldBreak(conditions.attrValue('say "hi"')),
+    conditions.attrValue('say "hi"')
+  );
+
+  /*
+   * What "breaks" means, asked of the real thing rather than of a regex that
+   * agrees with the sanitiser by construction: the selector `conditionParts`
+   * would write, handed to a parser.
+   */
+  function attrNameWouldBreak(name) {
+    return !selectorParses(`.c-x:where([${name}="v"])`);
+  }
+  function attrValueWouldBreak(value) {
+    return !selectorParses(`.c-x:where([data-a="${value}"])`);
+  }
+}
+
+/**
+ * Whether a selector is one selector.
+ *
+ * `CSS.supports` is not available in bare Node, and a full parser would be a
+ * dependency for one question — so this asks the narrower version that is
+ * enough here: does anything in the string close the attribute test early and
+ * start saying something else. A quote or a bracket outside the quoted value,
+ * or whitespace inside the name, all show up as the bracket depth going wrong
+ * or a stray quote surviving the scan.
+ */
+function selectorParses(selector) {
+  let at = 0;
+  while (at < selector.length) {
+    if (selector[at] !== '[') {
+      at += 1;
+      continue;
+    }
+    at += 1;
+
+    let name = '';
+    while (at < selector.length && selector[at] !== '=' && selector[at] !== ']') {
+      name += selector[at];
+      at += 1;
+    }
+    if (!/^[A-Za-z][A-Za-z0-9_:-]*$/.test(name)) return false;
+    // `[open]` — a presence test, and a whole attribute selector on its own.
+    if (selector[at] === ']') {
+      at += 1;
+      continue;
+    }
+    if (selector[at] !== '=' || selector[at + 1] !== '"') return false;
+    at += 2;
+
+    while (at < selector.length && selector[at] !== '"') {
+      // Nothing may continue the string past where it looks like it ends.
+      if (selector[at] === '\\' || selector[at] === '\n' || selector[at] === '\r') return false;
+      at += 1;
+    }
+    if (selector[at] !== '"') return false;
+    at += 1;
+
+    /*
+     * The closing bracket, immediately.
+     *
+     * This is the line that makes the check worth running. A scan that only
+     * balanced brackets and quotes called `[a="say "hi""]` well-formed —
+     * the quotes pair up and the bracket closes — when what a browser reads
+     * there is an attribute test that ended after `say `, followed by two
+     * words of nonsense. The break-out is not an unclosed string; it is a
+     * string that closes too early.
+     */
+    if (selector[at] !== ']') return false;
+    at += 1;
+  }
+  return true;
 }
 
 

@@ -22,12 +22,19 @@ import React, { useMemo } from 'react';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { collectSubtree } from '@/lib/document/tree';
 import { valuesSetting } from '@/lib/document/actions';
+import {
+  CONTROL_LABELS,
+  conditionOffers,
+  controlPseudosFor,
+  offerGroups,
+  type ControlPseudo,
+} from '@/lib/document/conditions';
 import { slug, slugList } from '@/lib/document/schema';
-import type { Condition, StyleRule } from '@/lib/document/types';
+import type { Condition, ElementType, StyleRule } from '@/lib/document/types';
 import { DATA_SOURCES, QUERY_PREFIX, describeSource } from '@/lib/runtime/data';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
-import { Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives';
+import { Popover, Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives';
 import { Sentence, partsToText } from '../ui/sentence';
 import { conditionSentence, ruleSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
@@ -169,11 +176,14 @@ export function RulesSection() {
   });
   const activeRuleId = useEditor((s) => s.activeRuleId);
   const states = useStatesInScope();
-  const canBackdrop = useEditor((s) => {
+  const type = useEditor((s) => {
     const id = s.selection[0];
-    const type = id ? s.doc.nodes[id]?.type : undefined;
-    return type === 'dialog' || type === 'popover';
+    return id ? s.doc.nodes[id]?.type : undefined;
   });
+  // Recomputed from the type alone, which is the only thing it depends on —
+  // built inside the selector it would be a fresh array on every store update
+  // and re-render the panel for an edit three sections away.
+  const controls = useMemo(() => (type ? controlPseudosFor(type) : []), [type]);
 
   const list = rules ?? [];
 
@@ -182,8 +192,8 @@ export function RulesSection() {
       <InspectorGroup>
         {list.length === 0 && (
           <p className="text-[10.5px] leading-relaxed text-[var(--text-faint)]">
-            Change how this looks when something is true — pointed at, or while a state you named
-            holds a value.
+            Change how this looks when something is true — pointed at, ticked, filled in wrongly, or
+            while a state you named holds a value.
           </p>
         )}
 
@@ -195,70 +205,82 @@ export function RulesSection() {
             first={index === 0}
             last={index === list.length - 1}
             states={states}
+            controls={controls}
           />
         ))}
 
-        <div className="flex flex-wrap gap-1.5 pt-0.5">
-          <AddButton
-            label="Hover"
-            onClick={() => useEditor.getState().addRule([{ kind: 'pointer', pseudo: 'hover' }])}
-          />
-          <AddButton
-            label="Focus"
-            onClick={() =>
-              useEditor.getState().addRule([{ kind: 'pointer', pseudo: 'focus-visible' }])
-            }
-          />
-          {states.length > 0 && (
-            <AddButton
-              label="State…"
-              onClick={() =>
-                useEditor.getState().addRule([
-                  {
-                    kind: 'state',
-                    key: states[0]!.key,
-                    op: 'is',
-                    values: [states[0]!.values[0] ?? 'on'],
-                  },
-                ])
-              }
-            />
-          )}
-          <AddButton
-            label="Visit…"
-            onClick={() =>
-              useEditor.getState().addRule([
-                {
-                  kind: 'data',
-                  source: DATA_SOURCES[0]!.id,
-                  op: 'is',
-                  values: [DATA_SOURCES[0]!.values[0]!],
-                },
-              ])
-            }
-          />
-          {canBackdrop && (
-            <AddButton
-              label="Backdrop"
-              onClick={() => useEditor.getState().addRule([], 'backdrop')}
-            />
-          )}
-        </div>
+        {type && <AddCondition type={type} states={states} />}
       </InspectorGroup>
     </Section>
   );
 }
 
-function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
+/**
+ * One menu holding the whole condition vocabulary.
+ *
+ * It was five buttons in a wrapping row, offering four of the eleven shapes
+ * `css.ts` compiles. Eleven buttons would be four lines of chips in a 280px
+ * panel before the rules themselves start, so the row becomes a menu — the
+ * same shape the section list settled on, and for the same reason: the choices
+ * are worth having and not worth looking at until you want one.
+ *
+ * The menu is also where the hints live. "Ticked" needs none; the difference
+ * between *focused* and *focused by keyboard* is the whole reason a designer
+ * picks one over the other, and a chip label has nowhere to explain it.
+ */
+function AddCondition({ type, states }: { type: ElementType; states: { key: string; values: string[] }[] }) {
+  const offers = useMemo(() => conditionOffers({ type, states }), [type, states]);
+  const groups = offerGroups(offers);
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-[24px] items-center gap-1 rounded-md bg-[var(--field)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--field-hover)] hover:text-[var(--text)]"
-    >
-      <Plus size={10} />
-      {label}
-    </button>
+    <div className="pt-0.5">
+      <Popover
+        align="start"
+        trigger={({ toggle, ref }) => (
+          <button
+            ref={ref}
+            type="button"
+            onClick={toggle}
+            className="flex h-[24px] items-center gap-1 rounded-md bg-[var(--field)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--field-hover)] hover:text-[var(--text)]"
+          >
+            <Plus size={10} />
+            When…
+          </button>
+        )}
+      >
+        {/* Closes on a pick, so the rule it just added is not underneath the
+            menu that added it. */}
+        {(close) => (
+          <div className="max-h-[380px] w-[244px] overflow-y-auto p-1">
+            {groups.map((group) => (
+              <div key={group}>
+                <div className="panel-group px-2 pt-2 pb-1">{group}</div>
+                {offers
+                  .filter((offer) => offer.group === group)
+                  .map((offer) => (
+                  <button
+                    key={offer.key}
+                    type="button"
+                    onClick={() => {
+                      useEditor.getState().addRule(offer.when, offer.part);
+                      close();
+                    }}
+                    className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--field)]"
+                  >
+                    <span className="text-[11.5px] font-medium text-[var(--text)]">
+                      {offer.label}
+                    </span>
+                    <span className="text-[10.5px] leading-snug text-[var(--text-faint)]">
+                      {offer.hint}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </Popover>
+    </div>
   );
 }
 
@@ -268,16 +290,35 @@ function RuleRow({
   first,
   last,
   states,
+  controls,
 }: {
   rule: StyleRule;
   active: boolean;
   first: boolean;
   last: boolean;
   states: { key: string; values: string[] }[];
+  controls: ControlPseudo[];
 }) {
   const store = useEditor.getState;
-  const condition = rule.when.find((c) => c.kind === 'state');
-  const data = rule.when.find((c) => c.kind === 'data');
+
+  /*
+   * By position, not by kind.
+   *
+   * This used to be two `find`s — one for the state condition and one for the
+   * data condition — which meant a rule carrying anything else opened to an
+   * empty body, and a rule carrying two of anything showed one of them. Both
+   * happen: `blocks/kit.ts` plants `control` and `attr` conditions, and `when`
+   * has been an array the whole time.
+   *
+   * Composing several conditions is still not offered here — that arrives with
+   * the sentence tree, and building a flat-array editor for it now would be
+   * building something that gets deleted. What this does is stop hiding what
+   * is already there.
+   */
+  const replace = (index: number, next: Condition) =>
+    store().updateRule(rule.id, {
+      when: rule.when.map((one, at) => (at === index ? next : one)),
+    });
 
   return (
     <div
@@ -337,34 +378,73 @@ function RuleRow({
         </Tooltip>
       </div>
 
-      {active && condition?.kind === 'state' && (
-        <div className="flex flex-col gap-1.5 border-t border-[var(--border-soft)] px-2 py-2">
-          {/*
-            The same sentence the heading above shows, with handlers. Three
-            labelled rows said the same thing in a shape a reader had to
-            reassemble — and the heading was a second description of it,
-            written separately and free to disagree.
-          */}
-          <Sentence
-            parts={[
-              { kind: 'word', text: 'When', key: 'when' },
-              ...conditionSentence({
-                condition,
-                states,
-                onChange: (next: Condition) =>
-                  store().updateRule(rule.id, {
-                    when: rule.when.map((c) => (c === condition ? next : c)),
-                  }),
-              }),
-            ]}
-          />
-          <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
-            More than one value, separated by spaces, means any of them.
-          </p>
+      {active && (
+        <div className="border-t border-[var(--border-soft)]">
+          {rule.when.length === 0 && (
+            <p className="px-2 py-2 text-[10px] leading-relaxed text-[var(--text-faint)]">
+              {rule.part
+                ? `Always, on the ${rule.part}.`
+                : 'Always — nothing has to be true for this to apply.'}
+            </p>
+          )}
+
+          {rule.when.map((condition, index) =>
+            /*
+             * A data condition keeps its labelled form rather than becoming a
+             * sentence, because two of its four controls are not about this
+             * rule at all: what the file *ships* with and what the canvas
+             * *designs against* are settings on the source, shared by every
+             * rule that reads it. A sentence with a site-wide setting hidden
+             * in it would be a sentence that lies about its scope.
+             */
+            condition.kind === 'data' ? (
+              <DataFields key={index} rule={rule} condition={condition} divide={index > 0} />
+            ) : (
+              <div
+                key={index}
+                className={cn(
+                  'flex flex-col gap-1.5 px-2 py-2',
+                  index > 0 && 'border-t border-[var(--border-subtle)]'
+                )}
+              >
+                {/*
+                  The same sentence the heading above shows, with handlers.
+                  Three labelled rows said the same thing in a shape a reader
+                  had to reassemble — and the heading was a second description
+                  of it, written separately and free to disagree.
+                */}
+                <Sentence
+                  parts={[
+                    { kind: 'word', text: index === 0 ? 'When' : 'and', key: 'when' },
+                    ...conditionSentence({
+                      condition,
+                      states,
+                      controls,
+                      keyPrefix: `c${index}-`,
+                      onChange: (next: Condition) => replace(index, next),
+                    }),
+                  ]}
+                />
+                {condition.kind === 'state' && (
+                  <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+                    More than one value, separated by spaces, means any of them.
+                  </p>
+                )}
+                {condition.kind === 'control' && !controls.includes(condition.pseudo) && (
+                  // Not a warning about something the designer typed — the
+                  // panel would not have offered it. It is a rule that was
+                  // fine when it was written and is not any more, usually
+                  // because the element changed underneath it.
+                  <p className="text-[10px] leading-relaxed text-[var(--warning,var(--text-faint))]">
+                    This kind of element is never {CONTROL_LABELS[condition.pseudo]}, so this rule
+                    cannot apply.
+                  </p>
+                )}
+              </div>
+            )
+          )}
         </div>
       )}
-
-      {active && data?.kind === 'data' && <DataFields rule={rule} condition={data} />}
     </div>
   );
 }
@@ -392,9 +472,12 @@ function configure(source: string, patch: { ships?: string; designing?: string }
 function DataFields({
   rule,
   condition,
+  divide,
 }: {
   rule: StyleRule;
   condition: Extract<Condition, { kind: 'data' }>;
+  /** A separator above, when this is not the rule's first condition. */
+  divide?: boolean;
 }) {
   const store = useEditor.getState;
   const config = useEditor((s) => s.doc.settings.data?.[condition.source]);
@@ -408,7 +491,12 @@ function DataFields({
   };
 
   return (
-    <div className="flex flex-col gap-1.5 border-t border-[var(--border-soft)] px-2 py-2">
+    <div
+      className={cn(
+        'flex flex-col gap-1.5 px-2 py-2',
+        divide && 'border-t border-[var(--border-subtle)]'
+      )}
+    >
       <StyleRow label="About" labelWidth={62}>
         <Select
           className="flex-1"
