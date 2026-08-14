@@ -605,10 +605,20 @@ try {
     await page.waitForTimeout(700);
     const ored = (await getDocument(page, projectId)).nodes.chkx?.rules ?? [];
     const either = ored.find((rule) => rule.when?.kind === 'some');
+    /*
+     * Two conditions, and *different* ones. The seed used to be a constant, so
+     * one press turned "pointed at" into "pointed at or pointed at" — a rule
+     * that looks finished, compiles to two identical branches and says exactly
+     * what it said before. Both of these checks passed against that, because
+     * the condition each happened to grow from was not the constant.
+     */
+    const twoOf = (test) =>
+      test?.tests?.length === 2 &&
+      JSON.stringify(test.tests[0]) !== JSON.stringify(test.tests[1]);
     report.check(
       'and \u201cor\u201d writes a rule that means either of them, in one press',
       Boolean(either) &&
-        either.when.tests?.length === 2 &&
+        twoOf(either.when) &&
         either.when.tests[0]?.kind === 'control' &&
         either.when.tests[1]?.kind === 'pointer',
       either ? JSON.stringify(either.when) : 'no \u201csome\u201d rule on the element'
@@ -629,9 +639,39 @@ try {
     const both = (await getDocument(page, projectId)).nodes.chkx?.rules ?? [];
     const all = both.find((rule) => rule.when?.kind === 'every');
     report.check(
-      'and \u201cand\u201d writes a rule that means both of them',
-      Boolean(all) && all.when.tests?.length === 2,
+      'and \u201cand\u201d writes a rule that means both of them, not one of them twice',
+      Boolean(all) && twoOf(all.when),
       all ? JSON.stringify(all.when) : 'no \u201cevery\u201d rule on the element'
+    );
+
+    /*
+     * And the case that actually catches a constant seed: grow the very
+     * condition the seed would have been.
+     *
+     * The two checks above assert that the leaves differ and neither of them
+     * can fail, because neither fixture grows from *hover* — one starts at
+     * "ticked" and one at "focused", so a constant `{pointer: hover}` produced
+     * a second leaf that differed by luck. Restoring the constant left both
+     * green. This one starts at "pointed at", which is the constant, so a seed
+     * that does not look at what is already there produces the tautology and
+     * this fails.
+     */
+    const third = await offeredFor('Tickable');
+    if (third.labels.includes('Pointed at')) {
+      await third.menu.locator('button:has(span:text-is("Pointed at"))').first().click();
+      await page.waitForTimeout(700);
+    }
+    await panel
+      .locator('[data-sentence] button:has-text("+ or")')
+      .first()
+      .click({ timeout: 2000 })
+      .catch(() => {});
+    await page.waitForTimeout(700);
+    const grownFromHover = ((await getDocument(page, projectId)).nodes.chkx?.rules ?? []).at(-1);
+    report.check(
+      'and growing a condition offers one the rule does not already hold',
+      Boolean(grownFromHover) && twoOf(grownFromHover.when),
+      grownFromHover ? JSON.stringify(grownFromHover.when) : 'no rule to grow'
     );
   }
 

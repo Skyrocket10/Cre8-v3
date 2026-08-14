@@ -76,7 +76,7 @@ import {
 import { Sentence } from '../ui/sentence';
 import { InspectorGroup, StyleRow } from './controls';
 import { StyleFields } from './style-field';
-import { blankGuard, testSentence } from './sentences';
+import { blankGuard, testSentence, unusedLeaf } from './sentences';
 import { useReadableValues } from './use-readable';
 import { useRangesInScope, useStatesInScope } from './section-rules';
 import { useNodeProp, useStyleProp, useStyleReset, useStyleWriter } from './use-style';
@@ -1912,7 +1912,11 @@ export function ActionsSection() {
                   controls: readable.controls,
                   elements: readable.elements,
                   opening: 'Only when',
-                  newLeaf: () => seed ?? guard,
+                  // Not the same comparison again: `seed` is what a *first*
+                  // guard looks like, and using it to grow one gives
+                  // "Email is not empty and Email is not empty".
+                  newLeaf: () =>
+                    unusedLeaf({ test: guard, fields: readable.fields }) ?? seed ?? guard,
                   onChange: setGuard,
                 })}
               />

@@ -393,6 +393,7 @@ Each is independently shippable and independently falsifiable.
 | **X13** | ~~Close §1.8's last row honestly~~ — **shipped**; `onSubmit` was withdrawn, and the model still said otherwise | X6 |
 | **X14** | ~~Look at the panel~~ — **shipped**; the row had been overflowing by 123px | X8, X10, X11 |
 | **X15** | ~~Sweep every section for the same fault~~ — **shipped**; the press list was the only one | X14 |
+| **X16** | ~~Look at the one thing left unseen~~ — **shipped**; “+ or” wrote *pointed at or pointed at* | X11, X14 |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -702,6 +703,43 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.19 And the last thing nobody had looked at — a rule that says itself twice
+
+X14's sweep measures whether the rules sentence *fits*. It does not read it.
+The `+ or` X11 added was the one thing this arc built that had never been seen
+rendered, and the first press of it produced:
+
+> **any of these hold — pointed at or pointed at**
+
+The seed was a constant: `newLeaf: () => ({ kind: 'pointer', pseudo: 'hover' })`
+from the rules panel, `blankTest(fields[0])` from an assignment. Growing a
+condition therefore offered back the condition most likely already there, and
+the result compiles to a selector list with two identical branches saying
+exactly what the one branch said.
+
+That is `blankTest`'s own standard failing one step along. Its docblock asks for
+a sentence "grammatical from the moment it appears" so that a new rule is not a
+form to fill in. A duplicate leaf clears that bar and still says nothing — and
+it is worse than a blank, because a blank looks unfinished and this does not.
+`unusedLeaf` picks the first thing the test does not already hold, in the order
+the When… menu offers them, so the second condition is the one somebody would
+most likely have reached for next.
+
+**And the two checks written for `+ or` in X11 could not have caught it.** They
+assert the leaves differ — correctly — over fixtures that grow from *ticked*
+and *focused*, so a constant `hover` differed from both by luck. Restoring the
+constant left them green. The case that catches it is the obvious one nobody
+writes: grow the very condition the constant is.
+
+> **A check over inputs that cannot produce the fault is not a check, however
+> exactly it states the rule.** The fixture has to be able to fail.
+
+One more thing this turned up, about running the checks rather than the code:
+the falsification's first `npm run build` **failed** — `unusedLeaf` was imported
+and unused — and `wrangler` happily kept serving the previous `out/`, so the
+suite passed against the code the mutation was supposed to have replaced.
+`npm run build | tail -1` hid it. Read the exit code.
 
 ### 4.1.17 And the sweep that generalises it — six kinds, every section, 1207 boxes
 

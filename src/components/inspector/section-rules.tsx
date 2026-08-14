@@ -38,7 +38,7 @@ import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { Popover, Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives';
 import { Sentence, partsToText } from '../ui/sentence';
-import { ruleSentence, testSentence } from './sentences';
+import { ruleSentence, testSentence, unusedLeaf } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
 import { collectionInScope } from './section-data';
 
@@ -461,7 +461,10 @@ function RuleRow({
                   fields,
                   states,
                   controlStates: controls,
-                  newLeaf: () => ({ kind: 'pointer', pseudo: 'hover' }),
+                  // Something this rule does not already say. A constant here
+                  // made "+ or" produce "pointed at or pointed at".
+                  newLeaf: () =>
+                    unusedLeaf({ test: rule.when, fields, controlStates: controls }),
                   opening: 'When',
                   onChange: (next: Test) => store().updateRule(rule.id, { when: next }),
                 })}

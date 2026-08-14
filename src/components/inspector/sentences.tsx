@@ -489,6 +489,62 @@ export function blankTest(field: Field): Test {
 }
 
 /**
+ * A leaf this test does not already hold.
+ *
+ * Growing a condition used to seed a constant — `{ pointer: 'hover' }` from the
+ * rules panel, `blankTest(fields[0])` from an assignment — so one press of
+ * "+ or" turned *pointed at* into **"any of these hold: pointed at or pointed
+ * at"**. Grammatical, finished-looking, and a tautology: two identical branches
+ * in the compiled selector list, saying exactly what the one branch said.
+ *
+ * That is `blankTest`'s own standard failing one step along. Its docblock asks
+ * for a sentence that is "grammatical from the moment it appears" so a new rule
+ * is not a form to fill in; a duplicate leaf clears that bar and still says
+ * nothing, which is worse than a blank, because a blank looks unfinished and
+ * this does not.
+ *
+ * Preference order is the order the When… menu offers them, so the second
+ * condition is the one somebody would most likely have picked next. Falling
+ * back to the first pointer state when everything is used means the tautology
+ * is still reachable — by a designer who has already written four conditions
+ * and asked for a fifth, which is a different thing from getting one on the
+ * first press.
+ */
+export function unusedLeaf(options: {
+  test?: Test;
+  fields?: Field[];
+  controlStates?: ControlPseudo[];
+}): Test {
+  const { test, fields = [], controlStates = [] } = options;
+  const usedPointers = new Set<string>();
+  const usedControls = new Set<string>();
+  const usedFields = new Set<string>();
+  const walk = (one: Test): void => {
+    if (one.kind === 'every' || one.kind === 'some') one.tests.forEach(walk);
+    else if (one.kind === 'compare') {
+      if (one.left.kind === 'field') usedFields.add(one.left.key);
+    } else if (one.kind === 'pointer') usedPointers.add(one.pseudo);
+    else if (one.kind === 'control') usedControls.add(one.pseudo);
+  };
+  if (test) walk(test);
+
+  // A record in scope means the sentence is made of comparisons, which is what
+  // `testSentence`'s `newLeaf` docblock calls the assignment grammar.
+  const field = fields.find((one) => !usedFields.has(one.key));
+  if (field) return blankTest(field);
+
+  const pointer = (Object.keys(POINTER_LABELS) as PointerPseudo[]).find(
+    (one) => !usedPointers.has(one)
+  );
+  if (pointer) return { kind: 'pointer', pseudo: pointer };
+
+  const control = controlStates.find((one) => !usedControls.has(one));
+  if (control) return { kind: 'control', pseudo: control };
+
+  return fields[0] ? blankTest(fields[0]) : { kind: 'pointer', pseudo: 'hover' };
+}
+
+/**
  * The same, over whatever this element can actually read.
  *
  * `blankTest` needs a field, and the panel that guards an action often has
