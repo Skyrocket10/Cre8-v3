@@ -31,6 +31,7 @@
  */
 
 import { SWITCH_SHOW_ALL, readCase, slug } from '../document/schema';
+import { isContentProp } from '../document/content-props';
 import { conditionsOf } from '../document/when';
 import { stateKeyOf, stateOf } from '../document/state';
 import { designValue } from '../runtime/data';
@@ -76,31 +77,21 @@ export interface Variant {
   ruleId: string | null;
 }
 
-/** Props a rule is allowed to override. */
-const SETTABLE = new Set([
-  'text',
-  'html',
-  'label',
-  'alt',
-  'src',
-  'href',
-  'name',
-  'caption',
-  'placeholder',
-  'value',
-  'title',
-]);
-
 /**
- * Deliberately narrow, for two different reasons.
+ * Whether a rule may override this prop.
  *
- * Structure — `switchKey`, `level`, `popoverTarget` — would make the variants
- * different *elements* rather than the same element saying something else, and
- * two of them would then fight over one DOM id. And a prop nobody can see the
- * effect of is a control that appears to do nothing.
+ * The list moved to `document/content-props.ts`, where the Data panel reads it
+ * too. It was here and a near-copy of it was in the panel, and both had drifted
+ * — three props the renderer turns into visible content were in neither.
+ *
+ * The rule it is drawn on is unchanged and is why the list is narrow: structure
+ * — `switchKey`, `level`, `popoverTarget` — would make the variants different
+ * *elements* rather than the same element saying something else, and two of them
+ * would then fight over one DOM id. And a prop nobody can see the effect of is
+ * a control that appears to do nothing.
  */
 export function isSettable(prop: string): boolean {
-  return SETTABLE.has(prop);
+  return isContentProp(prop);
 }
 
 /** A rule that changes content, as opposed to only styling. */

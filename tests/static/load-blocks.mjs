@@ -47,6 +47,10 @@ export function loadBlocks() {
       // it makes is that every verb has exactly one answer to "what markup
       // carries this", which is data and therefore drivable.
       'src/lib/document/events.ts',
+      // Which props are content and which are structure — the claim being that
+      // every prop an element ships with is in one of the two lists, so a new
+      // one cannot be silently structural.
+      'src/lib/document/content-props.ts',
       // What an element's state is, and what it can be — declared rather than
       // scraped, which is a claim about data and therefore checkable.
       'src/lib/document/state.ts',
@@ -106,6 +110,7 @@ export function loadBlocks() {
     when_: require(path.join(OUT, 'document/when.js')),
     events: require(path.join(OUT, 'document/events.js')),
     stateLib: require(path.join(OUT, 'document/state.js')),
+    contentProps: require(path.join(OUT, 'document/content-props.js')),
     // The scheduling half: which rules fold at publish and which travel.
     testTable: require(path.join(OUT, 'renderer/test.js')).testTable,
     motion: require(path.join(OUT, 'renderer/motion.js')),

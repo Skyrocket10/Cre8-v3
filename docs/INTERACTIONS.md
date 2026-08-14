@@ -386,6 +386,7 @@ Each is independently shippable and independently falsifiable.
 | **X9** | ~~Prove it in a browser; correct both docs~~ — **shipped** | all |
 | **X10** | ~~"Only when" on screen~~ — **shipped**; it also found the write path below | X7, X8 |
 | **X11** | ~~Re-drive §1.8 through the panel~~ — **shipped**; two rows were still open | all |
+| **X12** | ~~Declare which props are content~~ — **shipped**; the third hand-listed vocabulary | X11 |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -695,6 +696,62 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.13 And the third hand-listed vocabulary — two prop lists, drifted both ways
+
+X10 found a write path filtering against a list of two verbs. X11 found an
+affordance behind a `return`. Both are the same defect — a hand-written list
+that stopped matching what it describes — so the next thing worth doing was to
+look for another one rather than wait for it.
+
+There were two, and they were the same question asked twice: `SETTABLE` in
+`renderer/variants.ts` decided what a *rule* may vary, and a near-copy
+`BINDABLE` array in the Data panel decided what a *record* may fill. The panel
+intersected them at its only use — `BINDABLE.filter(isSettable)` — so the
+second was the first plus one unwritten exception.
+
+They had drifted in both directions.
+
+**Three props short.** `summary` is the clickable line of a `<details>` — the
+*question* in every FAQ anyone would build from a collection. `legend` is a
+fieldset's caption. `poster` is a video's still image, sitting beside an `src`
+and an `alt` that were both bindable. All three are content by the rule
+`isSettable` states — the same element saying something else — and all three
+were in neither list. And this was not a panel that would not offer the
+control: `boundProps` gates on `isSettable` too, so a hand-written document
+could not bind them either.
+
+**One prop too many.** `title` was in both lists while being declared by no
+element and read by no renderer. It cost more than a dead entry: `setsContent`
+is true for any settable key, and one block wrote `set: { title: 'Closed' }` on
+an 8px dot — under a comment reading *"the dot changes colour rather than
+words, so its rule carries `apply` instead of `set`"*. The comment was right
+and the code was not, and the dot published as **two** divs with a
+`display:none` pair between them to vary a prop that never reached the markup.
+
+So the answer is declared once in `document/content-props.ts` and derived
+twice, with two lists — content and structure — that between them must cover
+every prop an element ships with and every prop the panel writes. A prop in
+neither fails the suite rather than defaulting to structure, which is the same
+inversion `emptyAction` needed.
+
+**The byte gate moved, for the first time in this arc.** Publishing is 227
+bytes smaller and one duplicated element lighter on every page carrying an
+opening-hours block. That is the difference being read rather than accepted:
+the gate exists to make a change like this impossible to land unnoticed, and
+what it caught was a page that had been publishing a hidden duplicate of a dot
+since the block was written.
+
+**And the check that catches it next time caught itself first.** Written as
+`walk(spec, (node) => …)` over `Object.entries(BLOCKS)`, it reported
+*"93 blocks, every set lands"* — while iterating nothing, because `walk` is a
+generator and `BLOCKS` holds builders rather than trees. It passed against the
+bug it was written for. What turned the second attempt's silence into a
+failure was counting what it had looked at and asserting the count is not zero.
+
+> **A check that reports how much it examined cannot pass by examining
+> nothing.** Both halves of that sentence were needed here: the first draft
+> failed silently, and the second failed loudly with `0 set keys`.
 
 ### 4.1.11 And what re-driving §1.8 turned up — AND and OR behind a `return`
 

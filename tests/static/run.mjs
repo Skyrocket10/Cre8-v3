@@ -67,6 +67,7 @@ const {
   when_,
   events: eventLib,
   stateLib,
+  contentProps,
   testTable,
   motion,
   everyRef,
@@ -2722,6 +2723,31 @@ report.group('a bound list publishes as elements');
     'a record cannot bind structure, only content',
     structural.includes('<h3') && !structural.includes('<h1'),
     /<h\d/.exec(structural)?.[0] ?? 'no heading rendered'
+  );
+
+  /*
+   * And the three that were content all along and in neither list.
+   *
+   * `boundProps` gates on `isSettable` too, so this was not a panel that would
+   * not offer the binding — it was a binding the renderer dropped as well. A
+   * hand-written document could not do it either, which is what makes it a gap
+   * rather than a missing control.
+   *
+   * A `details` in a repeater is the ordinary case: the FAQ. Asserted on the
+   * published `<summary>` rather than on the list, because the list is the
+   * thing being changed and a check that read it would be reading its own
+   * input.
+   */
+  const faq = publish({ collection: 'posts' }, [row('r9', { title: 'How do refunds work?' })], {
+    type: 'details',
+    name: 'Question',
+    props: { summary: 'Untitled question' },
+    bind: { summary: 'title' },
+  });
+  report.check(
+    'a details in a repeater can ask the record its question',
+    faq.includes('How do refunds work?') && !faq.includes('Untitled question'),
+    /<summary[^>]*>([^<]*)</.exec(faq)?.[1] ?? 'no summary rendered'
   );
 
   // A `set` from a condition has to beat the record: "when out of stock, say
@@ -9139,6 +9165,132 @@ report.group('every prop an element has is one the panel can set');
     // be hiding a different one with the same name.
     [...BY_DESIGN].join(', ')
   );
+  /*
+   * And the other half of that audit: a prop the panel can *type into* is not
+   * the same as a prop a rule can vary or a record can fill.
+   *
+   * Those two were a `SETTABLE` set in the renderer and a near-copy `BINDABLE`
+   * array in the Data panel, kept in step by nobody. Both had drifted: three
+   * props the renderer turns into visible content — `summary`, the clickable
+   * line of a `<details>`; `legend`; and `poster`, a video's still — were in
+   * neither, so the question in an FAQ built from a collection could not be
+   * bound. `title` was in both while being declared by no element and read by
+   * no renderer.
+   *
+   * The list is declared once now, and this is the check that keeps it honest:
+   * every prop has to be in one of the two, so the next element with a visible
+   * string cannot be silently structural. That is the same inversion
+   * `emptyAction` needed — see §4.1.9 — applied to the other vocabulary that
+   * had fallen behind.
+   */
+  const { CONTENT_PROPS, STRUCTURAL_PROPS, isContentProp, bindableProps, NOT_BINDABLE } =
+    contentProps;
+  const classified = new Set([...CONTENT_PROPS, ...STRUCTURAL_PROPS]);
+  const unclassified = [];
+  for (const [type, def] of Object.entries(ELEMENTS)) {
+    for (const prop of Object.keys(def.defaultProps ?? {})) {
+      if (!classified.has(prop)) unclassified.push(`${type}.${prop}`);
+    }
+  }
+  report.check(
+    'every prop an element ships with is content or structure, and says which',
+    unclassified.length === 0,
+    unclassified.length
+      ? `neither: ${unclassified.join(', ')}`
+      : `${classified.size} classified · ${CONTENT_PROPS.length} content`
+  );
+  /*
+   * And the same for the props no element defaults but the panel writes —
+   * `anchor`, `submit`, `srcset` and the rest. A prop that exists only because
+   * a control creates it is exactly the kind that gets missed.
+   */
+  const written = [
+    ...new Set(
+      [...panel.matchAll(/useNodeProp\(['"]([a-zA-Z]+)['"]/g)].map((m) => m[1])
+    ),
+  ];
+  const missed = written.filter((prop) => !classified.has(prop));
+  report.check(
+    'and so is every prop the panel writes without a default behind it',
+    missed.length === 0,
+    missed.length ? `neither: ${missed.join(', ')}` : `${written.length} props the panel writes`
+  );
+  /*
+   * The three that were missing, named. A count would pass against a list that
+   * had lost them again and gained three others.
+   */
+  report.check(
+    'the content a `details`, a `fieldset` and a `video` show is content',
+    ['summary', 'legend', 'poster'].every((prop) => isContentProp(prop)),
+    ['summary', 'legend', 'poster'].map((p) => `${p}→${isContentProp(p)}`).join(' ')
+  );
+  /*
+   * And one that is deliberately settable and not bindable, which is the whole
+   * reason the two lists are not one: a bound `name` is whatever the record
+   * says, once per row, and every reference to it — `testRuntime`'s
+   * `[name="…"]` lookup, the expression editor's control list — is written
+   * against a name known when the page is designed.
+   */
+  report.check(
+    'a form field’s name may be varied by a rule and not filled by a record',
+    isContentProp('name') && !bindableProps().includes('name') && NOT_BINDABLE.has('name'),
+    `settable ${isContentProp('name')} · bindable ${bindableProps().includes('name')}`
+  );
+  /* Nothing is in both lists, or the classification says two things at once. */
+  /*
+   * And the reverse reading, over every block in the registry: a `set` that
+   * names something the list does not carry.
+   *
+   * This is the check the dead entry needed. `title` sat in `SETTABLE` while
+   * being declared by no element and read by no renderer, and one block wrote
+   * `set: { title: 'Closed' }` on an 8px dot — three lines under a comment
+   * saying the dot "changes colour rather than words, so its rule carries
+   * `apply` instead of `set`". The comment was right and the code was not.
+   *
+   * What it cost was not nothing. `setsContent` is true for any settable key,
+   * so that dot published as *two* divs with a `display:none` pair between
+   * them, to vary a prop that never reached the markup. Removing `title` from
+   * the list took 227 bytes and a duplicated element out of every page with an
+   * opening-hours block on it — which is why this landed as a byte change and
+   * had to be read before it was accepted.
+   */
+  const inert = [];
+  let setKeys = 0;
+  for (const { block, spec } of built) {
+    const name = block.name;
+    /*
+     * `walk` is a generator and `BLOCKS` holds builders, not trees. Written as
+     * `walk(spec, callback)` over `Object.entries(BLOCKS)` it reported
+     * "93 blocks, every set lands" having iterated nothing at all — the exact
+     * vacuous pass this suite exists to catch, produced by the check being
+     * added to catch one. The `setKeys > 0` clause below is what turned the
+     * second attempt's silence into a failure.
+     */
+    for (const { node, path } of walk(spec)) {
+      for (const rule of node.rules ?? []) {
+        for (const prop of Object.keys(rule.set ?? {})) {
+          setKeys += 1;
+          if (!isContentProp(prop)) inert.push(`${name} › ${path}: set ${prop}`);
+        }
+      }
+    }
+  }
+  report.check(
+    'no block varies a prop that nothing can vary',
+    inert.length === 0 && setKeys > 0,
+    // The count is in the detail so a walk that stopped finding them reads as
+    // a suspicious zero rather than as a pass.
+    inert.length
+      ? [...new Set(inert)].slice(0, 4).join(' | ')
+      : `${setKeys} set keys across ${built.length} blocks, every one of them lands`
+  );
+
+  report.check(
+    'and nothing is called content and structure at the same time',
+    CONTENT_PROPS.every((prop) => !STRUCTURAL_PROPS.has(prop)),
+    CONTENT_PROPS.filter((prop) => STRUCTURAL_PROPS.has(prop)).join(', ') || 'the two are disjoint'
+  );
+
   report.check(
     'the audit is reading a real panel and real defaults',
     counted > 30 && panel.length > 10000 && editable('placeholder'),

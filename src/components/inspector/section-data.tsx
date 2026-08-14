@@ -38,8 +38,8 @@ import {
   provablyOverlap,
   unfinished,
 } from '@/lib/renderer/test';
+import { bindableProps } from '@/lib/document/content-props';
 import { varReference } from '@/lib/renderer/values';
-import { isSettable } from '@/lib/renderer/variants';
 import { stateKeyOf, stateOf } from '@/lib/document/state';
 import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
@@ -47,9 +47,6 @@ import { Sentence, type Part } from '../ui/sentence';
 import { bindingSentence, blankTest, filterSentence, testSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
 import { useReadableValues } from './use-readable';
-
-/** Props worth offering a binding for, in the order they appear in Content. */
-const BINDABLE = ['text', 'html', 'label', 'alt', 'src', 'href', 'caption', 'placeholder', 'value', 'title'];
 
 export function DataSection() {
   const node = useEditor((s) => {
@@ -286,7 +283,7 @@ function RepeatControls({ node, collections }: { node: SceneNode; collections: C
 function BindControls({ node, collection }: { node: SceneNode; collection: Collection }) {
   // Only the props this element actually has. Offering `src` on a heading is
   // a control that appears to do nothing.
-  const offered = BINDABLE.filter((prop) => isSettable(prop) && prop in node.props);
+  const offered = bindableProps().filter((prop) => prop in node.props);
   if (!offered.length) {
     return (
       <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">

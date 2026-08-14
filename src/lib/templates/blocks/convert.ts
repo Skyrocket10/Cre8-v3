@@ -525,14 +525,22 @@ export function openingHoursSpec(): NodeSpec {
     },
     rules: [],
   });
-  // The dot changes colour rather than words, so its rule carries `apply`
-  // instead of `set` — and lands on that variant's own class.
+  /*
+   * The dot changes colour rather than words, so its rule carries `apply` and
+   * nothing else.
+   *
+   * It carried `set: { title: 'Closed' }` as well, which is what the sentence
+   * above says it does not. `title` was in `SETTABLE` while being declared by
+   * no element and read by no renderer, so the only thing that `set` did was
+   * make `setsContent` true — and an 8px dot was published as *two* divs with
+   * a `display:none` pair between them, to vary a prop that never reached the
+   * markup. See §4.1.13.
+   */
   dot.rules = [
     {
       id: 'd-time-night',
       when: [{ kind: 'data', source: 'time', op: 'is', values: ['night'] }],
       apply: { backgroundColor: 'var(--c-muted)' },
-      set: { title: 'Closed' },
     },
   ];
 
