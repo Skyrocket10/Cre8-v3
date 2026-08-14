@@ -373,7 +373,7 @@ Each is independently shippable and independently falsifiable.
 | **X5** | ~~States are declared, not scraped~~ — **shipped**; it also found the collaboration bug below | — |
 | **X6** | ~~Events become a registry; actions grow verbs~~ — **shipped**; the model and the compiler, not the panel | X5 |
 | **X7** | ~~`only` on an action~~ — **shipped**; it also found five vacuous no-script checks | X6 |
-| **X8** | One "When pressed" list, absorbing Link / Relative-to / Form | X6 |
+| **X8** | One "When pressed" list, absorbing Relative-to / Form — and *naming* Link. See §4.0.7 | X6 |
 | **X9** | Prove it in a browser; rewrite both docs | all |
 
 How each is falsified — the check that must fail against the unfixed code:
@@ -398,6 +398,47 @@ How each is falsified — the check that must fail against the unfixed code:
   absent.
 - **X8** — extend U3's reachability sweep: every prop reachable before is
   reachable after.
+
+### 4.0.7 X8 is asymmetric, and `href` is the reason
+
+Written before starting X8, because the first thing the code says when you go
+to move `props.href` onto a `navigate` verb is *don't*.
+
+`href` is in `SETTABLE` (`variants.ts:79`) and in `BINDABLE`
+(`section-data.tsx:52`). A destination can therefore **vary by rule** — the
+same button pointing somewhere else in the annual case — and it can be **bound
+to a record**, which is how every card in a repeater links to its own post.
+Neither is hypothetical; both are what those two lists are for.
+
+`refs.popover`, `refs.scrollTo` and `props.submit` are none of those things, and
+that is deliberate rather than incidental. `isSettable`'s docblock says why:
+structure "would make the variants different *elements* rather than the same
+element saying something else, and two of them would then fight over one DOM
+id."
+
+So §1.6's five places do not collapse the same way:
+
+| What it does | Today | X8 |
+|---|---|---|
+| Set a state | `events[].actions` | unchanged |
+| Copy text | `events[].actions` | unchanged |
+| Open a panel | `refs.popover` | → `openPanel` |
+| Scroll to a section | `refs.scrollTo` | → `scrollTo` |
+| Submit | `props.submit` | → `submit` |
+| Go somewhere | `props.href` | **stays a prop; the verb names it** |
+
+A `navigate` with no `to` means *go where this element's `href` says*. The
+action list then holds every behaviour, in order, each with its own `only` —
+which is the whole point of the stage — while the destination itself stays
+content that a rule can vary and a binding can fill. The renderer already reads
+it that way: X6's `pressed()` takes the verb's `to` when there is one and the
+prop when there is not, so this needs no new reconciliation, only the decision
+not to write `to` during the migration.
+
+The falsification the plan names is unchanged and is now sharper: extend U3's
+reachability sweep, *and* assert that a rule setting `href` still varies the
+destination of a node whose press is authored as a verb. A migration that
+folded the prop away would pass the first and fail the second.
 
 ### 4.0.5 X7 — a guard, and the checks that were not checking
 
