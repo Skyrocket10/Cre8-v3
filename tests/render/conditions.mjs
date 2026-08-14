@@ -989,6 +989,86 @@ try {
     }
   }
 
+  /* ------------------------------------- which fact about the visit ------- */
+
+  /*
+   * X17: a condition on the visit could only ever be about the time of day.
+   *
+   * `DATA_SOURCES` declares two, `describeSource` mints one per URL parameter,
+   * the resolver writes `referrer:…` and `query.<name>:…` into
+   * `data-cre8-data` before the first paint, and the generator compiles every
+   * one of them. The sentence rendered the source as a *word* — unclickable —
+   * so whatever the When… menu seeded is what it stayed, and the menu seeds
+   * `DATA_SOURCES[0]`. Everything but `time` compiled, shipped, resolved and
+   * could not be asked for.
+   *
+   * `query.sent` is the one that matters: a published form posts to
+   * `…?r=<path>`, the endpoint answers 303 back to that path with `sent=1`,
+   * and a rule on it is how a page says thank you — with no event, no runtime
+   * and nothing for a visitor with scripting off to miss.
+   *
+   * Driven rather than seeded, and read back out of the document, because the
+   * claim is precisely that the panel can now write it.
+   */
+  {
+    const offer = await offeredFor('Either way');
+    if (
+      report.check(
+        'the When… menu still offers a condition on the visit',
+        offer.labels.includes('Something about the visit'),
+        offer.labels.join(' · ') || offer.why
+      )
+    ) {
+      await offer.menu
+        .locator('button:has(span:text-is("Something about the visit"))')
+        .first()
+        .click();
+      await page.waitForTimeout(700);
+      const panel = page.locator('aside').last();
+
+      const picker = panel.locator('[data-sentence] button, [data-sentence] select').first();
+      const before = ((await getDocument(page, projectId)).nodes.orxx?.rules ?? []).at(-1);
+      report.check(
+        'and it arrives asking about the time of day, as it always has',
+        before?.when?.source === 'time',
+        JSON.stringify(before?.when ?? null)
+      );
+
+      /*
+       * The source is a chip now. Driving `Select` is driving this app's own
+       * component, which X9 rightly avoided — but here the component *is* the
+       * fix: a word cannot be changed, and whether this one can is the whole
+       * question. So it is clicked, and the answer is read out of storage.
+       */
+      const chip = panel.locator('[data-sentence]').first().locator('button').first();
+      await chip.click({ timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(350);
+      const options = await page.locator('.anim-pop').last().locator('button').allInnerTexts();
+      report.check(
+        'every fact the resolver publishes is offered, not just the first',
+        options.some((one) => /Arrived from/i.test(one)) &&
+          options.some((one) => /form was just sent/i.test(one)) &&
+          options.some((one) => /Another URL parameter/i.test(one)),
+        options.map((one) => one.split('\n')[0]).join(' · ') || 'nothing offered'
+      );
+
+      await page
+        .locator('.anim-pop')
+        .last()
+        .locator('button:has-text("form was just sent")')
+        .first()
+        .click({ timeout: 3000 })
+        .catch(() => {});
+      await page.waitForTimeout(700);
+      const after = ((await getDocument(page, projectId)).nodes.orxx?.rules ?? []).at(-1);
+      report.check(
+        'and picking one writes it, so a page can say thank you once the form is sent',
+        after?.when?.source === 'query.sent' && after.when.values?.[0] === '1',
+        JSON.stringify(after?.when ?? null)
+      );
+    }
+  }
+
   const onContainer = await offeredFor('Plain box');
   /*
    * And the other half of the applicability rule, which is the one that keeps

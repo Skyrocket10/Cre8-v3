@@ -60,11 +60,14 @@ import {
   needsOperand,
   simplify,
 } from '@/lib/renderer/test';
-import { describeSource } from '@/lib/runtime/data';
+import { QUERY_PREFIX, describeSource, offerableSources } from '@/lib/runtime/data';
 import type { Part } from '../ui/sentence';
 
 /** The one field type a form control's value is read as: text, undeclared. */
 const AS_TEXT: Field = { key: '', label: 'Typed', type: 'text' };
+
+/** The picker's stand-in for "a parameter you name", which has no id of its own. */
+const OTHER_QUERY = 'query.\u0000';
 
 /**
  * `When ⟨Price⟩ ⟨is over⟩ ⟨500000⟩`.
@@ -951,8 +954,67 @@ export function conditionSentence(options: {
 
   if (condition.kind === 'data' && onChange) {
     const source = describeSource(condition.source);
+    const isQuery = condition.source.startsWith(QUERY_PREFIX);
+    const offered = offerableSources();
+    /*
+     * Which fact about the visit, as a chip rather than a word.
+     *
+     * It was a word — unclickable — so the source was whatever the When… menu
+     * seeded and stayed there, and the menu seeds `DATA_SOURCES[0]`. That made
+     * *time of day* the only condition on a visit anybody could write, while
+     * `referrer` and every URL parameter compiled, shipped, resolved before
+     * paint and could not be asked for. X1's finding on the other axis, still
+     * open. See §4.1.21.
+     */
     return [
-      { kind: 'word', text: source?.label ?? condition.source, key: k('source') },
+      {
+        kind: 'pick',
+        key: k('source'),
+        value: offered.some((one) => one.id === condition.source)
+          ? condition.source
+          : isQuery
+            ? OTHER_QUERY
+            : condition.source,
+        menuWidth: 230,
+        options: [
+          ...offered.map((one) => ({ value: one.id, label: one.label, hint: one.hint })),
+          {
+            value: OTHER_QUERY,
+            label: 'Another URL parameter',
+            hint: 'Anything the link carries — a campaign, a variant',
+          },
+          // A source nothing offers, kept nameable rather than shown as unset:
+          // the same reason a deleted element keeps a label.
+          ...(!isQuery && !offered.some((one) => one.id === condition.source)
+            ? [{ value: condition.source, label: condition.source }]
+            : []),
+        ],
+        onChange: (next) => {
+          if (next === OTHER_QUERY) {
+            onChange({ ...condition, source: `${QUERY_PREFIX}ref`, values: [] });
+            return;
+          }
+          // A new source is a new set of values, and the old one's mean
+          // nothing against it.
+          const picked = describeSource(next);
+          onChange({ ...condition, source: next, values: picked?.values.slice(0, 1) ?? [] });
+        },
+      },
+      // And which parameter, when it is one the site does not name itself.
+      ...(isQuery && !offered.some((one) => one.id === condition.source)
+        ? [
+            {
+              kind: 'type' as const,
+              key: k('param'),
+              value: condition.source.slice(QUERY_PREFIX.length),
+              placeholder: 'name',
+              onChange: (raw: string) => {
+                const name = slugList(raw).split(' ')[0] ?? '';
+                if (name) onChange({ ...condition, source: `${QUERY_PREFIX}${name}` });
+              },
+            },
+          ]
+        : []),
       {
         kind: 'pick',
         key: k('op'),

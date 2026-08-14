@@ -80,18 +80,51 @@ export const DATA_SOURCES: DataSource[] = [
  */
 export const QUERY_PREFIX = 'query.';
 
+/**
+ * Parameters this site puts in its own URLs, so they read as facts rather than
+ * as strings somebody has to know.
+ *
+ * `sent` is the whole of the form round trip. A published form posts to
+ * `/api/f/…?r=<path>`, the endpoint answers `303` back to that path with
+ * `sent=1` on it, and the resolver turns that into `query.sent:1` before the
+ * first paint. So "say thank you once the form has been sent" is a condition
+ * on an ordinary visit — no event, no listener, and nothing for a visitor with
+ * scripting off to miss, because the redirect is the server's.
+ *
+ * Every piece of that shipped long ago and none of it was reachable: the
+ * source could not be changed in the panel, so the only condition anybody
+ * could write was on the time of day. Naming it here is what makes the round
+ * trip discoverable rather than folklore.
+ */
+const KNOWN_QUERY: Record<string, { label: string; hint: string; values: string[] }> = {
+  sent: {
+    label: 'A form was just sent',
+    hint: 'The submissions endpoint adds ?sent=1 on the way back to the page',
+    values: ['1'],
+  },
+};
+
 export function describeSource(id: string): DataSource | null {
   const known = DATA_SOURCES.find((source) => source.id === id);
   if (known) return known;
   if (!id.startsWith(QUERY_PREFIX)) return null;
   const name = id.slice(QUERY_PREFIX.length);
+  const named = KNOWN_QUERY[name];
   return {
     id,
-    label: `?${name}`,
-    hint: 'A URL parameter — absent unless the link carries it',
-    values: [],
+    label: named?.label ?? `?${name}`,
+    hint: named?.hint ?? 'A URL parameter — absent unless the link carries it',
+    values: named?.values ?? [],
     fallback: '',
   };
+}
+
+/** Every source the panel can offer: the declared ones, and the ones we mint. */
+export function offerableSources(): DataSource[] {
+  return [
+    ...DATA_SOURCES,
+    ...Object.keys(KNOWN_QUERY).map((name) => describeSource(`${QUERY_PREFIX}${name}`)!),
+  ];
 }
 
 /**

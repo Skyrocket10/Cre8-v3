@@ -394,6 +394,7 @@ Each is independently shippable and independently falsifiable.
 | **X14** | ~~Look at the panel~~ — **shipped**; the row had been overflowing by 123px | X8, X10, X11 |
 | **X15** | ~~Sweep every section for the same fault~~ — **shipped**; the press list was the only one | X14 |
 | **X16** | ~~Look at the one thing left unseen~~ — **shipped**; “+ or” wrote *pointed at or pointed at* | X11, X14 |
+| **X17** | ~~A condition on the visit can be about something other than the time~~ — **shipped**; and it is how a form says thank you | X1 |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -703,6 +704,44 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.21 And the condition on a visit that could only ever be about the time
+
+Reading the code for `onSubmit` turned up something better than `onSubmit`.
+
+`DATA_SOURCES` declares two facts about a visit, `describeSource` mints one per
+URL parameter, the resolver writes `referrer:…` and `query.<name>:…` into
+`data-cre8-data` before the first paint, and the generator compiles every one of
+them to a selector. `conditionSentence` rendered the source as:
+
+```ts
+{ kind: 'word', text: source?.label ?? condition.source, key: k('source') }
+```
+
+A **word**. Unclickable. So the source was whatever the When… menu seeded and
+stayed there for ever, and the menu seeds `DATA_SOURCES[0]`. *Time of day* was
+the only thing anybody could ask about a visit; `referrer` and every URL
+parameter compiled, shipped, resolved before paint and could not be authored.
+
+That is X1's finding — seven condition shapes the compiler knew and the panel
+could not reach — on the axis X1 did not sweep.
+
+**And `query.sent` is the one that mattered.** The form round trip is complete
+on both sides and was reachable from neither: a published form posts to
+`…?r=<path>`, the endpoint answers 303 back to that path with `sent=1`, and a
+rule on it is how a page says thank you. Three pieces of server behaviour that
+a designer would have had to already know. Naming it — "A form was just sent",
+with `1` as its value and a hint saying where the parameter comes from — turns
+folklore into a menu entry, and `offerableSources()` is what the panel offers.
+
+Falsified by putting the word back: the picker's options collapse to
+`is · is not` and the rule stays on `time`.
+
+One more instance of the build trap, on the same falsification: `npm run build`
+failed on an unused constant, `wrangler` kept serving the previous bundle, and
+the suite reported 58/58 against code the mutation had not replaced. Caught by
+reading the exit code, which `tests/README.md` had been told to say two commits
+earlier.
 
 ### 4.1.19 And the last thing nobody had looked at — a rule that says itself twice
 
@@ -1117,3 +1156,23 @@ navigation. So there are three options and two of them are wrong:
 That is a stage of its own, roughly the size of X6–X8 together, and none of it
 is unblocked by more panel work. Recorded here so the next person reads a
 decision instead of a silence.
+
+**And then X17 found the thing that makes most of it unnecessary.** The reason
+to want `onSubmit` at all is "say thank you once the form is sent", and that
+round trip was already built, end to end, in both halves of the product:
+
+- the publisher writes `?r=<path>` into the form's action, with a comment
+  saying why — the sandboxed `/s/` origin sends no Referer, so without it the
+  visitor lands on a bare page;
+- the endpoint answers `303` back to that path with **`sent=1`** appended;
+- the resolver turns that into `query.sent:1` on `<html>` before the first
+  paint, and the generator compiles a condition on it to an ordinary selector.
+
+So the thank-you is a *style rule on a visit*, with no event, no listener, no
+interception and nothing for a visitor with scripting off to miss — the
+redirect is the server's. What was missing was one chip: the sentence rendered
+a data condition's source as an unclickable **word**, so whatever the When…
+menu seeded is what it stayed, and the menu seeds `DATA_SOURCES[0]`.
+
+`onSubmit` remains a real feature — a form that must *not* navigate, a pending
+state, an error state. It is no longer the only way to do the common thing.
