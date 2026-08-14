@@ -85,6 +85,27 @@ export function testSentence(options: {
    * with the element.
    */
   elements?: { id: string; name: string }[];
+  /** States a condition leaf may name, for the rules panel. */
+  states?: { key: string; values: string[] }[];
+  /**
+   * Control states this element can be in.
+   *
+   * Named apart from `controls` above, which is a different thing wearing a
+   * similar word: those are form fields the sentence can *read a value from*,
+   * these are pseudo-classes the element can *be in*.
+   */
+  controlStates?: ControlPseudo[];
+  /**
+   * What "+ condition" adds.
+   *
+   * A `Test` in an assignment grows by another comparison, because that is
+   * what an assignment is made of and the fields are right there. A `Test` on
+   * a *style rule* has no fields to compare — most pages have no collection at
+   * all — and grows by another browser condition instead. One builder, two
+   * grammars underneath it, and the caller says which by saying what a new
+   * leaf looks like.
+   */
+  newLeaf?: () => Test;
   onChange?: (next: Test) => void;
   /** Prefix. "When" in an assignment, "Only when" in a filter, "" inside a group. */
   opening?: string;
@@ -96,10 +117,17 @@ export function testSentence(options: {
     fields,
     controls = [],
     elements = [],
+    states = [],
+    controlStates = [],
+    newLeaf,
     onChange,
     opening = 'When',
     depth = 0,
   } = options;
+  // The seed for "+ condition". Falls back to a blank comparison so every
+  // caller that predates this keeps exactly the behaviour it had.
+  const seed = newLeaf ?? (fields[0] ? () => blankTest(fields[0]!) : undefined);
+
   const parts: Part[] = opening ? [{ kind: 'word', text: opening, key: 'open' }] : [];
   const nest = (inner: Test, index: number) =>
     testSentence({
@@ -107,6 +135,9 @@ export function testSentence(options: {
       fields,
       controls,
       elements,
+      states,
+      controlStates,
+      newLeaf,
       opening: '',
       depth: depth + 1,
       onChange:
@@ -181,7 +212,7 @@ export function testSentence(options: {
       });
     });
 
-    if (onChange && fields[0]) {
+    if (onChange && seed) {
       parts.push({
         kind: 'clause',
         key: `${depth}-add`,
@@ -191,7 +222,7 @@ export function testSentence(options: {
             key: 'add',
             title: 'Add a condition',
             label: <span className="text-[10px]">+ condition</span>,
-            onClick: () => onChange({ ...test, tests: [...test.tests, blankTest(fields[0]!)] }),
+            onClick: () => onChange({ ...test, tests: [...test.tests, seed()] }),
           },
           // One level of grouping is offered, not unlimited. Two nested groups
           // in a 280px panel is a diagram, and the model can still hold deeper
@@ -211,7 +242,7 @@ export function testSentence(options: {
                         ...test.tests,
                         {
                           kind: test.kind === 'every' ? 'some' : 'every',
-                          tests: [blankTest(fields[0]!), blankTest(fields[0]!)],
+                          tests: [seed(), seed()],
                         },
                       ],
                     }),
@@ -225,9 +256,25 @@ export function testSentence(options: {
   }
 
   if (test.kind !== 'compare') {
-    // A browser condition inside a Test. Said plainly rather than rendered as
-    // an empty sentence, which would read as a rule that does nothing.
-    parts.push({ kind: 'word', text: describeOther(test), key: 'other' });
+    /*
+     * A browser condition inside a Test, handed to the builder that edits one.
+     *
+     * This used to print `describeOther(test)` — a flat phrase with nothing to
+     * click — which was right while nothing could edit a condition and became
+     * wrong the moment something could. Delegating rather than duplicating is
+     * also what lets a style rule use this function at all: the tree grammar
+     * is here, the leaf grammar is there, and neither knows about the other's
+     * callers.
+     */
+    parts.push(
+      ...conditionSentence({
+        condition: test,
+        states,
+        controls: controlStates,
+        onChange,
+        keyPrefix: `d${depth}-`,
+      })
+    );
     return parts;
   }
 
@@ -351,13 +398,13 @@ export function testSentence(options: {
    * because inside a group the group's own "+ condition" is the way to do it
    * and two affordances for one action is worse than either.
    */
-  if (onChange && depth === 0 && fields[0]) {
+  if (onChange && depth === 0 && seed) {
     parts.push({
       kind: 'action',
       key: 'grow',
       title: 'Add another condition',
       label: <span className="text-[10px]">+ and</span>,
-      onClick: () => onChange({ kind: 'every', tests: [test, blankTest(fields[0]!)] }),
+      onClick: () => onChange({ kind: 'every', tests: [test, seed()] }),
     });
   }
 
@@ -813,24 +860,22 @@ export function conditionSentence(options: {
 }
 
 /**
- * A whole rule as a sentence: every condition, joined by "and".
+ * A whole rule as a sentence.
  *
  * Read-only — this is the row heading, and the row expands to edit. The same
  * builder produces both, which is the point: the heading cannot describe a
- * rule differently from the controls underneath it.
+ * rule differently from the controls underneath it. That was a claim about two
+ * functions agreeing when `when` was a list of conditions this walked itself;
+ * now it is one function called twice, with and without handlers.
  */
 export function ruleSentence(rule: StyleRule): Part[] {
-  if (!rule.when.length) {
+  if (!rule.when) {
     return [
       { kind: 'word', text: 'Always', key: 'always' },
       ...(rule.part ? [{ kind: 'word' as const, text: `· ${rule.part}`, key: 'part' }] : []),
     ];
   }
-  const parts: Part[] = [];
-  rule.when.forEach((condition, index) => {
-    if (index > 0) parts.push({ kind: 'word', text: 'and', key: `and${index}` });
-    parts.push(...conditionSentence({ condition, keyPrefix: `c${index}-` }));
-  });
+  const parts = testSentence({ test: rule.when, fields: [], opening: '' });
   if (rule.part) parts.push({ kind: 'word', text: `· ${rule.part}`, key: 'part' });
   return parts;
 }

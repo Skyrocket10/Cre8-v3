@@ -27,6 +27,24 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
+/**
+ * Every condition in a rule's `when`, from either spelling.
+ *
+ * The suite reads both and always will. A *spec* writes the authoring
+ * shorthand — `when: [a, b]` — because that is what somebody composing a block
+ * means, and `buildTree` folds it; a *document* holds a `Test`, which may be a
+ * bare condition or a tree of them. Checks that walk block specs and checks
+ * that walk built documents both come through here, so neither has to know
+ * which it was handed.
+ */
+function conditionsIn(when) {
+  if (!when) return [];
+  if (Array.isArray(when)) return when.flatMap(conditionsIn);
+  if (when.kind === 'every' || when.kind === 'some') return when.tests.flatMap(conditionsIn);
+  if (when.kind === 'compare') return [];
+  return [when];
+}
+
 const report = createReport();
 const {
   BLOCKS,
@@ -39,6 +57,7 @@ const {
   anchorId,
   vocabulary,
   conditions,
+  when_,
   motion,
   everyRef,
   pruneRefs,
@@ -569,7 +588,7 @@ function checkSwitches(spec) {
     const out = [];
     for (const rule of node.rules ?? []) {
       if (Boolean(rule.set) !== (wanted === 'content')) continue;
-      for (const condition of rule.when ?? []) {
+      for (const condition of conditionsIn(rule.when)) {
         if (condition.kind === 'state' && !condition.key) out.push(condition);
       }
     }
@@ -972,7 +991,7 @@ function fakeAffordance(node) {
     if (found) return String(found);
   }
   for (const rule of node.rules ?? []) {
-    const hovered = (rule.when ?? []).some(
+    const hovered = conditionsIn(rule.when).some(
       (c) => c.kind === 'pointer' && (c.pseudo === 'hover' || c.pseudo === 'active')
     );
     if (hovered && moved(rule.apply)) return String(moved(rule.apply));
@@ -1126,11 +1145,12 @@ function checkContentRules(spec) {
       if (unsettable.length) {
         bad.push(`${path}: "${unsettable.join(', ')}" is structure, not content — it cannot be set`);
       }
-      if (rule.when.length !== 1 || rule.part || rule.breakpoint) {
+      const only = conditionsIn(rule.when);
+      if (only.length !== 1 || rule.part || rule.breakpoint) {
         bad.push(`${path}: a content rule takes exactly one plain condition`);
         continue;
       }
-      const condition = rule.when[0];
+      const condition = only[0];
       const found = axisOf(condition);
       if (found === null || condition.op !== 'is' || !condition.values?.length) {
         bad.push(
@@ -1511,7 +1531,7 @@ const VIOLATIONS = [
         saysWhen('annual', { text: 'a' }),
         {
           id: 'd',
-          when: [{ kind: 'data', source: 'time', op: 'is', values: ['night'] }],
+          when: { kind: 'data', source: 'time', op: 'is', values: ['night'] },
           apply: {},
           set: { text: 'b' },
         },
@@ -1524,7 +1544,7 @@ const VIOLATIONS = [
     {
       type: 'text',
       name: 'T',
-      rules: [{ id: 'r', when: [{ kind: 'pointer', pseudo: 'hover' }], apply: {}, set: { text: 'a' } }],
+      rules: [{ id: 'r', when: { kind: 'pointer', pseudo: 'hover' }, apply: {}, set: { text: 'a' } }],
     },
   ],
   [
@@ -1745,7 +1765,7 @@ report.group('a reference is a thing the document knows about');
     legacy.styles.desktop = { ...legacy.styles.desktop, textDecorationLine: 'line-through' };
     delete legacy.styles.desktop.textDecoration;
     legacy.rules = [
-      { id: 'r-old', when: [{ kind: 'pointer', pseudo: 'hover' }], apply: { textDecorationLine: 'underline' } },
+      { id: 'r-old', when: { kind: 'pointer', pseudo: 'hover' }, apply: { textDecorationLine: 'underline' } },
     ];
     migrateDocument(old);
     report.check(
@@ -1907,7 +1927,15 @@ report.group('a document saved before rules still opens');
   );
   const at = (i) => doc.nodes[`n${i}`];
   const only = (i) => at(i).rules?.[0];
-  const when = (i) => only(i)?.when?.[0];
+  /*
+   * One condition is the condition, not a list holding it. `when` was
+   * `Condition[]` when these checks were written; it is a `Test`, and a Test
+   * of one thing is that thing — `asTest` and `simplify` both make that
+   * choice, because a group with a single member is an extra level in the
+   * panel and a document that differs from an identical design built the
+   * other way round.
+   */
+  const when = (i) => only(i)?.when;
 
   report.check('the version is the one the code understands now', doc.version === 2, doc.version);
   report.check(
@@ -1948,7 +1976,7 @@ report.group('a document saved before rules still opens');
   report.check('and is dropped when there is no value to press', !at(6).rules?.length);
   report.check(
     'a backdrop becomes a part, not a condition',
-    only(7)?.part === 'backdrop' && only(7)?.when.length === 0
+    only(7)?.part === 'backdrop' && only(7)?.when === undefined
   );
   report.check(
     'the props it used to live in are gone',
@@ -2245,7 +2273,7 @@ report.group('the published stylesheet earns its size');
         type: 'frame',
         name: 'B',
         styles: { color: 'red' },
-        rules: [{ id: 'h', when: [{ kind: 'pointer', pseudo: 'hover' }], apply: { color: 'red' } }],
+        rules: [{ id: 'h', when: { kind: 'pointer', pseudo: 'hover' }, apply: { color: 'red' } }],
       },
     ],
   });
@@ -2609,7 +2637,7 @@ report.group('a bound list publishes as elements');
     rules: [
       {
         id: 'night',
-        when: [{ kind: 'data', source: 'time', op: 'is', values: ['night'] }],
+        when: { kind: 'data', source: 'time', op: 'is', values: ['night'] },
         apply: {},
         set: { text: 'Closed for the night' },
       },
@@ -4122,7 +4150,10 @@ report.group('an assignment can write the rule you would have written');
     const byHand = withAssign();
     ops.addRule(byHand.doc, byHand.node.id, {
       id: 'whatever',
-      when: [{ kind: 'state', key: 'band', op: 'is', values: ['expensive'] }],
+      // A `Test`, which is what `ops.addRule` takes. The editor's own
+      // `addRule` folds the list shorthand for the menu that calls it; the
+      // document operation is handed the stored shape.
+      when: { kind: 'state', key: 'band', op: 'is', values: ['expensive'] },
       apply: { display: 'none' },
     });
 
@@ -4136,7 +4167,7 @@ report.group('an assignment can write the rule you would have written');
     );
     report.check(
       'and it is an ordinary rule, on the ordinary list',
-      shortcut.node.rules?.length === 1 && shortcut.node.rules[0].when[0].kind === 'state',
+      shortcut.node.rules?.length === 1 && shortcut.node.rules[0].when.kind === 'state',
       `${shortcut.node.rules?.length} rules`
     );
   }
@@ -4186,8 +4217,8 @@ report.group('an assignment can write the rule you would have written');
     ops.setAssignValue(doc, node.id, 'a1', 'Sold');
     report.check(
       'renaming the state takes its rule with it',
-      node.assign[0].value === 'Sold' && node.rules?.[0]?.when[0]?.values[0] === 'Sold',
-      `${node.assign[0].value} / ${node.rules?.[0]?.when[0]?.values[0]}`
+      node.assign[0].value === 'Sold' && node.rules?.[0]?.when?.values[0] === 'Sold',
+      `${node.assign[0].value} / ${node.rules?.[0]?.when?.values[0]}`
     );
     report.check(
       'and there is still only one rule',
@@ -4198,8 +4229,8 @@ report.group('an assignment can write the rule you would have written');
     ops.setStateKey(doc, node.id, 'Price band');
     report.check(
       'renaming the key rewrites the rules on this node that name it',
-      node.props.switchKey === 'Price-band' && node.rules?.[0]?.when[0]?.key === 'Price-band',
-      `${node.props.switchKey} / ${node.rules?.[0]?.when[0]?.key}`
+      node.props.switchKey === 'Price-band' && node.rules?.[0]?.when?.key === 'Price-band',
+      `${node.props.switchKey} / ${node.rules?.[0]?.when?.key}`
     );
   }
 
@@ -4208,7 +4239,12 @@ report.group('an assignment can write the rule you would have written');
     const { doc, node } = withAssign();
     ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
     // A second condition — the designer now means "hidden, but only on hover".
-    node.rules[0].when.push({ kind: 'pointer', pseudo: 'hover' });
+    // Growing one condition into two is a group, which is what the panel's
+    // "+ and" builds and what `asTest` produces from a two-element list.
+    node.rules[0].when = {
+      kind: 'every',
+      tests: [node.rules[0].when, { kind: 'pointer', pseudo: 'hover' }],
+    };
     ops.setAssignEffect(doc, node.id, 'a1', { kind: 'style', prop: 'opacity', value: '0.5' });
     report.check(
       'a rule the designer has edited is no longer the assignment’s to rewrite',
@@ -4232,7 +4268,7 @@ report.group('an assignment can write the rule you would have written');
     const { doc, node } = withAssign();
     ops.addRule(doc, node.id, {
       id: 'mine',
-      when: [{ kind: 'pointer', pseudo: 'hover' }],
+      when: { kind: 'pointer', pseudo: 'hover' },
       apply: { color: 'blue' },
     });
     ops.setAssignEffect(doc, node.id, 'a1', { kind: 'hide' });
@@ -5692,7 +5728,7 @@ report.group('a document with damage in it still draws');
       rules: [
         null,
         'garbage',
-        { id: 'good', when: [{ kind: 'state', state: 'hover' }], apply: { color: 'red' } },
+        { id: 'good', when: { kind: 'state', state: 'hover' }, apply: { color: 'red' } },
       ],
     })
   );
@@ -5966,7 +6002,7 @@ report.group('a checked control can be styled, and says it is a switch');
       rules: [
         {
           id: 'r-on',
-          when: [{ kind: 'control', pseudo: 'checked' }],
+          when: { kind: 'control', pseudo: 'checked' },
           apply: { borderColor: 'var(--c-primary)' },
         },
       ],
@@ -7878,7 +7914,8 @@ report.group(`Templates — ${TEMPLATES.length}, every one of them`);
 
         for (const rule of node.rules ?? []) {
           if (!rule.set || !Object.keys(rule.set).some((prop) => SETTABLE.has(prop))) continue;
-          const only = rule.when?.length === 1 ? rule.when[0] : null;
+          const found = conditionsIn(rule.when);
+          const only = found.length === 1 ? found[0] : null;
           const expands =
             only &&
             (only.kind === 'state' || only.kind === 'data' || only.kind === 'attr') &&
@@ -9364,7 +9401,7 @@ report.group('the layout long tail the stress template asked for');
    * separate properties compose through the cascade instead.
    */
   const hover = (apply) => [
-    { id: 'r-hover', when: [{ kind: 'pointer', pseudo: 'hover' }], apply },
+    { id: 'r-hover', when: { kind: 'pointer', pseudo: 'hover' }, apply },
   ];
   const composed = css({ scale: '1.02' }, hover({ translate: '0 -4px' }));
   const listed = css({ transform: 'scale(1.02)' }, hover({ transform: 'translateY(-4px)' }));
@@ -11340,7 +11377,7 @@ report.group('a control can say which state it sets, and set more than one');
         states: { pressed: { color: 'rgb(1, 2, 3)' } },
       });
       const rule = (legacy.button.rules ?? []).find((r) => r.apply?.color === 'rgb(1, 2, 3)');
-      const when = rule?.when?.[0];
+      const [when] = conditionsIn(rule?.when);
       return when?.kind === 'state' && when.op === 'is' && when.values?.join(' ') === 'annual';
     })(),
     // Computed from the rule, not asserted beside it: a detail line that says
@@ -11592,7 +11629,7 @@ report.group('a control can say which state it sets, and set more than one');
       doc.nodes[rootId].states = { pressed: { color: 'rgb(4, 5, 6)' } };
       migrateDocument(doc);
       const rule = (doc.nodes[rootId].rules ?? []).find((r) => r.apply?.color === 'rgb(4, 5, 6)');
-      const when = rule?.when?.[0];
+      const [when] = conditionsIn(rule?.when);
       return when?.kind === 'state' && when.op === 'is' && when.values?.join(' ') === 'annual';
     })(),
     (() => {
@@ -11966,6 +12003,252 @@ report.group('the gallery is the library, and stays the library');
       `${shown.size} captions found for ${BLOCKS.length} blocks`
     );
   }
+}
+
+/* ==========================================================================
+ * One condition language, and OR in the stylesheet
+ * ======================================================================= */
+
+report.group('one condition language, and OR in the stylesheet');
+
+{
+  const { branchesOf, conditionsOf, asTest, unreachable, BRANCH_LIMIT } = when_;
+
+  const hover = { kind: 'pointer', pseudo: 'hover' };
+  const ticked = { kind: 'control', pseudo: 'checked' };
+  const annual = { kind: 'state', key: 'plan', op: 'is', values: ['annual'] };
+  const shape = (branches) =>
+    branches === null ? 'null' : branches.map((b) => b.map((c) => c.kind).join('+')).join(' | ');
+
+  /* --- What a Test compiles to ------------------------------------------- */
+
+  /*
+   * The empty branch is not the same as no branches, and the difference is a
+   * rule that always applies against a rule that can never apply. A backdrop
+   * has no condition; nothing should ever compile to zero selectors and then
+   * be emitted anyway.
+   */
+  /*
+   * Asserted on the *count*, not on `shape`.
+   *
+   * The first version of this compared `shape(branchesOf(undefined))` to the
+   * empty string, and `shape` renders both `[[]]` and `[]` as the empty
+   * string — so the check passed either way and said nothing. One branch with
+   * nothing on it is a rule that always applies; no branches is a rule that
+   * can never apply, and they are exactly the two answers that must not be
+   * confused here.
+   */
+  report.check(
+    'no condition at all is one selector with nothing on it',
+    branchesOf(undefined)?.length === 1 && branchesOf(undefined)[0].length === 0,
+    `${branchesOf(undefined)?.length} branches`
+  );
+  report.check(
+    'one condition is one branch',
+    shape(branchesOf(hover)) === 'pointer',
+    shape(branchesOf(hover))
+  );
+  report.check(
+    'all of these is one branch holding both, in the order written',
+    shape(branchesOf({ kind: 'every', tests: [hover, annual] })) === 'pointer+state',
+    shape(branchesOf({ kind: 'every', tests: [hover, annual] }))
+  );
+  report.check(
+    'any of these is one branch each',
+    shape(branchesOf({ kind: 'some', tests: [hover, annual] })) === 'pointer | state',
+    shape(branchesOf({ kind: 'some', tests: [hover, annual] }))
+  );
+  /*
+   * And a member that is itself a group contributes *all* of its branches.
+   *
+   * The check above cannot see that: every member of a flat `some` yields
+   * exactly one branch, so a union that kept only the first branch of each
+   * member would pass it perfectly. Nesting is what makes the difference
+   * visible, and losing a branch here is an OR that silently stops covering
+   * one of the cases the designer asked for.
+   */
+  const nested = { kind: 'some', tests: [hover, { kind: 'some', tests: [annual, ticked] }] };
+  report.check(
+    'and a group inside an "any" contributes every one of its branches',
+    shape(branchesOf(nested)) === 'pointer | state | control',
+    shape(branchesOf(nested))
+  );
+  report.check(
+    'and a group inside a group is the cross product',
+    shape(
+      branchesOf({
+        kind: 'every',
+        tests: [hover, { kind: 'some', tests: [annual, ticked] }],
+      })
+    ) === 'pointer+state | pointer+control',
+    shape(
+      branchesOf({
+        kind: 'every',
+        tests: [hover, { kind: 'some', tests: [annual, ticked] }],
+      })
+    )
+  );
+
+  /*
+   * The two refusals. A comparison is answered by reading a record, not by a
+   * selector; a tree wider than the ceiling is refused rather than allowed to
+   * make the generator do unbounded work. Both come back as `null`, and the
+   * caller drops the rule — a rule compiled to *almost* the right selector is
+   * worse than one compiled to none.
+   */
+  const compare = { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt' };
+  report.check(
+    'a comparison cannot be a selector',
+    branchesOf(compare) === null,
+    shape(branchesOf(compare))
+  );
+  report.check(
+    'and neither can a tree with more ways to be true than the ceiling',
+    (() => {
+      // Four groups of four is 256 branches, well past any ceiling worth
+      // having and unreachable from a panel that authors one level.
+      const four = { kind: 'some', tests: [hover, ticked, annual, hover] };
+      return branchesOf({ kind: 'every', tests: [four, four, four, four] }) === null;
+    })(),
+    `ceiling is ${BRANCH_LIMIT}`
+  );
+  report.check(
+    'a tree just inside the ceiling still compiles',
+    (() => {
+      const two = { kind: 'some', tests: [hover, annual] };
+      const branches = branchesOf({ kind: 'every', tests: [two, two] });
+      return branches?.length === 4;
+    })(),
+    String(branchesOf({
+      kind: 'every',
+      tests: [
+        { kind: 'some', tests: [hover, annual] },
+        { kind: 'some', tests: [hover, annual] },
+      ],
+    })?.length)
+  );
+  report.check(
+    'any of nothing is refused rather than compiled to always',
+    branchesOf({ kind: 'some', tests: [] }) === null,
+    shape(branchesOf({ kind: 'some', tests: [] }))
+  );
+
+  /* --- The flat reading every other caller wants -------------------------- */
+
+  report.check(
+    'a branching rule is not a flat list, and says so',
+    conditionsOf({ kind: 'some', tests: [hover, annual] }) === null &&
+      conditionsOf({ kind: 'every', tests: [hover, annual] })?.length === 2,
+    `some → ${conditionsOf({ kind: 'some', tests: [hover, annual] })}`
+  );
+
+  /* --- The authoring shorthand -------------------------------------------- */
+
+  /*
+   * A list of one is that condition, not a group holding it. A group with a
+   * single member is an extra level in the panel, an extra indent in the
+   * summary, and a document that differs from an identical design built the
+   * other way round.
+   */
+  report.check(
+    'the list shorthand folds the way the panel and the model both read it',
+    asTest([]) === undefined &&
+      asTest(undefined) === undefined &&
+      asTest([hover]) === hover &&
+      asTest([hover, annual])?.kind === 'every',
+    `[] → ${asTest([])} · [one] → ${asTest([hover])?.kind} · [two] → ${asTest([hover, annual])?.kind}`
+  );
+
+  /*
+   * And the normalisation that makes byte-identity possible: however a plain
+   * AND is spelled, it compiles to the same branch. This is the property the
+   * whole widening rests on, and the one a two-revision diff can only observe
+   * indirectly.
+   */
+  report.check(
+    'a group of one compiles to exactly what the bare condition does',
+    shape(branchesOf({ kind: 'every', tests: [hover] })) === shape(branchesOf(hover)) &&
+      shape(branchesOf({ kind: 'some', tests: [hover] })) === shape(branchesOf(hover)),
+    shape(branchesOf({ kind: 'every', tests: [hover] }))
+  );
+
+  /* --- What the editor says about a rule that cannot work ------------------ */
+
+  report.check(
+    'a rule that cannot compile explains which of the two reasons it is',
+    /compares a value/.test(unreachable(compare) ?? '') &&
+      /Split it into two rules/.test(
+        unreachable({
+          kind: 'every',
+          tests: Array.from({ length: 4 }, () => ({
+            kind: 'some',
+            tests: [hover, ticked, annual, hover],
+          })),
+        }) ?? ''
+      ) &&
+      unreachable(hover) === null,
+    unreachable(compare) ?? 'no explanation'
+  );
+
+  /* --- OR, in the stylesheet ---------------------------------------------- */
+
+  const ruleOn = (whenTest) => {
+    const doc = createEmptyDocument('OR');
+    const root = doc.nodes[doc.pages[0].rootNodeId];
+    // The root declares the state, or `stateOwner` finds no owner and the
+    // generator drops the whole rule — correctly, and it took a confusing
+    // empty result to remember that a condition naming nothing is not a
+    // condition the stylesheet can carry.
+    root.props = { ...root.props, switchKey: 'plan', switchDefault: 'monthly' };
+    const id = 'orx1';
+    doc.nodes[id] = {
+      id,
+      type: 'button',
+      name: 'B',
+      parentId: root.id,
+      children: [],
+      props: { label: 'B' },
+      styles: {},
+      meta: {},
+      rules: [{ id: 'r', when: whenTest, apply: { color: 'rgb(9, 9, 9)' } }],
+    };
+    root.children.push(id);
+    return generateNodeCss(doc.nodes, { mode: 'media', includeStates: true })
+      .split('\n')
+      .filter((line) => line.includes('rgb(9, 9, 9)') || line.includes('.c-orx1'))
+      .join('\n');
+  };
+
+  const orCss = ruleOn({ kind: 'some', tests: [hover, annual] });
+  report.check(
+    'any of these compiles to a selector list, which is how a stylesheet spells OR',
+    orCss.includes(':hover') && orCss.includes('data-cre8-value') && orCss.includes(','),
+    orCss.split('\n')[0] ?? 'nothing emitted'
+  );
+  report.check(
+    'and both branches share one declaration block rather than being written twice',
+    (orCss.match(/rgb\(9, 9, 9\)/g) ?? []).length === 1,
+    `${(orCss.match(/rgb\(9, 9, 9\)/g) ?? []).length} declaration blocks`
+  );
+  /*
+   * Every branch still weighs (0,1,0). This is the line that keeps source
+   * order the whole of precedence — a branch that escaped `:where()` would
+   * silently out-rank every rule after it, which is the bug the padding was
+   * introduced to kill in the first place.
+   */
+  report.check(
+    'every branch is still wrapped so nothing out-ranks anything',
+    orCss
+      .split(',')
+      .filter((one) => one.includes('.c-orx1'))
+      .every((one) => !/:(hover|checked)(?![^(]*\))/.test(one.replace(/:where\([^)]*\)/g, ''))),
+    orCss.split('\n')[0] ?? ''
+  );
+  report.check(
+    'a rule the generator cannot resolve emits nothing at all',
+    ruleOn(compare).trim() === '',
+    JSON.stringify(ruleOn(compare).slice(0, 80))
+  );
 }
 
 /* ==========================================================================

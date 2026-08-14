@@ -31,6 +31,7 @@
  */
 
 import { SWITCH_SHOW_ALL, readCase, slug } from '../document/schema';
+import { conditionsOf } from '../document/when';
 import { designValue } from '../runtime/data';
 import type {
   Condition,
@@ -108,7 +109,7 @@ export function setsContent(rule: StyleRule): boolean {
   return false;
 }
 
-const hideRule = (id: string, when: Condition[]): StyleRule => ({
+const hideRule = (id: string, when: Condition): StyleRule => ({
   id,
   when,
   apply: { display: 'none' },
@@ -221,8 +222,17 @@ function build(node: SceneNode, props: NodeProps): Variant[] {
   const usable: { rule: StyleRule; values: string[] }[] = [];
 
   for (const rule of setting) {
-    if (rule.when.length !== 1 || rule.part || rule.breakpoint) continue;
-    const found = axisOf(rule.when[0]!);
+    if (rule.part || rule.breakpoint) continue;
+    /*
+     * Exactly one condition, and `conditionsOf` is how that question is now
+     * asked: it answers with the flat AND when the rule is one, and `null`
+     * when the rule branches or compares. Both of those are rules this
+     * expansion cannot make mutually exclusive, so both are skipped — the
+     * same answer the length check gave, for a wider set of shapes.
+     */
+    const conditions = conditionsOf(rule.when);
+    if (conditions?.length !== 1) continue;
+    const found = axisOf(conditions[0]!);
     if (!found) continue;
     if (axis === null) axis = { kind: found.kind, key: found.key };
     else if (axis.kind !== found.kind || axis.key !== found.key) continue;
@@ -242,7 +252,7 @@ function build(node: SceneNode, props: NodeProps): Variant[] {
       props,
       // The base is what shows when none of the alternatives do, which is one
       // condition rather than one per rule because they are exclusive.
-      hide: hideRule(`${node.id}-v0`, [onAxis(kind, key, 'is', [...claimed])]),
+      hide: hideRule(`${node.id}-v0`, onAxis(kind, key, 'is', [...claimed])),
       ruleId: null,
     },
   ];
@@ -253,7 +263,7 @@ function build(node: SceneNode, props: NodeProps): Variant[] {
       key: key_,
       className: `${nodeClass(node.id)} ${variantClass(node.id, key_)}`,
       props: merge(props, rule.set!),
-      hide: hideRule(`${node.id}-${key_}`, [onAxis(kind, key, 'isNot', values)]),
+      hide: hideRule(`${node.id}-${key_}`, onAxis(kind, key, 'isNot', values)),
       ruleId: rule.id,
     });
   });
@@ -338,7 +348,7 @@ export function activeVariant(
 
   for (const variant of variants) {
     if (!variant.hide) return variant;
-    const condition = variant.hide.when[0];
+    const condition = conditionsOf(variant.hide.when)?.[0];
     if (!condition) return variant;
 
     let value: string;

@@ -44,6 +44,7 @@ import { commit, emptyHistory, redo as redoHistory, undo as undoHistory, type Hi
 import { cloneSubtree, type NodeSpec } from '../document/factory';
 import type { ThemeScaleGroup } from '../document/operations';
 import { uid } from '../document/id';
+import { asTest } from '../document/when';
 import { getElementFor } from './registry';
 import { getStorage } from '../api/storage';
 import { api, type RecordInput } from '../api/client';
@@ -1553,7 +1554,15 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     if (!id) return null;
     const ruleId = uid();
     get().transact('Add condition', (draft) => {
-      ops.addRule(draft, id, { id: ruleId, when, ...(part ? { part } : {}), apply: {} });
+      // The menu hands over a list of conditions, which is how somebody
+      // composing a rule thinks; the document holds a `Test`.
+      const test = asTest(when);
+      ops.addRule(draft, id, {
+        id: ruleId,
+        ...(test ? { when: test } : {}),
+        ...(part ? { part } : {}),
+        apply: {},
+      });
     });
     set({ activeRuleId: ruleId });
     return ruleId;

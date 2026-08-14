@@ -69,9 +69,16 @@ const PAINT = {
   active: 'rgb(230, 120, 0)',
   focus: 'rgb(0, 130, 160)',
   attr: 'rgb(150, 90, 40)',
+  either: 'rgb(40, 40, 40)',
 };
 
-/** A rule that paints the element when the condition holds. */
+/**
+ * A rule that paints the element when the condition holds.
+ *
+ * `when` is a `Test`, which for a single condition is that condition bare —
+ * the model stopped wrapping one condition in a list when the two condition
+ * languages became one.
+ */
 const paints = (id, when, colour) => ({
   id: `r-${id}`,
   when,
@@ -100,47 +107,89 @@ try {
     node('chkx', 'checkbox', 'Tickable', {
       parentId: root.id,
       props: { label: 'Subscribe', name: 'sub' },
-      rules: [paints('chkx', [{ kind: 'control', pseudo: 'checked' }], PAINT.checked)],
+      rules: [paints('chkx', { kind: 'control', pseudo: 'checked' }, PAINT.checked)],
     }),
     node('btnd', 'button', 'Stoppable', {
       parentId: root.id,
       props: { label: 'Send' },
-      rules: [paints('btnd', [{ kind: 'control', pseudo: 'disabled' }], PAINT.disabled)],
+      rules: [paints('btnd', { kind: 'control', pseudo: 'disabled' }, PAINT.disabled)],
     }),
     node('inpv', 'input', 'Address', {
       parentId: root.id,
       props: { inputType: 'email', name: 'email', placeholder: 'you@company.com' },
-      rules: [paints('inpv', [{ kind: 'control', pseudo: 'invalid' }], PAINT.invalid)],
+      rules: [paints('inpv', { kind: 'control', pseudo: 'invalid' }, PAINT.invalid)],
     }),
     node('inpp', 'input', 'Empty one', {
       parentId: root.id,
       props: { inputType: 'text', name: 'note', placeholder: 'Say something' },
       rules: [
-        paints('inpp', [{ kind: 'control', pseudo: 'placeholder-shown' }], PAINT.placeholder),
+        paints('inpp', { kind: 'control', pseudo: 'placeholder-shown' }, PAINT.placeholder),
       ],
     }),
     node('btna', 'button', 'Pressable', {
       parentId: root.id,
       props: { label: 'Hold me' },
-      rules: [paints('btna', [{ kind: 'pointer', pseudo: 'active' }], PAINT.active)],
+      rules: [paints('btna', { kind: 'pointer', pseudo: 'active' }, PAINT.active)],
     }),
     node('btnf', 'button', 'Focusable', {
       parentId: root.id,
       props: { label: 'Focus me' },
-      rules: [paints('btnf', [{ kind: 'pointer', pseudo: 'focus' }], PAINT.focus)],
+      rules: [paints('btnf', { kind: 'pointer', pseudo: 'focus' }, PAINT.focus)],
     }),
     node('boxp', 'container', 'Plain box', { parentId: root.id }),
+    /*
+     * The OR case, and the group it needs.
+     *
+     * "Hovered *or* the annual plan" is a sentence the model could hold, the
+     * generator could compile and the panel could not author, and it is the
+     * one shape whose check has to test three readings rather than two: a
+     * selector so broad it matched everything would satisfy both branches
+     * perfectly and only fail on the case where neither holds.
+     */
+    node('grpo', 'container', 'Plan group', {
+      parentId: root.id,
+      props: { switchKey: 'plan', switchDefault: 'monthly' },
+      children: ['orxx', 'btna2'],
+    }),
+    node('orxx', 'text', 'Either way', {
+      parentId: 'grpo',
+      props: { text: 'Either way' },
+      rules: [
+        paints(
+          'orxx',
+          {
+            kind: 'some',
+            tests: [
+              { kind: 'pointer', pseudo: 'hover' },
+              { kind: 'state', key: 'plan', op: 'is', values: ['annual'] },
+            ],
+          },
+          PAINT.either
+        ),
+      ],
+    }),
+    node('btna2', 'button', 'Go annual', {
+      parentId: 'grpo',
+      props: { label: 'Go annual' },
+      events: [{ event: 'onClick', actions: [{ type: 'setState', value: 'annual' }] }],
+    }),
     node('deto', 'details', 'Openable', {
       parentId: root.id,
       props: { summary: 'More' },
       rules: [
-        paints('deto', [{ kind: 'attr', name: 'open', op: 'is', values: [''] }], PAINT.attr),
+        paints('deto', { kind: 'attr', name: 'open', op: 'is', values: [''] }, PAINT.attr),
       ],
     }),
   ];
 
   for (const one of seeded) doc.nodes[one.id] = one;
-  root.children = [...root.children, ...seeded.map((one) => one.id)];
+  // Only the ones that belong to the root. Two of the seeds live inside the
+  // plan group, and adding them here as well would give them two parents —
+  // which renders twice and selects unpredictably.
+  root.children = [
+    ...root.children,
+    ...seeded.filter((one) => one.parentId === root.id).map((one) => one.id),
+  ];
 
   const status = await saveDocument(page, doc);
   report.check('the seed landed', status === 200, `HTTP ${status}`);
@@ -268,22 +317,93 @@ try {
     await page.waitForTimeout(80);
   });
 
+  /* ------------------------------------------------------------------ or -- */
+
+  {
+    const el = page.locator('.c-orxx').first();
+    const read = () => el.evaluate((n) => getComputedStyle(n).backgroundColor);
+    const away = page.locator('.c-deto').first();
+
+    const neither = await read();
+    await el.hover();
+    await page.waitForTimeout(80);
+    const hovered = await read();
+
+    // Off it, and then into the other branch — the state — with the pointer
+    // parked somewhere that cannot be confused for the target.
+    await away.hover();
+    await page.waitForTimeout(80);
+    await page.locator('.c-btna2').first().click();
+    await page.waitForTimeout(120);
+    const stated = await read();
+
+    report.check('either way: the first branch applies', hovered === PAINT.either, hovered);
+    report.check('either way: so does the second', stated === PAINT.either, stated);
+    /*
+     * And the reading the other two cannot give.
+     *
+     * A rule with no condition, or a selector list so broad it matches
+     * everything, satisfies both branches above. The only measurement that
+     * tells an OR apart from an accident is the case where neither branch
+     * holds.
+     */
+    report.check(
+      'either way: and neither branch means it does not apply',
+      neither !== PAINT.either,
+      `neither ${neither} · hovered ${hovered} · annual ${stated}`
+    );
+  }
+
   /* ----------------------------------------------------- no script for it -- */
 
   /*
    * None of this costs the visitor anything.
    *
-   * Seven conditions, seven rules, and the page is still whatever it was —
-   * every one of them is a selector. A shape that quietly needed the runtime
-   * would be a shape that stops working with scripting off, and the whole
-   * argument for compiling conditions to CSS is that they do not.
+   * Every one of the shapes above is a selector, and a shape that quietly
+   * needed the runtime would be one that stops working with scripting off —
+   * the whole argument for compiling conditions to CSS is that they do not.
+   *
+   * The page does carry one script, and it is not theirs: the OR case needs a
+   * *state*, a state needs something to set it, and a switch has always
+   * shipped the thirty-line behaviour runtime. So the check attributes the
+   * script rather than counting it. Counting alone would have two failure
+   * modes it could not tell apart — a condition that started needing script,
+   * and a fixture that grew a switch — and this suite hit the second one the
+   * first time it was run.
    */
   const html = await (await fetch(`${APP}/s/${projectId}/`)).text();
   const scripts = (html.match(/<script/gi) ?? []).length;
+  const script = html.slice(html.indexOf('<script'), html.lastIndexOf('</script>'));
   report.check(
-    'and none of them ships a line of script',
-    scripts === 0,
+    'the only script on the page is the switch runtime',
+    scripts === 1 && script.includes('data-cre8-switch'),
     `${scripts} script tags`
+  );
+  /*
+   * And no pseudo-class is in it. This is the line that would catch a shape
+   * quietly moving from the stylesheet into the runtime, which a count of one
+   * could never see.
+   *
+   * Pseudo-classes only, and the distinction matters: `data-cre8-copied` *is*
+   * in the runtime, because the copy action is what writes it. That is the
+   * designed split rather than a leak — the runtime sets an attribute, the
+   * stylesheet reads one — and a first version of this check listed it as
+   * evidence of a problem and failed on correct code.
+   */
+  const leaked = [':hover', ':active', ':focus', ':checked', ':disabled', ':invalid',
+    ':placeholder-shown'].filter((needle) => script.includes(needle));
+  report.check(
+    'and no pseudo-class is in it — every one of those is a selector',
+    leaked.length === 0,
+    leaked.join(' ') || 'no pseudo-class anywhere in the runtime'
+  );
+  const css = html.slice(html.indexOf('<style'), html.indexOf('</style>'));
+  report.check(
+    'every one of them is in the stylesheet instead',
+    [':hover', ':active', ':focus', ':has(:checked)', ':disabled', ':invalid',
+     ':placeholder-shown', '[open='].every((needle) => css.includes(needle)),
+    [':hover', ':active', ':focus', ':has(:checked)', ':disabled', ':invalid',
+     ':placeholder-shown', '[open='].filter((n) => !css.includes(n)).join(' ') || 'all eight'
   );
 
   /* --------------------------------------------------------------- panel -- */
@@ -364,8 +484,10 @@ try {
     await page.waitForTimeout(900);
     const after = await getDocument(page, projectId);
     const rules = after.nodes.chkx?.rules ?? [];
+    // `when` is a `Test`; one condition is that condition, not a list holding
+    // it. Reading `when[0]` counted zero for a rule that was perfectly correct.
     const added = rules.filter(
-      (rule) => rule.when?.[0]?.kind === 'control' && rule.when[0].pseudo === 'checked'
+      (rule) => rule.when?.kind === 'control' && rule.when.pseudo === 'checked'
     );
     report.check(
       'picking it writes a control condition the generator understands',

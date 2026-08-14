@@ -41,6 +41,8 @@ export function loadBlocks() {
       // the style vocabulary is — the claim it makes is that the panel can
       // author everything `css.ts` compiles, and that is checkable.
       'src/lib/document/conditions.ts',
+      // And the structural half, which the generator plans a rule with.
+      'src/lib/document/when.ts',
       // The upgrade every stored document goes through on load. It runs on
       // every project every time and would otherwise be exercised only by
       // accident, which is a poor arrangement for the one piece of code that
@@ -94,6 +96,7 @@ export function loadBlocks() {
     anchorId: require(path.join(OUT, 'document/schema.js')).anchorId,
     vocabulary: require(path.join(OUT, 'document/style-vocabulary.js')),
     conditions: require(path.join(OUT, 'document/conditions.js')),
+    when_: require(path.join(OUT, 'document/when.js')),
     motion: require(path.join(OUT, 'renderer/motion.js')),
     // References, on their own: "one walk services all of them" is a claim
     // about a function, and the cleanup that was missing for years is the

@@ -477,6 +477,17 @@ export type Part = 'backdrop' | 'placeholder' | 'marker' | 'selection';
  * they are in. Every rule is padded to the same specificity for exactly that
  * reason — see `css.ts`.
  */
+/**
+ * A rule as somebody writes one, before the document holds it.
+ *
+ * The only difference is `when`: a list of conditions is the natural way to
+ * compose one by hand, and `Test` is the way to store one. `asTest` folds the
+ * first into the second in `buildSubtree`, so a block, a template and the
+ * editor's add menu all keep the short spelling while nothing downstream sees
+ * two shapes.
+ */
+export type AuthoredRule = Omit<StyleRule, 'when'> & { when?: Condition[] | Test };
+
 export interface StyleRule {
   /**
    * Unique within the node, not across the document.
@@ -487,8 +498,27 @@ export interface StyleRule {
    * selecting the copy.
    */
   id: string;
-  /** All must hold. Empty is legal: a part with no condition, like a backdrop. */
-  when: Condition[];
+  /**
+   * When this rule applies.
+   *
+   * A `Test`, not a `Condition[]`, and the widening is the point: there was
+   * one language for *when a style applies* and another for *when a state is
+   * assigned*, and the second was a superset of the first — `Test` has been
+   * `Condition | compare | every | some` all along. Styling on a comparison
+   * therefore cost a designer two objects in two panels and an invented
+   * intermediate name, for a sentence they could say in one breath.
+   *
+   * Absent means always, which is what a part-only rule is: a backdrop has no
+   * condition. That is spelled as absence rather than as an empty `every`,
+   * because an `every` of nothing is a group with no members and the panel
+   * would have to know not to draw it.
+   *
+   * Not everything a `Test` can say compiles to a selector. `conditions.ts`
+   * owns that question — `branchesOf` answers with the selector branches or
+   * with `null`, and `null` means the generator drops the rule rather than
+   * approximating it.
+   */
+  when?: Test;
   part?: Part;
   apply: StyleDecl;
   /**

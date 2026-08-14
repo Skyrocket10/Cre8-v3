@@ -7,6 +7,7 @@
  * an element type means adding a row — not touching six subsystems.
  */
 
+import { conditionsOf } from './when';
 import type { ElementType, NodeProps, StateStyles, StyleDecl, StyleRule } from './types';
 
 export type InsertCategory =
@@ -1348,8 +1349,10 @@ function hides(rule: StyleRule): boolean {
  */
 export function readCase(rules: StyleRule[] | undefined): Visibility | null {
   for (const rule of rules ?? []) {
-    if (rule.part || rule.breakpoint || rule.when.length !== 1 || !hides(rule)) continue;
-    const condition = rule.when[0]!;
+    if (rule.part || rule.breakpoint || !hides(rule)) continue;
+    const conditions = conditionsOf(rule.when);
+    if (conditions?.length !== 1) continue;
+    const condition = conditions[0]!;
     if (condition.kind !== 'state' || condition.values.length === 0) continue;
     return {
       state: condition.key,

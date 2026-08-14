@@ -8,6 +8,7 @@
  */
 
 import { uid } from './id';
+import { asTest } from './when';
 import { bindingFrom, migrateActions, migrateDocument, rulesFromLegacy } from './migrate';
 import { getElement, splitFragment } from './schema';
 import { createDefaultTheme } from './theme';
@@ -15,6 +16,7 @@ import {
   DOCUMENT_VERSION,
   type Asset,
   type Binding,
+  type Condition,
   type Cre8Document,
   type ElementType,
   type NodeEventBinding,
@@ -31,6 +33,7 @@ import {
   type RefSlot,
   type Test,
   type SceneNode as SceneNodeType,
+  type AuthoredRule,
   type StyleRule,
 } from './types';
 import type { NodeMap } from './tree';
@@ -78,7 +81,16 @@ export interface NodeSpec {
   responsive?: ResponsiveStyles;
   /** Authoring shorthand, folded into `rules` on the way in. */
   states?: StateStyles;
-  rules?: StyleRule[];
+  /**
+   * Rules, with `when` in either spelling.
+   *
+   * A block writes `when: [a, b]` because a list of conditions is what
+   * somebody composing one means, and the document holds a `Test`. Folded by
+   * `asTest` on the way in, the same arrangement `states` already has with
+   * `rules`: authoring keeps the convenient form and nothing downstream ever
+   * sees two shapes.
+   */
+  rules?: AuthoredRule[];
   meta?: SceneNode['meta'];
   /** Render `children` once per record. */
   repeat?: RepeatSpec;
@@ -170,7 +182,13 @@ function buildSubtree(spec: NodeSpec, into: NodeMap, parentId: NodeId | null): N
   // for when it needs a condition a state name cannot express.
   const fromStates = rulesFromLegacy(spec.states, node.props);
   if (fromStates.length || spec.rules?.length) {
-    node.rules = [...(node.rules ?? []), ...fromStates, ...(spec.rules ?? [])];
+    const authored = (spec.rules ?? []).map((rule) => {
+      const when = asTest(rule.when);
+      const out: StyleRule = { ...rule, when };
+      if (!when) delete out.when;
+      return out;
+    });
+    node.rules = [...(node.rules ?? []), ...fromStates, ...authored];
   }
   if (spec.meta) node.meta = { ...node.meta, ...spec.meta };
   if (spec.repeat) node.repeat = structuredCloneCompat(spec.repeat);
@@ -708,9 +726,37 @@ export function hydrateDocument(input: Partial<Cre8Document> & { nodes?: NodeMap
     if (node.rules !== undefined) {
       const rules = Array.isArray(node.rules) ? node.rules : [];
       const usable = rules.filter(
-        (rule): rule is (typeof rules)[number] =>
-          Boolean(rule) && typeof rule === 'object' && Array.isArray(rule.when)
+        (rule): rule is (typeof rules)[number] => Boolean(rule) && typeof rule === 'object'
       );
+      /*
+       * And the upgrade from the list to the tree, which happens here because
+       * this is the one gate every document passes through — the editor loads
+       * through it and so does the Worker that publishes.
+       *
+       * The old shape was `when: Condition[]`, an AND of conditions with the
+       * empty list meaning *always*. `asTest` is the same reading: a list of
+       * one is that condition, a longer list is an `every`, and an empty one
+       * is absence.
+       *
+       * The guard this replaces required `Array.isArray(rule.when)` and
+       * dropped anything else, which was right when a list was the only legal
+       * shape and would now throw away every rule written since. What makes a
+       * rule usable is that it is an object; what `when` holds is normalised
+       * rather than judged, and a `when` that is neither a list nor a Test
+       * becomes absence — a rule that always applies, which is the reading
+       * that loses no declaration the designer wrote.
+       */
+      for (const rule of usable) {
+        const when = (rule as { when?: unknown }).when;
+        if (when === undefined) continue;
+        if (Array.isArray(when)) {
+          const test = asTest(when as Condition[]);
+          if (test) rule.when = test;
+          else delete rule.when;
+        } else if (!when || typeof when !== 'object' || !('kind' in when)) {
+          delete rule.when;
+        }
+      }
       if (usable.length) node.rules = usable;
       else delete node.rules;
     }

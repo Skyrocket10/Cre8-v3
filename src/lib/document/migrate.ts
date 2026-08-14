@@ -49,11 +49,11 @@ export function rulesFromLegacy(
     const apply = declarations as StyleDecl;
 
     if (POINTER[name]) {
-      out.push({ id: uid(), when: [POINTER[name]!], apply });
+      out.push({ id: uid(), when: POINTER[name]!, apply });
       continue;
     }
     if (name === 'backdrop') {
-      out.push({ id: uid(), when: [], part: 'backdrop', apply });
+      out.push({ id: uid(), part: 'backdrop', apply });
       continue;
     }
     if (name === 'pressed') {
@@ -65,14 +65,14 @@ export function rulesFromLegacy(
       if (!value) continue;
       out.push({
         id: uid(),
-        when: [{ kind: 'state', key: '', op: 'is', values: [value] }],
+        when: { kind: 'state', key: '', op: 'is', values: [value] },
         apply,
       });
       continue;
     }
     // An unknown name: keep the declarations rather than lose them, with no
     // condition, so they behave as part of the base layer.
-    out.push({ id: uid(), when: [], apply });
+    out.push({ id: uid(), apply });
   }
 
   // "Shown when X" was stored as the intent and negated by the generator.
@@ -81,14 +81,12 @@ export function rulesFromLegacy(
   if (when) {
     out.push({
       id: uid(),
-      when: [
-        {
-          kind: 'state',
-          key: when.state,
-          op: when.negated ? 'is' : 'isNot',
-          values: when.values,
-        },
-      ],
+      when: {
+        kind: 'state',
+        key: when.state,
+        op: when.negated ? 'is' : 'isNot',
+        values: when.values,
+      },
       apply: when.keepSpace ? { visibility: 'hidden' } : { display: 'none' },
     });
   }

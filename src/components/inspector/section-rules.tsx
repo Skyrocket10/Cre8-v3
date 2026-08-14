@@ -29,14 +29,15 @@ import {
   offerGroups,
   type ControlPseudo,
 } from '@/lib/document/conditions';
+import { eachCondition, replaceCondition, unreachable } from '@/lib/document/when';
 import { slug, slugList } from '@/lib/document/schema';
-import type { Condition, ElementType, StyleRule } from '@/lib/document/types';
+import type { Condition, ElementType, StyleRule, Test } from '@/lib/document/types';
 import { DATA_SOURCES, QUERY_PREFIX, describeSource } from '@/lib/runtime/data';
 import { activeRootId, useEditor } from '@/lib/editor/store';
 import { cn } from '@/lib/utils/cn';
 import { Popover, Section, Segmented, Select, TextInput, Tooltip } from '../ui/primitives';
 import { Sentence, partsToText } from '../ui/sentence';
-import { conditionSentence, ruleSentence } from './sentences';
+import { ruleSentence, testSentence } from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
 
 /**
@@ -103,11 +104,11 @@ export function useStatesInScope(): { key: string; values: string[] }[] {
         const node = s.doc.nodes[id];
         if (node) add(valuesSetting(node, key).join(' '));
         for (const rule of s.doc.nodes[id]?.rules ?? []) {
-          for (const condition of rule.when) {
+          eachCondition(rule.when, (condition) => {
             if (condition.kind === 'state' && (!condition.key || condition.key === key)) {
               add(condition.values.join(' '));
             }
-          }
+          });
         }
       }
       found.push(`${key}${FIELD}${values.join(' ')}`);
@@ -302,23 +303,34 @@ function RuleRow({
   const store = useEditor.getState;
 
   /*
-   * By position, not by kind.
+   * What the sentence cannot say for itself.
    *
-   * This used to be two `find`s — one for the state condition and one for the
-   * data condition — which meant a rule carrying anything else opened to an
-   * empty body, and a rule carrying two of anything showed one of them. Both
-   * happen: `blocks/kit.ts` plants `control` and `attr` conditions, and `when`
-   * has been an array the whole time.
-   *
-   * Composing several conditions is still not offered here — that arrives with
-   * the sentence tree, and building a flat-array editor for it now would be
-   * building something that gets deleted. What this does is stop hiding what
-   * is already there.
+   * Three readings off the same tree: which data sources need their own form,
+   * whether to mention that several values mean any of them, and whether the
+   * rule can ever apply at all. All three used to be per-row decisions in a
+   * loop over a flat list; a tree has no rows, so they are answered once for
+   * the whole rule.
    */
-  const replace = (index: number, next: Condition) =>
-    store().updateRule(rule.id, {
-      when: rule.when.map((one, at) => (at === index ? next : one)),
-    });
+  const conditions = useMemo(() => {
+    const found: Condition[] = [];
+    eachCondition(rule.when, (condition) => found.push(condition));
+    return found;
+  }, [rule.when]);
+  const dataConditions = conditions.filter(
+    (one): one is Extract<Condition, { kind: 'data' }> => one.kind === 'data'
+  );
+  const hasState = conditions.some((one) => one.kind === 'state');
+  const dead = conditions.find(
+    (one) => one.kind === 'control' && !controls.includes(one.pseudo)
+  );
+  const warning =
+    unreachable(rule.when) ??
+    (dead?.kind === 'control'
+      ? // Not a warning about something the designer typed — the panel would
+        // not have offered it. It is a rule that was fine when it was written
+        // and is not any more, usually because the element changed under it.
+        `This kind of element is never ${CONTROL_LABELS[dead.pseudo]}, so this rule cannot apply.`
+      : null);
 
   return (
     <div
@@ -380,7 +392,7 @@ function RuleRow({
 
       {active && (
         <div className="border-t border-[var(--border-soft)]">
-          {rule.when.length === 0 && (
+          {!rule.when && (
             <p className="px-2 py-2 text-[10px] leading-relaxed text-[var(--text-faint)]">
               {rule.part
                 ? `Always, on the ${rule.part}.`
@@ -388,61 +400,53 @@ function RuleRow({
             </p>
           )}
 
-          {rule.when.map((condition, index) =>
-            /*
-             * A data condition keeps its labelled form rather than becoming a
-             * sentence, because two of its four controls are not about this
-             * rule at all: what the file *ships* with and what the canvas
-             * *designs against* are settings on the source, shared by every
-             * rule that reads it. A sentence with a site-wide setting hidden
-             * in it would be a sentence that lies about its scope.
-             */
-            condition.kind === 'data' ? (
-              <DataFields key={index} rule={rule} condition={condition} divide={index > 0} />
-            ) : (
-              <div
-                key={index}
-                className={cn(
-                  'flex flex-col gap-1.5 px-2 py-2',
-                  index > 0 && 'border-t border-[var(--border-subtle)]'
-                )}
-              >
-                {/*
-                  The same sentence the heading above shows, with handlers.
-                  Three labelled rows said the same thing in a shape a reader
-                  had to reassemble — and the heading was a second description
-                  of it, written separately and free to disagree.
-                */}
-                <Sentence
-                  parts={[
-                    { kind: 'word', text: index === 0 ? 'When' : 'and', key: 'when' },
-                    ...conditionSentence({
-                      condition,
-                      states,
-                      controls,
-                      keyPrefix: `c${index}-`,
-                      onChange: (next: Condition) => replace(index, next),
-                    }),
-                  ]}
-                />
-                {condition.kind === 'state' && (
-                  <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
-                    More than one value, separated by spaces, means any of them.
-                  </p>
-                )}
-                {condition.kind === 'control' && !controls.includes(condition.pseudo) && (
-                  // Not a warning about something the designer typed — the
-                  // panel would not have offered it. It is a rule that was
-                  // fine when it was written and is not any more, usually
-                  // because the element changed underneath it.
-                  <p className="text-[10px] leading-relaxed text-[var(--warning,var(--text-faint))]">
-                    This kind of element is never {CONTROL_LABELS[condition.pseudo]}, so this rule
-                    cannot apply.
-                  </p>
-                )}
-              </div>
-            )
+          {rule.when && (
+            <div className="flex flex-col gap-1.5 px-2 py-2">
+              {/*
+                One sentence for the whole condition, however deep it goes.
+                This was a loop over a flat list rendering one row each, which
+                could say "hovered and annual" and had no way to say "hovered
+                or annual" — the tree was in the model and in the generator and
+                stopped at the panel.
+              */}
+              <Sentence
+                parts={testSentence({
+                  test: rule.when,
+                  // A style rule compares nothing: there is no record in scope
+                  // and most pages have no collection at all. What it grows by
+                  // is another browser condition, which is what `newLeaf` says.
+                  fields: [],
+                  states,
+                  controlStates: controls,
+                  newLeaf: () => ({ kind: 'pointer', pseudo: 'hover' }),
+                  opening: 'When',
+                  onChange: (next: Test) => store().updateRule(rule.id, { when: next }),
+                })}
+              />
+              {warning && (
+                <p className="text-[10px] leading-relaxed text-[var(--warning,var(--text-faint))]">
+                  {warning}
+                </p>
+              )}
+              {hasState && (
+                <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
+                  More than one value, separated by spaces, means any of them.
+                </p>
+              )}
+            </div>
           )}
+
+          {/*
+            A data condition keeps its labelled form *as well* as its place in
+            the sentence, because two of its controls are not about this rule
+            at all: what the file ships with and what the canvas designs
+            against are settings on the source, shared by every rule that reads
+            it. Folding those into a chip would be a sentence that lies about
+            its scope.
+          */}
+          {dataConditions.map((condition, index) => (
+            <DataFields key={index} rule={rule} condition={condition} divide />
+          ))}
         </div>
       )}
     </div>
@@ -485,8 +489,9 @@ function DataFields({
   const open = source ? source.values.length === 0 : true;
 
   const setCondition = (patch: Partial<Extract<Condition, { kind: 'data' }>>) => {
+    if (!rule.when) return;
     store().updateRule(rule.id, {
-      when: rule.when.map((c) => (c === condition ? { ...condition, ...patch } : c)),
+      when: replaceCondition(rule.when, condition, { ...condition, ...patch }),
     });
   };
 

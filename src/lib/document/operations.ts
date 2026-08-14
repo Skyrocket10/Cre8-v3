@@ -28,6 +28,7 @@ import {
   type NodeSpec,
 } from './factory';
 import { CLICK, stateSets } from './actions';
+import { conditionsOf, eachCondition } from './when';
 import { uid, slugify } from './id';
 import { fieldsRead } from '../renderer/test';
 import { SWITCH_SHOW_ALL, anchorId, canContain, getElement, readCase, slug } from './schema';
@@ -541,17 +542,21 @@ function styleForEffect(effect: AssignEffect): StyleDecl | null {
  * it is their rule, and this stops rewriting it under them.
  */
 function ruleForAssignment(node: SceneNode, key: string, value: string): StyleRule | undefined {
-  return node.rules?.find(
-    (rule) =>
-      rule.when.length === 1 &&
-      rule.when[0]?.kind === 'state' &&
-      rule.when[0].key === key &&
-      rule.when[0].op === 'is' &&
-      rule.when[0].values.length === 1 &&
-      rule.when[0].values[0] === value &&
-      !rule.part &&
-      !rule.breakpoint
-  );
+  return node.rules?.find((rule) => {
+    if (rule.part || rule.breakpoint) return false;
+    // One condition and no branching. A rule the designer has grown into "any
+    // of these" is theirs now, exactly as one they gave a second condition to
+    // — which is what this function has always meant by "its only condition".
+    const conditions = conditionsOf(rule.when);
+    const only = conditions?.length === 1 ? conditions[0] : undefined;
+    return (
+      only?.kind === 'state' &&
+      only.key === key &&
+      only.op === 'is' &&
+      only.values.length === 1 &&
+      only.values[0] === value
+    );
+  });
 }
 
 /**
@@ -589,7 +594,7 @@ export function setAssignEffect(
   }
   addRule(doc, id, {
     id: uid(),
-    when: [{ kind: 'state', key, op: 'is', values: [value] }],
+    when: { kind: 'state', key, op: 'is', values: [value] },
     apply,
   });
 }
@@ -617,7 +622,7 @@ export function setAssignValue(
   const next = slug(assignment.value);
   if (!owned) return;
   if (!next) removeRule(doc, id, owned.id);
-  else owned.when = [{ kind: 'state', key, op: 'is', values: [next] }];
+  else owned.when = { kind: 'state', key, op: 'is', values: [next] };
 }
 
 /**
@@ -637,9 +642,9 @@ export function setStateKey(doc: Cre8Document, id: NodeId, key: string): void {
   if (before === after) return;
   node.props.switchKey = after;
   for (const rule of node.rules ?? []) {
-    for (const condition of rule.when) {
+    eachCondition(rule.when, (condition) => {
       if (condition.kind === 'state' && condition.key === before) condition.key = after;
-    }
+    });
   }
 }
 

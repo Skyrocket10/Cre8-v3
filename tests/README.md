@@ -2,6 +2,30 @@
 
 Two tiers, split by what they cost.
 
+## Comparing two revisions — `tests/publish-dump.mjs`
+
+Not a suite. A tool, for the class of change whose whole claim is that nothing
+already built publishes one byte differently — the widening of `StyleRule.when`
+from a list of conditions to a `Test` was the first.
+
+    git worktree add /tmp/base <ref>
+    ln -s "$PWD/node_modules" /tmp/base/node_modules
+    node tests/publish-dump.mjs "$PWD"   > after.txt
+    node tests/publish-dump.mjs /tmp/base > before.txt
+    cmp before.txt after.txt
+
+It publishes all ten templates in full and stubs `uid()` with a counter, which
+is the part worth knowing: node ids are random, so two builds of one template
+share no class name and a raw diff is entirely noise. Canonicalising the ids
+afterwards nearly worked and kept inventing differences of its own — two nodes
+on different pages whose ids share four characters collapse to one name, and
+whether that happens is luck. Removing the randomness at the source is the only
+version that cannot be wrong about what it found.
+
+A baseline committed to the repo would go stale the first time somebody
+legitimately improves a template, which is why this compares two revisions on
+demand instead.
+
 ## Static — `npm run test`
 
 About a second, no browser, no server. Reads straight off the `NodeSpec` trees
@@ -406,7 +430,7 @@ preferring an installed copy over downloading one.
 | `native` | Do `<details>`, the form controls, `[popover]` and `<dialog>` behave with no runtime — and does an anchored panel open against the button that opened it, on the side it was told, flipping rather than overflowing when there is no room |
 | `tables` | Does tabular markup survive the parser, and does the editor refuse to break it |
 | `behaviour` | Do switches, tabs, filters and steppers work — with the script, without it, and identically on both surfaces. And does a state decided by what somebody types follow them as they type, put itself back when they clear the field, and land on the declared fallback when nothing is running |
-| `conditions` | Does each of the eleven condition shapes actually change what a visitor sees — measured on one element either side of the state, so a rule that always applied would fail as loudly as one that never did. Seven of them had no control in the panel until `X1`: every `control` pseudo-class, `:active`, plain `:focus`, and the attribute test. And can a designer reach them — the When… menu is driven for real, offering "Ticked" on a checkbox and withholding it from a `div`, where it would compile to a selector that can never match |
+| `conditions` | Does each of the eleven condition shapes actually change what a visitor sees — and does an "any of these" apply on both of its branches **and not when neither holds**, which is the only reading that tells an OR apart from a selector that matches everything — measured on one element either side of the state, so a rule that always applied would fail as loudly as one that never did. Seven of them had no control in the panel until `X1`: every `control` pseudo-class, `:active`, plain `:focus`, and the attribute test. And can a designer reach them — the When… menu is driven for real, offering "Ticked" on a checkbox and withholding it from a `div`, where it would compile to a selector that can never match |
 | `data` | Is a condition on the visit resolved before the first paint, and coherent with no scripting at all |
 | `press` | Does an element arrive as you scroll to it — and stay visible for a browser that cannot animate it, a visitor who asked for less motion, and a page too short to scroll. Does a jump land on its section, and does a copy reach the clipboard and say so |
 | `repeat` | Does a bound list draw the same rows on the canvas and in the file, with no script and no extra rule as records are added — and does a price stored as `1250000` read as `$1,250,000.00` on both surfaces, formatted by the publisher rather than by a script. And does a record put its own row into its own state — `price > 1000000 → premium` — the same answer on the canvas and in the file, one rule in the stylesheet, no script. And does a price mapped onto an opacity reach both surfaces as the same number on every row |

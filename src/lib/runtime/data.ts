@@ -35,6 +35,7 @@
  * source, however obviously useful it looks.
  */
 
+import { eachCondition } from '../document/when';
 import type { ProjectSettings, SceneNode } from '../document/types';
 
 /** One token list on `<html>`, `source:value` per entry, matched with `~=`. */
@@ -107,9 +108,13 @@ export function collectDataSources(
   const found = new Set<string>();
   for (const id of ids) {
     for (const rule of nodes[id]?.rules ?? []) {
-      for (const condition of rule.when) {
+      // Every condition, however deep. This decides whether the page carries
+      // the resolver script at all, so a source buried inside an "any of
+      // these" that this walk missed would publish a page whose rule can
+      // never come true.
+      eachCondition(rule.when, (condition) => {
         if (condition.kind === 'data' && condition.source) found.add(condition.source);
-      }
+      });
     }
   }
   return found;

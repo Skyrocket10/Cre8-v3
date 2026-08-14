@@ -23,6 +23,7 @@
 
 import { BREAKPOINT_DEFS, type Breakpoint } from '../document/types';
 import { ELEMENTS, getElement } from '../document/schema';
+import { eachCondition } from '../document/when';
 import { describeElement } from '../renderer/element-model';
 import { BLOCKS, type BlockDefinition } from '../templates/blocks';
 import type { ThemeScaleGroup } from '../document/operations';
@@ -156,7 +157,12 @@ function activeRuleName(store: EditorStore): string | undefined {
   const node = store.selection[0] ? store.doc.nodes[store.selection[0]] : undefined;
   const rule = node?.rules?.find((r) => r.id === store.activeRuleId);
   if (!rule) return undefined;
-  return rule.part ? `::${rule.part}` : (rule.when?.[0]?.kind ?? 'this state');
+  if (rule.part) return `::${rule.part}`;
+  let first: string | undefined;
+  eachCondition(rule.when, (condition) => {
+    first ??= condition.kind;
+  });
+  return first ?? 'this state';
 }
 
 /** The style subject, when there is one. Property commands are gated on it. */

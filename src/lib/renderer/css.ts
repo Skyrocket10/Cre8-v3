@@ -14,6 +14,7 @@
  */
 
 import { nodeClass, stateOwner, variantClass, variantsOf } from './variants';
+import { branchesOf } from '../document/when';
 import {
   BREAKPOINT_DEFS,
   BREAKPOINT_ORDER,
@@ -718,21 +719,56 @@ function ruleSelector(
   /** Which element the rule lands on: the node, or one of its variants. */
   className: string
 ): string | null {
-  let before = '';
-  let after = '';
-  for (const condition of rule.when) {
-    const parts = conditionParts(nodes, node, condition);
-    if (!parts) return null;
-    before += parts.prefix;
-    after += parts.compound;
-  }
+  /*
+   * One selector per way the rule can be true, joined with a comma — which is
+   * how a stylesheet has spelled OR since the beginning, and why "any of
+   * these" costs nothing new to emit.
+   *
+   * A plain AND of conditions is one branch and comes out byte-identical to
+   * what this produced when `when` was a list, which is the property the
+   * whole widening is verified against.
+   */
+  const branches = branchesOf(rule.when);
+  if (!branches) return null;
+
   const part = rule.part ? `::${rule.part}` : '';
-  return `${prefix}${before}.${className}${after}${part}`;
+  const selectors: string[] = [];
+
+  for (const conditions of branches) {
+    let before = '';
+    let after = '';
+    let usable = true;
+    for (const condition of conditions) {
+      const parts = conditionParts(nodes, node, condition);
+      // A branch naming a state nothing declares cannot be resolved, and the
+      // whole rule goes — not just that branch. Dropping one arm of an "any
+      // of these" would silently narrow what the designer asked for into
+      // something that still works, which is the harder failure to notice.
+      if (!parts) {
+        usable = false;
+        break;
+      }
+      before += parts.prefix;
+      after += parts.compound;
+    }
+    if (!usable) return null;
+    selectors.push(`${prefix}${before}.${className}${after}${part}`);
+  }
+
+  return selectors.length ? selectors.join(',\n') : null;
 }
 
-/** True when nothing about the rule depends on where the pointer is. */
+/**
+ * True when anything about the rule depends on where the pointer is.
+ *
+ * Any branch counts. A rule that applies when hovered *or* when a tab is
+ * selected is still one the canvas should suppress: half of it would light up
+ * under the cursor, which is exactly what the suppression exists to stop.
+ */
 function isInteraction(rule: StyleRule): boolean {
-  return rule.when.some((c) => c.kind === 'pointer');
+  return (branchesOf(rule.when) ?? []).some((branch) =>
+    branch.some((c) => c.kind === 'pointer')
+  );
 }
 
 /* --------------------------------------------------------------------------
