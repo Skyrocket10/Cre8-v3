@@ -163,17 +163,26 @@ element. That is strictly better and costs one interface.
 
 ### 1.8 Summary of the gap, as tasks a designer would try
 
-| | Bubble | Cre8 today |
-|---|---|---|
-| Style on hover | conditional row | ✔ |
-| Style a checked checkbox | conditional row | ✘ impossible in the panel |
-| Style a disabled or invalid control | conditional row | ✘ impossible in the panel |
-| Style when a field is over a number | conditional row | 5 steps, 2 panels, an invented name |
-| Hover **and** a tab is selected | conditional row | ✘ impossible in the panel |
-| Either of two conditions | conditional row | ✘ not in the model |
-| Press → close a menu **and** navigate | one workflow, ordered | 2 panels, no order |
-| Press → but only when signed in | "Only when" on the action | ✘ not in the model |
-| On submit → do something | workflow on the event | declared, unread |
+The right-hand column is the audit as written, before X1. The one after it is
+where each row landed, re-checked by driving the panel rather than by reading
+the code — which is how the last two were found still open. Each ✔ names the
+suite that presses the buttons.
+
+| | Bubble | Cre8 at the audit | Now |
+|---|---|---|---|
+| Style on hover | conditional row | ✔ | ✔ |
+| Style a checked checkbox | conditional row | ✘ impossible in the panel | ✔ X1 · `conditions.mjs` |
+| Style a disabled or invalid control | conditional row | ✘ impossible in the panel | ✔ X1 · `conditions.mjs` |
+| Style when a field is over a number | conditional row | 5 steps, 2 panels, an invented name | ✔ X4 · one line in the When… menu |
+| Hover **and** a tab is selected | conditional row | ✘ impossible in the panel | ✔ X11 · one press |
+| Either of two conditions | conditional row | ✘ not in the model | ✔ X11 · one press |
+| Press → close a menu **and** navigate | one workflow, ordered | 2 panels, no order | ✔ X8, ordered by X10 |
+| Press → but only when signed in | "Only when" on the action | ✘ not in the model | ✔ X7, on screen in X10 |
+| On submit → do something | workflow on the event | declared, unread | **still open** — see §4.0 |
+
+The last row is the only one left, and it is deferred rather than missed: the
+event registry has one entry, and §4.0 records why adding the second is a
+separate piece of work rather than a line in a table.
 
 ---
 
@@ -376,6 +385,7 @@ Each is independently shippable and independently falsifiable.
 | **X8** | ~~One "When pressed" list, absorbing Relative-to / Form and *naming* Link~~ — **shipped**. See §4.0.7 | X6 |
 | **X9** | ~~Prove it in a browser; correct both docs~~ — **shipped** | all |
 | **X10** | ~~"Only when" on screen~~ — **shipped**; it also found the write path below | X7, X8 |
+| **X11** | ~~Re-drive §1.8 through the panel~~ — **shipped**; two rows were still open | all |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -685,6 +695,48 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.11 And what re-driving §1.8 turned up — AND and OR behind a `return`
+
+X10 emptied the backlog, so the next thing worth doing was to take §1.8's table
+— the audit's own definition of done — and try each row *in the panel* rather
+than tick it off from the commit that closed it. Two of the nine were still
+open, and they were the two the whole condition arc was for.
+
+`testSentence` renders a leaf one of two ways. A comparison it draws itself; a
+browser condition it hands to `conditionSentence` — and then **returns**:
+
+```ts
+if (test.kind !== 'compare') {
+  parts.push(...conditionSentence({ … }));
+  return parts;                                  // ← here
+}
+…
+if (onChange && depth === 0 && seed) { …“+ and”… }   // ← never reached
+```
+
+So the affordance that turns one condition into two only ever appeared on a
+comparison, and a comparison needs a record in scope. On a page with no
+collection — most pages — adding *Pointed at* produced a sentence with nothing
+to grow it by. X1 made the shapes reachable, X2 widened `when` to a `Test`, X3
+taught the generator to compile an OR into a selector list, and the one button
+that lets a designer write either of them sat below a `return`.
+
+Nothing failed and nothing warned, for the usual reason: every check on AND and
+OR seeded the document. The group grammar was proved, the compiler was proved,
+the three-reading OR fixture was proved. What was never asked is whether the
+panel can *write* one — the same question X10's write path failed, one file
+along.
+
+The second half was smaller and in the same place: there was no `+ or`. X3 put
+OR in the model, in the generator and in this builder's group mode, and left
+the only route to *either of these* running through *both of these* and then
+the chip that changes it — three steps, the first of which writes a rule that
+means the opposite. Both words are offered now, and each is one press.
+
+> **Closing a gap in the model is not closing it in the product.** The audit
+> table is the checklist, and the only honest way to tick a row is to do the
+> thing a designer would do.
 
 ### 4.1.9 And what X10 turned up — a panel writing into a two-verb allowlist
 

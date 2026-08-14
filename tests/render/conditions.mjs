@@ -569,6 +569,70 @@ try {
       added.length === 2,
       `${added.length} checked rules — one seeded, one added`
     );
+
+    /*
+     * And the two rows of §1.8 nobody had driven: *hover **and** something* and
+     * *either of two conditions*.
+     *
+     * X1 made the shapes reachable, X2 widened the model and X3 taught the
+     * generator to compile an OR — and each of those was proved by seeding a
+     * document. Whether the panel can *write* one was never asked. The rule the
+     * menu just added is the active one, so its sentence is on screen with both
+     * words under it.
+     *
+     * Read as the rule's own `when`, because that is what the generator is
+     * handed. A panel that rendered "or" and stored `every` would look correct
+     * in a screenshot and compile to the opposite rule.
+     */
+    const panel = page.locator('aside').last();
+    const grew = panel.locator('[data-sentence] button:has-text("+ or")');
+    const ands = panel.locator('[data-sentence] button:has-text("+ and")');
+    report.check(
+      'a condition offers both words, not just \u201cand\u201d',
+      (await ands.count()) >= 1 && (await grew.count()) >= 1,
+      `${await ands.count()} and \u00b7 ${await grew.count()} or`
+    );
+    /*
+     * Clicked inside a `try` and reported outside it, so a missing affordance
+     * fails all three of these rather than failing one and skipping two. A
+     * check that quietly does not run is the thing this suite keeps finding in
+     * other people's work.
+     */
+    await grew
+      .first()
+      .click({ timeout: 2000 })
+      .catch(() => {});
+    await page.waitForTimeout(700);
+    const ored = (await getDocument(page, projectId)).nodes.chkx?.rules ?? [];
+    const either = ored.find((rule) => rule.when?.kind === 'some');
+    report.check(
+      'and \u201cor\u201d writes a rule that means either of them, in one press',
+      Boolean(either) &&
+        either.when.tests?.length === 2 &&
+        either.when.tests[0]?.kind === 'control' &&
+        either.when.tests[1]?.kind === 'pointer',
+      either ? JSON.stringify(either.when) : 'no \u201csome\u201d rule on the element'
+    );
+
+    /* And the AND, on a second rule, so neither reading is the other's leftover. */
+    const second = await offeredFor('Tickable');
+    if (second.labels.includes('Focused')) {
+      await second.menu.locator('button:has(span:text-is("Focused"))').first().click();
+      await page.waitForTimeout(700);
+    }
+    await panel
+      .locator('[data-sentence] button:has-text("+ and")')
+      .first()
+      .click({ timeout: 2000 })
+      .catch(() => {});
+    await page.waitForTimeout(700);
+    const both = (await getDocument(page, projectId)).nodes.chkx?.rules ?? [];
+    const all = both.find((rule) => rule.when?.kind === 'every');
+    report.check(
+      'and \u201cand\u201d writes a rule that means both of them',
+      Boolean(all) && all.when.tests?.length === 2,
+      all ? JSON.stringify(all.when) : 'no \u201cevery\u201d rule on the element'
+    );
   }
 
   /* ------------------------------------------------- a declared value ---- */

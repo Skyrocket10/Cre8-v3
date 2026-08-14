@@ -255,6 +255,45 @@ export function testSentence(options: {
     return parts;
   }
 
+  /*
+   * The two ways one leaf becomes two, for either kind of leaf.
+   *
+   * Built here and appended by both branches below, because it used to sit at
+   * the bottom of the function — *after* the early return that hands a browser
+   * condition to `conditionSentence`. So it only ever appeared on a comparison,
+   * and a comparison needs a record in scope. On a page with no collection,
+   * which is most pages, adding "Pointed at" produced a sentence with no way to
+   * add a second condition: X1 made the shapes reachable, X2 widened the model,
+   * X3 taught the generator to compile an OR, and the one affordance that turns
+   * one condition into two was behind a `return`. See §4.1.11.
+   */
+  const grow = (): Part[] =>
+    onChange && depth === 0 && seed
+      ? [
+          {
+            kind: 'action',
+            key: 'grow',
+            title: 'Add another condition, and both have to hold',
+            label: <span className="text-[10px]">+ and</span>,
+            onClick: () => onChange({ kind: 'every', tests: [test, seed()] }),
+          },
+          /*
+           * Both words, not just "and". X3 put OR in the model, in the
+           * generator and in this builder's group mode, and left the only route
+           * to *either of these* running through *both of these* — a rule that
+           * means the opposite of what is being written. Somebody who wants
+           * "or" knows it before they click.
+           */
+          {
+            kind: 'action',
+            key: 'grow-any',
+            title: 'Add another condition, and either will do',
+            label: <span className="text-[10px]">+ or</span>,
+            onClick: () => onChange({ kind: 'some', tests: [test, seed()] }),
+          },
+        ]
+      : [];
+
   if (test.kind !== 'compare') {
     /*
      * A browser condition inside a Test, handed to the builder that edits one.
@@ -273,7 +312,8 @@ export function testSentence(options: {
         controls: controlStates,
         onChange,
         keyPrefix: `d${depth}-`,
-      })
+      }),
+      ...grow()
     );
     return parts;
   }
@@ -393,20 +433,10 @@ export function testSentence(options: {
     }
   }
 
-  /*
-   * And the way a single condition becomes two. Offered only at the top,
-   * because inside a group the group's own "+ condition" is the way to do it
-   * and two affordances for one action is worse than either.
-   */
-  if (onChange && depth === 0 && seed) {
-    parts.push({
-      kind: 'action',
-      key: 'grow',
-      title: 'Add another condition',
-      label: <span className="text-[10px]">+ and</span>,
-      onClick: () => onChange({ kind: 'every', tests: [test, seed()] }),
-    });
-  }
+  // Offered only at the top, because inside a group the group's own
+  // "+ condition" is the way to do it and two affordances for one action is
+  // worse than either.
+  parts.push(...grow());
 
   return parts;
 }
