@@ -27,7 +27,7 @@ import {
   structuredCloneCompat,
   type NodeSpec,
 } from './factory';
-import { CLICK, stateSets } from './actions';
+import { CLICK, setPressAction, stateSets } from './actions';
 import { conditionsOf, eachCondition } from './when';
 import { stateKeyOf, stateOf } from './state';
 import { uid, slugify } from './id';
@@ -200,10 +200,7 @@ export function setScrollTarget(
   if (!node) return;
 
   if (!targetId) {
-    if (node.refs) {
-      delete node.refs.scrollTo;
-      if (!Object.keys(node.refs).length) delete node.refs;
-    }
+    setPressAction(node, 'scrollTo', null);
     return;
   }
 
@@ -211,9 +208,9 @@ export function setScrollTarget(
   if (!target) return;
   if (!anchorId(target.props.anchor)) target.props.anchor = target.name;
 
-  node.refs = { ...node.refs, scrollTo: { node: targetId } };
+  setPressAction(node, 'scrollTo', { type: 'scrollTo', ref: { node: targetId } });
   // The two ways of saying "go somewhere" cannot share one `href`, and the
-  // reference is the one just chosen.
+  // verb is the one just chosen.
   delete node.props.href;
 }
 

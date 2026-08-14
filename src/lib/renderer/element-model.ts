@@ -368,6 +368,15 @@ interface Pressed {
 /**
  * What the markup carries for this node's press, verbs first.
  *
+ * `props` is passed in rather than read off the node, and that is the one
+ * argument here worth a sentence. A node whose content varies publishes one
+ * element per case and `describeBase` hands each of them the *variant's*
+ * props — so a rule setting `href` gives the annual copy a different
+ * destination. Reading `node.props` instead quietly published the base href on
+ * every copy: both links pointed at the monthly plan, on a page that looked
+ * right in the editor. `href` being rule-settable is exactly why X8 leaves it
+ * a prop, so this is the same fact biting from the other side.
+ *
  * Two arms of `describe` used to work this out for themselves — the
  * button/link one and the plain-container one — from `refs.scrollTo`,
  * `props.href`, `refs.popover` and `props.submit`. That was already two copies
@@ -383,14 +392,18 @@ interface Pressed {
  * the designer put in the action list is the newer and more specific statement
  * of the same intent, exactly as `refs.scrollTo` already outranks `props.href`.
  */
-function pressed(node: SceneNode, record: CollectionRecord | null): Pressed {
-  const props = node.props;
+function pressed(node: SceneNode, props: NodeProps, record: CollectionRecord | null): Pressed {
   const plan = planActions(actionsFor(node), record);
 
   const goes = claimed(plan, 'href');
   const jump = goes?.type === 'scrollTo' ? goes.ref.node : (node.refs?.scrollTo?.node ?? '');
   const href =
-    goes?.type === 'navigate'
+    // A `navigate` with no `to` *names* the prop rather than replacing it.
+    // `href` is settable by a rule and bindable to a record — a destination
+    // varies per case and per row — and an action can be neither, so the verb
+    // puts the behaviour in the list and leaves the value where a rule and a
+    // binding can still reach it. See docs/INTERACTIONS.md §4.0.7.
+    goes?.type === 'navigate' && goes.to
       ? goes.to
       : jump
         ? `${NODE_HREF_PREFIX}${jump}`
@@ -855,7 +868,7 @@ function describeBase(
        * rather than on the element being a button.
        */
       const copyText = copyTextFor(node, CLICK, options.record ?? null);
-      const press = pressed(node, options.record ?? null);
+      const press = pressed(node, props, options.record ?? null);
       const tag = resolveTag(node.type, props, {
         opensPopover: Boolean(press.popover),
         scrollsTo: press.scrollsTo,
@@ -1245,7 +1258,7 @@ function describeBase(
     default: {
       // Every remaining type is a plain container: frame, section, container,
       // stack, grid, navigation.
-      const press = pressed(node, options.record ?? null);
+      const press = pressed(node, props, options.record ?? null);
       const tag = resolveTag(node.type, props, {
         scrollsTo: press.scrollsTo,
         goesTo: Boolean(press.href),

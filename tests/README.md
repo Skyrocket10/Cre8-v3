@@ -306,6 +306,17 @@ falsification that removed verbs from the tag decision entirely left every
 link-based check passing. A card has no default destination, and a link whose
 href has been cleared is the other branch.
 
+A migration is checked for what it moves *and* for what it must not. X8 folds
+"opens this panel", "jumps to this section" and "sends this form" onto verbs,
+and deliberately leaves `href` a prop — it is rule-settable and bindable, so a
+destination varies per case and per row, and an action can be neither. Both
+halves are checked on published output: the three arrive in the document as
+verbs with the older spelling gone and still reach the markup they always did,
+and a rule setting `href` still gives two cases two destinations. That last one
+failed on its first run and the defect was real — `pressed()` was reading the
+node's props rather than the variant's, so every copy of a varying link
+published the base href.
+
 An upgrade is checked for what it produces and then for who is holding it. The
 second half exists because `X5` is the first migration that *creates* a nested
 object, and that turns out to be a different kind of change: the room held raw

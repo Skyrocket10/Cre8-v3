@@ -373,7 +373,7 @@ Each is independently shippable and independently falsifiable.
 | **X5** | ~~States are declared, not scraped~~ — **shipped**; it also found the collaboration bug below | — |
 | **X6** | ~~Events become a registry; actions grow verbs~~ — **shipped**; the model and the compiler, not the panel | X5 |
 | **X7** | ~~`only` on an action~~ — **shipped**; it also found five vacuous no-script checks | X6 |
-| **X8** | One "When pressed" list, absorbing Relative-to / Form — and *naming* Link. See §4.0.7 | X6 |
+| **X8** | Absorbing Relative-to / Form, and *naming* Link — **the model is shipped**; the unified list is what remains. See §4.0.7 | X6 |
 | **X9** | Prove it in a browser; rewrite both docs | all |
 
 How each is falsified — the check that must fail against the unfixed code:
@@ -434,6 +434,22 @@ content that a rule can vary and a binding can fill. The renderer already reads
 it that way: X6's `pressed()` takes the verb's `to` when there is one and the
 prop when there is not, so this needs no new reconciliation, only the decision
 not to write `to` during the migration.
+
+**Shipped.** `migratePress` folds the three at both doors — `migrateDocument`
+for a stored document and `finishTree` for a block — and `setPressAction` is
+what the panel writes through, so the Relative-to control, `setJumpTarget` and
+the section registry's "in use" test all go to the action list. Published
+output is byte-identical: `pressed()` reads verbs first and props second, so
+nothing about the file changed. What remains of X8 is the *presentation* half —
+one list, in order, with an "only when" row per action.
+
+It cost two bugs, both mine and both older than this stage. `rewireInternalRefs`
+walked `node.refs` rather than `everyRef`, so a copied button whose jump was a
+verb kept pointing at the original section (landed separately as `a753bc4`).
+And `pressed()` read `node.props` rather than the *variant's* props, so a rule
+setting `href` published the base destination on every copy — which is exactly
+the thing this section says `href` must keep being able to do, caught by the
+check written to defend it.
 
 The falsification the plan names is unchanged and is now sharper: extend U3's
 reachability sweep, *and* assert that a rule setting `href` still varies the

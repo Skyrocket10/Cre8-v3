@@ -270,6 +270,120 @@ export function runnable(action: NodeAction): boolean {
 }
 
 /* --------------------------------------------------------------------------
+ * The absorption
+ * ----------------------------------------------------------------------- */
+
+/**
+ * What a press does, gathered into one list.
+ *
+ * "What happens when this is pressed" was stored in three shapes across four
+ * panels — a prop, two references and an action list — with no ordering
+ * between them, because there was no list they were all in. This folds the
+ * three that can move.
+ *
+ * ## Why `href` is not one of them
+ *
+ * Because it is *content*, and the two lists that say so are `SETTABLE` and
+ * `BINDABLE`. A destination varies by rule — the same button pointing
+ * somewhere else in the annual case — and binds to a record, which is how
+ * every card in a repeater links to its own post. An action cannot do either.
+ *
+ * `refs.popover`, `refs.scrollTo` and `props.submit` carry none of that, and
+ * `isSettable`'s docblock says why: structure "would make the variants
+ * different *elements* rather than the same element saying something else".
+ *
+ * So a `navigate` **names** the prop rather than replacing it. With no `to` it
+ * means *go where this element's `href` says*, which puts the destination in
+ * the list — in order, with its own `only` — while leaving the value itself
+ * where a rule and a binding can reach it.
+ *
+ * Idempotent, and recognised by shape: a node that already says a thing as a
+ * verb keeps its verb and loses the older spelling, so running this twice, or
+ * on a document half-migrated by an earlier release, changes nothing the
+ * second time.
+ */
+export function migratePress(node: SceneNode): void {
+  const already = new Set(everyAction(node).map((action) => action.type));
+  const folded: NodeAction[] = [];
+
+  const panel = node.refs?.popover?.node;
+  if (panel && !already.has('openPanel') && !already.has('closePanel')) {
+    // `popoverAction` is the older spelling of which verb it is. `hide` is a
+    // different word, not a different mode — a Close button is what it is.
+    const mode = String(node.props.popoverAction ?? 'toggle');
+    folded.push(
+      mode === 'hide'
+        ? { type: 'closePanel', ref: { node: panel } }
+        : { type: 'openPanel', ref: { node: panel }, ...(mode === 'show' ? { mode: 'show' } : {}) }
+    );
+  }
+  const jump = node.refs?.scrollTo?.node;
+  if (jump && !already.has('scrollTo')) folded.push({ type: 'scrollTo', ref: { node: jump } });
+  if (node.props.submit && !already.has('submit')) folded.push({ type: 'submit' });
+
+  if (folded.length) {
+    const others = (node.events ?? []).filter((binding) => binding.event !== CLICK);
+    const mine = [...actionsFor(node), ...folded];
+    node.events = [...others, { event: CLICK, actions: mine }];
+  }
+
+  /*
+   * The older spellings go, and that is what makes this a migration rather
+   * than a second way to say the same thing. `pressed()` reads the verb first
+   * and the prop second, so leaving them would be harmless today and would be
+   * two sources of truth the moment somebody edited one of them.
+   */
+  if (node.refs) {
+    delete node.refs.popover;
+    delete node.refs.scrollTo;
+    if (!Object.keys(node.refs).length) delete node.refs;
+  }
+  delete node.props.popoverAction;
+  delete node.props.submit;
+}
+
+/**
+ * The one action of a kind this node does when pressed, if any.
+ *
+ * Singular on purpose, for the kinds that name something: an element has one
+ * panel it opens and one section it jumps to, because it has one
+ * `popovertarget` and one `href`. `planActions` refuses a second at compile
+ * time; this is how the editor avoids writing one in the first place.
+ */
+export function pressActionOfType<T extends NodeAction['type']>(
+  node: SceneNode,
+  type: T
+): Extract<NodeAction, { type: T }> | undefined {
+  return actionsFor(node).find((action): action is Extract<NodeAction, { type: T }> =>
+    action.type === type
+  );
+}
+
+/**
+ * Replace, add or remove the one action of a kind, leaving the rest in order.
+ *
+ * The editor's half of the absorption. Every panel that used to write a prop
+ * or a reference writes through here instead, so "what happens when this is
+ * pressed" has one storage shape and the order a designer sees is the order
+ * the document holds.
+ */
+export function setPressAction(
+  node: SceneNode,
+  type: NodeAction['type'],
+  next: NodeAction | null
+): void {
+  const others = (node.events ?? []).filter((binding) => binding.event !== CLICK);
+  const kept = actionsFor(node).filter((action) => action.type !== type);
+  const actions = next ? [...kept, next] : kept;
+  if (actions.length || others.length) {
+    node.events = [...others, ...(actions.length ? [{ event: CLICK, actions }] : [])];
+    if (!node.events.length) delete node.events;
+  } else {
+    delete node.events;
+  }
+}
+
+/* --------------------------------------------------------------------------
  * "…but only when"
  * ----------------------------------------------------------------------- */
 

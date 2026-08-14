@@ -8,7 +8,7 @@
  * is safe to run twice.
  */
 
-import { clickBinding } from './actions';
+import { clickBinding, migratePress } from './actions';
 import { uid } from './id';
 import { readLegacyVisibility, slug } from './schema';
 import { LEGACY_STATE_PROPS, declarationFrom } from './state';
@@ -229,6 +229,9 @@ export function migrateActions(node: SceneNode): void {
 function migrateNode(node: SceneNode): void {
   migrateBindings(node);
   migrateRefs(node);
+  // After `migrateRefs`, which is what turns `popoverTarget` into a reference
+  // — the absorption reads references, so it has to run on the newer spelling.
+  migratePress(node);
   migrateDeclarations(node);
 
   const legacy = (node as SceneNode & { states?: StateStyles }).states;

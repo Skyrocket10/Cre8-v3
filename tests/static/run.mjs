@@ -528,7 +528,7 @@ function checkPopoverResolves(spec) {
   buildTree(spec, nodes);
   const bad = [];
   for (const node of Object.values(nodes)) {
-    const target = node.refs?.popover?.node;
+    const target = opensOf(node);
     if (!target) continue;
     const panel = nodes[target];
     if (!panel) bad.push(`${node.name}: opens a node that is not in the tree`);
@@ -1657,7 +1657,7 @@ report.group('a reference is a thing the document knows about');
 
   report.check(
     'a name in a spec becomes an id in the document',
-    button.refs?.popover?.node === panel.id,
+    opensOf(button) === panel.id,
     JSON.stringify(button.refs)
   );
   report.check(
@@ -1690,7 +1690,7 @@ report.group('a reference is a thing the document knows about');
   );
   report.check(
     'and the button still opens it',
-    button.refs?.popover?.node === panel.id,
+    opensOf(button) === panel.id,
     'the two slots are independent'
   );
   report.check(
@@ -1706,7 +1706,7 @@ report.group('a reference is a thing the document knows about');
     ops.removeNodes(d2, [p2.id]);
     report.check(
       'deleting a panel clears the reference to it',
-      !b2.refs?.popover,
+      !opensOf(b2),
       // The bug this whole primitive is for: the button used to keep an id
       // that was no longer in the document and silently stop working.
       b2.refs ? JSON.stringify(b2.refs) : 'nothing left pointing at a ghost'
@@ -1727,9 +1727,9 @@ report.group('a reference is a thing the document knows about');
     const inside = collectSubtreeNames(d3, copies[0]);
     report.check(
       'a copied button opens the copied panel, not the original',
-      inside.button?.refs?.popover?.node === inside.panel?.id &&
+      opensOf(inside.button) === inside.panel?.id &&
         inside.panel?.id !== p3.id,
-      inside.button?.refs?.popover?.node === p3.id
+      opensOf(inside.button) === p3.id
         ? 'both copies open the first panel'
         : 'rewired to its own'
     );
@@ -1823,7 +1823,7 @@ report.group('a reference is a thing the document knows about');
     migrateDocument(old);
     report.check(
       'a project saved before this opens with its wiring intact',
-      old.nodes[rootId].refs?.popover?.node === page.rootNodeId &&
+      opensOf(old.nodes[rootId]) === page.rootNodeId &&
         old.nodes[rootId].props.popoverTarget === undefined,
       JSON.stringify(old.nodes[rootId].refs ?? null)
     );
@@ -1955,7 +1955,7 @@ report.group('a reference is a thing the document knows about');
     (() => {
       const { doc: d4, button: b4, panel: p4 } = wired();
       pruneRefs(d4.nodes);
-      return b4.refs?.popover?.node === p4.id;
+      return opensOf(b4) === p4.id;
     })(),
     'a live reference survives a prune'
   );
@@ -1963,15 +1963,33 @@ report.group('a reference is a thing the document knows about');
     'and it would notice one that is',
     (() => {
       const { doc: d5, button: b5 } = wired();
-      b5.refs.popover = { node: 'a-node-that-was-never-here' };
+      actionLib.setPressAction(b5, 'openPanel', { type: 'openPanel', ref: { node: 'a-node-that-was-never-here' } });
       pruneRefs(d5.nodes);
-      return !b5.refs?.popover;
+      return !opensOf(b5);
     })(),
     'the half of the rule that could quietly do nothing'
   );
 }
 
 /** The button and panel inside a copied subtree, by name. */
+/**
+ * What a *built* node opens, and what it jumps to.
+ *
+ * X8 moved both onto verbs, so a check that reads `refs.popover` on a document
+ * is reading the authoring shorthand after it has been folded away. A spec
+ * still writes `refs: { popover: 'Menu' }` and the checks that walk specs still
+ * read it there — these two are only for nodes that have been through
+ * `buildTree` or `hydrateDocument`.
+ */
+function opensOf(node) {
+  const list = (node?.events ?? []).flatMap((b) => b.actions);
+  return list.find((a) => a.type === 'openPanel' || a.type === 'closePanel')?.ref?.node || '';
+}
+function jumpOf(node) {
+  const list = (node?.events ?? []).flatMap((b) => b.actions);
+  return list.find((a) => a.type === 'scrollTo')?.ref?.node || '';
+}
+
 function collectSubtreeNames(doc, rootId) {
   const out = {};
   const stack = [rootId];
@@ -9945,12 +9963,12 @@ report.group('a reference never resolves to the thing making it');
 
   report.check(
     'a link named after its target reaches the target, not itself',
-    Boolean(link) && Boolean(band) && link.refs?.scrollTo?.node === band.id,
+    Boolean(link) && Boolean(band) && jumpOf(link) === band.id,
     // Pointing at itself is the failure; having no reference at all is the
     // second-best outcome and still wrong, so both are named.
-    link?.refs?.scrollTo?.node === link?.id
+    jumpOf(link) === link?.id
       ? 'it resolved to itself'
-      : link?.refs?.scrollTo
+      : jumpOf(link)
         ? 'it reached the section'
         : 'the reference was dropped entirely'
   );
@@ -10986,7 +11004,7 @@ report.group('what a press does');
   ops.setScrollTarget(doc, button.id, band.id);
   report.check(
     'pointing a control at one names it, so there is an id to land on',
-    button.refs?.scrollTo?.node === band.id && anchorId(band.props.anchor) === 'pricing-table',
+    jumpOf(button) === band.id && anchorId(band.props.anchor) === 'pricing-table',
     // A fragment can only point at an `id`, and the id is minted from the
     // anchor name — so a target without one is a jump that resolves to nothing.
     JSON.stringify({ ref: button.refs?.scrollTo?.node === band.id, anchor: band.props.anchor })
@@ -12196,6 +12214,90 @@ report.group('every verb compiles to the most native thing available');
     'and a verb with nothing native behind it still ships the runtime',
     scriptIn(copies.html) > 0 && runsScript(copies.node),
     `${scriptIn(copies.html)} bytes for a copy`
+  );
+
+  /* --- what the absorption moved, and what it did not --------------------- */
+
+  /*
+   * Three of the four spellings fold onto verbs. The fourth does not, and this
+   * is the check that says why rather than the docblock.
+   *
+   * `href` is `SETTABLE` and `BINDABLE`: a destination varies by rule — the
+   * same button pointing elsewhere in the annual case — and binds to a record.
+   * A migration that folded it into `navigate.to` would pass every
+   * reachability check ever written, because the field stays reachable; it
+   * would just quietly stop varying. So the claim is made on the *output*: two
+   * cases, two hrefs, from one node whose press is authored as a verb.
+   */
+  const varied = linkPage({
+    type: 'frame',
+    name: 'Plans',
+    props: { switchKey: 'billing', switchDefault: 'monthly' },
+    children: [
+      {
+        type: 'link',
+        name: 'Buy',
+        props: { text: 'Buy', href: '/buy/monthly' },
+        events: [{ event: 'onClick', actions: [{ type: 'navigate' }] }],
+        rules: [
+          {
+            id: 'rulhref01',
+            when: [{ kind: 'state', key: 'billing', op: 'is', values: ['annual'] }],
+            // `apply` alongside `set`, because a content-only rule still goes
+            // through the stylesheet generator and it reads the styles first.
+            apply: {},
+            set: { href: '/buy/annual' },
+          },
+        ],
+      },
+    ],
+  });
+  const destinations = [...varied.html.matchAll(/href="(\/buy\/[^"]*)"/g)].map((m) => m[1]);
+  report.check(
+    'a rule still varies the destination of a node whose press is a verb',
+    destinations.includes('/buy/monthly') && destinations.includes('/buy/annual'),
+    destinations.join(' · ') || 'only one destination in the file'
+  );
+
+  /*
+   * And the three that did move, read off a built document rather than off the
+   * function that moved them: `finishTree` folds a block's `refs` and
+   * `props.submit`, so what a spec writes and what the document holds are two
+   * different shapes and only the second one is what everything downstream
+   * reads.
+   */
+  const absorbed = linkPage({
+    type: 'form',
+    name: 'Shell',
+    children: [
+      { type: 'popover', name: 'Menu', props: {} },
+      { type: 'section', name: 'Features', props: { anchor: 'features' } },
+      {
+        type: 'button',
+        name: 'Open',
+        props: { label: 'Open' },
+        refs: { popover: 'Menu' },
+      },
+      { type: 'button', name: 'Send', props: { label: 'Send', submit: true } },
+    ],
+  });
+  const kids = absorbed.node.children.map((id) => absorbed.doc.nodes[id]);
+  const opener = kids.find((n) => n.name === 'Open');
+  const sender = kids.find((n) => n.name === 'Send');
+  const verbs = (node) => (node?.events ?? []).flatMap((b) => b.actions).map((a) => a.type);
+  report.check(
+    'a block’s panel and submit arrive in the document as verbs, with the older spelling gone',
+    verbs(opener).includes('openPanel') &&
+      !opener?.refs?.popover &&
+      verbs(sender).includes('submit') &&
+      sender?.props.submit === undefined,
+    `Open → ${verbs(opener).join(' ') || 'nothing'} (refs ${JSON.stringify(opener?.refs ?? null)}) · Send → ${verbs(sender).join(' ') || 'nothing'}`
+  );
+  report.check(
+    'and both still reach the markup they always did',
+    /<button[^>]*popovertarget="/.test(absorbed.html) &&
+      /<button[^>]*type="submit"/.test(absorbed.html),
+    `${/popovertarget="[^"]*"/.exec(absorbed.html)?.[0] ?? 'no popovertarget'} · ${/<button[^>]*type="submit"/.test(absorbed.html) ? 'type="submit"' : 'no submit'}`
   );
 
   /* --- One carrier, one claim --------------------------------------------- */

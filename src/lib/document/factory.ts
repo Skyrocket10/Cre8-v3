@@ -8,7 +8,7 @@
  */
 
 import { uid } from './id';
-import { everyAction } from './actions';
+import { everyAction, migratePress } from './actions';
 import { asTest } from './when';
 import { LEGACY_STATE_PROPS, declarationFrom } from './state';
 import { bindingFrom, migrateActions, migrateDocument, rulesFromLegacy } from './migrate';
@@ -180,6 +180,12 @@ export function finishTree(nodes: NodeMap): void {
   resolveRefs(nodes);
   defaultAnchors(nodes);
   foldStates(nodes);
+  /*
+   * Last, and after `resolveRefs`: a block writes `refs: { popover: 'Menu' }`
+   * as a *name*, and the absorption moves a reference — so it has to see the
+   * resolved id or it would fold a name that no longer means anything.
+   */
+  for (const node of Object.values(nodes)) migratePress(node);
 }
 
 /**

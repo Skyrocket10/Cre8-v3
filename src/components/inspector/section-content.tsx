@@ -28,12 +28,12 @@ import {
   slug,
 } from '@/lib/document/schema';
 import { stateOf, valuesOf } from '@/lib/document/state';
+import { pressActionOfType, setPressAction } from '@/lib/document/actions';
 import type {
   Asset,
   ElementType,
   NodeAction,
   StateDecl,
-  RefSlot,
   StyleDecl,
   StyleProp,
 } from '@/lib/document/types';
@@ -332,19 +332,33 @@ function useInsideForm(): boolean {
  * is neither, and giving it its own verb is what stops the next one being
  * spelled a third way.
  */
-function useSetRef() {
-  return React.useCallback((nodeId: string, slot: RefSlot, target: string | null) => {
-    useEditor.getState().transact(target ? 'Point at element' : 'Clear reference', (draft) => {
+/**
+ * Write "this opens that panel" as the verb that says it.
+ *
+ * One callback for both halves of the control, because they are one decision:
+ * which panel, and which of the three things to do to it. Splitting them would
+ * mean the mode row writing an action with no target while the select is
+ * mid-change, which is a moment of document nobody meant.
+ */
+function usePanelAction() {
+  return React.useCallback((nodeId: string, target: string | null, mode: string) => {
+    useEditor.getState().transact(target ? 'Point at a panel' : 'Open nothing', (draft) => {
       const node = draft.nodes[nodeId];
       if (!node) return;
-      if (target) node.refs = { ...node.refs, [slot]: { node: target } };
-      else if (node.refs) {
-        delete node.refs[slot];
-        if (!Object.keys(node.refs).length) delete node.refs;
-      }
+      setPressAction(node, 'openPanel', null);
+      setPressAction(node, 'closePanel', null);
+      if (!target) return;
+      setPressAction(
+        node,
+        mode === 'hide' ? 'closePanel' : 'openPanel',
+        mode === 'hide'
+          ? { type: 'closePanel', ref: { node: target } }
+          : { type: 'openPanel', ref: { node: target }, ...(mode === 'show' ? { mode: 'show' } : {}) }
+      );
     });
   }, []);
 }
+
 
 /** Every named anchor under the root being edited. */
 function useAnchors(): { id: string; name: string; anchor: string }[] {
@@ -1046,7 +1060,11 @@ function useAnchorCandidates(): { id: string; name: string; hint?: string }[] {
     const panelId = s.selection[0];
     if (!rootId || !panelId) return '';
     const inside = new Set(collectSubtree(s.doc.nodes, panelId));
-    const opener = Object.values(s.doc.nodes).find((n) => n.refs?.popover?.node === panelId)?.id;
+    // The reverse lookup, off the verb. Same reason as everywhere else: the
+    // slot is the authoring shorthand and the document holds the action.
+    const opener = Object.values(s.doc.nodes).find(
+      (n) => pressActionOfType(n, 'openPanel')?.ref.node === panelId
+    )?.id;
     return collectSubtree(s.doc.nodes, rootId)
       .filter((id) => !inside.has(id))
       .map((id) => s.doc.nodes[id])
@@ -1123,10 +1141,27 @@ function PopoverTargetRows() {
   const nodeId = useEditor((s) => s.selection[0]);
   const current = useEditor((s) => {
     const id = s.selection[0];
-    return (id && s.doc.nodes[id]?.refs?.popover?.node) || '';
+    const node = id ? s.doc.nodes[id] : undefined;
+    const opens = node && pressActionOfType(node, 'openPanel');
+    const shuts = node && pressActionOfType(node, 'closePanel');
+    return (opens ?? shuts)?.ref.node || '';
   });
-  const setRef = useSetRef();
-  const action = useNodeProp('popoverAction');
+  /*
+   * Which of the three it is, read off the verb rather than off a prop.
+   *
+   * `openPanel` and `closePanel` are different verbs, and `mode` separates
+   * the first into toggle and show — so the three buttons this control offers
+   * are two verbs and a flag, not one prop with three values. X8's absorption
+   * is what moved them; the control looks the same.
+   */
+  const mode = useEditor((s) => {
+    const id = s.selection[0];
+    const node = id ? s.doc.nodes[id] : undefined;
+    if (!node) return 'toggle';
+    if (pressActionOfType(node, 'closePanel')) return 'hide';
+    return pressActionOfType(node, 'openPanel')?.mode ?? 'toggle';
+  });
+  const setPanel = usePanelAction();
   const href = useNodeProp('href');
   const popovers = usePopovers();
 
@@ -1139,9 +1174,8 @@ function PopoverTargetRows() {
           className="flex-1"
           value={current}
           onChange={(value) => {
-            setRef(nodeId, 'popover', value || null);
+            setPanel(nodeId, value || null, mode);
             if (value) href.set(undefined);
-            else action.set(undefined);
           }}
           options={[
             { value: '', label: 'Nothing' },
@@ -1153,8 +1187,8 @@ function PopoverTargetRows() {
         <StyleRow label="Action">
           <Segmented
             full
-            value={String(action.value ?? 'toggle')}
-            onChange={(value) => action.set(value === 'toggle' ? undefined : value)}
+            value={mode}
+            onChange={(value) => setPanel(nodeId, current, value)}
             options={[
               { value: 'toggle', label: 'Toggle' },
               { value: 'show', label: 'Open' },
@@ -2222,7 +2256,14 @@ function Destination() {
    * new one. A fragment is a *name*, and a name goes stale the moment somebody
    * renames the section: silently, into a link that scrolls nowhere.
    */
-  const jumpsTo = useEditor((s) => (nodeId ? (s.doc.nodes[nodeId]?.refs?.scrollTo?.node ?? '') : ''));
+  // Off the verb, not the slot: X8 moved the jump into the action list, so a
+  // control reading `refs.scrollTo` on a live document reads the authoring
+  // shorthand after it has been folded away — and the panel then offered a URL
+  // field beside a jump, which are the two things that cannot share one href.
+  const jumpsTo = useEditor((s) => {
+    const node = nodeId ? s.doc.nodes[nodeId] : undefined;
+    return (node && pressActionOfType(node, 'scrollTo')?.ref.node) || '';
+  });
   const jumpTargets = useJumpTargets();
   /*
    * Picking Section before a target is chosen writes nothing, so the choice is
@@ -2352,7 +2393,10 @@ function LinkContent({
   const label = useNodeProp(labelProp);
   const opensAPopover = useEditor((s) => {
     const id = s.selection[0];
-    return Boolean(id && s.doc.nodes[id]?.refs?.popover);
+    const node = id ? s.doc.nodes[id] : undefined;
+    return Boolean(
+      node && (pressActionOfType(node, 'openPanel') || pressActionOfType(node, 'closePanel'))
+    );
   });
   /*
    * Children replace the label rather than sitting beside it — both renderers

@@ -26,6 +26,7 @@ import { STYLE_VOCABULARY, type StyleSection } from '@/lib/document/style-vocabu
 import { getElement, type ElementDefinition } from '@/lib/document/schema';
 import type { Cre8Document, ElementType, SceneNode, StyleProp } from '@/lib/document/types';
 import { danglingReads } from '@/lib/document/factory';
+import { pressActionOfType } from '@/lib/document/actions';
 import { stateKeyOf } from '@/lib/document/state';
 import { collectionInScope } from './section-data';
 import { hasOwnContent } from './section-content';
@@ -159,7 +160,11 @@ export const SECTIONS: SectionSpec[] = [
     hint: 'Make the whole box clickable — go somewhere, or open a panel',
     props: [],
     applies: (_node, ctx) => LAYOUT_BOXES.includes(ctx.def.type),
-    used: (node) => Boolean(node.props.href) || Boolean(node.refs?.popover),
+    // The panel is now a verb rather than a reference — X8's absorption — so
+    // "in use" asks the action list. `href` stays a prop and stays here.
+    used: (node) =>
+      Boolean(node.props.href) ||
+      Boolean(pressActionOfType(node, 'openPanel') || pressActionOfType(node, 'closePanel')),
   },
   {
     id: 'semantics',
