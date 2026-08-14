@@ -396,6 +396,7 @@ Each is independently shippable and independently falsifiable.
 | **X16** | ~~Look at the one thing left unseen~~ — **shipped**; “+ or” wrote *pointed at or pointed at* | X11, X14 |
 | **X17** | ~~A condition on the visit can be about something other than the time~~ — **shipped**; and it is how a form says thank you | X1 |
 | **X18** | ~~Check the claim X17 broke, not a proxy for it~~ — **shipped**; five kinds, no frozen operands | X17 |
+| **X19** | ~~Look at the canvas, not the panel~~ — **shipped**; panning had no bottom | — |
 
 How each is falsified — the check that must fail against the unfixed code:
 
@@ -705,6 +706,47 @@ The panel is untouched. X8 is where the verbs become authorable and where
 them — which is why the compiler reads verbs first and the older spellings
 second, and why every existing document still publishes byte-for-byte what it
 published before.
+
+### 4.1.25 And what looking at the canvas turned up — panning had no bottom
+
+Nine stages of this arc were spent in the inspector, and the first standing
+constraint of the project is that *the canvas is the product*. So: open a real
+template, scroll, and look.
+
+Two seconds of momentum scrolling put the page out of sight. Measured rather
+than eyeballed, because "I scrolled past the end" and "the frame stopped
+rendering" look identical:
+
+| | frame top |
+|---|---|
+| at rest | 84 |
+| after 12,000px | −11,916 |
+| after 112,000px | −111,916 |
+
+Exactly the distance scrolled, every time — no bound at all. And no scrolling
+ancestor: `scrollTop` and `scrollHeight` come back `null`, because the canvas
+pans by **transform**. That is the whole of it. A scroll container stops at the
+end of its content and shows a scrollbar saying where you are; a transform does
+neither, and `setPan` took whatever it was handed. A designer who flicks a
+trackpad ends up in an empty grid with no page, no scrollbar, and nothing
+indicating which way is back.
+
+The bound is a strip rather than the frame's edges — 96px — because a page is
+taller than the viewport and the bottom of it has to be reachable. Fit-to-view
+is deliberately not clamped: it computes a position rather than accepting one,
+and it is the way back.
+
+Checked in `editor-perf`, which is the suite that "fails only on what would be
+a bug at any speed", on the tallest document there is — so the legitimate range
+is at its widest and a clamp that was too tight shows up there first. All four
+directions, because the failure is not *that* it stops but *where*: a clamp
+that pinned the frame in place would satisfy a check that only scrolled one
+way.
+
+Falsified by removing the clamp: `down -143916..-128360`.
+
+> **Nine stages in a 288px panel is nine stages not spent on the thing the
+> panel is for.** This took one screenshot and one measurement.
 
 ### 4.1.23 And the check that should have caught X17
 

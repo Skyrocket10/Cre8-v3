@@ -287,6 +287,61 @@ try {
     `${rows} rows for ${total} nodes`
   );
 
+  /* ------------------------------------------- 8b. panning has a bottom ---- */
+
+  /*
+   * A bug at any speed, which is what this suite fails on.
+   *
+   * The canvas pans by transform, so there is no scroll container to stop at
+   * the end of the content and no scrollbar to say how far out you are. Two
+   * seconds of momentum scrolling used to leave the frame at `top: -111916` —
+   * an empty grid with no indication of which way is back. Measured on this
+   * suite's document because it is the tallest one there is, so the legitimate
+   * range is at its widest and a clamp that was too tight would show up here
+   * first.
+   *
+   * Both directions and both axes: the failure is not "it stops" but "it stops
+   * in the right place", and a clamp that pinned the frame would pass a check
+   * that only scrolled one way.
+   */
+  const seat = async (dx, dy, times) => {
+    await page.mouse.move(700, 500);
+    for (let i = 0; i < times; i++) {
+      await page.mouse.wheel(dx, dy);
+      await page.waitForTimeout(40);
+    }
+    return page.evaluate(() => {
+      const frame = document.querySelector('.cre8-frame');
+      const box = frame?.getBoundingClientRect();
+      return box
+        ? {
+            top: Math.round(box.top),
+            bottom: Math.round(box.bottom),
+            left: Math.round(box.left),
+            right: Math.round(box.right),
+          }
+        : null;
+    });
+  };
+
+  const window0 = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
+  const down = await seat(0, 6000, 24);
+  const up = await seat(0, -6000, 40);
+  const right = await seat(6000, 0, 24);
+  const left = await seat(-6000, 0, 40);
+  const onScreen = [down, up, right, left].filter(
+    (at) => at && at.bottom > 0 && at.top < window0.h && at.right > 0 && at.left < window0.w
+  );
+  report.check(
+    'panning stops while some of the page is still on screen, in all four directions',
+    onScreen.length === 4,
+    [down, up, right, left]
+      .map((at, i) =>
+        at ? `${['down', 'up', 'right', 'left'][i]} ${at.top}..${at.bottom}/${at.left}..${at.right}` : 'no frame'
+      )
+      .join(' · ')
+  );
+
   /* ------------------------------------------------------- 9. memory, roughly */
 
   const heap = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);

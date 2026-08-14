@@ -37,6 +37,13 @@ import { Rulers } from './rulers';
 import { CanvasEmptyState } from './empty-state';
 
 const FIT_PADDING = 72;
+/**
+ * How much of the page stays on screen however far you pan.
+ *
+ * Enough to see and to grab — a sliver would satisfy the rule and still leave
+ * somebody hunting for the page they were editing.
+ */
+const PAN_KEEP = 96;
 const DRAG_THRESHOLD = 4;
 
 /**
@@ -298,6 +305,36 @@ export function Canvas() {
     store.setPan({ x: (width - frameWidth * nextZoom) / 2, y: 40 });
   }, [fitRequest, frameWidth]);
 
+  /* --- Panning has a bottom, and a top ------------------------------------ */
+
+  /*
+   * Keep a strip of the page on screen, whatever the gesture.
+   *
+   * The canvas pans by transform rather than by scrolling, so there is no
+   * scrollbar and no scroll container to stop at the end of the content —
+   * `setPan` took whatever it was handed. Two seconds of momentum scrolling
+   * put the frame at `top: -111916`: an empty grid, no indication of which way
+   * is back, and no scrollbar to say how far out you are, because the usual
+   * affordance is exactly what a transform does not have.
+   *
+   * The bound is a strip rather than the frame's edges, because a page is
+   * taller than the viewport and a designer must be able to reach the bottom
+   * of it — so the frame may leave, as long as some of it is still showing.
+   * Fit-to-view is not clamped: it computes a position rather than accepting
+   * one, and it is the way back.
+   */
+  const held = useCallback((next: { x: number; y: number }) => {
+    const viewport = viewportRef.current;
+    const frame = viewport?.querySelector('.cre8-frame');
+    if (!viewport || !frame) return next;
+    const view = viewport.getBoundingClientRect();
+    const box = frame.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(next.x, PAN_KEEP - box.width), view.width - PAN_KEEP),
+      y: Math.min(Math.max(next.y, PAN_KEEP - box.height), view.height - PAN_KEEP),
+    };
+  }, []);
+
   /* --- Wheel: pan by default, zoom with the modifier ---------------------- */
 
   useEffect(() => {
@@ -322,7 +359,7 @@ export function Canvas() {
         });
         store.setZoom(next);
       } else {
-        store.setPan({ x: store.pan.x - e.deltaX, y: store.pan.y - e.deltaY });
+        store.setPan(held({ x: store.pan.x - e.deltaX, y: store.pan.y - e.deltaY }));
       }
     };
 
@@ -397,10 +434,12 @@ export function Canvas() {
     const current = gesture.current;
 
     if (current?.kind === 'pan') {
-      store.setPan({
-        x: store.pan.x + (e.clientX - current.lastX),
-        y: store.pan.y + (e.clientY - current.lastY),
-      });
+      store.setPan(
+        held({
+          x: store.pan.x + (e.clientX - current.lastX),
+          y: store.pan.y + (e.clientY - current.lastY),
+        })
+      );
       current.lastX = e.clientX;
       current.lastY = e.clientY;
       return;
