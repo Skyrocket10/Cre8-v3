@@ -667,12 +667,26 @@ function copySubtree(
  * reference would have been silently wrong in every copy.
  */
 function rewireInternalRefs(nodes: NodeMap, remap: Map<NodeId, NodeId>): void {
-  for (const id of remap.values()) {
-    const node = nodes[id];
-    for (const [slot, ref] of Object.entries(node?.refs ?? {})) {
-      const moved = ref && remap.get(ref.node);
-      if (moved) node!.refs![slot as RefSlot] = { node: moved };
-    }
+  /*
+   * Through `everyRef`, so a copy points at the copy whichever way the
+   * reference is spelled.
+   *
+   * This walked `node.refs` for itself, which was right while a slot was the
+   * only place a reference lived. X6 gave `scrollTo` and `openPanel` a second
+   * spelling — an action holding a `Ref` — and taught `everyRef` to yield it,
+   * but this was not asking `everyRef`. So a duplicated button whose jump was
+   * authored as a verb kept pointing at the *original* section, which is
+   * exactly the bug the map exists to prevent, one field along.
+   *
+   * Edited in place rather than reassigned: the generator hands back the
+   * object the document holds, and an action's reference has no slot to
+   * assign to.
+   */
+  const copied = new Set(remap.values());
+  for (const { node, ref } of everyRef(nodes)) {
+    if (!copied.has(node.id)) continue;
+    const moved = remap.get(ref.node);
+    if (moved) ref.node = moved;
   }
 }
 

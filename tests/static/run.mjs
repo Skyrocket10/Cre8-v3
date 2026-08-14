@@ -1733,6 +1733,75 @@ report.group('a reference is a thing the document knows about');
         ? 'both copies open the first panel'
         : 'rewired to its own'
     );
+
+    /*
+     * And the same claim with the reference spelled the other way.
+     *
+     * X6 gave `scrollTo` and `openPanel` a second home — an action holding a
+     * `Ref` — and taught `everyRef` to yield it, because the whole argument
+     * for a reference map is that references are enumerable. `rewireInternalRefs`
+     * was not asking `everyRef`; it walked `node.refs` for itself. So a
+     * duplicated button whose jump was authored as a verb kept pointing at the
+     * *original* section: the copy looked right in the layer tree, published a
+     * working link, and sent the visitor to the wrong place.
+     *
+     * Built through the real spec path and duplicated through the real
+     * operation, because the claim is about what those two do together — a
+     * hand-made pair of nodes would only prove the rewiring function agrees
+     * with itself.
+     */
+    const doc4 = createEmptyDocument('Jumps');
+    const page4 = doc4.pages[0];
+    const { rootId: barId } = buildTree(
+      {
+        type: 'frame',
+        name: 'Bar',
+        children: [
+          { type: 'section', name: 'Features', props: { anchor: 'features' } },
+          {
+            type: 'button',
+            name: 'Down',
+            props: { label: 'Down' },
+            events: [
+              { event: 'onClick', actions: [{ type: 'scrollTo', ref: namedRef('Features') }] },
+            ],
+          },
+        ],
+      },
+      doc4.nodes,
+      page4.rootNodeId
+    );
+    doc4.nodes[page4.rootNodeId].children.push(barId);
+
+    // A local walker: `collectSubtreeNames` only knows the two names the
+    // popover fixture above uses, and widening it would make that check's
+    // reading depend on this one's fixture.
+    const byName = (rootId) => {
+      const out = {};
+      const stack = [rootId];
+      while (stack.length) {
+        const node = doc4.nodes[stack.pop()];
+        if (!node) continue;
+        out[node.name] = node;
+        stack.push(...node.children);
+      }
+      return out;
+    };
+    const original = byName(barId);
+    const copyId = ops.duplicateNodes(doc4, [barId])[0];
+    const copy = byName(copyId);
+    const jumpOf = (node) =>
+      (node?.events ?? []).flatMap((b) => b.actions).find((a) => a.type === 'scrollTo')?.ref.node;
+
+    report.check(
+      'and a copied jump lands in the copy, when the reference is a verb',
+      Boolean(jumpOf(copy.Down)) &&
+        jumpOf(copy.Down) === copy.Features?.id &&
+        copy.Features?.id !== original.Features?.id,
+      jumpOf(copy.Down) === original.Features?.id
+        ? 'the copy jumps to the original section'
+        : `copy → ${jumpOf(copy.Down) ?? 'nowhere'}, original → ${jumpOf(original.Down) ?? 'nowhere'}`
+    );
   }
 
   /* ------------------------------------------------------------- migration */
