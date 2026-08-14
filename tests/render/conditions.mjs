@@ -633,6 +633,92 @@ try {
     }
   }
 
+  /* ------------------------------------------- one list, in the order it runs */
+
+  /*
+   * X9's half of X8: the unified "When pressed" list, on screen.
+   *
+   * The claim is not that the section renders. It is that *two different kinds
+   * of behaviour* on one control appear as two rows, in the order they run —
+   * which is the thing five storage shapes across four panels made impossible,
+   * and the reason the old section showed a `setState` and nothing else.
+   *
+   * The list is seeded rather than clicked together. Driving the add menu
+   * would be driving `Select`, which is this app's own component rather than a
+   * native one, and what that would measure is the component. That the menu is
+   * generated from the verb table — so it cannot fall behind the compiler — is
+   * a claim about two tables agreeing, and the static suite makes it.
+   */
+  {
+    const before = await getDocument(page, projectId);
+    before.nodes.btna2.events = [
+      {
+        event: 'onClick',
+        actions: [
+          { type: 'setState', value: 'annual' },
+          { type: 'copy', text: 'PROMO20' },
+        ],
+      },
+    ];
+    const stored = await saveDocument(page, before);
+    if (report.check('a control with two kinds of behaviour is accepted', stored === 200, `HTTP ${stored}`)) {
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+      await page.waitForTimeout(1500);
+      await showLayers();
+      await page.locator('[data-layer-row]:has-text("Go annual")').first().click();
+      await page.waitForTimeout(500);
+
+      const panel = page.locator('aside').last();
+      const opened = await openInspectorSection(page, 'When pressed');
+      report.check('the press list opens on it', opened, String(opened));
+
+      if (opened) {
+        const rows = panel.locator('button[aria-label="Remove this"]');
+        report.check(
+          'both behaviours are rows, not one row and three other panels',
+          (await rows.count()) === 2,
+          `${await rows.count()} rows`
+        );
+        /*
+         * And in the order they run. Read off the row *labels* — the first row
+         * says what happens and the rest say what happens next — because a
+         * list that rendered both in the wrong order would satisfy a count.
+         */
+        const labels = await panel.locator('label.field-label').allInnerTexts();
+        const ordered = labels.filter((one) => one === 'Does' || one === 'Then');
+        report.check(
+          'and the list says which runs first',
+          ordered.join(' ') === 'Does Then',
+          ordered.join(' ') || 'no ordered rows'
+        );
+        /*
+         * The copy's own field, which is the half that says the row is an
+         * editor rather than a summary — the old section could not show a
+         * `copy` at all, and the text lived in the Content panel.
+         */
+        /*
+         * And the copy's own field is in the row, which is what makes it an
+         * editor rather than a summary — the old section could not show a
+         * `copy` at all and its text lived in Content.
+         *
+         * The count is in the detail because it is *two*, not one: Content
+         * still offers the same field. That is a leftover rather than a
+         * design — X8 moved the storage and left the second surface standing —
+         * and it is recorded here rather than asserted away, because a check
+         * that demanded one would fail for the right reason and read like the
+         * list was broken.
+         */
+        const fields = await panel.locator('input[value="PROMO20"]').count();
+        report.check(
+          'and the copy’s text is editable from the row itself',
+          fields >= 1,
+          `${fields} field(s) hold it — Content still offers one too, which X8 should retire`
+        );
+      }
+    }
+  }
+
   const onContainer = await offeredFor('Plain box');
   /*
    * And the other half of the applicability rule, which is the one that keeps

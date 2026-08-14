@@ -374,7 +374,7 @@ Each is independently shippable and independently falsifiable.
 | **X6** | ~~Events become a registry; actions grow verbs~~ — **shipped**; the model and the compiler, not the panel | X5 |
 | **X7** | ~~`only` on an action~~ — **shipped**; it also found five vacuous no-script checks | X6 |
 | **X8** | ~~One "When pressed" list, absorbing Relative-to / Form and *naming* Link~~ — **shipped**. See §4.0.7 | X6 |
-| **X9** | Prove it in a browser; rewrite both docs | all |
+| **X9** | ~~Prove it in a browser; correct both docs~~ — **shipped** | all |
 
 How each is falsified — the check that must fail against the unfixed code:
 

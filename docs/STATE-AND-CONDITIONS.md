@@ -1,5 +1,15 @@
 # Cre8 — state and conditions
 
+> **Superseded in places by `INTERACTIONS.md`.** The mechanism this file
+> designed — one `Condition` language, resolved before first paint, with no
+> runtime for the common case — is what shipped and is still how it works. Four
+> things in it have since changed shape: a rule's `when` is a `Test` rather
+> than a list of conditions (X2) and can hold an OR (X3) and a comparison (X4);
+> `switchKey`, `switchDefault` and `switchDesign` are one declared `state` on
+> the node, values included (X5); a press is a list of verbs rather than a prop
+> (X6–X8); and each verb can carry an `only` (X7). Where the two disagree,
+> `INTERACTIONS.md` is current.
+
 A design for one mechanism where there are currently four, written to be
 argued against before any of it is built.
 

@@ -1,5 +1,14 @@
 # Expressions
 
+> **Superseded in places by `INTERACTIONS.md`.** Phases A–C below are the
+> expression model and still describe it. What has moved on is the *authoring*
+> half: `StyleRule.when` is a `Test` (X2), OR compiles to a selector list (X3),
+> a comparison in a style rule mints its own attribute rather than asking the
+> designer to name one (X4), an element's state is declared rather than scraped
+> (X5), actions are eight verbs that compile to the most native markup
+> available (X6), each can carry an `only` (X7), and all of it is one list in
+> the panel (X8). Where this file and that one disagree, that one is current.
+
 **Status: all four phases are built.** This file was written before any of the
 code, so the constraints existed first, and it has been converted section by
 section as each phase landed — which is why it still reads as an argument
@@ -366,13 +375,15 @@ count.
 The rule shape already exists:
 
 ```ts
-StyleRule { id, when: Condition[], part?, apply: StyleDecl, set?: NodeProps, breakpoint? }
+StyleRule { id, when?: Test, part?, apply: StyleDecl, set?: NodeProps, breakpoint? }
 ```
 
 `when` is the test, `apply` is property assignment, `set` is state assignment.
 Two changes turn it into the model above:
 
-- `when: Condition[]` → `when: Test`
+- `when: Condition[]` → `when: Test` *(done — X2. Absent now means "always",
+  which a zero-length list could not say without a reader deciding what an
+  empty AND meant.)*
 - `apply: StyleDecl` gains `Value` on the right-hand side (phase C)
 
 `Condition` becomes the CSS-compilable subset of `Test` — its five kinds keep
@@ -564,11 +575,18 @@ this file originally said, because the format needed somewhere to live that a
 `Value` could not reach.
 
 `when: Condition[]` → `Test`; a list becomes an `every` of the existing kinds.
-*(Not done, and no longer urgent.)* `Condition` is a member of `Test` already,
-so the two are one language whichever field they sit in. Widening `StyleRule`
-means touching the generator, and there is nothing yet that needs it — a
-record-driven Test resolves to a state, and a state is something `Condition`
-can already express.
+**Done — X2, and the reasoning here was wrong about why it would be needed.**
+
+This said a widened `StyleRule` had nothing needing it, because a
+record-driven Test resolves to a state and a state is something `Condition`
+can express. True, and it missed the cost: the designer types the state. Five
+steps, two panels and an invented intermediate name, for a sentence they could
+say in one breath — see `INTERACTIONS.md` §1.1. X4 mints that intermediate
+instead, which is only possible once a style rule can hold the comparison.
+
+The rest of the widening followed from the same move: `some` compiles to a
+selector list (X3), and every branch sits inside `:where()` so source order
+stays the whole of precedence.
 
 Both are mechanical, and `migrateDocument` already recognises documents by shape
 rather than by a version field, and is checked for being safe to run twice.
