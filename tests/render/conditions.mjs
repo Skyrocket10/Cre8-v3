@@ -712,6 +712,35 @@ try {
         );
 
         /*
+         * X10: the order is the gesture, so the order has to be movable.
+         *
+         * "They run in this order, top to bottom" is what the add row has said
+         * since X8, and until now it was a statement about a list nobody could
+         * rearrange. What the order decides is checked in the static suite —
+         * `planActions` gives a contested carrier to the first claim — so what
+         * is left for a browser is whether the panel can produce a different
+         * one. Read back out of the document, because the rows re-sorting on
+         * screen and the document keeping its old order is exactly the failure
+         * a screenshot cannot tell from success.
+         */
+        const movers = panel.locator('button[aria-label="Run this sooner"]');
+        report.check(
+          'every row but the first can be run sooner',
+          (await movers.count()) === 2 && (await movers.first().isDisabled()),
+          `${await movers.count()} mover(s), first ${(await movers.first().isDisabled()) ? 'disabled' : 'enabled'}`
+        );
+        const wasFirst = (await getDocument(page, projectId)).nodes.btna2.events?.[0]?.actions?.[0]
+          ?.type;
+        await movers.nth(1).click();
+        await page.waitForTimeout(400);
+        const moved = (await getDocument(page, projectId)).nodes.btna2.events?.[0]?.actions ?? [];
+        report.check(
+          'and pressing it swaps the two in the document, not only on screen',
+          moved.length === 2 && moved[0].type !== wasFirst && moved[1].type === wasFirst,
+          `${wasFirst} first → ${moved.map((one) => one.type).join(' then ')}`
+        );
+
+        /*
          * X10: "…but only when", for the whole gesture.
          *
          * Driven for real rather than seeded, because the write is the claim.

@@ -473,6 +473,29 @@ write them. Mismatched guards are reported rather than redrawn — one line
 naming what the compiler will drop, which is the first time `plan.refused` has
 been on screen at all.
 
+#### And the order, which was a claim the panel could not honour
+
+*"They run in this order, top to bottom"* is what the add row has said since
+X8, under a list nobody could rearrange. The order decides two things —
+`planActions` gives a contested carrier to the **first** claim, and the runtime
+performs the rest in sequence — so a designer who wrote the jump before the
+link had no way to say they meant it the other way except to delete both and
+start again.
+
+One chevron per row, "Run this sooner", disabled on the first and hidden
+entirely below two actions. Sooner-only rather than a pair, and that is the
+width rather than a principle: the verb picker is a fixed 104px in a 288px
+panel and an operand can be two more pickers, so the row has about twenty
+pixels spare and not forty. Every arrangement is still reachable, because
+moving A below B is moving B above A. `RuleRow` offers both directions because
+a rules list runs long; a press list is two or three things.
+
+What the order *means* is checked in the static suite, where `planActions` is
+handed the same two verbs in both orders. What a browser has to answer is
+whether the panel can produce the other one, read back out of the document —
+rows re-sorting on screen while the document keeps its old order is precisely
+the failure a screenshot cannot tell from success.
+
 #### And the sentence that is not a warning about the panel
 
 `unfinished()` has said since X7 that a live guard is not a lock: the guard is

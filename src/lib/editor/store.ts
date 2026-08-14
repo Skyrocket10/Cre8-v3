@@ -348,8 +348,15 @@ interface EditorActions {
   removeRule(ruleId: string): void;
   moveRule(ruleId: string, delta: number): void;
   updateRule(ruleId: string, patch: Partial<Pick<StyleRule, 'when' | 'part' | 'breakpoint'>>): void;
-  /** Replace what the selected control does when it is pressed. */
-  setActions(actions: NodeAction[]): void;
+  /**
+   * Replace what the selected control does when it is pressed.
+   *
+   * @param label What the undo step is called. Named by the caller because one
+   *   operation serves several sentences — adding a verb, editing an operand,
+   *   guarding the lot and moving one sooner are one write and four different
+   *   things to have done.
+   */
+  setActions(actions: NodeAction[], label?: string): void;
   setPreviewing(on: boolean): void;
   setPreviewDevice(bp: Breakpoint): void;
   toggleRulers(): void;
@@ -1588,7 +1595,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
     get().transact('Edit condition', (draft) => ops.updateRule(draft, id, ruleId, patch));
   },
 
-  setActions(actions) {
+  setActions(actions, label) {
     const id = get().selection[0];
     if (!id) return;
     /*
@@ -1598,7 +1605,7 @@ export const useEditor = create<EditorStore>()((set, get) => ({
      * different value is a decision rather than a drag, and somebody who
      * changes their mind twice wants both steps back.
      */
-    get().transact('Edit what this does', (draft) => ops.setActions(draft, id, actions));
+    get().transact(label ?? 'Edit what this does', (draft) => ops.setActions(draft, id, actions));
   },
 
   toggleHidden(ids) {

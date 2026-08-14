@@ -10,6 +10,7 @@
 
 import React, { useMemo, useState } from 'react';
 import {
+  ChevronUp,
   Component,
   ExternalLink,
   ImageIcon,
@@ -1588,9 +1589,31 @@ export function ActionsSection() {
 
   if (!type) return null;
 
-  const write = (next: NodeAction[]) => setActions(next);
+  const write = (next: NodeAction[], label?: string) => setActions(next, label);
   const at = (index: number, action: NodeAction | null) =>
     write(action ? list.map((a, i) => (i === index ? action : a)) : list.filter((_, i) => i !== index));
+
+  /*
+   * Swap this row with the one above it.
+   *
+   * The order *is* the gesture — "They run in this order, top to bottom" is
+   * what the add row has said since X8, and until now there was no way to
+   * change it. It decides two separate things: which of two verbs wanting the
+   * same carrier gets it, since `planActions` gives it to the first claim; and
+   * what order the runtime performs the rest in.
+   *
+   * Sooner only, rather than a pair of chevrons. Every arrangement is
+   * reachable from it — moving A below B is moving B above A — and the row has
+   * about twenty pixels to spare, not forty: the verb picker is a fixed 104 and
+   * an operand can be two more pickers. `RuleRow` offers both directions
+   * because a rules list runs long; a press list is two or three things.
+   */
+  const sooner = (index: number) => {
+    if (index < 1) return;
+    const next = [...list];
+    [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
+    write(next as NodeAction[], 'Reorder what this does');
+  };
 
   /*
    * One guard, written to every action, and §4.0.9 is the argument for it: an
@@ -1779,7 +1802,17 @@ export function ActionsSection() {
                 options={offer.map((verb) => ({ value: verb.type, label: verb.label }))}
               />
               {operand(action, index)}
-              <IconButton label="Remove this" onClick={() => at(index, null)}>
+              {list.length > 1 && (
+                <IconButton
+                  size="xs"
+                  label="Run this sooner"
+                  disabled={index === 0}
+                  onClick={() => sooner(index)}
+                >
+                  <ChevronUp size={11} />
+                </IconButton>
+              )}
+              <IconButton size="xs" label="Remove this" onClick={() => at(index, null)}>
                 <X size={11} />
               </IconButton>
             </div>
