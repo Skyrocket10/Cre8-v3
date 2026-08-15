@@ -32,6 +32,7 @@ import type {
   Field,
   Format,
   RecordFilter,
+  Step,
   StyleRule,
   Test,
   Value,
@@ -561,6 +562,13 @@ const ON_PAGE = 'on-page:';
  * and the constants are not — the constants are what the menu was already for.
  */
 const A_FIELD = 'field:';
+/**
+ * A source that is a whole collection rather than a field of the record.
+ *
+ * Prefixed for the reason every other marker here is: the picker deals in
+ * strings, and a collection id and a field key are both just words.
+ */
+const A_LIST = 'list:';
 /** And the way back, in the menu the chip grows once it names a field. */
 const AS_TYPED = 'typed\u0000';
 /**
@@ -768,19 +776,50 @@ export function bindingSentence(options: {
 }): Part[] {
   const { prop, binding, fields, collections = [], onBind, onFormat } = options;
   const held = binding?.value;
-  const source = held?.kind === 'field' ? held.key : '';
-  const field = fields.find((f) => f.key === source);
+  const source =
+    held?.kind === 'field'
+      ? held.key
+      : held?.kind === 'records'
+        ? `${A_LIST}${held.collection}${held.steps?.[0]?.op === 'count' ? ':count' : held.steps?.[0]?.op === 'last' ? ':last' : ':first'}`
+        : '';
+  const field = held?.kind === 'field' ? fields.find((f) => f.key === source) : undefined;
   /*
-   * The chain past the reference, if there is one.
+   * The chain past whatever put a record in hand, if there is one.
    *
-   * Exactly `follow` then `field`, which is the only shape this panel writes
-   * and the only one it can render — anything longer arrived from somewhere
-   * else and is left alone rather than half-shown. One level, as §4 says.
+   * The last step is the only one this panel writes past a record — `field` —
+   * and everything before it is what got there: `follow` from a reference, or
+   * `first`/`last` off a list. Anything longer arrived from somewhere else and
+   * is left alone rather than half-shown. One level, as §4 says.
    */
-  const followed =
-    held?.steps?.length === 2 && held.steps[0]?.op === 'follow' && held.steps[1]?.op === 'field'
-      ? held.steps[1].key
-      : '';
+  const steps = held?.steps ?? [];
+  const tail = steps[steps.length - 1];
+  const followed = steps.length >= 2 && tail?.op === 'field' ? tail.key : '';
+
+  /*
+   * The counts and the ends of a list, one entry per collection.
+   *
+   * A separate group rather than more fields, because they are not fields of
+   * the record in scope — they are facts about a *collection*, and a page with
+   * no record in scope at all can still say one. Unfiltered, which the wording
+   * says out loud: "in total" is what stops "How many Comments" from reading
+   * as "how many comments on this post", which is `where` and is E6.
+   */
+  const lists = collections.flatMap((one) => [
+    { value: `${A_LIST}${one.id}:count`, label: `How many ${one.name}, in total` },
+    { value: `${A_LIST}${one.id}:first`, label: `The first ${singular(one.name)}` },
+    { value: `${A_LIST}${one.id}:last`, label: `The last ${singular(one.name)}` },
+  ]);
+
+  const pickSource = (choice: string): Value | null => {
+    if (!choice) return null;
+    if (!choice.startsWith(A_LIST)) return { kind: 'field', key: choice };
+    const [collection, op] = choice.slice(A_LIST.length).split(':');
+    return {
+      kind: 'records',
+      collection: collection!,
+      steps: [{ op: op as 'count' | 'first' | 'last' }],
+    };
+  };
 
   const parts: Part[] = [
     { kind: 'word', text: prop === 'text' ? 'Text' : prop, key: 'prop' },
@@ -790,36 +829,48 @@ export function bindingSentence(options: {
       key: 'field',
       value: source,
       placeholder: 'what is typed here',
-      menuWidth: 200,
+      menuWidth: 220,
       options: [
         { value: '', label: 'what is typed here' },
         ...fields.map((f) => ({ value: f.key, label: f.label })),
+        ...lists,
       ],
-      // A new field is a new chain: the steps belonged to the old one, and a
+      // A new source is a new chain: the steps belonged to the old one, and a
       // `follow` left behind on a text field is a binding that resolves to
       // nothing for ever.
-      onChange: onBind && ((key) => onBind(key ? { kind: 'field', key } : null)),
+      onChange: onBind && ((choice) => onBind(pickSource(choice))),
     },
   ];
-  if (!binding || !field) return parts;
+  if (!binding) return parts;
 
   /*
-   * A reference, and the record it names.
+   * Whatever the chain is holding a record *of*, so the next chip can offer
+   * that collection's fields.
    *
-   * The chip that closes `VALUES.md` §1.3 — `Field.type: 'reference'` has been
-   * declared and unreadable since the model had references at all, so a post
-   * had an author and a page could not say the author's name. Offered only
-   * where it can resolve: a reference whose target collection is gone gets no
-   * chip rather than a menu of nothing.
+   * Two ways to be at a record and one chip for both: a reference followed —
+   * `VALUES.md` §1.3, declared and unreadable until E3 — or the first or last
+   * row of a list. Written as "which collection are we in" rather than as two
+   * branches, because the chip after it is the same chip either way.
    */
   const target =
-    field.type === 'reference' && field.of
-      ? (collections.find((one) => one.id === field.of) ?? null)
-      : null;
+    held?.kind === 'records' && steps[0]?.op !== 'count'
+      ? (collections.find((one) => one.id === held.collection) ?? null)
+      : field?.type === 'reference' && field.of
+        ? (collections.find((one) => one.id === field.of) ?? null)
+        : null;
+  if (!field && !target) return parts;
   let effective = field;
   if (target?.fields.length) {
     const inner = target.fields.find((f) => f.key === followed);
     if (inner) effective = inner;
+    /*
+     * How the chain got to that record: `follow` from a reference, or `first`
+     * / `last` off a list. Kept from what is already there rather than
+     * recomputed, so this chip only ever appends the field and never rewrites
+     * how somebody got here.
+     */
+    const reach: Step[] = held?.kind === 'records' ? [steps[0]!] : [{ op: 'follow' }];
+    const head: Value = held?.kind === 'records' ? { ...held, steps: reach } : { kind: 'field', key: source };
     parts.push({ kind: 'word', text: '→', key: 'follow' });
     parts.push({
       kind: 'pick',
@@ -835,16 +886,22 @@ export function bindingSentence(options: {
       onChange:
         onBind &&
         ((key) =>
-          onBind(
-            key
-              ? { kind: 'field', key: source, steps: [{ op: 'follow' }, { op: 'field', key }] }
-              : { kind: 'field', key: source }
-          )),
+          onBind(key ? { ...head, steps: [...reach, { op: 'field', key }] } : head)),
     });
     // A chain that stops at the record has not produced anything to print, so
     // there is nothing to format either. Said by not offering it.
     if (!inner) return parts;
   }
+
+  /*
+   * A count is a number, and the format chips are about the value the chain
+   * ends on — so a count gets a number's formats even though nothing in
+   * `fields` describes it.
+   */
+  if (!effective && held?.kind === 'records' && steps[0]?.op === 'count') {
+    effective = { key: '', label: 'How many', type: 'number' };
+  }
+  if (!effective) return parts;
 
   // The field the chain *ends* on, which after a follow is the other
   // collection's. Formatting a date as a currency is nonsense either way; what

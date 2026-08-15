@@ -876,7 +876,19 @@ export type Step =
   /** The id in the value before this, resolved to the record it names. */
   | { op: 'follow' }
   /** A field of the record in the value before this. */
-  | { op: 'field'; key: string };
+  | { op: 'field'; key: string }
+  /**
+   * How many rows the list before this has.
+   *
+   * Zero is an answer, not an absence — "0 comments" is the case that reads as
+   * broken when a binding falls back to its placeholder instead. Every other
+   * step in this union answers `null` for "nothing here"; this one does not,
+   * and that asymmetry is the whole of what E4 had to get right.
+   */
+  | { op: 'count' }
+  /** One row of the list before this, at whichever end. */
+  | { op: 'first' }
+  | { op: 'last' };
 
 /**
  * Something an expression can read.
@@ -957,7 +969,21 @@ export type Head =
    * chain of length zero, and the two sides of `Price > 500000` and
    * `Price > Budget` are the same type either way.
    */
-  | ({ kind: 'literal' } & TestLiteral);
+  | ({ kind: 'literal' } & TestLiteral)
+  /**
+   * Every published row of a collection. The only head that is a *list*.
+   *
+   * Unfiltered, and that is E4's scope rather than an oversight: narrowing it
+   * to "the comments on this post" is `where`, which is E6. Until then a count
+   * is a count of the whole collection, and the panel says so in those words
+   * rather than implying a relationship it cannot yet express.
+   *
+   * Publish-time data, so a chain over it folds — see `foldableValue`, which
+   * is the *only* thing that decides that. Nothing here is written
+   * publisher-only on the strength of it: when a list is allowed to be live,
+   * `foldable` is the one place that has to change. See `docs/VALUES.md` §6.
+   */
+  | { kind: 'records'; collection: string };
 
 /**
  * A presentation transform. Never part of a `Value`, and that is the point.

@@ -56,10 +56,10 @@ import { actionsFor, guardOf, planActions } from '../document/actions';
  * where a function lives is not something forty call sites should have to
  * care about.
  */
-import { evaluate, foldable, type FindRecord, type Verdict } from '../document/schedule';
+import { evaluate, foldable, operandsIn, type FindRecord, type Verdict } from '../document/schedule';
 import type { TestConst, TestNode, TestOperand, TestTable } from '../runtime/behaviour';
 
-export { evaluate, foldable };
+export { evaluate, foldable, operandsIn };
 export type { FindRecord, Verdict };
 
 /* --------------------------------------------------------------------------
@@ -97,30 +97,6 @@ export function stateFrom(
 /* --------------------------------------------------------------------------
  * What a Test reads
  * ----------------------------------------------------------------------- */
-
-/**
- * Every operand in a Test, however deeply grouped.
- *
- * The three functions under this used to be three copies of one walk, each
- * reading `left` and each having to be found and changed the day a comparison
- * grew a second operand — which is the day this was written. Declared once and
- * derived three times, for the reason `content-props.ts` gives: two lists kept
- * in step by nobody drift, and they drift silently.
- *
- * Order is source order — left before right, and a group's members in the
- * order they were written — because one caller prints them.
- */
-export function operandsIn(test: Test): Value[] {
-  const out: Value[] = [];
-  const walk = (inner: Test): void => {
-    if (inner.kind === 'compare') {
-      out.push(inner.left);
-      if (inner.right) out.push(inner.right);
-    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
-  };
-  walk(test);
-  return out;
-}
 
 /** The distinct operands of one kind, in source order. */
 function readsOfKind<K extends Value['kind']>(
@@ -552,15 +528,30 @@ export function provablyOverlap(a: Test, b: Test): boolean {
   return false;
 }
 
-/** How an operand is identified when two of them are compared. */
+/**
+ * How an operand is identified when two of them are compared.
+ *
+ * The steps are part of the identity. `⟨Author⟩ → ⟨Name⟩` and `⟨Author⟩ →
+ * ⟨City⟩` start at the same field and are not the same operand, so two rules
+ * reading them are not two rules about one thing — and the overlap warning
+ * only ever speaks about two rules reading the same thing.
+ */
 function operandName(value: Value): string {
-  if (value.kind === 'field') return value.key;
-  if (value.kind === 'input') return value.name;
-  if (value.kind === 'literal') return `=${String(value.value)}`;
-  // The node id, which is exactly the identity wanted: two rules reading the
-  // same element overlap, and two reading different ones do not, whatever
-  // those elements happen to be called.
-  return value.ref.node;
+  const past = (value.steps ?? []).map((step) => ('key' in step ? `${step.op}:${step.key}` : step.op));
+  const head =
+    value.kind === 'field'
+      ? value.key
+      : value.kind === 'input'
+        ? value.name
+        : value.kind === 'literal'
+          ? `=${String(value.value)}`
+          : value.kind === 'records'
+            ? `*${value.collection}`
+            : // The node id, which is exactly the identity wanted: two rules
+              // reading the same element overlap, and two reading different
+              // ones do not, whatever those elements happen to be called.
+              value.ref.node;
+  return past.length ? `${head}|${past.join('|')}` : head;
 }
 
 /** Do the two numeric half-lines share a point? */

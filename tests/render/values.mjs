@@ -559,6 +559,131 @@ try {
     authorId ? `looked for ${authorId}` : 'no id to look for'
   );
   await without.close();
+
+  /* ------------------------------------------ 5. E4: a value that is a list */
+
+  /*
+   * "How many Writers, in total" — a count of a collection nothing repeats.
+   *
+   * The empty case is the falsification `VALUES.md` §5 names, and it is
+   * checked in the order it actually breaks: the author was deleted a moment
+   * ago, so the collection is *already* empty, and a count that treated "no
+   * rows" like every other step's "nothing here" would leave the designer's
+   * placeholder on the page. Then a writer is added back and the same binding
+   * has to say 1.
+   */
+  {
+    const d = await getDocument(page, projectId);
+    d.nodes.cntval0005 = node('cntval0005', 'paragraph', 'How many', {
+      parentId: 'crdval0002',
+      props: { text: 'some writers' },
+      styles: { desktop: { fontSize: '12px' } },
+    });
+    d.nodes.crdval0002.children.push('cntval0005');
+    await saveDocument(page, d);
+  }
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+  await page.locator('[data-layer-row]:has-text("How many")').first().click();
+  await page.waitForTimeout(500);
+  await openInspectorSection(page, 'Data');
+  await page.waitForTimeout(400);
+
+  const countPanel = page.locator('aside').last();
+  const countRow = countPanel.locator('[data-sentence]:has-text("Text reads")').first();
+  await countRow.getByRole('button').first().click();
+  await page.waitForTimeout(300);
+  const howMany = page.getByRole('button', { name: 'How many Writers, in total', exact: true });
+  report.check(
+    'a collection can be counted, and the menu says it is the whole of it',
+    (await howMany.count()) === 1,
+    `${await howMany.count()} entry — the wording is what stops it reading as "on this post"`
+  );
+  if (await howMany.count()) {
+    await howMany.last().click();
+    await page.waitForTimeout(600);
+  }
+
+  const counted = await getDocument(page, projectId);
+  const countValue = counted.nodes.cntval0005.bind?.text?.value;
+  report.check(
+    'the binding is a list head with a count on it',
+    countValue?.kind === 'records' &&
+      countValue?.collection === 'writers' &&
+      countValue?.steps?.length === 1 &&
+      countValue.steps[0].op === 'count',
+    JSON.stringify(countValue ?? null)
+  );
+
+  /*
+   * The empty case first, because the collection is empty right now — the
+   * author was deleted two checks ago. A count that answered "nothing here"
+   * would leave "some writers" on the page.
+   */
+  const zeroOnCanvas = await page.evaluate(() => {
+    const el = document.querySelector('.cre8-frame.cre8-editing .c-cntval0005');
+    return el ? (el.textContent ?? '').trim() : 'no element';
+  });
+  report.check(
+    'an empty collection counts as 0 rather than falling back to the placeholder',
+    zeroOnCanvas === '0',
+    zeroOnCanvas
+  );
+
+  await publish(page);
+  const zeroSite = await ctx.newPage();
+  await zeroSite.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await zeroSite.waitForTimeout(600);
+  const zeroPublished = await zeroSite.evaluate(() =>
+    [...document.querySelectorAll('p')].map((p) => (p.textContent ?? '').trim())
+  );
+  await zeroSite.close();
+  report.check(
+    'and the published file says 0 too, on every row',
+    zeroPublished.filter((text) => text === '0').length === 2,
+    zeroPublished.join(' · ') || 'no paragraphs'
+  );
+
+  // And a writer back, so the check above is measuring a count rather than a
+  // constant: the same binding, a different number.
+  const added = await call(`/api/projects/${projectId}/records`, {
+    method: 'POST',
+    body: JSON.stringify({
+      collectionId: 'writers',
+      slug: 'grace',
+      position: 0,
+      published: true,
+      data: { name: 'Grace Hopper' },
+    }),
+  });
+  report.check('a writer is added back', added.status === 200, `${added.status}`);
+
+  await publish(page);
+  const oneSite = await ctx.newPage();
+  await oneSite.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await oneSite.waitForTimeout(600);
+  const onePublished = await oneSite.evaluate(() =>
+    [...document.querySelectorAll('p')].map((p) => (p.textContent ?? '').trim())
+  );
+  const countMarkup = await oneSite.content();
+  await oneSite.close();
+  report.check(
+    'and the count follows the collection rather than staying where it was',
+    onePublished.filter((text) => text === '1').length === 2 &&
+      !onePublished.includes('0'),
+    onePublished.join(' · ') || 'no paragraphs'
+  );
+  report.check(
+    'with no runtime shipped to work any of it out',
+    !countMarkup.includes('data-cre8-test') && !countMarkup.includes('data-cre8-vals'),
+    `test attributes ${(countMarkup.match(/data-cre8-test/g) ?? []).length}`
+  );
 } catch (error) {
   report.check('values suite completed', false, String(error?.message ?? error));
 } finally {

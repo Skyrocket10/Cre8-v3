@@ -60,12 +60,17 @@ This is the one that decides whether a person can build a real site. Every
 content site is two collections and a pointer between them. §5.2 records what
 it cost, including the two things that were wrong after the model was right.
 
-### 1.4 There are no lists
+### 1.4 There are no lists — opened by E4
 
-A repeater draws rows and `RecordFilter` narrows which. But a *value* is never
-a list, so nothing can say how many there are, take the first, or read a field
-off it. "3 comments", "Latest post's title", "Posts by this author" — none of
-them.
+A repeater drew rows and `RecordFilter` narrowed which. But a *value* was never
+a list, so nothing could say how many there are, take the first, or read a
+field off it.
+
+E4 gives it a list head and three steps, so "3 comments" and "the latest
+post's title" are sayable. "Posts by this author" is not: narrowing a list is
+`where`, which is E6, and until then a count is a count of the whole
+collection — which the panel says in those words rather than implying a
+relationship it cannot express.
 
 ### 1.5 What Bubble does that this cannot, as tasks
 
@@ -78,8 +83,8 @@ them.
 | Follow a reference | `Post's Author's Name` | ✔ **E3** |
 | **Arithmetic** | `Price × Quantity` | ✘ |
 | **Round, then use it** | `:rounded to 0` | ✘ formatting is terminal |
-| **Count a list** | `:count` | ✘ |
-| **First / last of a list** | `:first item` | ✘ |
+| Count a list | `:count` | ✔ **E4** |
+| First / last of a list | `:first item` | ✔ **E4** |
 | **Filter a list inline** | `:filtered` | repeater only, not a value |
 | **Join text** | `First & " " & Last` | ✘ |
 | Current User | `Current User's Email` | ✘ **and stays ✘** — see §4 |
@@ -267,7 +272,7 @@ unfixed code.
 | **E1** ✔ | `compare.right` becomes a `Value`; a `literal` head | Compare two fields of one record and see the rule apply on one row and not another. A literal-only model cannot express the rule at all |
 | **E2** ✔ | `Value` gains `steps`, `foldable` and both evaluators walk it — **zero steps defined** | Publish all ten templates: byte-identical. The migration is the whole of it |
 | **E3** ✔ | `follow` and `field`: a reference is readable | A post's author's name on the page. Falsified by deleting the author record and seeing the binding fall back rather than print an id |
-| **E4** | The list head and `count`, `first`, `last` | "3 comments" from a real collection, and 0 when there are none — the empty case is the one that reads as broken |
+| **E4** ✔ | The list head and `count`, `first`, `last` | "3 comments" from a real collection, and 0 when there are none — the empty case is the one that reads as broken |
 | **E5** | Arithmetic and `round`, in both evaluators | The same sum on the canvas and in the file, and a comparison against a typed number answered in the browser |
 | **E6** | `where` and `sortedBy` | A filtered count that differs from the unfiltered one, on the same page |
 | **E7** | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
@@ -356,6 +361,33 @@ profile kept unpublished because it is not ready would have its name published
 by any post that pointed at it. Published-only, matching `recordsFor` — and
 matching the Worker, which queries `published = 1` and would otherwise have
 disagreed with the canvas.
+
+### 5.3 What E4 turned out to cost
+
+Built. A binding can say `How many Writers, in total`, and
+`tests/render/values.mjs` checks it against an **empty** collection first —
+which is the order it actually breaks in, because every other step answers
+`null` for "nothing here" and a binding reads `null` as *leave the design-time
+text alone*. A count that did the same would print "some writers" on a page
+with none. Zero is an answer, and it is the only step in the vocabulary that
+says so.
+
+**§6's instruction, honoured concretely.** The list steps are in
+`resolveValue` beside the record steps, and `foldableValue` is the *only* thing
+that decides they do not travel — checked by a mutation that flips it and turns
+five checks red. When a list is allowed to be live, that function is the one
+place that changes; nothing else in the resolver knows.
+
+**A chain is `value | record | list`.** The third member arrived exactly where
+§5.2 predicted it would, which is the first time this plan has been ahead of
+the code rather than behind it.
+
+**Two more places gated on the wrong thing.** `boundProps` skipped anything
+whose head was not a `field` — correct while a field was the only publish-time
+head, and silently wrong for every count the day one was not. It asks
+`foldableValue` now. And `collectionsUsedBy` grew a second reason to want a
+collection: a count names one that nothing repeats, which is the same hole the
+reference closure filled one head along, found the same way.
 
 ---
 

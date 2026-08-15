@@ -21,19 +21,31 @@ export type Verdict = boolean | null;
 type Raw = string | number | boolean | null | undefined;
 
 /**
- * How a chain finds the record a reference names.
+ * How a chain reaches records that are not the one in scope.
  *
- * By id alone, with no collection: a record id is unique across a project, so
- * following a reference is a lookup rather than a search — and a step that had
- * to name its target collection would be a second copy of the field's `of`,
- * free to go stale the day somebody repoints it.
+ * Two questions, because a chain asks two. `byId` is what `follow` needs: a
+ * record id is unique across a project, so following a reference is a lookup
+ * rather than a search — and a step that had to name its target collection
+ * would be a second copy of the field's `of`, free to go stale the day
+ * somebody repoints it. `of` is what a `records` head needs, which is the
+ * other direction entirely: every row of one collection.
  *
- * Optional everywhere it is taken. A caller that has no records to hand is not
+ * Optional everywhere it is taken. A caller with no records to hand is not
  * wrong, it is somewhere that cannot answer this — so a `follow` without one
  * is `null`, *cannot decide here*, which is the same answer the model already
  * gives for a control's value at publish time.
  */
-export type FindRecord = (id: string) => CollectionRecord | null;
+export interface RecordLookup {
+  byId(id: string): CollectionRecord | null;
+  /** Every published row of a collection, in the order a list would draw them. */
+  of(collection: string): CollectionRecord[];
+}
+
+/**
+ * The older name, kept because six files thread this value through without
+ * ever calling it and renaming them all would be churn for its own sake.
+ */
+export type FindRecord = RecordLookup;
 
 /**
  * What a chain is worth, part way along it.
@@ -53,7 +65,8 @@ export type FindRecord = (id: string) => CollectionRecord | null;
  */
 type Resolved =
   | { at: 'value'; raw: Raw; has: boolean; type?: TestLiteral['type'] }
-  | { at: 'record'; record: CollectionRecord };
+  | { at: 'record'; record: CollectionRecord }
+  | { at: 'list'; records: CollectionRecord[] };
 
 /** The scalar a chain ended on, or nothing if it ended on a record. */
 type Known = Extract<Resolved, { at: 'value' }>;
@@ -76,7 +89,7 @@ type Known = Extract<Resolved, { at: 'value' }>;
 export function resolveValue(
   value: Value,
   record: CollectionRecord | null,
-  find?: FindRecord
+  find?: RecordLookup
 ): Known | null {
   let at: Resolved | null =
     value.kind === 'literal'
@@ -85,9 +98,18 @@ export function resolveValue(
         ? record
           ? fieldOf(record, value.key)
           : null
-        : // `input` and `element` read a form control, which is the operand
-          // this function exists to *not* answer.
-          null;
+        : value.kind === 'records'
+          ? // A list, and an *empty* list is still a list — the collection
+            // having no rows is a fact, and `count` has to be able to say 0
+            // about it. `null` here would make "0 comments" indistinguishable
+            // from "this surface has no records", which is the case E4 exists
+            // to keep apart.
+            find
+            ? { at: 'list', records: find.of(value.collection) }
+            : null
+          : // `input` and `element` read a form control, which is the operand
+            // this function exists to *not* answer.
+            null;
 
   for (const step of value.steps ?? []) {
     if (!at) return null;
@@ -106,7 +128,7 @@ export function resolveValue(
  * reading: a `let` reassigned inside a loop from an expression that reads its
  * own narrowed type is a circular inference, and TypeScript says so.
  */
-function advance(at: Resolved, step: Step, find: FindRecord | undefined): Resolved | null {
+function advance(at: Resolved, step: Step, find: RecordLookup | undefined): Resolved | null {
   if (step.op === 'follow') {
     // Only an id can be followed, and only from the value side. A `follow`
     // straight after a `follow` would be following a record, which the panel
@@ -117,9 +139,32 @@ function advance(at: Resolved, step: Step, find: FindRecord | undefined): Resolv
     // The record is gone, or the reference was never set. Undecidable rather
     // than empty: "the author was deleted" and "this post has no author" are
     // different facts, and neither of them is a name.
-    const found: CollectionRecord | null = id ? find(id) : null;
+    const found: CollectionRecord | null = id ? find.byId(id) : null;
     return found ? { at: 'record', record: found } : null;
   }
+
+  /*
+   * The list steps.
+   *
+   * `count` is the one that answers on an empty list, and the only step in the
+   * whole vocabulary that does. Everything else says `null` for "nothing
+   * here", and a binding reads `null` as *leave the design-time text alone* —
+   * which for a count would print the placeholder where a truthful "0"
+   * belongs. The empty case is the one that reads as broken, so it is the one
+   * written down.
+   */
+  if (step.op === 'count') {
+    if (at.at !== 'list') return null;
+    return { at: 'value', raw: at.records.length, has: true };
+  }
+  if (step.op === 'first' || step.op === 'last') {
+    if (at.at !== 'list') return null;
+    const row = step.op === 'first' ? at.records[0] : at.records[at.records.length - 1];
+    // No rows means no record, which is genuinely nothing to say — unlike a
+    // count of them.
+    return row ? { at: 'record', record: row } : null;
+  }
+
   if (at.at !== 'record') return null;
   return fieldOf(at.record, step.key);
 }
@@ -128,6 +173,34 @@ function advance(at: Resolved, step: Step, find: FindRecord | undefined): Resolv
 function fieldOf(record: CollectionRecord, key: string): Known {
   const has = key in record.data;
   return { at: 'value', raw: has ? (record.data[key] as Raw) : undefined, has };
+}
+
+/**
+ * Every operand in a Test, however deeply grouped.
+ *
+ * `fieldsRead`, `inputsRead` and `refsInTest` used to be three copies of one
+ * walk, each reading `left` and each wrong the day a comparison grew a second
+ * operand. Declared once and derived from, for the reason `content-props.ts`
+ * gives: two lists kept in step by nobody drift, and they drift silently.
+ *
+ * Here rather than in `renderer/test.ts`, where it was written, because
+ * `repeat.ts` needs it to know which collections a page reads — and
+ * `repeat.ts → renderer/test.ts → document/actions.ts → renderer/test.ts` is a
+ * cycle. This module is what a `Value` means, which is where the walk belongs.
+ *
+ * Order is source order — left before right, and a group's members in the
+ * order they were written — because one caller prints them.
+ */
+export function operandsIn(test: Test): Value[] {
+  const out: Value[] = [];
+  const walk = (inner: Test): void => {
+    if (inner.kind === 'compare') {
+      out.push(inner.left);
+      if (inner.right) out.push(inner.right);
+    } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
+  };
+  walk(test);
+  return out;
 }
 
 /* --------------------------------------------------------------------------
@@ -148,7 +221,7 @@ function fieldOf(record: CollectionRecord, key: string): Known {
 export function evaluate(
   test: Test,
   record: CollectionRecord | null,
-  find?: FindRecord
+  find?: RecordLookup
 ): Verdict {
   switch (test.kind) {
     case 'compare': {
@@ -315,5 +388,5 @@ export function foldable(test: Test): boolean {
  * *never* — and the day it does, this function is where it stops.
  */
 export function foldableValue(value: Value): boolean {
-  return value.kind === 'field' || value.kind === 'literal';
+  return value.kind === 'field' || value.kind === 'literal' || value.kind === 'records';
 }

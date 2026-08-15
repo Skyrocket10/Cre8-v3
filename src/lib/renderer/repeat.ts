@@ -35,8 +35,15 @@ import type {
   RecordFilter,
   RepeatSpec,
   SceneNode,
+  Value,
 } from '../document/types';
-import { resolveValue, type FindRecord } from '../document/schedule';
+import {
+  foldableValue,
+  operandsIn,
+  resolveValue,
+  type FindRecord,
+  type RecordLookup,
+} from '../document/schedule';
 import { formatValue } from './format';
 import { isSettable } from './variants';
 
@@ -67,13 +74,31 @@ export type RecordSet = Record<string, CollectionRecord[] | undefined>;
  * publisher ran — so an index that kept drafts would resolve on the canvas and
  * not in the file, which is the one thing this renderer does not trade away.
  */
-export function recordIndex(records: RecordSet | undefined): FindRecord | undefined {
+export function recordIndex(records: RecordSet | undefined): RecordLookup | undefined {
   if (!records) return undefined;
   const byId = new Map<string, CollectionRecord>();
-  for (const rows of Object.values(records)) {
-    for (const record of rows ?? []) if (record.published) byId.set(record.id, record);
+  const byCollection = new Map<string, CollectionRecord[]>();
+  for (const [collectionId, rows] of Object.entries(records)) {
+    const kept: CollectionRecord[] = [];
+    for (const record of rows ?? []) {
+      if (!record.published) continue;
+      byId.set(record.id, record);
+      kept.push(record);
+    }
+    /*
+     * Ordered the way a repeater orders an unsorted list — position, then age,
+     * then id — because `first` and `last` have to mean the same thing as
+     * "the top of the list" and "the bottom of it". A different order here
+     * would make `⟨the first Writer⟩` name somebody who is not the one at the
+     * top of the page, which is a lie the page itself disproves.
+     */
+    kept.sort(compareWith(undefined));
+    byCollection.set(collectionId, kept);
   }
-  return (id) => byId.get(id) ?? null;
+  return {
+    byId: (id) => byId.get(id) ?? null,
+    of: (collection) => byCollection.get(collection) ?? [],
+  };
 }
 
 /** What a record's field holds once read out of `data`. */
@@ -229,13 +254,19 @@ export function boundProps(
      */
     const binding = bindingFrom(entry);
     /*
-     * Only a record field. `Value` also covers a form control's live value,
-     * which a Test can read and a binding cannot: a binding resolves when the
-     * page is rendered, and there is no browser at that point to ask. The
-     * picker does not offer one — *which one you are authoring is decided by
-     * where you author it* — and this is the other half of that sentence.
+     * Nothing live. `Value` also covers a form control's value, which a Test
+     * can read and a binding cannot: a binding resolves when the page is
+     * rendered, and there is no browser at that point to ask. The picker does
+     * not offer one — *which one you are authoring is decided by where you
+     * author it* — and this is the other half of that sentence.
+     *
+     * Asked as `foldableValue` rather than as `kind === 'field'`, which is
+     * what it said until a head could be a list. The two agreed for as long as
+     * a field was the only publish-time head, and the day `records` arrived
+     * the narrower spelling silently skipped every count — a binding that
+     * resolved perfectly and was never asked to.
      */
-    if (binding.value.kind !== 'field') continue;
+    if (!foldableValue(binding.value)) continue;
     /*
      * Through `resolveValue`, which walks the chain: `⟨Author⟩ ⟨→ the record⟩
      * ⟨Name⟩` ends on a name, and a plain `⟨Title⟩` is the same walk with no
@@ -346,10 +377,41 @@ export function collectionsUsedBy(
 ): string[] {
   const found = new Set<string>();
   for (const id of nodeIds) {
-    const collection = nodes[id]?.repeat?.collection;
-    if (collection) found.add(collection);
+    const node = nodes[id];
+    if (!node) continue;
+    if (node.repeat?.collection) found.add(node.repeat.collection);
+    /*
+     * And every collection a chain *counts*, which nothing repeats.
+     *
+     * "3 comments" names a collection with no repeater over it, so the walk
+     * above would miss it and the count would publish as nothing — the same
+     * shape of bug the reference closure below exists for, one head along.
+     */
+    for (const value of valuesOn(node)) {
+      if (value.kind === 'records') found.add(value.collection);
+    }
   }
   return collections ? withReferences([...found], collections) : [...found];
+}
+
+/**
+ * Every `Value` a node holds, wherever it holds one.
+ *
+ * Five places, and they are five because a value is authored on five axes: the
+ * content a record fills, a number mapped onto a scale, a style rule's
+ * condition, a state assignment's, and an action's guard. A walk that knew
+ * about four of them would be right until somebody used the fifth.
+ */
+function valuesOn(node: SceneNode): Value[] {
+  const out: Value[] = [];
+  for (const entry of Object.values(node.bind ?? {})) out.push(bindingFrom(entry).value);
+  for (const spec of Object.values(node.vars ?? {})) out.push(spec.value);
+  for (const rule of node.rules ?? []) if (rule.when) out.push(...operandsIn(rule.when));
+  for (const rule of node.assign ?? []) out.push(...operandsIn(rule.when));
+  for (const binding of node.events ?? []) {
+    for (const action of binding.actions) if (action.only) out.push(...operandsIn(action.only));
+  }
+  return out;
 }
 
 /**

@@ -22,7 +22,7 @@ import type { NodeMap } from '@/lib/document/tree';
 import { themeToStyleObject } from '@/lib/document/theme';
 import { DOCUMENT_RESET, PLACEHOLDER_CSS, generateNodeCss } from '@/lib/renderer/css';
 import { NodeView, RecordScope, RenderProvider } from '@/lib/renderer/render';
-import { designRecord as pickDesignRecord } from '@/lib/renderer/repeat';
+import { collectionsUsedBy, designRecord as pickDesignRecord } from '@/lib/renderer/repeat';
 import { behaviourRuntime, testRuntime } from '@/lib/runtime/behaviour';
 import { testTable } from '@/lib/renderer/test';
 import { DATA_ATTR, collectDataSources, designTokens } from '@/lib/runtime/data';
@@ -186,6 +186,26 @@ export function Canvas() {
   useEffect(() => {
     if (routeCollection) useEditor.getState().loadRecords(routeCollection);
   }, [routeCollection]);
+
+  /*
+   * And every collection the page *reads* without repeating.
+   *
+   * A repeater asks for its own rows through `useRecords`, which is why a page
+   * with a bound list needs nothing here. A count does not repeat anything and
+   * a followed reference points somewhere nothing repeats, so both would draw
+   * as the placeholder while the published file drew the truth — which is
+   * exactly what happened to a byline in E3, twice, before this existed.
+   *
+   * Once for the canvas rather than once per node: `loadRecords` dedupes, but
+   * an effect on seven hundred nodes is seven hundred effects to answer one
+   * question about the document.
+   */
+  const needed = useEditor((s) =>
+    collectionsUsedBy(s.doc.nodes, Object.keys(s.doc.nodes), s.doc.collections ?? []).sort().join()
+  );
+  useEffect(() => {
+    for (const id of needed ? needed.split(',') : []) useEditor.getState().loadRecords(id);
+  }, [needed]);
   const fitRequest = useEditor((s) => s.fitRequest);
 
   const frameWidth = BREAKPOINT_DEFS[breakpoint].width;

@@ -3412,6 +3412,119 @@ report.group('a bound value can be formatted, and only where it is shown');
       ]
     ).sort();
     report.check('and a reference cycle terminates', looped.join() === 'a,b', looped.join(' · '));
+
+    /* ------------------------------------------------------------------
+     * E4 — a value can be a list
+     * --------------------------------------------------------------- */
+
+    const comment = (id, at, published = true) => ({
+      id, collectionId: 'comments', position: at, published,
+      data: { body: `Comment ${at}` }, createdAt: at, updatedAt: at,
+    });
+    const three = repeatLib.recordIndex({
+      comments: [comment('c3', 3), comment('c1', 1), comment('c2', 2), comment('c9', 9, false)],
+      empty: [],
+    });
+    const none = repeatLib.recordIndex({ comments: [], empty: [] });
+
+    const counter = {
+      id: 'k1', type: 'text', name: 'Count', parentId: null, children: [],
+      props: { text: 'some comments' }, styles: {}, meta: {},
+      bind: { text: { value: { kind: 'records', collection: 'comments', steps: [{ op: 'count' }] } } },
+    };
+
+    report.check(
+      'a binding can say how many rows a collection has',
+      boundProps(counter, post, undefined, three).text === 3,
+      String(boundProps(counter, post, undefined, three).text)
+    );
+    /*
+     * The empty case, which is the whole of E4's falsification. Every other
+     * step answers `null` for "nothing here" and a binding reads `null` as
+     * *leave the design-time text alone* — so a count that did the same would
+     * print "some comments" on a post with none. Zero is an answer.
+     */
+    report.check(
+      'and zero is an answer rather than nothing to say',
+      boundProps(counter, post, undefined, none).text === 0,
+      String(boundProps(counter, post, undefined, none).text)
+    );
+    report.check(
+      'a draft row is not counted, for the same reason it is not shown',
+      boundProps(counter, post, undefined, three).text === 3,
+      `3 published + 1 draft → ${boundProps(counter, post, undefined, three).text}`
+    );
+    report.check(
+      'and a surface with no records to count says nothing rather than nought',
+      boundProps(counter, post).text === 'some comments',
+      String(boundProps(counter, post).text)
+    );
+
+    /*
+     * `first` and `last`, and the order they mean. A repeater with no sort
+     * draws position order, so "the first" has to be the row at the top of
+     * that list — anything else is a name the page itself disproves.
+     */
+    const ends = (op) => ({
+      ...counter,
+      bind: {
+        text: {
+          value: {
+            kind: 'records',
+            collection: 'comments',
+            steps: [{ op }, { op: 'field', key: 'body' }],
+          },
+        },
+      },
+    });
+    report.check(
+      'the first and last of a list are the ends of the order a repeater draws',
+      boundProps(ends('first'), post, undefined, three).text === 'Comment 1' &&
+        boundProps(ends('last'), post, undefined, three).text === 'Comment 3',
+      `first ${boundProps(ends('first'), post, undefined, three).text} · ` +
+        `last ${boundProps(ends('last'), post, undefined, three).text}`
+    );
+    report.check(
+      'and an empty list has no first row, which is nothing to say',
+      boundProps(ends('first'), post, undefined, none).text === 'some comments',
+      String(boundProps(ends('first'), post, undefined, none).text)
+    );
+
+    /*
+     * A list is publish-time data, so a chain over it folds — and
+     * `foldableValue` is the *only* thing that says so. `VALUES.md` §6 settles
+     * live lists as "not yet" rather than "never", and this is the line that
+     * changes when they arrive: nothing else in the resolver knows.
+     */
+    const busy = {
+      kind: 'compare',
+      left: { kind: 'records', collection: 'comments', steps: [{ op: 'count' }] },
+      op: 'gt',
+      right: { kind: 'literal', type: 'number', value: 2 },
+    };
+    report.check(
+      'a rule can ask how many, and it folds',
+      tests.evaluate(busy, post, three) === true &&
+        tests.evaluate(busy, post, none) === false &&
+        tests.foldable(busy) === true,
+      `three ${tests.evaluate(busy, post, three)} · none ${tests.evaluate(busy, post, none)} · ` +
+        `folds ${tests.foldable(busy)}`
+    );
+
+    /*
+     * And the rows get fetched. A count names a collection nothing repeats,
+     * which is the same hole the reference closure filled one head along —
+     * found there by a byline that published as its placeholder.
+     */
+    const counting = {
+      n1: { ...counter, id: 'n1', repeat: undefined },
+    };
+    const wantedByCount = repeatLib.collectionsUsedBy(counting, ['n1'], []).sort();
+    report.check(
+      'publishing a count fetches the collection it counts, which nothing repeats',
+      wantedByCount.join() === 'comments',
+      wantedByCount.join(' · ') || 'none'
+    );
   }
 
   /*
