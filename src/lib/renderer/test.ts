@@ -352,15 +352,29 @@ export function lowerTest(test: Test): TestNode {
     return { kind: test.kind, tests: test.tests.map(lowerTest) };
   }
   if (test.kind !== 'compare') return test as unknown as TestNode;
-  const out: TestNode = { kind: 'compare', left: test.left, op: test.op };
+  const out: TestNode = { kind: 'compare', left: bare(test.left) as TestOperand, op: test.op };
   if (test.right) out.right = bare(test.right);
   return out;
 }
 
-/** An operand with the tag the runtime infers from its shape taken back off. */
+/**
+ * An operand with the tag the runtime infers from its shape taken back off.
+ *
+ * Recursive, because a step can hold one too: `⟨Price⟩ × ⟨3⟩` puts a constant
+ * inside `by`, and a constant that reached the browser still wearing its
+ * `kind` was one the runtime read as a control it could not find. One spelling
+ * of a constant on the wire — `type` present — wherever it appears.
+ */
 function bare(value: Value): TestConst | TestOperand {
-  if (value.kind !== 'literal') return value;
-  return { type: value.type, value: value.value };
+  const steps = value.steps?.map((step) =>
+    'by' in step ? { ...step, by: bare(step.by) } : step
+  );
+  if (value.kind === 'literal') {
+    return steps?.length
+      ? ({ type: value.type, value: value.value, steps } as unknown as TestConst)
+      : { type: value.type, value: value.value };
+  }
+  return steps?.length ? ({ ...value, steps } as unknown as TestOperand) : value;
 }
 
 /**

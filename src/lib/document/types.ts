@@ -888,7 +888,36 @@ export type Step =
   | { op: 'count' }
   /** One row of the list before this, at whichever end. */
   | { op: 'first' }
-  | { op: 'last' };
+  | { op: 'last' }
+  /**
+   * Arithmetic, against another value.
+   *
+   * `by` is a `Value` rather than a number, which is what makes `Price ×
+   * Quantity` sayable and not only `Price × 2`. One level: that operand may be
+   * a chain of its own, and *its* steps may not take operands — the same rule
+   * §4 states for the condition tree, and the reason the sentence stays a line
+   * of chips rather than a nest of brackets.
+   *
+   * The first steps that can *travel*. Everything before them reads a record
+   * or a list, which is publish-time data; these can sit over a form control,
+   * because somebody types a quantity and the page multiplies by it. So they
+   * are the half of the vocabulary `VALUES.md` §3.3 says has to be paid for,
+   * and §5.4 records what they cost.
+   */
+  | { op: 'plus' | 'minus' | 'times' | 'over'; by: Value }
+  /**
+   * A number, to this many decimal places, *mid-chain*.
+   *
+   * Not the same thing as `Format`, which is the audit's §1.5 row "round, then
+   * use it": a format is a decoration applied on the way to the DOM and cannot
+   * be an input to anything, so `(price ÷ 3) rounded, × 2` had no spelling.
+   * This one produces a number the next step can read.
+   *
+   * `toFixed` under the hood, and deliberately: it is specified to the digit
+   * in ECMA-262, so the number reaching the markup is not a matter of which
+   * engine rounded it — the same argument `format.ts` makes at more length.
+   */
+  | { op: 'round'; places: number };
 
 /**
  * Something an expression can read.

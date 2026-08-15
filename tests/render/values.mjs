@@ -684,6 +684,125 @@ try {
     !countMarkup.includes('data-cre8-test') && !countMarkup.includes('data-cre8-vals'),
     `test attributes ${(countMarkup.match(/data-cre8-test/g) ?? []).length}`
   );
+
+  /* ------------------------------------------------ 6. E5: the arithmetic */
+
+  /*
+   * `VALUES.md` §5: "the same sum on the canvas and in the file, and a
+   * comparison against a typed number answered in the browser."
+   *
+   * Both halves, because they are different claims. The sum over a record
+   * folds and is checked as bytes in a file; the comparison against something
+   * typed is the first thing in this whole arc that the *runtime* has to work
+   * out, and it is measured by typing into the box.
+   */
+  {
+    const d = await getDocument(page, projectId);
+    const listings = d.collections.find((one) => one.id === 'listings');
+    listings.fields = [...listings.fields, { key: 'rooms', label: 'Rooms', type: 'number' }];
+    d.nodes.totval0006 = node('totval0006', 'paragraph', 'Per room', {
+      parentId: 'crdval0002',
+      props: { text: 'a rate' },
+      styles: { desktop: { fontSize: '12px' } },
+    });
+    d.nodes.crdval0002.children.push('totval0006');
+    await saveDocument(page, d);
+  }
+  for (const [slug, rooms] of [['over', 4], ['under', 5]]) {
+    const list = await call(`/api/projects/${projectId}/records?collection=listings`);
+    const row = (list.body?.records ?? []).find((one) => one.slug === slug);
+    if (row) {
+      await call(`/api/projects/${projectId}/records/${row.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ data: { ...row.data, rooms } }),
+      });
+    }
+  }
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+  await page.locator('[data-layer-row]:has-text("Per room")').first().click();
+  await page.waitForTimeout(500);
+  await openInspectorSection(page, 'Data');
+  await page.waitForTimeout(400);
+
+  const mathsPanel = page.locator('aside').last();
+  const mathsRow = mathsPanel.locator('[data-sentence]:has-text("Text reads")').first();
+  await mathsRow.getByRole('button').first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'Price', exact: true }).last().click();
+  await page.waitForTimeout(600);
+
+  // By its visible text: a button with content takes its accessible name from
+  // that content, and the `title` is only a fallback for one with none. The
+  // same trap X10 hit when a remover moved to an `IconButton`.
+  const addMaths = mathsPanel.getByRole('button', { name: '+ maths' }).first();
+  report.check(
+    'a number offers somewhere to do arithmetic to it',
+    (await addMaths.count()) === 1,
+    `${await addMaths.count()} offer(s)`
+  );
+  if (await addMaths.count()) {
+    await addMaths.click();
+    await page.waitForTimeout(500);
+    // The seeded step is `× 1`; point it at Rooms and make it a division.
+    const opChip = mathsPanel.getByRole('button', { name: '×', exact: true }).first();
+    await opChip.click();
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: '÷', exact: true }).last().click();
+    await page.waitForTimeout(500);
+    const byChip = mathsPanel
+      .getByRole('button', { name: 'Use a number from the record' })
+      .first();
+    if (await byChip.count()) {
+      await byChip.click();
+      await page.waitForTimeout(300);
+      await page.getByRole('button', { name: 'Rooms', exact: true }).last().click();
+      await page.waitForTimeout(600);
+    }
+  }
+
+  const divided = await getDocument(page, projectId);
+  const mathsValue = divided.nodes.totval0006.bind?.text?.value;
+  report.check(
+    'the binding is a chain with an arithmetic step in it',
+    mathsValue?.kind === 'field' &&
+      mathsValue?.key === 'price' &&
+      mathsValue?.steps?.length === 1 &&
+      mathsValue.steps[0].op === 'over' &&
+      mathsValue.steps[0].by?.kind === 'field' &&
+      mathsValue.steps[0].by?.key === 'rooms',
+    JSON.stringify(mathsValue ?? null)
+  );
+
+  const perRoomCanvas = await page.evaluate(() => {
+    const el = document.querySelector('.cre8-frame.cre8-editing .c-totval0006');
+    return el ? (el.textContent ?? '').trim() : 'no element';
+  });
+  report.check(
+    'the canvas does the sum',
+    perRoomCanvas === '225000',
+    `900000 ÷ 4 → ${perRoomCanvas}`
+  );
+
+  await publish(page);
+  const mathsSite = await ctx.newPage();
+  await mathsSite.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await mathsSite.waitForTimeout(600);
+  const sums = await mathsSite.evaluate(() =>
+    [...document.querySelectorAll('p')].map((p) => (p.textContent ?? '').trim())
+  );
+  await mathsSite.close();
+  report.check(
+    'and the file has the same sum, once per row, with the rows differing',
+    sums.includes('225000') && sums.includes('180000'),
+    sums.join(' · ')
+  );
 } catch (error) {
   report.check('values suite completed', false, String(error?.message ?? error));
 } finally {

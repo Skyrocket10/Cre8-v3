@@ -545,6 +545,32 @@ export function testSentence(options: {
   return parts;
 }
 
+/** The steps that do arithmetic, told from the ones that walk data. */
+function isMaths(step: Step): boolean {
+  return 'by' in step || step.op === 'round';
+}
+
+/** What each arithmetic step reads as in a sentence about a number. */
+const MATHS_LABELS = [
+  { value: 'times', label: '×' },
+  { value: 'over', label: '÷' },
+  { value: 'plus', label: '+' },
+  { value: 'minus', label: '−' },
+  { value: 'round', label: 'rounded to' },
+];
+
+/** A typed number as an operand. Types are declared, so this one is declared. */
+const numberFor = (raw: string): Value => literalFor('number', raw);
+
+/** The number fields a maths step may read, which is the only type it can. */
+const numbersAmong = (fields: Field[]) => fields.filter((f) => f.type === 'number');
+
+/** An operand that names a field, as the chip should show it. */
+function fieldLabel(value: Value, fields: Field[]): string {
+  if (value.kind !== 'field') return '';
+  return fields.find((f) => f.key === value.key)?.label ?? value.key;
+}
+
 /** Marks a source that is a form control rather than a record field. */
 const TYPED = 'typed:';
 /**
@@ -902,6 +928,108 @@ export function bindingSentence(options: {
     effective = { key: '', label: 'How many', type: 'number' };
   }
   if (!effective) return parts;
+
+  /*
+   * The maths, if the value the chain ends on is a number.
+   *
+   * One chip pair per step — an operator and what to do it with — and a `+`
+   * to grow the chain, which is what keeps `⟨Price⟩ ⟨× ⟨Quantity⟩⟩ ⟨rounded to
+   * ⟨0⟩⟩` a sentence rather than a formula. Offered only on a number, for the
+   * reason §3.5 gives: a step the head cannot do is one that compiles and can
+   * never resolve.
+   */
+  if (effective.type === 'number' && held) {
+    const maths = (held.steps ?? []).filter(isMaths);
+    const before = (held.steps ?? []).filter((step) => !isMaths(step));
+    const write = (next: Step[]) => onBind?.({ ...held, steps: [...before, ...next] });
+
+    maths.forEach((step, index) => {
+      parts.push({
+        kind: 'pick',
+        key: `op${index}`,
+        value: step.op,
+        menuWidth: 170,
+        options: MATHS_LABELS,
+        onChange:
+          onBind &&
+          ((op) =>
+            write(
+              maths.map((one, at) =>
+                at !== index
+                  ? one
+                  : op === 'round'
+                    ? { op: 'round', places: 0 }
+                    : { op: op as 'plus', by: 'by' in one ? one.by : numberFor('') }
+              )
+            )),
+      });
+      parts.push(
+        step.op === 'round'
+          ? {
+              kind: 'type',
+              key: `by${index}`,
+              value: String(step.places ?? 0),
+              placeholder: '0',
+              numeric: true,
+              onChange:
+                onBind &&
+                ((raw) =>
+                  write(
+                    maths.map((one, at) =>
+                      at === index ? { op: 'round', places: Number(raw.trim()) || 0 } : one
+                    )
+                  )),
+            }
+          : {
+              // A constant or another number field, the same two-mode chip the
+              // right of a comparison uses — because it is the same question.
+              kind: 'type',
+              key: `by${index}`,
+              value: 'by' in step ? literalText(step.by) || fieldLabel(step.by, fields) : '',
+              placeholder: '0',
+              numeric: 'by' in step && step.by.kind === 'literal',
+              menuWidth: 200,
+              pickLabel: 'Use a number from the record',
+              options: numbersAmong(fields).map((f) => ({ value: f.key, label: f.label })),
+              onChange:
+                onBind &&
+                ((raw) =>
+                  write(
+                    maths.map((one, at) =>
+                      at === index ? { op: one.op as 'plus', by: numberFor(raw) } : one
+                    )
+                  )),
+              onPick:
+                onBind &&
+                ((key) =>
+                  write(
+                    maths.map((one, at) =>
+                      at === index ? { op: one.op as 'plus', by: { kind: 'field', key } } : one
+                    )
+                  )),
+            }
+      );
+    });
+
+    if (onBind && maths.length < 3) {
+      parts.push({
+        kind: 'action',
+        key: 'add-maths',
+        title: 'Do something to this number',
+        label: <span className="text-[10px]">+ maths</span>,
+        onClick: () => write([...maths, { op: 'times', by: numberFor('1') }]),
+      });
+    }
+    if (onBind && maths.length) {
+      parts.push({
+        kind: 'action',
+        key: 'drop-maths',
+        title: 'Remove the last step',
+        label: <Trash2 size={10} />,
+        onClick: () => write(maths.slice(0, -1)),
+      });
+    }
+  }
 
   // The field the chain *ends* on, which after a follow is the other
   // collection's. Formatting a date as a currency is nonsense either way; what

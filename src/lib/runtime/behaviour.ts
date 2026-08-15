@@ -287,12 +287,22 @@ type TestRaw = string | number | boolean | null | undefined;
 /** The record values one element publishes, keyed by field. */
 type TestValues = Record<string, TestRaw>;
 export type TestOperand = {
-  kind: string;
+  kind?: string;
+  /** Present on a constant, which is how the wire tells one from an operand. */
+  type?: string;
+  value?: string | number | boolean;
   key?: string;
   name?: string;
   ref?: { node: string };
-  /** Present when the document's chain had steps. See `operand`. */
-  steps?: unknown[];
+  /**
+   * What happens to the head, in order.
+   *
+   * Only the arithmetic and rounding steps mean anything here — everything
+   * else reads a record or a list, which is publish-time data and therefore
+   * folded before this runs. `operand` refuses the rest rather than ignoring
+   * them.
+   */
+  steps?: { op: string; by?: TestOperand; places?: number }[];
 };
 /**
  * A constant, on the wire.
@@ -665,15 +675,53 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
  * @param tests Every unfolded rule on the page, keyed by node.
  * @returns A disposer, for surfaces that unmount.
  */
+/*
+ * Two notes that belong to `operand` and are written here because a comment
+ * inside this function is bytes on somebody's page.
+ *
+ * **`source` is the head, `operand` is the whole chain.** Only the arithmetic
+ * and rounding steps mean anything down here: everything else reads a record
+ * or a list, which is publish-time data, so `foldable` keeps those chains out
+ * of this table entirely. A step with no `by` and no `round` is therefore a
+ * document written by hand, and it is refused rather than ignored — ignoring
+ * it would print the *head's* value, which is a wrong answer wearing the shape
+ * of a right one.
+ *
+ * **Arithmetic is the first thing here that is not free.** `VALUES.md` §3.3
+ * divides the vocabulary into the half that folds and the half that travels,
+ * and this is the travelling half arriving: somebody types a quantity and the
+ * page multiplies by it. §5.4 records what it cost, measured rather than
+ * estimated.
+ */
 export function testRuntime(root: Host, live: boolean, tests: TestTable): () => void {
   function operand(left: TestOperand, holder: Tagged, values: TestValues): TestRaw {
-    // A chain with steps in it is one this runtime cannot walk: `follow` needs
-    // the other collection's records, and shipping those would be paying for
-    // the whole database to answer one comparison. Undecidable, therefore —
-    // not the id, which is what reading the head alone would print. It only
-    // arises when the *other* operand is a control, because a chain over a
-    // record folds and never travels at all.
-    if (left.steps) return undefined;
+    var raw = source(left, holder, values);
+    var steps = left.steps || [];
+    for (var i = 0; i < steps.length; i++) {
+      if (raw === undefined) return undefined;
+      var step = steps[i]!;
+      if (step.op === 'round') {
+        var r = Number(raw);
+        if (!Number.isFinite(r)) return undefined;
+        raw = Number(r.toFixed(Math.min(10, Math.max(0, Math.trunc(step.places!) || 0))));
+        continue;
+      }
+      if (!step.by) return undefined; // not arithmetic: see above the function
+
+      var a = Number(raw);
+      var b = Number(operand(step.by, holder, values));
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return undefined;
+      if (step.op === 'plus') raw = a + b;
+      else if (step.op === 'minus') raw = a - b;
+      else if (step.op === 'times') raw = a * b;
+      else if (b === 0) return undefined;
+      else raw = a / b;
+    }
+    return raw;
+  }
+
+  function source(left: TestOperand, holder: Tagged, values: TestValues): TestRaw {
+    if (left.type !== undefined) return left.value; // a constant, see `bare`
     const key = left.key || '';
     if (left.kind === 'field') return key in values ? values[key] : undefined;
     var control = null;

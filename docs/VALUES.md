@@ -81,8 +81,8 @@ relationship it cannot express.
 | Compare a field to a number | conditional | ✔ |
 | Compare two fields | `Price > Budget` | ✔ **E1** |
 | Follow a reference | `Post's Author's Name` | ✔ **E3** |
-| **Arithmetic** | `Price × Quantity` | ✘ |
-| **Round, then use it** | `:rounded to 0` | ✘ formatting is terminal |
+| Arithmetic | `Price × Quantity` | ✔ **E5** |
+| Round, then use it | `:rounded to 0` | ✔ **E5** |
 | Count a list | `:count` | ✔ **E4** |
 | First / last of a list | `:first item` | ✔ **E4** |
 | **Filter a list inline** | `:filtered` | repeater only, not a value |
@@ -273,7 +273,7 @@ unfixed code.
 | **E2** ✔ | `Value` gains `steps`, `foldable` and both evaluators walk it — **zero steps defined** | Publish all ten templates: byte-identical. The migration is the whole of it |
 | **E3** ✔ | `follow` and `field`: a reference is readable | A post's author's name on the page. Falsified by deleting the author record and seeing the binding fall back rather than print an id |
 | **E4** ✔ | The list head and `count`, `first`, `last` | "3 comments" from a real collection, and 0 when there are none — the empty case is the one that reads as broken |
-| **E5** | Arithmetic and `round`, in both evaluators | The same sum on the canvas and in the file, and a comparison against a typed number answered in the browser |
+| **E5** ✔ | Arithmetic and `round`, in both evaluators | The same sum on the canvas and in the file, and a comparison against a typed number answered in the browser |
 | **E6** | `where` and `sortedBy` | A filtered count that differs from the unfiltered one, on the same page |
 | **E7** | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
 | **E8** | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
@@ -388,6 +388,41 @@ head, and silently wrong for every count the day one was not. It asks
 `foldableValue` now. And `collectionsUsedBy` grew a second reason to want a
 collection: a count names one that nothing repeats, which is the same hole the
 reference closure filled one head along, found the same way.
+
+### 5.4 What E5 turned out to cost — 706 bytes, then 800
+
+The first stage that makes the runtime grow, so the number comes first.
+`testRuntime` ships at **7333 bytes** before E5 and **8133 after**: +800, or
++10.9%, on pages that carry an unfoldable test at all. That buys the whole
+travelling half of the arithmetic vocabulary — four operators, rounding, and
+operands that are themselves chains.
+
+It was +1068 before the reasoning moved. A comment inside a function that is
+serialised with `toString()` is bytes on somebody's page, so the two
+paragraphs explaining *why* the runtime refuses a step it cannot walk now sit
+above `testRuntime` rather than inside it. Same argument, 362 bytes cheaper,
+and the file already said to do this.
+
+**One spelling of a constant on the wire.** `bare` recurses into a step's
+operand, so `⟨Price⟩ × ⟨3⟩` sends `{type,value}` rather than a tagged literal.
+That started as a correctness fix and turned out not to be one — the runtime
+reads a constant by its `type`, so a tagged one resolves fine — which the
+falsification caught: the mutation produced no red. It is a size claim, it is
+now checked as one, and the difference is seventeen bytes per operand on every
+row of every page that ships a test.
+
+**Rounding is a step, not a format.** §1.5's "round, then use it" was blocked
+by `Format` being terminal by construction. `round` produces a number the next
+step can read, which is what makes `(price ÷ rooms) rounded, × 12` sayable —
+and it is `toFixed` underneath because that is specified to the digit, so the
+Worker and the browser cannot disagree.
+
+**Everything that has no answer says nothing.** Dividing by zero, arithmetic on
+a word, a field that is not there: each has a plausible wrong answer that would
+reach the page — `Infinity`, `NaN`, or the head's value with the step quietly
+skipped — and each is `null` instead, so the binding falls back to what the
+designer typed. That is four refusals in one check, and the mutation that
+removes any of them turns it red.
 
 ---
 

@@ -3525,6 +3525,116 @@ report.group('a bound value can be formatted, and only where it is shown');
       wantedByCount.join() === 'comments',
       wantedByCount.join(' · ') || 'none'
     );
+
+    /* ------------------------------------------------------------------
+     * E5 — arithmetic, which is the first half of the vocabulary that has
+     * to travel. Everything before this reads a record or a list and folds;
+     * `⟨Quantity typed here⟩ × ⟨Price⟩` cannot.
+     * --------------------------------------------------------------- */
+
+    const order = {
+      id: 'o1', collectionId: 'orders', position: 0, published: true,
+      data: { price: 19.99, qty: 3, rate: 0.2, zero: 0, name: 'Widget' },
+      createdAt: 0, updatedAt: 0,
+    };
+    const sum = (steps) => ({
+      id: 's1', type: 'text', name: 'Total', parentId: null, children: [],
+      props: { text: 'a total' }, styles: {}, meta: {},
+      bind: { text: { value: { kind: 'field', key: 'price', steps } } },
+    });
+
+    report.check(
+      'a binding can multiply two fields of the record',
+      boundProps(sum([{ op: 'times', by: { kind: 'field', key: 'qty' } }]), order).text === 59.97,
+      String(boundProps(sum([{ op: 'times', by: { kind: 'field', key: 'qty' } }]), order).text)
+    );
+    /*
+     * And a chain of them, which is what makes this a chain rather than one
+     * operator: `price × qty`, then VAT on top, then rounded to the penny.
+     * Written the way somebody would build it — left to right, each step
+     * reading what the one before produced.
+     */
+    const withVat = [
+      { op: 'times', by: { kind: 'field', key: 'qty' } },
+      { op: 'times', by: { kind: 'literal', type: 'number', value: 1.2 } },
+      { op: 'round', places: 2 },
+    ];
+    report.check(
+      'and steps compose left to right, each reading what the last produced',
+      boundProps(sum(withVat), order).text === 71.96,
+      `19.99 × 3 × 1.2 rounded to 2 → ${boundProps(sum(withVat), order).text}`
+    );
+    report.check(
+      'rounding happens mid-chain, where a format could never reach',
+      boundProps(sum([{ op: 'round', places: 1 }, { op: 'times', by: { kind: 'literal', type: 'number', value: 2 } }]), order).text === 40,
+      `19.99 rounded to 1 then doubled → ${boundProps(sum([{ op: 'round', places: 1 }, { op: 'times', by: { kind: 'literal', type: 'number', value: 2 } }]), order).text}`
+    );
+    /*
+     * The refusals. Every one of these has a plausible wrong answer that would
+     * reach the page — `NaN`, `Infinity`, or the head's value with the step
+     * quietly skipped — so each says nothing instead and the binding falls
+     * back to what the designer typed.
+     */
+    const refused = {
+      'text × number': sum([{ op: 'times', by: { kind: 'field', key: 'qty' } }]),
+      'divide by zero': sum([{ op: 'over', by: { kind: 'field', key: 'zero' } }]),
+      'a field that is not there': sum([{ op: 'plus', by: { kind: 'field', key: 'missing' } }]),
+    };
+    const quietMaths = {
+      'text × number': boundProps(
+        { ...refused['text × number'], bind: { text: { value: { kind: 'field', key: 'name', steps: [{ op: 'times', by: { kind: 'field', key: 'qty' } }] } } } },
+        order
+      ).text,
+      'divide by zero': boundProps(refused['divide by zero'], order).text,
+      'a field that is not there': boundProps(refused['a field that is not there'], order).text,
+    };
+    report.check(
+      'arithmetic that has no answer says nothing rather than NaN or Infinity',
+      Object.values(quietMaths).every((text) => text === 'a total'),
+      Object.entries(quietMaths).map(([why, text]) => `${why} → ${String(text)}`).join(' · ')
+    );
+
+    /*
+     * Foldability, which is the whole scheduling question for this stage.
+     * Over a record it folds and costs nothing; the moment an operand reads a
+     * control it does not, and that is derived rather than declared.
+     */
+    const overRecord = { kind: 'field', key: 'price', steps: [{ op: 'times', by: { kind: 'field', key: 'qty' } }] };
+    const overTyped = { kind: 'field', key: 'price', steps: [{ op: 'times', by: { kind: 'input', name: 'qty' } }] };
+    report.check(
+      'arithmetic over a record folds; arithmetic over something typed does not',
+      tests.foldable({ kind: 'compare', left: overRecord, op: 'gt', right: { kind: 'literal', type: 'number', value: 1 } }) === true &&
+        tests.foldable({ kind: 'compare', left: overTyped, op: 'gt', right: { kind: 'literal', type: 'number', value: 1 } }) === false,
+      `record ${tests.foldable({ kind: 'compare', left: overRecord, op: 'gt', right: { kind: 'literal', type: 'number', value: 1 } })} · ` +
+        `typed ${tests.foldable({ kind: 'compare', left: overTyped, op: 'gt', right: { kind: 'literal', type: 'number', value: 1 } })}`
+    );
+    /*
+     * And the field inside a step gets published. `⟨Price⟩ × ⟨Quantity⟩` reads
+     * two fields and only one is the head — a walk that stopped there would
+     * ship `price`, leave `quantity` behind, and the runtime would answer
+     * `null` for ever on a page with no sign of why.
+     */
+    {
+      const travels = {
+        kind: 'compare',
+        left: { kind: 'input', name: 'budget' },
+        op: 'lt',
+        right: overRecord,
+      };
+      const node = {
+        id: 'n5', type: 'frame', name: 'Row', parentId: null, children: [],
+        props: {}, styles: {}, meta: {},
+        state: { key: 'band', values: ['else'], initial: 'else' },
+        assign: [{ id: 'a', when: travels, value: 'over' }],
+      };
+      const shipped = tests.publishedValues(node, order);
+      report.check(
+        'a field read inside an arithmetic step is published too',
+        shipped?.price === 19.99 && shipped?.qty === 3,
+        `shipped ${JSON.stringify(shipped)}`
+      );
+    }
+
   }
 
   /*
@@ -4252,6 +4362,70 @@ report.group('a Test the browser has to answer agrees with the one the publisher
   );
 
   /* ----------------------------------------------------------------------
+   * E5 — the same sum on both surfaces
+   * ------------------------------------------------------------------- */
+
+  const orderRow = { price: 19.99, qty: 3, rate: 0.2, zero: 0, name: 'Widget' };
+
+  /*
+   * The differential, which is what E5 is really about: the same sum on both
+   * surfaces. A published page answers `price × qty` in the file; a page
+   * where somebody types the quantity answers it in the browser, and the two
+   * must agree to the digit — `toFixed` is specified, `+` and `×` are IEEE,
+   * and the check is here because "they should agree" is not the same claim
+   * as "they do".
+   */
+  {
+    const cases = [
+      [{ op: 'times', by: { kind: 'literal', type: 'number', value: 3 } }],
+      [{ op: 'over', by: { kind: 'literal', type: 'number', value: 3 } }],
+      [{ op: 'plus', by: { kind: 'literal', type: 'number', value: 0.1 } }],
+      [{ op: 'minus', by: { kind: 'literal', type: 'number', value: 0.3 } }],
+      [{ op: 'over', by: { kind: 'literal', type: 'number', value: 3 } }, { op: 'round', places: 2 }],
+      [{ op: 'times', by: { kind: 'field', key: 'rate' } }, { op: 'round', places: 4 }],
+      [{ op: 'over', by: { kind: 'field', key: 'zero' } }],
+      [{ op: 'round', places: 0 }],
+    ];
+    const split = [];
+    for (const steps of cases) {
+      const when = {
+        kind: 'compare',
+        left: { kind: 'field', key: 'price', steps },
+        op: 'gt',
+        right: { kind: 'literal', type: 'number', value: 5 },
+      };
+      const rules = [{ id: 'm', when, value: 'yes' }];
+      const a = publishAnswer(rules, orderRow);
+      const b = runtimeAnswer(rules, orderRow);
+      if (a !== b) split.push(`${JSON.stringify(steps)} → ${a} vs ${b}`);
+    }
+    report.check(
+      'the two evaluators reach the same sum, case for case',
+      split.length === 0,
+      split.length ? split.slice(0, 2).join(' | ') : `${cases.length} sums agree`
+    );
+  }
+
+  /*
+   * And the runtime refuses what it cannot walk rather than answering with
+   * the head. A `follow` can only arrive here in a document written by hand
+   * — `foldable` keeps it out of the table — and printing the *id* would be
+   * a wrong answer wearing the shape of a right one.
+   */
+  {
+    const walked = {
+      kind: 'compare',
+      left: { kind: 'field', key: 'price', steps: [{ op: 'follow' }, { op: 'field', key: 'name' }] },
+      op: 'notEmpty',
+    };
+    report.check(
+      'the runtime refuses a step it cannot walk rather than reading the head',
+      runtimeAnswer([{ id: 'f', when: walked, value: 'yes' }], orderRow) === 'else',
+      String(runtimeAnswer([{ id: 'f', when: walked, value: 'yes' }], orderRow))
+    );
+  }
+
+  /* ----------------------------------------------------------------------
    * E1 — the other side of the operator is a Value too
    *
    * `right` was a `TestLiteral`, so a comparison could only ever ask about a
@@ -4436,6 +4610,33 @@ report.group('a Test the browser has to answer agrees with the one the publisher
       'the tag is dropped inside a group too, not only at the top',
       !JSON.stringify(lowerTest({ kind: 'every', tests: [stored, stored] })).includes('literal'),
       JSON.stringify(lowerTest({ kind: 'every', tests: [stored, stored] }))
+    );
+    /*
+     * And inside a step's operand, which is where E5 put constants.
+     *
+     * A *size* claim rather than a correctness one, and worth being clear
+     * about which: the runtime reads a constant by its `type`, so a tagged one
+     * resolves perfectly well — it just carries seventeen bytes of nothing per
+     * operand, on every row of every page that ships a test. The differential
+     * cannot see that, so this is the check that can.
+     */
+    const priced = {
+      kind: 'compare',
+      left: {
+        kind: 'field',
+        key: 'price',
+        steps: [
+          { op: 'times', by: { kind: 'literal', type: 'number', value: 3 } },
+          { op: 'round', places: 2 },
+        ],
+      },
+      op: 'gt',
+      right: { kind: 'literal', type: 'number', value: 5 },
+    };
+    report.check(
+      'and inside an arithmetic step, where a constant costs bytes on every row',
+      !JSON.stringify(lowerTest(priced)).includes('literal'),
+      JSON.stringify(lowerTest(priced))
     );
   }
 

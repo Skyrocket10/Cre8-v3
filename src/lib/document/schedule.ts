@@ -113,7 +113,7 @@ export function resolveValue(
 
   for (const step of value.steps ?? []) {
     if (!at) return null;
-    at = advance(at, step, find);
+    at = advance(at, step, record, find);
   }
 
   // A chain that ends on a record has not produced a value. Nothing downstream
@@ -128,7 +128,12 @@ export function resolveValue(
  * reading: a `let` reassigned inside a loop from an expression that reads its
  * own narrowed type is a circular inference, and TypeScript says so.
  */
-function advance(at: Resolved, step: Step, find: RecordLookup | undefined): Resolved | null {
+function advance(
+  at: Resolved,
+  step: Step,
+  record: CollectionRecord | null,
+  find: RecordLookup | undefined
+): Resolved | null {
   if (step.op === 'follow') {
     // Only an id can be followed, and only from the value side. A `follow`
     // straight after a `follow` would be following a record, which the panel
@@ -165,6 +170,44 @@ function advance(at: Resolved, step: Step, find: RecordLookup | undefined): Reso
     return row ? { at: 'record', record: row } : null;
   }
 
+  /*
+   * Rounding, mid-chain.
+   *
+   * `toFixed` because it is specified to the digit, so the Worker and the
+   * browser cannot disagree — the same argument `format.ts` makes at length.
+   * Clamped because `toFixed` *throws* outside 0–100 and a hand-written
+   * document must not be able to take a publish down.
+   */
+  if (step.op === 'round') {
+    if (at.at !== 'value') return null;
+    const n = Number(at.raw);
+    if (!Number.isFinite(n)) return null;
+    const places = Math.min(10, Math.max(0, Math.trunc(step.places) || 0));
+    return { at: 'value', raw: Number(n.toFixed(places)), has: true };
+  }
+
+  // `'by' in step` rather than four `op` comparisons: one member of `Step`
+  // carries a four-way `op`, and TypeScript will not narrow it away on the
+  // else branch however many of the four are listed. The operand is what makes
+  // these steps what they are anyway.
+  if ('by' in step) {
+    if (at.at !== 'value' || !at.has) return null;
+    const other = resolveValue(step.by, record, find);
+    if (!other || !other.has) return null;
+    const a = Number(at.raw);
+    const b = Number(other.raw);
+    // Arithmetic on something that is not a number has no answer, and
+    // answering `NaN` would put the word in the markup. Same rule as a type
+    // mismatch in a comparison: undecidable rather than wrong.
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    // And dividing by nothing is the same kind of nothing. `Infinity` is a
+    // real number to JavaScript and a bug to a reader.
+    if (step.op === 'over' && b === 0) return null;
+    const out =
+      step.op === 'plus' ? a + b : step.op === 'minus' ? a - b : step.op === 'times' ? a * b : a / b;
+    return { at: 'value', raw: out, has: true };
+  }
+
   if (at.at !== 'record') return null;
   return fieldOf(at.record, step.key);
 }
@@ -195,11 +238,28 @@ export function operandsIn(test: Test): Value[] {
   const out: Value[] = [];
   const walk = (inner: Test): void => {
     if (inner.kind === 'compare') {
-      out.push(inner.left);
-      if (inner.right) out.push(inner.right);
+      out.push(...valuesIn(inner.left));
+      if (inner.right) out.push(...valuesIn(inner.right));
     } else if (inner.kind === 'every' || inner.kind === 'some') inner.tests.forEach(walk);
   };
   walk(test);
+  return out;
+}
+
+/**
+ * One operand, and every operand nested inside its steps.
+ *
+ * `⟨Price⟩ × ⟨Quantity⟩` reads two fields and only one of them is the head, so
+ * a walk that stopped at the head would ship `price` to the runtime and leave
+ * `quantity` behind — a comparison that answers `null` for ever, on a page
+ * with no sign of why. The same failure `fieldsRead` had when it read `left`
+ * alone, one level down.
+ */
+export function valuesIn(value: Value): Value[] {
+  const out: Value[] = [value];
+  for (const step of value.steps ?? []) {
+    if ('by' in step) out.push(...valuesIn(step.by));
+  }
   return out;
 }
 
@@ -388,5 +448,15 @@ export function foldable(test: Test): boolean {
  * *never* — and the day it does, this function is where it stops.
  */
 export function foldableValue(value: Value): boolean {
-  return value.kind === 'field' || value.kind === 'literal' || value.kind === 'records';
+  const head =
+    value.kind === 'field' || value.kind === 'literal' || value.kind === 'records';
+  if (!head) return false;
+  /*
+   * And every operand of every step, because arithmetic can reach a control:
+   * `⟨Price⟩ × ⟨Quantity typed here⟩` starts at publish-time data and is not
+   * publish-time data. The record and list steps take no operand, so they
+   * cannot change the answer — which is `VALUES.md` §3.3's affordability
+   * argument stated as code rather than as prose.
+   */
+  return (value.steps ?? []).every((step) => !('by' in step) || foldableValue(step.by));
 }

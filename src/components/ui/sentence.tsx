@@ -75,6 +75,15 @@ export type Part =
       options?: SelectOption<string>[];
       onPick?: (value: string) => void;
       menuWidth?: number;
+      /**
+       * What the chevron beside the box offers, for a screen reader.
+       *
+       * Said rather than defaulted per caller because the two places that use
+       * this chip mean different things by it — one offers another field to
+       * compare against, the other offers another field to multiply by — and a
+       * bare chevron next to a text box is not a control anybody can describe.
+       */
+      pickLabel?: string;
     }
   /** A button that ends a clause: remove, add another. */
   | { kind: 'action'; key: string; label: React.ReactNode; title?: string; onClick: () => void }
@@ -206,7 +215,7 @@ function Piece({ part }: { part: Part }) {
                 // Named for what it offers rather than for its shape: a
                 // screen reader landing on a bare chevron next to a text box
                 // has no way to know the two are one control.
-                aria-label="Compare against something else"
+                aria-label={part.pickLabel ?? 'Compare against something else'}
                 className="-ml-4 flex size-4 items-center justify-center rounded-[3px] text-[var(--accent)] hover:bg-[var(--accent-subtle)]"
               >
                 <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
