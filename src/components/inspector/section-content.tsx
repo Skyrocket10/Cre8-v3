@@ -74,6 +74,7 @@ import {
   Tooltip,
 } from '../ui/primitives';
 import { Sentence } from '../ui/sentence';
+import { ContentBindings } from './bindings';
 import { InspectorGroup, StyleRow } from './controls';
 import { StyleFields } from './style-field';
 import { blankGuard, testSentence, unusedLeaf } from './sentences';
@@ -115,6 +116,38 @@ export function ContentSection() {
  */
 export function hasOwnContent(type: ElementType): boolean {
   return typeContent(type) !== null;
+}
+
+/**
+ * A section about what an element says — including where it says it from.
+ *
+ * `Section` plus the bindings, and it exists so that "plus the bindings" is one
+ * decision rather than twenty. `docs/INSPECTOR.md` Rule 2 puts content in
+ * Appearance, which is a claim about *all* of it: a paragraph's words, an
+ * image's source, a disclosure's summary line. Every kind of content below
+ * uses this, so a content type added next year is bindable without anybody
+ * remembering to make it so — and `tests/static` requires it, because "somebody
+ * remembers" is what left `summary`, `legend` and `poster` unbindable until
+ * §4.1.13 went looking.
+ *
+ * `ContentBindings` renders nothing when there is no record in scope, which is
+ * most of the time, so this is a plain `Section` on a page with no collections.
+ */
+function ContentBox({
+  title,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Section title={title} defaultOpen={defaultOpen}>
+      {children}
+      <ContentBindings />
+    </Section>
+  );
 }
 
 /** A box that can be made clickable, on the five types where that is a choice. */
@@ -454,7 +487,7 @@ function SelectContent() {
   const placeholder = useNodeProp('placeholder');
   const options = useNodeProp('options');
   return (
-    <Section title="Select" defaultOpen>
+    <ContentBox title="Select" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Options">
           <TextArea
@@ -479,7 +512,7 @@ function SelectContent() {
           />
         </StyleRow>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -489,7 +522,7 @@ function ChoiceContent({ kind }: { kind: 'checkbox' | 'radio' }) {
   const value = useNodeProp('value');
   const checked = useNodeProp('checked');
   return (
-    <Section title={kind === 'checkbox' ? 'Checkbox' : 'Radio'} defaultOpen>
+    <ContentBox title={kind === 'checkbox' ? 'Checkbox' : 'Radio'} defaultOpen>
       <InspectorGroup>
         <StyleRow label="Label">
           <TextInput
@@ -518,7 +551,7 @@ function ChoiceContent({ kind }: { kind: 'checkbox' | 'radio' }) {
           <Switch checked={Boolean(checked.value)} onChange={(on) => checked.set(on || undefined)} />
         </StyleRow>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -557,7 +590,7 @@ function RangeContent() {
   const drives = slug(useNodeProp('drives').value);
 
   return (
-    <Section title="Slider" defaultOpen>
+    <ContentBox title="Slider" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Range">
           <div className="flex flex-1 gap-1.5">
@@ -606,7 +639,7 @@ function RangeContent() {
         </StyleRow>
         <AccentRow hint="The browser paints the track and thumb with this" />
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -617,7 +650,7 @@ function FileContent() {
   const required = useNodeProp('required');
 
   return (
-    <Section title="File upload" defaultOpen>
+    <ContentBox title="File upload" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Accepts" hint="Extensions or MIME types, comma separated">
           <TextInput
@@ -650,7 +683,7 @@ function FileContent() {
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         The picker is held back while editing, so selecting the field does not open it.
       </p>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -661,7 +694,7 @@ function ProgressContent() {
   const unknown = Boolean(indeterminate.value);
 
   return (
-    <Section title="Progress" defaultOpen>
+    <ContentBox title="Progress" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Unknown">
           <Switch
@@ -694,14 +727,14 @@ function ProgressContent() {
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         Fill colour is Text, track is Background — both under Style.
       </p>
-    </Section>
+    </ContentBox>
   );
 }
 
 function FieldsetContent() {
   const legend = useNodeProp('legend');
   return (
-    <Section title="Field group" defaultOpen>
+    <ContentBox title="Field group" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Legend" hint="Names the group for a screen reader">
           <TextInput
@@ -712,7 +745,7 @@ function FieldsetContent() {
           />
         </StyleRow>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -720,7 +753,7 @@ function DisclosureContent() {
   const summary = useNodeProp('summary');
   const open = useNodeProp('open');
   return (
-    <Section title="Disclosure" defaultOpen>
+    <ContentBox title="Disclosure" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Summary">
           <TextInput
@@ -738,7 +771,7 @@ function DisclosureContent() {
       <p className="px-3 pb-2 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
         Always shown open while editing. “Open” is how it ships.
       </p>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -882,7 +915,7 @@ function PopoverContent() {
   const showWhileEditing = useNodeProp('showWhileEditing');
 
   return (
-    <Section title="Popover" defaultOpen>
+    <ContentBox title="Popover" defaultOpen>
       <InspectorGroup>
         <PlacementRows />
         <StyleRow label="Dismiss" hint="Auto closes on Escape or a click outside">
@@ -911,7 +944,7 @@ function PopoverContent() {
         too — select it in Layers to bring it back. Automatic dismissal is the browser&rsquo;s own
         light dismiss: Escape, or a click outside. Manual means only a button closes it.
       </p>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -1103,7 +1136,7 @@ function DialogContent() {
   const showWhileEditing = useNodeProp('showWhileEditing');
 
   return (
-    <Section title="Dialog" defaultOpen>
+    <ContentBox title="Dialog" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Announced as" hint="Read out when the dialog opens">
           <TextInput
@@ -1140,7 +1173,7 @@ function DialogContent() {
         Opens over the page with a backdrop — style it under Backdrop above. The page behind stays
         reachable by keyboard: making it inert needs a script, which these pages do not ship.
       </p>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2027,7 +2060,7 @@ export function ActionsSection() {
 function TableContent() {
   const caption = useNodeProp('caption');
   return (
-    <Section title="Table" defaultOpen>
+    <ContentBox title="Table" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Caption" hint="Names the table for a screen reader">
           <TextInput
@@ -2039,7 +2072,7 @@ function TableContent() {
         </StyleRow>
         <StyleFields section="table" />
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2051,7 +2084,7 @@ function TableCellContent() {
   const isHeader = Boolean(header.value);
 
   return (
-    <Section title="Cell" defaultOpen>
+    <ContentBox title="Cell" defaultOpen>
       <InspectorGroup>
         <StyleRow label="Header">
           <Switch
@@ -2100,7 +2133,7 @@ function TableCellContent() {
             "Vertically" and a table gets the other four. */}
         <StyleFields section="table" />
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2160,7 +2193,7 @@ function HeadingContent() {
   const level = useNodeProp('level');
 
   return (
-    <Section title="Content">
+    <ContentBox title="Content">
       <InspectorGroup>
         <TextArea value={String(text.value ?? '')} onChange={(v) => text.set(v)} rows={2} />
         <StyleRow label="Level" hint="Semantic heading level — affects SEO and accessibility">
@@ -2176,30 +2209,30 @@ function HeadingContent() {
           />
         </StyleRow>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
 function TextContent() {
   const text = useNodeProp('text');
   return (
-    <Section title="Content">
+    <ContentBox title="Content">
       <TextArea value={String(text.value ?? '')} onChange={(v) => text.set(v)} rows={4} />
-    </Section>
+    </ContentBox>
   );
 }
 
 function RichTextContent() {
   const html = useNodeProp('html');
   return (
-    <Section title="Content">
+    <ContentBox title="Content">
       <InspectorGroup>
         <TextArea value={String(html.value ?? '')} onChange={(v) => html.set(v)} rows={7} mono />
         <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
           Supports headings, paragraphs, lists, links, <code>strong</code> and <code>em</code>.
         </p>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2287,7 +2320,7 @@ function ImageContent() {
   });
 
   return (
-    <Section title="Image">
+    <ContentBox title="Image">
       <InspectorGroup>
         <div className="flex gap-2">
           <div
@@ -2389,7 +2422,7 @@ function ImageContent() {
         </StyleRow>
         <StyleFields section="content" />
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2402,7 +2435,7 @@ function VideoContent() {
   const muted = useNodeProp('muted');
 
   return (
-    <Section title="Video">
+    <ContentBox title="Video">
       <InspectorGroup>
         <StyleRow label="Source">
           <TextInput
@@ -2427,7 +2460,7 @@ function VideoContent() {
           <Switch checked={Boolean(muted.value)} onChange={(v) => muted.set(v)} label="Muted" />
         </div>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2442,7 +2475,7 @@ function IconContent() {
   }, [query]);
 
   return (
-    <Section title="Icon">
+    <ContentBox title="Icon">
       <InspectorGroup>
         <Popover
           width={252}
@@ -2501,7 +2534,7 @@ function IconContent() {
           />
         </StyleRow>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2557,11 +2590,11 @@ function IconPreview({ name }: { name: string }) {
  */
 function ContainerContent() {
   return (
-    <Section title="Link">
+    <ContentBox title="Link">
       <InspectorGroup>
         <Destination />
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2746,7 +2779,7 @@ function LinkContent({
   const opensPopover = opensAPopover;
 
   return (
-    <Section title={title}>
+    <ContentBox title={title}>
       <InspectorGroup>
         {hasChildren ? (
           <p className="px-1 pb-1 text-[10.5px] leading-relaxed text-[var(--text-faint)]">
@@ -2783,7 +2816,7 @@ function LinkContent({
             reason, so its href would be ignored too. */}
         {!opensPopover && !submits && <Destination />}
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2812,7 +2845,7 @@ function FormContent() {
   const typed = String(action.value ?? '');
 
   return (
-    <Section title="Form">
+    <ContentBox title="Form">
       <InspectorGroup>
         <StyleRow label="Sends to">
           <Select
@@ -2852,7 +2885,7 @@ function FormContent() {
           />
         </StyleRow>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2864,7 +2897,7 @@ function FieldContent({ multiline }: { multiline: boolean }) {
   const rows = useNodeProp('rows');
 
   return (
-    <Section title="Field">
+    <ContentBox title="Field">
       <InspectorGroup>
         <StyleRow label="Placeholder">
           <TextInput
@@ -2928,7 +2961,7 @@ function FieldContent({ multiline }: { multiline: boolean }) {
           <Switch checked={Boolean(required.value)} onChange={(v) => required.set(v)} label="Required" />
         </div>
       </InspectorGroup>
-    </Section>
+    </ContentBox>
   );
 }
 
@@ -2947,7 +2980,7 @@ function InstanceContent() {
   if (!component || !instanceId) return null;
 
   return (
-    <Section title="Component">
+    <ContentBox title="Component">
       <InspectorGroup>
         <div className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--field)] px-2 py-2">
           <Component size={13} className="shrink-0 text-[var(--accent)]" />
@@ -2978,7 +3011,7 @@ function InstanceContent() {
       </InspectorGroup>
       <InstanceVariant componentId={component.id} instanceId={instanceId} />
       <InstanceProperties componentId={component.id} instanceId={instanceId} />
-    </Section>
+    </ContentBox>
   );
 }
 

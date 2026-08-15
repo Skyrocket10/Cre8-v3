@@ -59,6 +59,13 @@ Each of these shipped, passed, and was found later:
 | five no-script guarantees | `javaScriptEnabled` is a **context** option and is ignored on `newPage`, silently |
 | "or" offers a second condition | the fixtures never grew from the one the seed hardcoded |
 | a condition can be edited, not only described | a regex over the source, asserting the *branch* exists — it says nothing about the operands inside it |
+| five checks about the rule sentence | wrapped in `if (await addRule.count())`, and the button moved sections — so all five silently stopped running and the suite got shorter, not redder |
+
+**A conditional around a block of checks is itself a check, and should be
+written as one.** The row above was found by accident: with those five no
+longer running, the last entry on the undo stack changed, and an unrelated
+check about the *published file* went red. A block that can quietly not run is
+a block that will eventually not run.
 
 And one that is not a check at all but reads like one: a falsification whose
 `npm run build` **failed** while `wrangler` kept serving the previous `out/`,

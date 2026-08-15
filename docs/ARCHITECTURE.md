@@ -1925,9 +1925,13 @@ that is not a link does not have a Link row, and the Add menu offers it.
 
 **A section holding a warning is in use by definition.** The panel reports a
 rule reading an element that is no longer there, and it reports it inside Data.
-Hide Data because nothing is bound, and the warning goes with it — the rule
+Hide Data because nothing is set on it, and the warning goes with it — the rule
 still cannot work, and now nothing anywhere says so. `used` asks about dangling
-reads as well as about bindings.
+reads as well as about what the section holds.
+
+*Bindings were on that list until `INSPECTOR.md` A2 moved them into the content
+sections. They came off it in the same change: a section that lights up for
+something it does not contain is the panel pointing at the wrong place.*
 
 And one that only the browser could show. The multi-selection subscription
 mapped the selection to nodes *inside* the store selector, so it built a fresh

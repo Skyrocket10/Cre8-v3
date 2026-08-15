@@ -80,12 +80,16 @@ element. But the panel's groups are **Appearance, Arrangement, Behaviour,
 Motion, Advanced** — five, and none of them is Conditions or Events. A designer
 reading it does not learn the model, because the model is not what it says.
 
-### Rule 2 — content is part of Appearance ✘
+### Rule 2 — content is part of Appearance ✔ *(A2)*
 
-Content is in **Data**, a section that only appears when the project has
+Content *was* in **Data**, a section that only appears when the project has
 collections and this element is in scope of one. So the sentence that fills a
-heading lives in a section named after the database, next to the repeater. Rule
+heading lived in a section named after the database, next to the repeater. Rule
 2 says it is an Appearance property, and it is right.
+
+A2 moved it: every content section carries its own bindings now, under the
+words somebody typed there first, and nothing named after the database has to
+be opened to write one. §5.2 records what that cost.
 
 ### Rule 3 — appearance properties can be dynamic ◑
 
@@ -121,7 +125,7 @@ which means the capability exists for exactly one argument of exactly one verb.
 | 4 | conditions change appearance | ◑ styles in one hop, content and visibility in two |
 | 5 | events trigger actions | ◑ shape universal, vocabulary one word |
 | 1 | every element the same | ◑ true of the model, not of the panel |
-| 2 | content is Appearance | ✘ content is in Data |
+| 2 | content is Appearance | ✔ A2 — the bindings are in the content sections |
 | 3 | properties are dynamic | ◑ content yes, style through a named variable |
 | 6 | action arguments dynamic | ✘ strings |
 
@@ -261,7 +265,7 @@ unfixed code.
 | | | Falsified by |
 |---|---|---|
 | **A1** ✔ | Three groups, and the residue named | Every element offers Appearance, Conditions and Events; a section with no group is a build error |
-| **A2** | Content moves into Appearance | Bind a heading without opening a section named after the database |
+| **A2** ✔ | Content moves into Appearance | Bind a heading without opening a section named after the database |
 | **A3** | A style property can read a value | `Opacity → ⟨Score⟩ ÷ ⟨100⟩` written on the property, one rule in the stylesheet, a different number per row |
 | **A4** | Action arguments are expressions | `Navigate → ⟨Record → slug⟩`, published, with no script |
 | **A5** | `onSubmit`, and the events table proves it is a table | Two events on one element, each with its own actions |
@@ -292,6 +296,55 @@ filing "Repeat over Essays" under Appearance to keep the count at three would
 be tidier and untrue. `Declares` is what an element hands to everything else.
 
 Nothing published moved — this is the panel's vocabulary, not the document's.
+
+### 5.2 What A2 turned out to cost — one component, and a silence it exposed
+
+The move itself is small. `ContentBindings` is the old `BindControls` with the
+store reads it used to be handed, and `ContentBox` is `Section` plus that one
+line. Every per-type content section — twenty-one of them, from `HeadingContent`
+to `InstanceContent` — renders `ContentBox` instead of `Section`, so a heading's
+`Text reads ⟨Title⟩` sits under the words somebody typed there first. `node.bind`
+did not change, the resolver did not change, and the publish gate is
+byte-identical.
+
+**One component rather than twenty-one edited controls, on purpose.** The end
+state §3.2 describes is the affordance *on the property* — a text field that
+grows the same chip a comparison's operand has — and that is A3's shape. This
+is the honest half-step, and it is one decision point because the alternative
+has already failed once in this codebase: `summary`, `legend` and `poster` were
+unbindable for a year because two hand-written lists had drifted (§4.1.13). A
+content type added next year that renders a plain `Section` would be a content
+type no record can fill, and nothing about it would look wrong — so the static
+suite reads `typeContent`'s switch, finds the component behind every arm, and
+requires each to be a `ContentBox`.
+
+**The one content prop that is not in Content.** A layout box's words are the
+elements inside it, so it has no content section at all — and `href`, which
+`content-props.ts` calls content, lives in **Link**, under Events. So the rule
+A2 actually follows is one step wider than Rule 2: *the binding is written where
+the property is*. That makes Rule 2 true for everything with content of its own,
+and leaves the box's destination where the box's destination already was.
+
+**The failure this surfaced was in a check, not in the panel.** `collections.mjs`
+opened Data to bind, and got `+ Rule` — the state-from-record list — for free
+while it was there. With the binding gone from Data, five checks behind
+`if (await addRule.count())` stopped running and said nothing: a silent skip is
+the one failure mode a suite cannot report on itself. It was caught by a *sixth*
+check going red for an unrelated-looking reason — with 5b no longer running, the
+last entry on the undo stack was the binding rather than a rule, so Ctrl+Z
+unbound the heading and the published file lost its record. The guard is a
+reported check now. **A conditional around a block of checks is a check that the
+condition holds, and it should be written as one.**
+
+**And one trap in the new static check, which is worth writing down because it
+is invisible.** Stripping comments with `/\*[\s\S]*?\*\//` ate a third of the
+content panel: the file ships `placeholder="image/*, .pdf"` on the file-upload
+field, and `image/*` opens a comment that runs to the next real `*/` — taking
+`ProgressContent`, `FieldsetContent` and `DisclosureContent` with it and
+reporting them as unconverted *after they had been converted*. A comment opener
+has to be preceded by something a comment can follow.
+
+Nothing published moved here either.
 
 ---
 

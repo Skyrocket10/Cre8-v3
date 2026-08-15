@@ -454,14 +454,14 @@ try {
   }
   await page.locator('[data-layer-row]:has-text("Byline")').first().click();
   await page.waitForTimeout(500);
-  await openInspectorSection(page, 'Data');
+  await openInspectorSection(page, 'Content');
   await page.waitForTimeout(400);
 
-  const dataPanel = page.locator('aside').last();
-  const textRow = dataPanel.locator('[data-sentence]:has-text("Text reads")').first();
+  const contentPanel = page.locator('aside').last();
+  const textRow = contentPanel.locator('[data-sentence]:has-text("Text reads")').first();
   const fieldChip = textRow.getByRole('button').first();
   report.check(
-    'the Data panel offers the record’s fields for this element’s text',
+    'the Content panel offers the record’s fields for this element’s text',
     (await fieldChip.count()) === 1,
     `${await fieldChip.count()} field chip(s)`
   );
@@ -479,7 +479,7 @@ try {
    * prints nothing — it is a record, not a name — so the sentence has to offer
    * the step that turns it into one.
    */
-  const arrow = dataPanel.locator('[data-sentence]:has-text("Text reads")').first();
+  const arrow = contentPanel.locator('[data-sentence]:has-text("Text reads")').first();
   const followChip = arrow.getByRole('button').nth(1);
   report.check(
     'and picking a reference offers what to read off the record it names',
@@ -592,7 +592,7 @@ try {
   }
   await page.locator('[data-layer-row]:has-text("How many")').first().click();
   await page.waitForTimeout(500);
-  await openInspectorSection(page, 'Data');
+  await openInspectorSection(page, 'Content');
   await page.waitForTimeout(400);
 
   const countPanel = page.locator('aside').last();
@@ -744,7 +744,7 @@ try {
   }
   await page.locator('[data-layer-row]:has-text("Per room")').first().click();
   await page.waitForTimeout(500);
-  await openInspectorSection(page, 'Data');
+  await openInspectorSection(page, 'Content');
   await page.waitForTimeout(400);
 
   const mathsPanel = page.locator('aside').last();
@@ -907,18 +907,18 @@ try {
     await page.waitForTimeout(400);
   }
 
-  /** Select a layer by name and open its Data section. */
-  const openData = async (layer) => {
+  /** Select a layer by name and open the section holding its content. */
+  const openContent = async (layer) => {
     await page.locator(`[data-layer-row]:has-text("${layer}")`).first().click();
     await page.waitForTimeout(500);
-    await openInspectorSection(page, 'Data');
+    await openInspectorSection(page, 'Content');
     await page.waitForTimeout(400);
     return page.locator('aside').last();
   };
 
   // The control: every viewing on the site, on the same card.
   {
-    const panel = await openData('All viewings');
+    const panel = await openContent('All viewings');
     await panel.locator('[data-sentence]:has-text("Text reads")').first().getByRole('button').first().click();
     await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'How many Viewings', exact: true }).last().click();
@@ -926,7 +926,7 @@ try {
   }
 
   // And the narrowed one, authored clause by clause.
-  const minePanel = await openData('Its viewings');
+  const minePanel = await openContent('Its viewings');
   await minePanel.locator('[data-sentence]:has-text("Text reads")').first().getByRole('button').first().click();
   await page.waitForTimeout(300);
   await page.getByRole('button', { name: 'How many Viewings', exact: true }).last().click();
@@ -993,7 +993,7 @@ try {
   );
 
   /* The order, on the same list: the last viewer alphabetically. */
-  const orderPanel = await openData('Latest viewer');
+  const orderPanel = await openContent('Latest viewer');
   await orderPanel.locator('[data-sentence]:has-text("Text reads")').first().getByRole('button').first().click();
   await page.waitForTimeout(300);
   await page.getByRole('button', { name: 'The first viewing', exact: true }).last().click();
@@ -1140,7 +1140,7 @@ try {
     await page.waitForTimeout(400);
   }
 
-  const textPanel = await openData('Where');
+  const textPanel = await openContent('Where');
   const joinRow = textPanel.locator('[data-sentence]:has-text("Text reads")').first();
   await joinRow.getByRole('button').first().click();
   await page.waitForTimeout(300);
@@ -1485,7 +1485,7 @@ try {
     await page.waitForTimeout(400);
   }
 
-  const moneyPanel = await openData('Per month');
+  const moneyPanel = await openContent('Per month');
   const moneyRow = moneyPanel.locator('[data-sentence]:has-text("Text reads")').first();
   await moneyRow.getByRole('button').first().click();
   await page.waitForTimeout(300);

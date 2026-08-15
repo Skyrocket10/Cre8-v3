@@ -7960,6 +7960,96 @@ report.group('the panel is not narrower than the model');
       DECLARES.filter((id) => !blockOf(id).includes("group: 'Declares'")).join(', ') ||
         'repeat, component contract and published value'
     );
+
+    /* --------------------------------------------------------------------
+     * A2 — content is part of Appearance
+     *
+     * Rule 2, and the audit's one outright ✘. The sentence that fills a
+     * heading rendered inside a section called Data: filed under what an
+     * element *declares*, next to the repeater, and on screen only when the
+     * project had collections and this element was in scope of one. So the
+     * panel taught that a bound heading is a database feature.
+     *
+     * Nothing about the document moved — the byte gate is identical — so what
+     * is checked is where the sentence is written and what the panel claims
+     * about it.
+     * ----------------------------------------------------------------- */
+
+    /*
+     * Comments out, because both files argue this change at length and a scan
+     * that matched the prose would be green on the sentence describing what it
+     * is looking for.
+     *
+     * The opener has to be preceded by something a comment can follow. The
+     * plain `\/\*` this started as ate a third of the content panel: the file
+     * ships `placeholder="image/*, .pdf"` on the file-upload field, which opens
+     * a comment that runs to the next real `*\/` — taking three content types
+     * with it, and reporting them as unconverted after they had been converted.
+     */
+    const panelSource = (file) =>
+      readFileSync(path.join(ROOT, file), 'utf8')
+        .replace(/(^|[\s{(,;=])\/\*[\s\S]*?\*\//g, '$1')
+        .replace(/^\s*\/\/.*$/gm, '');
+    const contentPanel = panelSource('src/components/inspector/section-content.tsx');
+    const dataPanel = panelSource('src/components/inspector/section-data.tsx');
+
+    report.check(
+      'the sentence that fills an element is written where its content is',
+      /<ContentBindings \/>/.test(contentPanel) &&
+        blockOf('content').includes("group: 'Appearance'") &&
+        !/bindingSentence|node\.bind/.test(dataPanel),
+      /bindingSentence|node\.bind/.test(dataPanel)
+        ? 'the Data section is still writing it'
+        : 'Content, under Appearance',
+    );
+
+    /*
+     * And every kind of content, rather than the three somebody remembered.
+     *
+     * The reason this is a check and not a code review: `summary`, `legend`
+     * and `poster` were unbindable for a year because two hand-written lists
+     * had drifted (§4.1.13), and the fix was to derive them from one table.
+     * The same failure is available here one level up — a content type added
+     * next year that renders a plain `Section` is a content type a record
+     * cannot fill, and nothing about it looks wrong.
+     */
+    const typeSwitch = contentPanel.slice(
+      contentPanel.indexOf('function typeContent('),
+      contentPanel.indexOf('\n}\n', contentPanel.indexOf('function typeContent('))
+    );
+    /*
+     * `[^<>]*` rather than `\s*`: three of the arms pass props —
+     * `<LinkContent labelProp="label" title="Button" …/>` is how a button and
+     * a link share one component — and a self-closing-only pattern found 18 of
+     * the 21, silently excusing the three that take an argument.
+     */
+    const kinds = [...new Set([...typeSwitch.matchAll(/<(\w+)[^<>]*\/>/g)].map((one) => one[1]))];
+    const plain = kinds.filter((name) => {
+      const at = contentPanel.indexOf(`function ${name}(`);
+      const decl = at < 0 ? '' : contentPanel.slice(at, contentPanel.indexOf('\n}\n', at));
+      return !/<ContentBox\b/.test(decl);
+    });
+    report.check(
+      'and every kind of content is a place a record can fill',
+      kinds.length >= 18 && plain.length === 0,
+      plain.length ? `still a plain Section: ${plain.join(', ')}` : `${kinds.length} kinds`
+    );
+
+    /*
+     * And the Data section stops answering for it. A section that lights up
+     * because of something it does not contain is the panel pointing at the
+     * wrong place — which is the same failure as the section holding it in the
+     * first place, one step quieter.
+     */
+    report.check(
+      'and Data no longer lights up for a binding it does not hold',
+      !/node\.bind/.test(blockOf('data')) &&
+        !/fill this in from a record/.test(blockOf('data')) &&
+        /node\.assign/.test(blockOf('data')),
+      /node\.bind/.test(blockOf('data'))
+        ? 'still in use because of a binding'
+        : 'a repeat, a state, or a rule reading a deleted element'
+    );
   }
 
   const chunks = registrySource.split(/^    id: '/m).slice(1);

@@ -207,9 +207,38 @@ try {
   await inner.click();
   await page.waitForTimeout(400);
 
-  await openInspectorSection(page, 'Data');
-  const bindable = (await inspector().locator('text=Inside Posts').count()) > 0;
-  report.check('a child of the repeater is told which record it is inside', bindable);
+  /*
+   * A2's falsification, and nothing is opened to reach it.
+   *
+   * `docs/INSPECTOR.md` Rule 2 — content is part of Appearance — and this is
+   * the whole of the claim: a heading is selected, and the sentence that fills
+   * its words is already on screen, in the accordion holding the words
+   * somebody typed there first. Content is essential on every element that has
+   * any, so selecting it is the entire ceremony.
+   *
+   * Until A2 this read `openInspectorSection(page, 'Data')`, which is the same
+   * check written when the answer was "somewhere else, and you have to know
+   * where".
+   */
+  const contentBox = inspector().locator('section:has(> div .panel-title:text-is("Content"))');
+  const bindable = (await contentBox.locator('text=Inside Posts').count()) > 0;
+  report.check(
+    'a heading is told which record it is inside, where its words are',
+    bindable,
+    (await contentBox.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140) ||
+      'no Content section on screen'
+  );
+  /*
+   * And the section it used to be in is not on screen at all — which is the
+   * half that makes the first check mean something. A binding reachable from
+   * Content *and* from Data would satisfy "bind a heading from Content" while
+   * leaving Rule 2 exactly as false as it was.
+   */
+  report.check(
+    'and nothing named after the database is on screen to reach it from',
+    (await inspector().locator('.panel-title:text-is("Data")').count()) === 0,
+    `${await inspector().locator('.panel-title:text-is("Data")').count()} Data section(s)`
+  );
   if (bindable) {
     await chooseInSentence(/^Text reads/, /what is typed here/, 'Title');
     await page.waitForTimeout(700);
@@ -252,7 +281,24 @@ try {
    * would fail on a wording tweak while telling nobody anything.
    */
   if (bindable) {
+    /*
+     * Asked for, now that binding no longer brings it.
+     *
+     * Turning what a record says into a *state* is the other half of Data, and
+     * it is still Data — it is what this element declares for the things
+     * inside it, not what it looks like. Before A2 the section was already
+     * open because the binding was in it, so this walked straight in; the
+     * first run after the move skipped all five checks below on a silent
+     * `if (count)` and took the undo check's meaning with it, because the last
+     * thing on the stack was then the binding rather than a rule.
+     */
+    await openInspectorSection(page, 'Data');
     const addRule = inspector().locator('button:text-is("+ Rule")').first();
+    report.check(
+      'a record can put this element in a state, from the section it declares in',
+      (await addRule.count()) === 1,
+      `${await addRule.count()} offer(s) in Data`
+    );
     if (await addRule.count()) {
       await addRule.click();
       await page.waitForTimeout(500);

@@ -170,6 +170,12 @@ export const SECTIONS: SectionSpec[] = [
     perElement: true,
     title: 'Content',
     group: 'Appearance',
+    /*
+     * And where it says it from, since A2. `docs/INSPECTOR.md` Rule 2 —
+     * content is part of Appearance — is a claim about all of it: the words
+     * somebody typed and the field a record fills them from are the same
+     * property, so they are the same row of the same section.
+     */
     hint: 'What it says and shows',
     props: propsOf('content'),
     applies: (_node, ctx) => hasOwnContent(ctx.def.type),
@@ -181,6 +187,14 @@ export const SECTIONS: SectionSpec[] = [
     perElement: true,
     title: 'Link',
     group: 'Events',
+    /*
+     * And the one content prop that is not in Content, because the element it
+     * belongs to has no Content: a layout box's words are the elements inside
+     * it, so `href` is the only thing a record could fill and this is the
+     * section that owns it. The rule A2 actually follows is "the binding is
+     * written where the property is", which is what makes Rule 2 true for
+     * everything that has content of its own.
+     */
     hint: 'Make the whole box clickable — go somewhere, or open a panel',
     props: [],
     applies: (_node, ctx) => LAYOUT_BOXES.includes(ctx.def.type),
@@ -332,7 +346,15 @@ export const SECTIONS: SectionSpec[] = [
     perElement: true,
     title: 'Data',
     group: 'Declares',
-    hint: 'Repeat over a list, or fill this in from a record',
+    /*
+     * What the record makes of this element, short of what it says.
+     *
+     * "Or fill this in from a record" was the other half until A2, and it was
+     * the half that made Rule 2 false: the sentence filling a heading lived in
+     * a section named after the database. It is in Content now, beside the
+     * words it replaces.
+     */
+    hint: 'Repeat over a list, take a state from a record, or map a number onto a scale',
     props: [],
     applies: (node, ctx) => {
       if (!ctx.doc.collections?.length) return false;
@@ -344,18 +366,22 @@ export const SECTIONS: SectionSpec[] = [
       );
     },
     /*
-     * Repeating, bound — or carrying something this section is the only place
-     * to hear about.
+     * Repeating, in a state from a record — or carrying something this section
+     * is the only place to hear about.
      *
      * The panel reports a rule reading an element that is no longer there, and
-     * it reports it here. Hide the section because nothing is bound and the
+     * it reports it here. Hide the section because nothing is set and the
      * warning goes with it: the rule still cannot work, the element still does
      * nothing, and now nothing anywhere says so. A section holding a problem
      * is in use by definition.
+     *
+     * A binding is deliberately not on this list any more. A section that
+     * lights up for something it does not contain is the panel pointing at the
+     * wrong place — and after A2 the sentence it would be lighting up for is
+     * two sections above, in Content.
      */
     used: (node, ctx) =>
       Boolean(node.repeat) ||
-      Object.keys(node.bind ?? {}).length > 0 ||
       Boolean(node.assign?.length) ||
       danglingReads(ctx.doc.nodes).some((read) => read.node.id === node.id),
   },

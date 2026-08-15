@@ -1,14 +1,18 @@
 'use client';
 
 /**
- * Repeating and binding, in the inspector.
+ * What a record makes of this element, short of what it says.
  *
- * Two controls that look unrelated and are the same idea at two scales. A
- * **repeater** puts a record in scope for its children, once per row. A
- * **binding** reads a field of whatever record is in scope. Neither means
- * anything without the other, so they are one section — and the section says
- * which record is in scope, because "why is this heading still the
- * placeholder" is otherwise unanswerable from the panel.
+ * A **repeater** puts a record in scope for its children, once per row. Given
+ * one, this element can take a **state** from what the record says, or map one
+ * of its numbers onto a **scale** its own styles can reference. All three are
+ * things the element *declares* — how many of it there are, what it counts as,
+ * what number it publishes — which is why they are one section and why that
+ * section is not Appearance.
+ *
+ * The fourth thing used to be here and is not: a **binding**, which fills a
+ * content prop from the record. That is what the element *says*, so A2 moved it
+ * into the section holding the field it fills. See `bindings.tsx`.
  *
  * What is deliberately not here: the records themselves. Those live in the
  * Collections panel, they go straight to D1, and they do not undo. A control
@@ -17,7 +21,7 @@
  */
 
 import React from 'react';
-import { Database, Gauge, Layers, Sparkles, Trash2 } from 'lucide-react';
+import { Gauge, Layers, Sparkles, Trash2 } from 'lucide-react';
 import { danglingReads } from '@/lib/document/factory';
 import { uid } from '@/lib/document/id';
 import * as ops from '@/lib/document/operations';
@@ -30,7 +34,6 @@ import {
   type StateRule,
   type StyleProp,
   type Test,
-  type Value,
   type ValueVar,
 } from '@/lib/document/types';
 import {
@@ -39,14 +42,12 @@ import {
   provablyOverlap,
   unfinished,
 } from '@/lib/renderer/test';
-import { bindableProps } from '@/lib/document/content-props';
 import { varReference } from '@/lib/renderer/values';
 import { stateKeyOf, stateOf } from '@/lib/document/state';
 import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
 import { Sentence, type Part } from '../ui/sentence';
 import {
-  bindingSentence,
   blankTest,
   blankValue,
   filterSentence,
@@ -83,12 +84,9 @@ export function DataSection() {
         {canRepeat && <RepeatControls node={node} collections={collections} />}
         {repeating && (
           <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
-            Everything inside this repeats once per {singular(repeating.name)} — select a child to
-            bind its content.
+            Everything inside this repeats once per {singular(repeating.name)} — select a child and
+            fill in its Content from the record.
           </p>
-        )}
-        {scope && !node.repeat && (
-          <BindControls node={node} collection={scope} collections={collections} />
         )}
         {scope && !node.repeat && <AssignControls node={node} collection={scope} />}
         {scope && !node.repeat && (
@@ -281,85 +279,6 @@ function RepeatControls({ node, collections }: { node: SceneNode; collections: C
             </p>
           ) : null}
         </>
-      )}
-    </>
-  );
-}
-
-/* --------------------------------------------------------------------------
- * Bind
- * ----------------------------------------------------------------------- */
-
-function BindControls({
-  node,
-  collection,
-  collections,
-}: {
-  node: SceneNode;
-  collection: Collection;
-  collections: Collection[];
-}) {
-  // Only the props this element actually has. Offering `src` on a heading is
-  // a control that appears to do nothing.
-  const offered = bindableProps().filter((prop) => prop in node.props);
-  if (!offered.length) {
-    return (
-      <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
-        Inside {collection.name} — this element has no content to bind.
-      </p>
-    );
-  }
-
-  const setBinding = (prop: string, value: Value | null) =>
-    useEditor.getState().transact(value ? 'Bind to a field' : 'Unbind', (draft) => {
-      const scene = draft.nodes[node.id];
-      if (!scene) return;
-      if (value) {
-        // A new value means a new type, and a currency format on a date is
-        // nonsense. Dropped rather than migrated: there is no honest mapping.
-        scene.bind = { ...(scene.bind ?? {}), [prop]: { value } };
-      } else if (scene.bind) {
-        delete scene.bind[prop];
-        if (!Object.keys(scene.bind).length) delete scene.bind;
-      }
-    });
-
-  return (
-    <>
-      <div className="flex items-center gap-1.5 pb-0.5 text-[10px] text-[var(--text-faint)]">
-        <Database size={10} className="shrink-0" />
-        <span className="truncate">Inside {collection.name}</span>
-      </div>
-
-      {offered.map((prop) => (
-        <Sentence
-          key={prop}
-          parts={bindingSentence({
-            prop,
-            binding: node.bind?.[prop],
-            fields: collection.fields,
-            collections,
-            // Which collection the record in scope is from, so a `where` can
-            // compare a row's reference against *this* record rather than
-            // against a record id somebody would have to type.
-            scope: collection,
-            onBind: (value) => setBinding(prop, value),
-            onFormat: (format) =>
-              useEditor.getState().transact('Change how this reads', (draft) => {
-                const target = draft.nodes[node.id]?.bind?.[prop];
-                if (!target) return;
-                if (format) target.format = format;
-                else delete target.format;
-              }),
-          })}
-        />
-      ))}
-
-      {node.bind && Object.keys(node.bind).length > 0 && (
-        <p className="text-[10px] leading-relaxed text-[var(--text-faint)]">
-          A bound value is replaced by the record. A condition that sets the same prop still wins
-          over it.
-        </p>
       )}
     </>
   );
