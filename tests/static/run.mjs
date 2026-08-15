@@ -98,6 +98,7 @@ const {
   boundProps,
   repeatLib,
   tests,
+  schedule,
   values,
   behaviour,
   TEMPLATES,
@@ -3632,6 +3633,254 @@ report.group('a bound value can be formatted, and only where it is shown');
         'a field read inside an arithmetic step is published too',
         shipped?.price === 19.99 && shipped?.qty === 3,
         `shipped ${JSON.stringify(shipped)}`
+      );
+    }
+
+    /* ------------------------------------------------------------------
+     * E6 — narrowing and ordering a list
+     *
+     * The step that turns "how many Notes, in total" into "how many notes on
+     * *this post*". Everything E4 could say was about a whole collection,
+     * which is one relationship short of every content site there is.
+     * --------------------------------------------------------------- */
+
+    {
+      const note = (at, on, status) => ({
+        id: `note-${at}`,
+        collectionId: 'notes',
+        position: at,
+        published: true,
+        // `status` left off entirely on one row rather than set empty: absent
+        // and present-but-empty are different facts everywhere else in this
+        // model, and a filter is where the difference shows.
+        data: status === undefined ? { body: `Note ${at}`, post: on } : { body: `Note ${at}`, post: on, status },
+        createdAt: at,
+        updatedAt: at,
+      });
+      const pool = [
+        note(1, 'post-1', 'live'),
+        note(2, 'post-2', 'live'),
+        note(3, 'post-1', 'held'),
+        note(4, 'post-1'),
+      ];
+      const notes = repeatLib.recordIndex({ notes: pool });
+      const counting = (steps) => ({
+        id: 'w1', type: 'text', name: 'Notes', parentId: null, children: [],
+        props: { text: 'some notes' }, styles: {}, meta: {},
+        bind: { text: { value: { kind: 'records', collection: 'notes', steps } } },
+      });
+      const live = {
+        kind: 'compare',
+        left: { kind: 'row', key: 'status' },
+        op: 'eq',
+        right: { kind: 'literal', type: 'text', value: 'live' },
+      };
+      const mine = { kind: 'compare', left: { kind: 'row', key: 'post' }, op: 'eq', right: { kind: 'self' } };
+
+      const all = boundProps(counting([{ op: 'count' }]), post, undefined, notes).text;
+      const here = boundProps(
+        counting([{ op: 'where', test: mine }, { op: 'count' }]),
+        post,
+        undefined,
+        notes
+      ).text;
+      /*
+       * The falsification `VALUES.md` §5 asks for on this stage, and it is
+       * asked of *one page*: the same collection, the same records, two
+       * bindings, two numbers. A `where` that quietly passed everything would
+       * make these equal, and every other check here would still pass.
+       */
+      report.check(
+        'a filtered count differs from the unfiltered one, over the same records',
+        all === 4 && here === 3,
+        `all ${all} · on this post ${here}`
+      );
+      /*
+       * And the record in scope is what decides which — the same binding on a
+       * different post has to answer differently, or `self` is a constant
+       * wearing the shape of a reference.
+       */
+      report.check(
+        'and the record in scope is what it is narrowed to',
+        boundProps(counting([{ op: 'where', test: mine }, { op: 'count' }]), orphan, undefined, notes)
+          .text === 1,
+        `post-2 → ${boundProps(counting([{ op: 'where', test: mine }, { op: 'count' }]), orphan, undefined, notes).text}`
+      );
+      /*
+       * A row whose answer cannot be decided is not a row somebody asked for.
+       * Note 4 carries no `status` at all, so `status is live` is undecidable
+       * on it — and `=== true` is what keeps it out. Written as a number
+       * because the wrong rule has a plausible-looking answer: `!== false`
+       * counts three, which reads as correct until somebody notices the row
+       * with nothing in the field.
+       */
+      report.check(
+        'a row the test cannot decide is left out rather than let through',
+        boundProps(counting([{ op: 'where', test: live }, { op: 'count' }]), post, undefined, notes)
+          .text === 2,
+        `live → ${boundProps(counting([{ op: 'where', test: live }, { op: 'count' }]), post, undefined, notes).text} of 4`
+      );
+      report.check(
+        'and two clauses narrow together',
+        boundProps(
+          counting([{ op: 'where', test: { kind: 'every', tests: [mine, live] } }, { op: 'count' }]),
+          post,
+          undefined,
+          notes
+        ).text === 1,
+        String(
+          boundProps(
+            counting([{ op: 'where', test: { kind: 'every', tests: [mine, live] } }, { op: 'count' }]),
+            post,
+            undefined,
+            notes
+          ).text
+        )
+      );
+
+      /*
+       * `sortedBy`, and the claim that matters about it: it is *the order a
+       * repeater draws*, not an order of its own. Both are asked of the same
+       * pool and both ends are compared, because the two rules that make this
+       * order what it is live at the ends — absent sorts last whichever way
+       * the sort goes, and a tie falls back to position.
+       */
+      const byStatus = (op) =>
+        boundProps(
+          counting([{ op: 'sortedBy', field: 'status' }, { op }, { op: 'field', key: 'body' }]),
+          post,
+          undefined,
+          notes
+        ).text;
+      const drawn = repeatLib.recordsFor(
+        { collection: 'notes', sort: { field: 'status', direction: 'asc' } },
+        pool
+      );
+      report.check(
+        'a sorted chain names the rows a repeater sorted the same way would draw',
+        byStatus('first') === drawn[0]?.data.body &&
+          byStatus('last') === drawn[drawn.length - 1]?.data.body &&
+          byStatus('first') === 'Note 3',
+        `chain ${byStatus('first')}…${byStatus('last')} · repeater ${drawn[0]?.data.body}…${drawn[drawn.length - 1]?.data.body}`
+      );
+      /*
+       * Which is a different row from the unsorted one — otherwise the step
+       * could do nothing at all and every line above would still pass.
+       */
+      report.check(
+        'and it is a different row from the one at the top of the unsorted list',
+        boundProps(
+          counting([{ op: 'first' }, { op: 'field', key: 'body' }]),
+          post,
+          undefined,
+          notes
+        ).text === 'Note 1',
+        `unsorted first ${boundProps(counting([{ op: 'first' }, { op: 'field', key: 'body' }]), post, undefined, notes).text}`
+      );
+      /*
+       * And it left the list alone. `find.of` hands back the *cached* rows for
+       * a collection, so a sort in place would reorder every other chain on
+       * the page and the repeater under them — a hero that reordered the list
+       * below it by being on the page.
+       */
+      report.check(
+        'sorting a chain does not reorder the rows every other chain reads',
+        boundProps(counting([{ op: 'first' }, { op: 'field', key: 'body' }]), post, undefined, notes)
+          .text === 'Note 1' && notes.of('notes')[0]?.id === 'note-1',
+        `after sorting, first is ${notes.of('notes')[0]?.id}`
+      );
+
+      /*
+       * The scheduling question, which is the one thing about this stage that
+       * could have cost the browser something. A `where` over the records
+       * folds; a `where` that reads a form control cannot — there is no list
+       * in the browser to narrow — so the chain does not travel and the
+       * binding keeps what the designer typed. Undecidable on both surfaces,
+       * which is the only answer they can agree on.
+       */
+      const typedWhere = {
+        kind: 'records',
+        collection: 'notes',
+        steps: [
+          {
+            op: 'where',
+            test: { kind: 'compare', left: { kind: 'row', key: 'status' }, op: 'eq', right: { kind: 'input', name: 'q' } },
+          },
+          { op: 'count' },
+        ],
+      };
+      report.check(
+        'a narrowed count folds, and one narrowed by something typed does not',
+        schedule.foldableValue({ kind: 'records', collection: 'notes', steps: [{ op: 'where', test: mine }, { op: 'count' }] }) === true &&
+          schedule.foldableValue(typedWhere) === false &&
+          boundProps({ ...counting([]), bind: { text: { value: typedWhere } } }, post, undefined, notes).text ===
+            'some notes',
+        `over records ${schedule.foldableValue({ kind: 'records', collection: 'notes', steps: [{ op: 'where', test: mine }, { op: 'count' }] })} · ` +
+          `over a control ${schedule.foldableValue(typedWhere)}`
+      );
+
+      /*
+       * The silent hole, one nesting level further in than E3's.
+       *
+       * A `where` compares the row against the record in scope, so the outer
+       * field it reads has to be published and has to be cleared when somebody
+       * deletes it. The *row's* field must not be in that list: it belongs to
+       * another collection, and reporting it would clear a binding the day an
+       * unrelated field of the same name went away.
+       */
+      const narrowed = {
+        kind: 'compare',
+        left: {
+          kind: 'records',
+          collection: 'notes',
+          steps: [
+            {
+              op: 'where',
+              test: { kind: 'compare', left: { kind: 'row', key: 'status' }, op: 'eq', right: { kind: 'field', key: 'title' } },
+            },
+            { op: 'count' },
+          ],
+        },
+        op: 'gt',
+        right: { kind: 'literal', type: 'number', value: 0 },
+      };
+      report.check(
+        'the field a filter compares against is read; the row’s own field is not',
+        tests.fieldsRead(narrowed).join() === 'title',
+        tests.fieldsRead(narrowed).join(' · ') || 'none'
+      );
+
+      /*
+       * And the same walk decides which collections get *fetched*, one level
+       * down. A list named inside a step — `⟨Price⟩ × ⟨How many Notes⟩` — is a
+       * collection nothing repeats and nothing else would ask for, so the page
+       * would publish the placeholder with a perfectly correct chain in the
+       * document. The panel does not write one today; the walk is right about
+       * the model rather than about one surface, and a document does not have
+       * to come from the panel.
+       */
+      const nested = {
+        n9: {
+          id: 'n9', type: 'text', name: 'Total', parentId: null, children: [],
+          props: { text: 'a total' }, styles: {}, meta: {},
+          bind: {
+            text: {
+              value: {
+                kind: 'field',
+                key: 'price',
+                steps: [
+                  { op: 'times', by: { kind: 'records', collection: 'notes', steps: [{ op: 'count' }] } },
+                ],
+              },
+            },
+          },
+        },
+      };
+      const wantedNested = repeatLib.collectionsUsedBy(nested, ['n9'], []).sort();
+      report.check(
+        'a collection named inside a step is fetched too, not only one at the head',
+        wantedNested.join() === 'notes',
+        wantedNested.join(' · ') || 'none'
       );
     }
 

@@ -41,9 +41,16 @@ import {
   foldableValue,
   operandsIn,
   resolveValue,
+  valuesIn,
   type FindRecord,
   type RecordLookup,
 } from '../document/schedule';
+/*
+ * The record order, which used to be four functions at the bottom of this
+ * file. It moved the day a `sortedBy` step had to produce the same order a
+ * repeater draws — see `document/records.ts` for why it could not stay here.
+ */
+import { compareWith, fieldOf, text } from '../document/records';
 import { formatValue } from './format';
 import { isSettable } from './variants';
 
@@ -101,9 +108,6 @@ export function recordIndex(records: RecordSet | undefined): RecordLookup | unde
   };
 }
 
-/** What a record's field holds once read out of `data`. */
-type FieldValue = string | number | boolean | null | undefined;
-
 /* --------------------------------------------------------------------------
  * Choosing the rows
  * ----------------------------------------------------------------------- */
@@ -157,52 +161,6 @@ function passes(record: CollectionRecord, test: RecordFilter): boolean {
     default:
       return true;
   }
-}
-
-/**
- * A total order, whatever the field holds.
- *
- * `position` then `id` break every tie, so two records never swap places
- * between one publish and the next — the sort is stable in V8 but not by
- * specification, and "the diff is empty" is a property D6 depends on.
- */
-function compareWith(sort: RepeatSpec['sort']) {
-  const sign = sort?.direction === 'desc' ? -1 : 1;
-  return (a: CollectionRecord, b: CollectionRecord): number => {
-    if (sort) {
-      const ranked = compare(fieldOf(a, sort.field), fieldOf(b, sort.field)) * sign;
-      if (ranked !== 0) return ranked;
-    }
-    if (a.position !== b.position) return a.position - b.position;
-    if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  };
-}
-
-function compare(a: FieldValue, b: FieldValue): number {
-  // Absent sorts last in either direction's natural reading: a record with no
-  // date is not "the oldest", it is one that has not said.
-  const aEmpty = a === undefined || a === null || a === '';
-  const bEmpty = b === undefined || b === null || b === '';
-  if (aEmpty || bEmpty) return aEmpty === bEmpty ? 0 : aEmpty ? 1 : -1;
-
-  if (typeof a === 'number' && typeof b === 'number') return a - b;
-  if (typeof a === 'boolean' || typeof b === 'boolean') return Number(a) - Number(b);
-
-  const left = String(a);
-  const right = String(b);
-  // Deliberately not `localeCompare`: it consults ICU data that differs
-  // between a browser and a Worker, which is precisely the kind of "works on
-  // my machine" the byte-identical gate exists to catch.
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function fieldOf(record: CollectionRecord, field: string): FieldValue {
-  return field ? record.data[field] : undefined;
-}
-
-function text(value: FieldValue): string {
-  return value === undefined || value === null ? '' : String(value);
 }
 
 /* --------------------------------------------------------------------------
@@ -404,8 +362,20 @@ export function collectionsUsedBy(
  */
 function valuesOn(node: SceneNode): Value[] {
   const out: Value[] = [];
-  for (const entry of Object.values(node.bind ?? {})) out.push(bindingFrom(entry).value);
-  for (const spec of Object.values(node.vars ?? {})) out.push(spec.value);
+  /*
+   * Through `valuesIn`, so a list named *inside a step* counts too — the three
+   * below already flatten, because `operandsIn` does, and these two did not.
+   *
+   * `⟨Price⟩ × ⟨How many Add-ons⟩` is the shape: a collection nothing repeats,
+   * named one level down, that would publish as the placeholder. The panel
+   * does not write one today — the maths chip offers a constant or a number
+   * field — so this is the walk being right about the model rather than a bug
+   * anybody has hit. A document does not have to come from the panel, and a
+   * walk that answers "every collection this page reads" should not be true
+   * only of the values one surface happens to write.
+   */
+  for (const entry of Object.values(node.bind ?? {})) out.push(...valuesIn(bindingFrom(entry).value));
+  for (const spec of Object.values(node.vars ?? {})) out.push(...valuesIn(spec.value));
   for (const rule of node.rules ?? []) if (rule.when) out.push(...operandsIn(rule.when));
   for (const rule of node.assign ?? []) out.push(...operandsIn(rule.when));
   for (const binding of node.events ?? []) {

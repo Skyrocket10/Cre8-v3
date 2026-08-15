@@ -60,17 +60,17 @@ This is the one that decides whether a person can build a real site. Every
 content site is two collections and a pointer between them. §5.2 records what
 it cost, including the two things that were wrong after the model was right.
 
-### 1.4 There are no lists — opened by E4
+### 1.4 There are no lists — closed by E4 and E6
 
 A repeater drew rows and `RecordFilter` narrowed which. But a *value* was never
 a list, so nothing could say how many there are, take the first, or read a
 field off it.
 
-E4 gives it a list head and three steps, so "3 comments" and "the latest
-post's title" are sayable. "Posts by this author" is not: narrowing a list is
-`where`, which is E6, and until then a count is a count of the whole
-collection — which the panel says in those words rather than implying a
-relationship it cannot express.
+E4 gives it a list head and three steps, so "3 comments" and "the latest post's
+title" are sayable. E6 gives it `where` and `sortedBy`, which is the half that
+matters in practice: "the comments **on this post**" is the shape of every
+content site, and until a list could be narrowed the only honest thing the
+panel could say was "in total".
 
 ### 1.5 What Bubble does that this cannot, as tasks
 
@@ -85,7 +85,8 @@ relationship it cannot express.
 | Round, then use it | `:rounded to 0` | ✔ **E5** |
 | Count a list | `:count` | ✔ **E4** |
 | First / last of a list | `:first item` | ✔ **E4** |
-| **Filter a list inline** | `:filtered` | repeater only, not a value |
+| **Filter a list inline** | `:filtered` | ✔ **E6** |
+| **Sort a list inline** | `:sorted by` | ✔ **E6** |
 | **Join text** | `First & " " & Last` | ✘ |
 | Current User | `Current User's Email` | ✘ **and stays ✘** — see §4 |
 
@@ -150,8 +151,20 @@ type Head =
   | { kind: 'input'; name: string }            // as today
   | { kind: 'element'; ref: Ref }              // as today
   | ({ kind: 'literal' } & TestLiteral)        // E1 — a constant
-  | { kind: 'records'; collection: string };   // new — a list
+  | { kind: 'records'; collection: string }    // E4 — a list
+  | { kind: 'row'; key: string }               // E6 — the row a `where` is asking about
+  | { kind: 'self' };                          // E6 — this record, as its id
 ```
+
+The last two arrived with E6 and were not in this plan. `where` evaluates its
+test once per candidate row, so *something* has to name that row — and the
+alternative was to let `field` mean the row inside a `where` and the record in
+scope everywhere else. That is one word doing two jobs, and it costs the
+comparison the whole step exists for: `⟨the comment's Post⟩ is ⟨this Post⟩`
+names two different records in one sentence, and cannot be written at all if
+both sides spell them the same way. `self` is the other half of it, because a
+reference holds an *id* and a record's id is not in its `data` — every field of
+the record was sayable and the record itself was not.
 
 `literal` is what makes `compare.right` a `Value` rather than a special case:
 a constant is a chain of length zero over a literal head. One type on both
@@ -208,6 +221,15 @@ appear in a travelling chain, so `testRuntime` never needs a branch for any of
 them. What the runtime must learn is arithmetic, rounding and the text steps —
 the small half — and only because somebody might type into a box and compare
 against the result.
+
+One correction, from building E6. A `where` takes a *`Test`*, and a Test can
+read a form control — "the products under ⟨what is typed⟩" — so `where` is the
+second step whose operand can reach the runtime, alongside arithmetic. It is
+not an exception to the rule above; it is the rule applied one level down, and
+`foldableValue` asks `foldable(step.test)` exactly as it asks
+`foldableValue(step.by)`. Such a chain does not fold and the runtime refuses
+it, so both surfaces answer *undecidable* and the binding keeps its
+design-time text. Nothing is shipped and nothing is guessed.
 
 That is not a happy accident. It is the same rule that made X4's minted
 attributes cheap, applied to a bigger vocabulary, and it is the reason this
@@ -274,7 +296,7 @@ unfixed code.
 | **E3** ✔ | `follow` and `field`: a reference is readable | A post's author's name on the page. Falsified by deleting the author record and seeing the binding fall back rather than print an id |
 | **E4** ✔ | The list head and `count`, `first`, `last` | "3 comments" from a real collection, and 0 when there are none — the empty case is the one that reads as broken |
 | **E5** ✔ | Arithmetic and `round`, in both evaluators | The same sum on the canvas and in the file, and a comparison against a typed number answered in the browser |
-| **E6** | `where` and `sortedBy` | A filtered count that differs from the unfiltered one, on the same page |
+| **E6** ✔ | `where` and `sortedBy` | A filtered count that differs from the unfiltered one, on the same page |
 | **E7** | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
 | **E8** | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
 
@@ -423,6 +445,55 @@ reach the page — `Infinity`, `NaN`, or the head's value with the step quietly
 skipped — and each is `null` instead, so the binding falls back to what the
 designer typed. That is four refusals in one check, and the mutation that
 removes any of them turns it red.
+
+### 5.5 What E6 turned out to cost — nothing at runtime, two heads at the model
+
+**Zero bytes, and `runtime/behaviour.ts` is untouched** — not "the same size",
+byte-for-byte the file E5 left. Neither step travels, and the runtime already
+refuses a step it cannot walk, which is the branch E5 wrote for exactly this
+reason. So `where` and `sortedBy` arrive answered or not at all. The ten
+templates publish byte-identical for the fifth stage running.
+
+**The model grew two heads, not one step's worth of plumbing.** §3.2 records
+why: a `where` needs to name the row it is asking about, and the tempting
+saving — reuse `field` and let it mean the row inside a filter — costs the
+relational comparison the step exists for. `row` and `self` are what make
+`⟨the comment's Post⟩ is ⟨this Post⟩` sayable, and everything else about them
+falls out for free: both fold, both resolve to nothing where there is no row
+and no record, and neither can be reached by accident because nothing binds a
+`row` outside a `where`.
+
+**The comparator had to move before `sortedBy` could exist.** A repeater's
+order lived in `renderer/repeat.ts`, which already imports `document/schedule.ts`
+— so the resolver could not import it back. `document/records.ts` is that order
+given a home both can reach. This is not tidying: the two orders have to be the
+*same* order, because a hero saying "the latest post" sits over a list sorted
+the same way, and a comparator that agrees by coincidence is one with a
+maintenance schedule. Checked by driving both paths over the same rows and
+comparing both ends of the list, and falsified by a second comparator that
+differs only in where it puts a row with the field unset.
+
+**An undecidable row is left out.** `=== true`, not `!== false`. A comment with
+no `status` does not pass "status is live" — and the wrong rule here has a
+plausible-looking answer, which is why the check counts rows rather than
+asserting a boolean.
+
+**Two panel wordings changed, and one of them was a promise being kept.** E4
+put "in total" in the *menu label* to stop "How many Comments" from implying a
+relationship it could not express. A label cannot be taken back — "How many
+Comments, in total, only when Post is this Post" contradicts itself in the
+middle — so the words moved into the sentence, where they end the moment a
+filter appears. The other: `sortedBy` is offered on `first` and `last` and not
+on `count`, because the number is the same whichever way the rows are arranged.
+That is §3.5's rule in its cheapest possible instance.
+
+**One mutation produced no red, again, and again it was worth it.**
+`collectionsUsedBy` walked a binding's head and not its steps, so a collection
+named one level down — `⟨Price⟩ × ⟨How many Add-ons⟩` — would have published as
+the placeholder. The panel cannot write one today, which is exactly why no
+check caught it: the fix is the walk being right about the *model* rather than
+about the one surface that happens to write values, and it now has a check
+pointed at that claim rather than at a page nobody can build.
 
 ---
 

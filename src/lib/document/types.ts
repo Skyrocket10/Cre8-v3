@@ -890,6 +890,40 @@ export type Step =
   | { op: 'first' }
   | { op: 'last' }
   /**
+   * The rows of the list before this that pass a test.
+   *
+   * The step that turns "how many Comments, in total" into "how many comments
+   * *on this post*", which is the shape of every content site and the one
+   * thing E4 left unsayable.
+   *
+   * A whole `Test` rather than a `RecordFilter`, so the vocabulary is the one
+   * the panel already speaks: and/or, every operator, an operand that is a
+   * constant or another value. `RecordFilter` — the repeater's own filter — is
+   * the narrow version of this, kept because it is a different surface with a
+   * different history rather than because two filter languages are wanted.
+   *
+   * The test is asked of each candidate row, and the row is reached with the
+   * `row` head. `field` still means the record in scope, everywhere, which is
+   * what makes `⟨row's Post⟩ is ⟨this Post⟩` sayable at all: a head that
+   * changed meaning by nesting would leave the two sides of that comparison
+   * with no way to name different records.
+   */
+  | { op: 'where'; test: Test }
+  /**
+   * The list before this, in a different order.
+   *
+   * Which decides *which record* `first` and `last` name, so it is the step
+   * that makes "the newest post" mean what it says. The comparator is
+   * `document/records.ts` — the same one a repeater draws with, deliberately:
+   * a hero saying "the latest post" over a list sorted the same way must name
+   * the row at the top of it.
+   *
+   * `desc` rather than `direction: 'asc' | 'desc'` because absent has to mean
+   * ascending, and an optional boolean says that in the document rather than
+   * in a default somebody has to remember.
+   */
+  | { op: 'sortedBy'; field: string; desc?: boolean }
+  /**
    * Arithmetic, against another value.
    *
    * `by` is a `Value` rather than a number, which is what makes `Price ×
@@ -922,16 +956,18 @@ export type Step =
 /**
  * Something an expression can read.
  *
- * Four kinds, and the fourth is the one that changed what the others are for.
- * `literal` makes a constant a Value rather than a special case, so a
- * comparison has the same type on both sides of its operator and two fields of
- * one record can finally be compared — which `docs/VALUES.md` §1.2 records as
- * the cheapest gap in the model and the most obviously missing.
+ * `literal` is the one that changed what the others are for: it makes a
+ * constant a Value rather than a special case, so a comparison has the same
+ * type on both sides of its operator and two fields of one record can finally
+ * be compared — which `docs/VALUES.md` §1.2 records as the cheapest gap in the
+ * model and the most obviously missing.
  *
- * The three that read something are what decide *when* an expression runs:
- * `field` and `literal` are known at publish, `input` and `element` are not,
- * and `foldable` derives the schedule from that rather than anybody choosing
- * it. See docs/EXPRESSIONS.md.
+ * Which of them a head is decides *when* the expression runs, and nothing else
+ * does: everything that reads content the page was published with — a field, a
+ * literal, a list, a row under test, this record's own id — is known at
+ * publish; `input` and `element` read a form control and are not. `foldable`
+ * derives the schedule from that rather than anybody choosing it. See
+ * docs/EXPRESSIONS.md.
  */
 export type Value = Head & {
   /**
@@ -1002,17 +1038,44 @@ export type Head =
   /**
    * Every published row of a collection. The only head that is a *list*.
    *
-   * Unfiltered, and that is E4's scope rather than an oversight: narrowing it
-   * to "the comments on this post" is `where`, which is E6. Until then a count
-   * is a count of the whole collection, and the panel says so in those words
-   * rather than implying a relationship it cannot yet express.
+   * Unnarrowed at the head, and narrowed by `where` — so a count is a count of
+   * the whole collection until somebody says otherwise, and the panel says
+   * "in total" in those words for exactly as long as that is true.
    *
    * Publish-time data, so a chain over it folds — see `foldableValue`, which
    * is the *only* thing that decides that. Nothing here is written
    * publisher-only on the strength of it: when a list is allowed to be live,
    * `foldable` is the one place that has to change. See `docs/VALUES.md` §6.
    */
-  | { kind: 'records'; collection: string };
+  | { kind: 'records'; collection: string }
+  /**
+   * A field of the row a `where` is asking about.
+   *
+   * Legal only inside one, and self-enforcing rather than validated: there is
+   * no row in hand anywhere else, so a stray `row` head resolves to nothing
+   * and a binding holding one keeps its design-time text.
+   *
+   * It exists so `field` does not have to change meaning. The alternative —
+   * `field` means "the record in scope", and inside a `where` the row *is* the
+   * record in scope — is one word doing two jobs, and it costs the comparison
+   * that matters most: `⟨the comment's Post⟩ is ⟨this Post⟩` names two
+   * different records in one sentence, and cannot be written at all if both
+   * sides spell them the same way.
+   */
+  | { kind: 'row'; key: string }
+  /**
+   * The record in scope, as its id — which is what a reference field holds.
+   *
+   * The other half of the relational comparison. A reference on the row holds
+   * an id and the thing it should equal is *this record*, and a record's id is
+   * not in `data`, so there was no operand for it: every field of the record
+   * was sayable and the record itself was not.
+   *
+   * Text, because an id is text. Nothing coerces it and nothing formats it —
+   * it exists to be compared against a reference, and a binding that printed
+   * one would be printing an internal key onto a page.
+   */
+  | { kind: 'self' };
 
 /**
  * A presentation transform. Never part of a `Value`, and that is the point.

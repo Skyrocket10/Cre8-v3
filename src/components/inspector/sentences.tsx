@@ -94,6 +94,22 @@ export function testSentence(options: {
   /** Named form controls inside the node, offered alongside the record's fields. */
   controls?: string[];
   /**
+   * The fields of the row this test is asking about, inside a `where`.
+   *
+   * Present turns the whole sentence around: the left of every comparison is a
+   * field of the *candidate row* rather than of the record in scope, and the
+   * source menu offers those and nothing else. A control cannot be read from
+   * here — a list is narrowed when the page is published, and nobody has typed
+   * anything then — and reading the record in scope on the left would be a
+   * test that answers the same thing for every row.
+   *
+   * The record in scope reappears on the *right*, which is the relational
+   * case: `⟨the comment's Post⟩ is ⟨this Post⟩`.
+   */
+  rowFields?: Field[];
+  /** The collection the record in scope belongs to, for "this ⟨Post⟩". */
+  scope?: Collection;
+  /**
    * Controls anywhere on the page, by node.
    *
    * Offered beside the two above because to the person writing the sentence
@@ -136,11 +152,15 @@ export function testSentence(options: {
     elements = [],
     states = [],
     controlStates = [],
+    rowFields,
+    scope,
     newLeaf,
     onChange,
     opening = 'When',
     depth = 0,
   } = options;
+  /** Whether this sentence is inside a `where`. See `rowFields`. */
+  const rows = rowFields ?? [];
   // The seed for "+ condition". Falls back to a blank comparison so every
   // caller that predates this keeps exactly the behaviour it had.
   const seed = newLeaf ?? (fields[0] ? () => blankTest(fields[0]!) : undefined);
@@ -154,6 +174,8 @@ export function testSentence(options: {
       elements,
       states,
       controlStates,
+      rowFields,
+      scope,
       newLeaf,
       opening: '',
       depth: depth + 1,
@@ -339,17 +361,24 @@ export function testSentence(options: {
   const source =
     left.kind === 'field'
       ? left.key
-      : left.kind === 'input'
-        ? `${TYPED}${left.name}`
-        : left.kind === 'element'
-          ? `${ON_PAGE}${left.ref.node}`
-          : // A constant on the *left* is a comparison with nothing to compare.
-            // The model allows it because both operands are one type — that
-            // symmetry is the whole of E1 — and this panel never writes one, so
-            // it renders as a source nobody chose and the chip is the way out.
-            '';
+      : left.kind === 'row'
+        ? `${A_ROW}${left.key}`
+        : left.kind === 'input'
+          ? `${TYPED}${left.name}`
+          : left.kind === 'element'
+            ? `${ON_PAGE}${left.ref.node}`
+            : // A constant on the *left* is a comparison with nothing to
+              // compare. The model allows it because both operands are one
+              // type — that symmetry is the whole of E1 — and this panel never
+              // writes one, so it renders as a source nobody chose and the
+              // chip is the way out.
+              '';
   const field =
-    left.kind === 'field' ? fields.find((f) => f.key === left.key) : AS_TEXT;
+    left.kind === 'field'
+      ? fields.find((f) => f.key === left.key)
+      : left.kind === 'row'
+        ? rows.find((f) => f.key === left.key)
+        : AS_TEXT;
   const operators = field ? OPS_FOR[field.type] : [];
   /*
    * A reference whose element the caller could not name.
@@ -384,37 +413,47 @@ export function testSentence(options: {
     value: source,
     placeholder: 'a field',
     menuWidth: 200,
-    options: [
-      ...fields.map((f) => ({ value: f.key, label: f.label })),
-      ...controls.map((name) => ({ value: `${TYPED}${name}`, label: `${name} — what is typed` })),
-      ...elements.map((one) => ({
-        value: `${ON_PAGE}${one.id}`,
-        label: `${one.name} — what it holds`,
-      })),
-      ...(orphaned ? [{ value: source, label: DELETED_ELEMENT }] : []),
-      ...(notInside && left.kind === 'input'
-        ? [{ value: source, label: `${left.name} — not inside this` }]
-        : []),
-    ],
+    options: rowFields
+      ? // Inside a `where`: the row, and only the row. See `rowFields`.
+        rows.map((f) => ({ value: `${A_ROW}${f.key}`, label: f.label }))
+      : [
+          ...fields.map((f) => ({ value: f.key, label: f.label })),
+          ...controls.map((name) => ({ value: `${TYPED}${name}`, label: `${name} — what is typed` })),
+          ...elements.map((one) => ({
+            value: `${ON_PAGE}${one.id}`,
+            label: `${one.name} — what it holds`,
+          })),
+          ...(orphaned ? [{ value: source, label: DELETED_ELEMENT }] : []),
+          ...(notInside && left.kind === 'input'
+            ? [{ value: source, label: `${left.name} — not inside this` }]
+            : []),
+        ],
     onChange:
       onChange &&
       ((next) => {
         const typed = next.startsWith(TYPED);
         const onPage = next.startsWith(ON_PAGE);
-        const picked = typed || onPage ? AS_TEXT : fields.find((f) => f.key === next);
+        const inRow = next.startsWith(A_ROW);
+        const picked = inRow
+          ? rows.find((f) => f.key === next.slice(A_ROW.length))
+          : typed || onPage
+            ? AS_TEXT
+            : fields.find((f) => f.key === next);
         if (!picked) return;
         // A new source is a new type, and an operator the new type cannot
         // answer. Rebuilt rather than patched, so the sentence is never
         // momentarily ungrammatical.
         onChange({
           kind: 'compare',
-          left: typed
-            ? { kind: 'input', name: next.slice(TYPED.length) }
-            : onPage
-              ? { kind: 'element', ref: { node: next.slice(ON_PAGE.length) } }
-              : { kind: 'field', key: next },
+          left: inRow
+            ? { kind: 'row', key: picked.key }
+            : typed
+              ? { kind: 'input', name: next.slice(TYPED.length) }
+              : onPage
+                ? { kind: 'element', ref: { node: next.slice(ON_PAGE.length) } }
+                : { kind: 'field', key: next },
           op: (OPS_FOR[picked.type][0] ?? 'eq') as CompareOp,
-          right: literalFor(picked.type, ''),
+          right: rightFor(picked, scope, inRow),
         });
       }),
   });
@@ -452,11 +491,41 @@ export function testSentence(options: {
     const others =
       left.kind === 'field'
         ? fields.filter((f) => f.type === field.type && f.key !== left.key)
-        : [];
+        : left.kind === 'row'
+          ? /*
+             * The record in scope, from inside a `where` — which is the whole
+             * relational half of the language. "Comments whose Author is this
+             * post's Author" is two records compared in one clause, and the
+             * left side being the row is exactly what makes the *outer* fields
+             * the interesting thing to offer here rather than the excluded
+             * one.
+             */
+            fields.filter((f) => f.type === field.type)
+          : [];
     const against = test.right?.kind === 'field' ? test.right.key : '';
-    const pickField = (key: string) => onChange?.({ ...test, right: { kind: 'field', key } });
+    const pickRight = (key: string) =>
+      onChange?.({ ...test, right: key === A_SELF ? { kind: 'self' } : { kind: 'field', key } });
+    /** The record in scope, as the operand chip names it. */
+    const thisRecord = scope ? `this ${singular(scope.name)}` : 'this record';
+    /*
+     * A reference on the row pointing back at the collection the page is
+     * about: `⟨the comment's Post⟩ is ⟨this Post⟩`. Offered only when the
+     * reference genuinely points there, which is §3.5's rule — a comparison
+     * against a record of the wrong collection is one that compiles and can
+     * never hold, and there is nothing on the page to say why.
+     */
+    const relational =
+      left.kind === 'row' && field.type === 'reference' && !!field.of && field.of === scope?.id;
+    const selfOption =
+      relational || test.right?.kind === 'self'
+        ? [{ value: A_SELF, label: thisRecord }]
+        : [];
+    // Named rather than left to the placeholder, for the reason `orphaned`
+    // gives one line up: a chip that falls through says nothing was chosen,
+    // and something was.
+    const named = test.right?.kind === 'self' ? A_SELF : against;
 
-    if (against) {
+    if (named) {
       /*
        * Pointed at another field, so the chip names it — and its menu is the
        * way back, with the constant first because that is what it was before
@@ -466,14 +535,15 @@ export function testSentence(options: {
        * opposite of what happened. Same reasoning as `orphaned`, one operand
        * along.
        */
-      const known = others.some((f) => f.key === against);
+      const known = !against || others.some((f) => f.key === against);
       parts.push({
         kind: 'pick',
         key: 'value',
-        value: against,
+        value: named,
         menuWidth: 200,
         options: [
           { value: AS_TYPED, label: 'a value you type' },
+          ...selfOption,
           ...others.map((f) => ({ value: f.key, label: f.label })),
           ...(known ? [] : [{ value: against, label: `${against} — no longer a field` }]),
         ],
@@ -482,7 +552,7 @@ export function testSentence(options: {
           ((key) =>
             key === AS_TYPED
               ? onChange({ ...test, right: literalFor(field.type, '') })
-              : pickField(key)),
+              : pickRight(key)),
       });
     } else if (field.type === 'boolean') {
       parts.push({
@@ -499,7 +569,7 @@ export function testSentence(options: {
           onChange &&
           ((raw) =>
             raw.startsWith(A_FIELD)
-              ? pickField(raw.slice(A_FIELD.length))
+              ? pickRight(raw.slice(A_FIELD.length))
               : onChange({ ...test, right: literalFor('boolean', raw) })),
       });
     } else if (field.type === 'select' && field.options?.length) {
@@ -517,7 +587,7 @@ export function testSentence(options: {
           onChange &&
           ((raw) =>
             raw.startsWith(A_FIELD)
-              ? pickField(raw.slice(A_FIELD.length))
+              ? pickRight(raw.slice(A_FIELD.length))
               : onChange({ ...test, right: literalFor(field.type, raw) })),
       });
     } else {
@@ -530,9 +600,9 @@ export function testSentence(options: {
         onChange: onChange && ((raw) => onChange({ ...test, right: literalFor(field.type, raw) })),
         // The box keeps its width and gains a chevron. See `Part`'s `type`
         // member for why this is one chip rather than two.
-        options: others.map((f) => ({ value: f.key, label: f.label })),
+        options: [...selfOption, ...others.map((f) => ({ value: f.key, label: f.label }))],
         menuWidth: 200,
-        onPick: onChange && pickField,
+        onPick: onChange && pickRight,
       });
     }
   }
@@ -595,6 +665,21 @@ const A_FIELD = 'field:';
  * strings, and a collection id and a field key are both just words.
  */
 const A_LIST = 'list:';
+/**
+ * A field of the row a `where` is asking about, rather than of the record in
+ * scope. Both are fields with keys, both belong in one menu's value space, so
+ * they are told apart the way everything else here is.
+ */
+const A_ROW = 'row:';
+/**
+ * The record in scope itself, as an operand — `⟨the comment's Post⟩ is ⟨this
+ * Post⟩`.
+ *
+ * A NUL rather than a prefix, for the reason `AS_TYPED` uses one: it shares a
+ * menu with bare field keys, where a prefix is only unambiguous for as long as
+ * nobody keys a field `self:`.
+ */
+const A_SELF = 'self\u0000';
 /** And the way back, in the menu the chip grows once it names a field. */
 const AS_TYPED = 'typed\u0000';
 /**
@@ -619,6 +704,38 @@ export function blankTest(field: Field): Test {
     left: { kind: 'field', key: field.key },
     op: (OPS_FOR[field.type][0] ?? 'eq') as CompareOp,
     right: literalFor(field.type, ''),
+  };
+}
+
+/**
+ * What a fresh comparison compares against.
+ *
+ * A constant, except in the one place where typing one is absurd: a reference
+ * on the row that points back at the collection the page is about. Nobody
+ * types a record id, and `⟨the comment's Post⟩ is ⟨this Post⟩` is what
+ * somebody picking `Post` on a comment meant — so it is what the sentence says
+ * the moment they pick it, rather than an empty box they have to work out.
+ */
+function rightFor(field: Field, scope: Collection | undefined, inRow: boolean): Value {
+  if (inRow && field.type === 'reference' && field.of && field.of === scope?.id) {
+    return { kind: 'self' };
+  }
+  return literalFor(field.type, '');
+}
+
+/**
+ * The first comparison inside a `where`, over the row rather than the record.
+ *
+ * `blankTest`'s counterpart, and separate for the reason the `row` head exists
+ * at all: the two mint different left sides, and one function taking a flag
+ * would be the place those two meanings got mixed up.
+ */
+export function blankRowTest(field: Field, scope?: Collection): Test {
+  return {
+    kind: 'compare',
+    left: { kind: 'row', key: field.key },
+    op: (OPS_FOR[field.type][0] ?? 'eq') as CompareOp,
+    right: rightFor(field, scope, true),
   };
 }
 
@@ -797,16 +914,29 @@ export function bindingSentence(options: {
    * schema's shape.
    */
   collections?: Collection[];
+  /** The collection the record in scope belongs to, for "this ⟨Post⟩". */
+  scope?: Collection;
   onBind?: (value: Value | null) => void;
   onFormat?: (format: Format | undefined) => void;
 }): Part[] {
-  const { prop, binding, fields, collections = [], onBind, onFormat } = options;
+  const { prop, binding, fields, collections = [], scope, onBind, onFormat } = options;
   const held = binding?.value;
+  const steps = held?.steps ?? [];
+  /*
+   * Which step turns the list into one thing, and where it is.
+   *
+   * Found rather than assumed to be first, which is what it was until a chain
+   * could be narrowed: `⟨Comments⟩ ⟨where …⟩ ⟨count⟩` puts two steps before it,
+   * and a panel reading `steps[0]` would have called that chain a `where` and
+   * rebuilt it as one.
+   */
+  const reducer = steps.find(isReducer);
+  const at = reducer ? steps.indexOf(reducer) : -1;
   const source =
     held?.kind === 'field'
       ? held.key
       : held?.kind === 'records'
-        ? `${A_LIST}${held.collection}${held.steps?.[0]?.op === 'count' ? ':count' : held.steps?.[0]?.op === 'last' ? ':last' : ':first'}`
+        ? `${A_LIST}${held.collection}:${reducer?.op ?? 'first'}`
         : '';
   const field = held?.kind === 'field' ? fields.find((f) => f.key === source) : undefined;
   /*
@@ -814,10 +944,10 @@ export function bindingSentence(options: {
    *
    * The last step is the only one this panel writes past a record — `field` —
    * and everything before it is what got there: `follow` from a reference, or
-   * `first`/`last` off a list. Anything longer arrived from somewhere else and
-   * is left alone rather than half-shown. One level, as §4 says.
+   * `first`/`last` off a list, with whatever narrowed or ordered that list
+   * before them. Anything longer arrived from somewhere else and is left alone
+   * rather than half-shown. One level, as §4 says.
    */
-  const steps = held?.steps ?? [];
   const tail = steps[steps.length - 1];
   const followed = steps.length >= 2 && tail?.op === 'field' ? tail.key : '';
 
@@ -826,12 +956,12 @@ export function bindingSentence(options: {
    *
    * A separate group rather than more fields, because they are not fields of
    * the record in scope — they are facts about a *collection*, and a page with
-   * no record in scope at all can still say one. Unfiltered, which the wording
-   * says out loud: "in total" is what stops "How many Comments" from reading
-   * as "how many comments on this post", which is `where` and is E6.
+   * no record in scope at all can still say one. Unnarrowed as picked, and the
+   * sentence says so in the word after the chip: "in total" for as long as
+   * there is no `where` under it, and gone the moment there is.
    */
   const lists = collections.flatMap((one) => [
-    { value: `${A_LIST}${one.id}:count`, label: `How many ${one.name}, in total` },
+    { value: `${A_LIST}${one.id}:count`, label: `How many ${one.name}` },
     { value: `${A_LIST}${one.id}:first`, label: `The first ${singular(one.name)}` },
     { value: `${A_LIST}${one.id}:last`, label: `The last ${singular(one.name)}` },
   ]);
@@ -870,6 +1000,33 @@ export function bindingSentence(options: {
   if (!binding) return parts;
 
   /*
+   * What the list is narrowed to and how it is ordered, when the head is one.
+   *
+   * Before the `→` chip, because they happen before it: the chain is
+   * `⟨Comments⟩ ⟨only when …⟩ ⟨by …⟩ ⟨the first⟩ ⟨→ Name⟩`, and a sentence that
+   * put the narrowing after the record it produced would be describing a
+   * different chain from the one it writes.
+   */
+  const listOf =
+    held?.kind === 'records'
+      ? (collections.find((one) => one.id === held.collection) ?? null)
+      : null;
+  if (held?.kind === 'records' && listOf && reducer) {
+    parts.push(
+      ...listClauses({
+        held,
+        list: listOf,
+        steps,
+        at,
+        reducer,
+        fields,
+        scope,
+        onBind,
+      })
+    );
+  }
+
+  /*
    * Whatever the chain is holding a record *of*, so the next chip can offer
    * that collection's fields.
    *
@@ -879,8 +1036,8 @@ export function bindingSentence(options: {
    * branches, because the chip after it is the same chip either way.
    */
   const target =
-    held?.kind === 'records' && steps[0]?.op !== 'count'
-      ? (collections.find((one) => one.id === held.collection) ?? null)
+    held?.kind === 'records' && reducer?.op !== 'count'
+      ? listOf
       : field?.type === 'reference' && field.of
         ? (collections.find((one) => one.id === field.of) ?? null)
         : null;
@@ -891,11 +1048,12 @@ export function bindingSentence(options: {
     if (inner) effective = inner;
     /*
      * How the chain got to that record: `follow` from a reference, or `first`
-     * / `last` off a list. Kept from what is already there rather than
-     * recomputed, so this chip only ever appends the field and never rewrites
-     * how somebody got here.
+     * / `last` off a list — with whatever narrowed and ordered that list ahead
+     * of them. Kept from what is already there rather than recomputed, so this
+     * chip only ever appends the field and never rewrites how somebody got
+     * here.
      */
-    const reach: Step[] = held?.kind === 'records' ? [steps[0]!] : [{ op: 'follow' }];
+    const reach: Step[] = held?.kind === 'records' ? steps.slice(0, at + 1) : [{ op: 'follow' }];
     const head: Value = held?.kind === 'records' ? { ...held, steps: reach } : { kind: 'field', key: source };
     parts.push({ kind: 'word', text: '→', key: 'follow' });
     parts.push({
@@ -924,7 +1082,7 @@ export function bindingSentence(options: {
    * ends on — so a count gets a number's formats even though nothing in
    * `fields` describes it.
    */
-  if (!effective && held?.kind === 'records' && steps[0]?.op === 'count') {
+  if (!effective && held?.kind === 'records' && reducer?.op === 'count') {
     effective = { key: '', label: 'How many', type: 'number' };
   }
   if (!effective) return parts;
@@ -1143,6 +1301,176 @@ export function bindingSentence(options: {
       parts.push({ kind: 'word', text: 'characters', key: 'chars-w' });
       break;
   }
+  return parts;
+}
+
+/** The step that turns a list into one thing: a number, or one row of it. */
+function isReducer(step: Step): step is Extract<Step, { op: 'count' | 'first' | 'last' }> {
+  return step.op === 'count' || step.op === 'first' || step.op === 'last';
+}
+
+/**
+ * `only when ⟨Post⟩ is ⟨this Property⟩` and `by ⟨Date⟩ ⟨Z → A⟩`.
+ *
+ * The two clauses that sit between a list and what is taken out of it. Its own
+ * function because it is where the panel's canonical order lives — narrow,
+ * then order, then reduce — and that order is a decision rather than a
+ * formatting detail. Every write goes through `put`, which rebuilds the lead of
+ * the chain from the two clauses and leaves everything past the reducer exactly
+ * where it was, so editing the filter cannot disturb the field or the maths
+ * after it.
+ *
+ * The model does not require the order; `advance` applies whatever it is
+ * handed, and a document that narrows after it sorts gets the same rows. The
+ * panel picks one so that two people writing the same sentence produce the same
+ * document.
+ */
+function listClauses(options: {
+  held: Value;
+  list: Collection;
+  steps: Step[];
+  at: number;
+  reducer: Extract<Step, { op: 'count' | 'first' | 'last' }>;
+  fields: Field[];
+  scope?: Collection;
+  onBind?: (value: Value | null) => void;
+}): Part[] {
+  const { held, list, steps, at, reducer, fields, scope, onBind } = options;
+  const lead = steps.slice(0, at);
+  const rest = steps.slice(at + 1);
+  const filter = lead.find((one): one is Extract<Step, { op: 'where' }> => one.op === 'where');
+  const order = lead.find(
+    (one): one is Extract<Step, { op: 'sortedBy' }> => one.op === 'sortedBy'
+  );
+  const put = (
+    narrow: Extract<Step, { op: 'where' }> | undefined,
+    sorted: Extract<Step, { op: 'sortedBy' }> | undefined
+  ) =>
+    onBind?.({
+      ...held,
+      steps: [...(narrow ? [narrow] : []), ...(sorted ? [sorted] : []), reducer, ...rest],
+    });
+
+  const parts: Part[] = [];
+  /*
+   * "in total", for exactly as long as it is true.
+   *
+   * The words E4 put in the menu label, moved out of it. In the label they
+   * were a promise the sentence could not take back once `where` existed —
+   * "How many Comments, in total, only when Post is this Post" is a sentence
+   * that contradicts itself in the middle.
+   */
+  if (reducer.op === 'count' && !filter) {
+    parts.push({ kind: 'word', text: 'in total', key: 'total' });
+  }
+
+  if (filter) {
+    parts.push({
+      kind: 'clause',
+      key: 'where',
+      parts: [
+        ...testSentence({
+          test: filter.test,
+          fields,
+          rowFields: list.fields,
+          scope,
+          opening: 'only when',
+          newLeaf: list.fields[0] && (() => blankRowTest(list.fields[0]!, scope)),
+          onChange: onBind && ((next) => put({ op: 'where', test: next }, order)),
+        }),
+        ...(onBind
+          ? [
+              {
+                kind: 'action' as const,
+                key: 'drop-where',
+                title: 'Count all of them again',
+                label: <Trash2 size={10} />,
+                onClick: () => put(undefined, order),
+              },
+            ]
+          : []),
+      ],
+    });
+  } else if (onBind && list.fields[0]) {
+    parts.push({
+      kind: 'action',
+      key: 'add-where',
+      title: `Only some of the ${list.name}`,
+      label: <span className="text-[10px]">+ only when</span>,
+      onClick: () => put({ op: 'where', test: blankRowTest(list.fields[0]!, scope) }, order),
+    });
+  }
+
+  /*
+   * And the order, which only the ends of a list care about.
+   *
+   * A count is the same number whichever way the rows are arranged, so
+   * offering `by ⟨Date⟩` beside one would be a chip that provably does
+   * nothing — §3.5's rule, and the cheapest possible instance of it.
+   */
+  if (reducer.op !== 'count') {
+    if (order) {
+      parts.push({
+        kind: 'clause',
+        key: 'sorted',
+        parts: [
+          { kind: 'word', text: 'by', key: 'by' },
+          {
+            kind: 'pick',
+            key: 'sort-field',
+            value: order.field,
+            placeholder: 'a field',
+            menuWidth: 200,
+            options: list.fields.map((f) => ({ value: f.key, label: f.label })),
+            onChange: onBind && ((key) => put(filter, { ...order, field: key })),
+          },
+          {
+            // The repeater's two words, deliberately. One idea, one wording:
+            // a designer who has sorted a list has sorted this one.
+            kind: 'pick',
+            key: 'sort-dir',
+            value: order.desc ? 'desc' : 'asc',
+            menuWidth: 104,
+            options: [
+              { value: 'asc', label: 'A → Z' },
+              { value: 'desc', label: 'Z → A' },
+            ],
+            onChange:
+              onBind &&
+              ((direction) =>
+                put(
+                  filter,
+                  direction === 'desc'
+                    ? { op: 'sortedBy', field: order.field, desc: true }
+                    : // Absent rather than `desc: false`, so two documents
+                      // meaning ascending are one document.
+                      { op: 'sortedBy', field: order.field }
+                )),
+          },
+          ...(onBind
+            ? [
+                {
+                  kind: 'action' as const,
+                  key: 'drop-sort',
+                  title: 'Back to the collection order',
+                  label: <Trash2 size={10} />,
+                  onClick: () => put(filter, undefined),
+                },
+              ]
+            : []),
+        ],
+      });
+    } else if (onBind && list.fields[0]) {
+      parts.push({
+        kind: 'action',
+        key: 'add-sort',
+        title: 'Choose which one that is',
+        label: <span className="text-[10px]">+ in order of</span>,
+        onClick: () => put(filter, { op: 'sortedBy', field: list.fields[0]!.key }),
+      });
+    }
+  }
+
   return parts;
 }
 

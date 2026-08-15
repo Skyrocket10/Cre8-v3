@@ -329,6 +329,10 @@ function BindControls({
             binding: node.bind?.[prop],
             fields: collection.fields,
             collections,
+            // Which collection the record in scope is from, so a `where` can
+            // compare a row's reference against *this* record rather than
+            // against a record id somebody would have to type.
+            scope: collection,
             onBind: (value) => setBinding(prop, value),
             onFormat: (format) =>
               useEditor.getState().transact('Change how this reads', (draft) => {

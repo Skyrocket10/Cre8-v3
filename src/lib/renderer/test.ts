@@ -41,6 +41,7 @@ import type {
   CompareOp,
   FieldType,
   SceneNode,
+  Step,
   Test,
   TestLiteral,
   Value,
@@ -551,7 +552,7 @@ export function provablyOverlap(a: Test, b: Test): boolean {
  * only ever speaks about two rules reading the same thing.
  */
 function operandName(value: Value): string {
-  const past = (value.steps ?? []).map((step) => ('key' in step ? `${step.op}:${step.key}` : step.op));
+  const past = (value.steps ?? []).map(stepName);
   const head =
     value.kind === 'field'
       ? value.key
@@ -561,11 +562,32 @@ function operandName(value: Value): string {
           ? `=${String(value.value)}`
           : value.kind === 'records'
             ? `*${value.collection}`
-            : // The node id, which is exactly the identity wanted: two rules
-              // reading the same element overlap, and two reading different
-              // ones do not, whatever those elements happen to be called.
-              value.ref.node;
+            : value.kind === 'row'
+              ? `~${value.key}`
+              : value.kind === 'self'
+                ? '@self'
+                : // The node id, which is exactly the identity wanted: two
+                  // rules reading the same element overlap, and two reading
+                  // different ones do not, whatever those elements happen to
+                  // be called.
+                  value.ref.node;
   return past.length ? `${head}|${past.join('|')}` : head;
+}
+
+/**
+ * One step, as part of that identity.
+ *
+ * A `where` is named by its whole test, serialised, because two chains over
+ * one collection narrowed differently are not two rules about one thing — and
+ * `where` alone as a name would say they were. Two structurally identical
+ * tests built by different code could serialise differently and read as two
+ * operands; that direction is silence, which is the answer `provablyOverlap`
+ * gives to everything it cannot demonstrate.
+ */
+function stepName(step: Step): string {
+  if (step.op === 'where') return `where:${JSON.stringify(step.test)}`;
+  if (step.op === 'sortedBy') return `sortedBy:${step.field}${step.desc ? ':desc' : ''}`;
+  return 'key' in step ? `${step.op}:${step.key}` : step.op;
 }
 
 /** Do the two numeric half-lines share a point? */

@@ -197,8 +197,9 @@ it wrong once first. Any plan that breaks one of these is not a better plan.
 1. **No script where CSS can do the work.** The behaviour runtime is thirty
    lines and inlined only into pages that need it (`behaviour.ts`). Whether a
    thing runs at publish time or in the browser is *derived* from what it
-   reads — `foldable` (`test.ts:266`) — never chosen by a designer and never
-   chosen by a panel.
+   reads — `foldable`, in `document/schedule.ts`, which is where it moved when
+   an action's guard started asking the same question a style rule does —
+   never chosen by a designer and never chosen by a panel.
 2. **The runtime is serialised with `toString()`** and may not reference
    module scope. Every attribute name inside it is a literal. This shipped
    broken for one afternoon when a bundler inserted `__name`.

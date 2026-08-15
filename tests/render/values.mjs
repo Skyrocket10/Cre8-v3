@@ -599,16 +599,32 @@ try {
   const countRow = countPanel.locator('[data-sentence]:has-text("Text reads")').first();
   await countRow.getByRole('button').first().click();
   await page.waitForTimeout(300);
-  const howMany = page.getByRole('button', { name: 'How many Writers, in total', exact: true });
+  const howMany = page.getByRole('button', { name: 'How many Writers', exact: true });
   report.check(
-    'a collection can be counted, and the menu says it is the whole of it',
+    'a collection can be counted',
     (await howMany.count()) === 1,
-    `${await howMany.count()} entry — the wording is what stops it reading as "on this post"`
+    `${await howMany.count()} entry`
   );
   if (await howMany.count()) {
     await howMany.last().click();
     await page.waitForTimeout(600);
   }
+  /*
+   * "In total" — the words that stop this reading as "how many writers on this
+   * listing". They were in the menu label until E6 gave the sentence a way to
+   * say the other thing, and a label cannot be taken back: "How many Writers,
+   * in total, only when Featured is ticked" contradicts itself in the middle.
+   * So the claim moved into the sentence, where it can end.
+   */
+  const totalWording = await countPanel
+    .locator('[data-sentence]:has-text("Text reads")')
+    .first()
+    .innerText();
+  report.check(
+    'and the sentence says it is the whole of the collection',
+    totalWording.includes('in total'),
+    totalWording.replace(/\s+/g, ' ').trim()
+  );
 
   const counted = await getDocument(page, projectId);
   const countValue = counted.nodes.cntval0005.bind?.text?.value;
@@ -802,6 +818,283 @@ try {
     'and the file has the same sum, once per row, with the rows differing',
     sums.includes('225000') && sums.includes('180000'),
     sums.join(' · ')
+  );
+
+  /* --------------------------------- 7. E6: narrowing and ordering a list */
+
+  /*
+   * `VALUES.md` §5: "a filtered count that differs from the unfiltered one, on
+   * the same page."
+   *
+   * Taken at its strongest reading, because the weak one is easy and proves
+   * little. Two counts of *one* collection sit on the card: one of all the
+   * viewings, one of the viewings on *this* listing. So the page carries three
+   * numbers from two bindings — 3, 3 for the unfiltered one and 2, 1 for the
+   * narrowed one — and no constant, no separate collection and no second
+   * binding can produce that pattern.
+   *
+   * It is also the relational case, which is what `where` was actually for: a
+   * reference on the row pointing back at the record the card is drawn for.
+   * The comparison is authored the way a designer would author it — pick the
+   * row's field from the clause's own menu — and the operand it lands on is
+   * `this Listing` rather than a record id nobody could type.
+   */
+  {
+    const d = await getDocument(page, projectId);
+    d.collections = [
+      ...d.collections,
+      {
+        id: 'viewings',
+        name: 'Viewings',
+        slugField: 'who',
+        fields: [
+          // `who` first, so the seeded clause is *not* the relational one and
+          // the check has to drive the row's source menu to get there.
+          { key: 'who', label: 'Who', type: 'text' },
+          { key: 'listing', label: 'Listing', type: 'reference', of: 'listings' },
+        ],
+      },
+    ];
+    for (const [id, name, text] of [
+      ['allval0007', 'All viewings', 'some viewings'],
+      ['minval0008', 'Its viewings', 'some of them'],
+      ['ordval0009', 'Latest viewer', 'somebody'],
+    ]) {
+      d.nodes[id] = node(id, 'paragraph', name, {
+        parentId: 'crdval0002',
+        props: { text },
+        styles: { desktop: { fontSize: '12px' } },
+      });
+      d.nodes.crdval0002.children.push(id);
+    }
+    await saveDocument(page, d);
+  }
+
+  const listingIds = {};
+  {
+    const list = await call(`/api/projects/${projectId}/records?collection=listings`);
+    for (const row of list.body?.records ?? []) listingIds[row.slug] = row.id;
+  }
+  const madeViewings = [];
+  for (const [who, slug, at] of [
+    ['Ada', 'over', 0],
+    ['Grace', 'over', 1],
+    ['Alan', 'under', 2],
+  ]) {
+    const made = await call(`/api/projects/${projectId}/records`, {
+      method: 'POST',
+      body: JSON.stringify({
+        collectionId: 'viewings',
+        slug: who.toLowerCase(),
+        position: at,
+        published: true,
+        data: { who, listing: listingIds[slug] },
+      }),
+    });
+    madeViewings.push(`${who}→${slug}:${made.status}`);
+  }
+  report.check(
+    'three viewings, two on one listing and one on the other',
+    madeViewings.every((one) => one.endsWith(':200')) && Object.keys(listingIds).length === 2,
+    madeViewings.join(' · ')
+  );
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+
+  /** Select a layer by name and open its Data section. */
+  const openData = async (layer) => {
+    await page.locator(`[data-layer-row]:has-text("${layer}")`).first().click();
+    await page.waitForTimeout(500);
+    await openInspectorSection(page, 'Data');
+    await page.waitForTimeout(400);
+    return page.locator('aside').last();
+  };
+
+  // The control: every viewing on the site, on the same card.
+  {
+    const panel = await openData('All viewings');
+    await panel.locator('[data-sentence]:has-text("Text reads")').first().getByRole('button').first().click();
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'How many Viewings', exact: true }).last().click();
+    await page.waitForTimeout(600);
+  }
+
+  // And the narrowed one, authored clause by clause.
+  const minePanel = await openData('Its viewings');
+  await minePanel.locator('[data-sentence]:has-text("Text reads")').first().getByRole('button').first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'How many Viewings', exact: true }).last().click();
+  await page.waitForTimeout(600);
+
+  const addWhere = minePanel.getByRole('button', { name: '+ only when' }).first();
+  report.check(
+    'a counted list offers somewhere to narrow it',
+    (await addWhere.count()) === 1,
+    `${await addWhere.count()} offer(s)`
+  );
+  if (await addWhere.count()) {
+    await addWhere.click();
+    await page.waitForTimeout(500);
+    /*
+     * The clause's own source menu, which offers the *row's* fields and
+     * nothing else. Asserted before picking, because the whole reason `row` is
+     * its own head is that a filter reads the candidate rather than the record
+     * in scope — and a menu offering both would be the panel saying they are
+     * the same thing.
+     */
+    const clause = minePanel.locator('[data-sentence] [data-sentence]').first();
+    await clause.getByRole('button').first().click();
+    await page.waitForTimeout(300);
+    // The open menu, which is a portalled panel rather than a dialog: scoped
+    // to it because the assertion below is about what is *not* offered, and
+    // the whole page is full of buttons named after fields.
+    const offered = await page.locator('.anim-pop').last().innerText().catch(() => '');
+    report.check(
+      'the filter reads the row’s own fields, not the record the card is drawn for',
+      offered.includes('Listing') && offered.includes('Who') && !offered.includes('Price'),
+      offered.replace(/\s+/g, ' ').trim() || 'nothing offered'
+    );
+    await page.getByRole('button', { name: 'Listing', exact: true }).last().click();
+    await page.waitForTimeout(600);
+  }
+
+  const narrowed = await getDocument(page, projectId);
+  const mineValue = narrowed.nodes.minval0008.bind?.text?.value;
+  report.check(
+    'the binding narrows the list to the rows pointing at this record',
+    mineValue?.kind === 'records' &&
+      mineValue?.collection === 'viewings' &&
+      mineValue?.steps?.length === 2 &&
+      mineValue.steps[0].op === 'where' &&
+      mineValue.steps[0].test?.left?.kind === 'row' &&
+      mineValue.steps[0].test?.left?.key === 'listing' &&
+      mineValue.steps[0].test?.right?.kind === 'self' &&
+      mineValue.steps[1].op === 'count',
+    JSON.stringify(mineValue ?? null)
+  );
+  /*
+   * And the sentence stops claiming the whole collection the moment it stops
+   * counting the whole collection.
+   */
+  const narrowedWording = await minePanel
+    .locator('[data-sentence]:has-text("Text reads")')
+    .first()
+    .innerText();
+  report.check(
+    'and "in total" is gone, because it is no longer true',
+    !narrowedWording.includes('in total') && narrowedWording.includes('only when'),
+    narrowedWording.replace(/\s+/g, ' ').trim()
+  );
+
+  /* The order, on the same list: the last viewer alphabetically. */
+  const orderPanel = await openData('Latest viewer');
+  await orderPanel.locator('[data-sentence]:has-text("Text reads")').first().getByRole('button').first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'The first viewing', exact: true }).last().click();
+  await page.waitForTimeout(600);
+  await orderPanel.getByRole('button', { name: 'the viewing itself', exact: true }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'Who', exact: true }).last().click();
+  await page.waitForTimeout(600);
+
+  const addOrder = orderPanel.getByRole('button', { name: '+ in order of' }).first();
+  report.check(
+    'and the end of a list offers a say in which end that is',
+    (await addOrder.count()) === 1,
+    `${await addOrder.count()} offer(s)`
+  );
+  if (await addOrder.count()) {
+    await addOrder.click();
+    await page.waitForTimeout(500);
+    await orderPanel.getByRole('button', { name: 'A → Z', exact: true }).first().click();
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Z → A', exact: true }).last().click();
+    await page.waitForTimeout(600);
+  }
+
+  const ordered = await getDocument(page, projectId);
+  const orderValue = ordered.nodes.ordval0009.bind?.text?.value;
+  report.check(
+    'the binding sorts before it takes the first row',
+    orderValue?.steps?.[0]?.op === 'sortedBy' &&
+      orderValue.steps[0].field === 'who' &&
+      orderValue.steps[0].desc === true &&
+      orderValue.steps[1]?.op === 'first' &&
+      orderValue.steps[2]?.op === 'field',
+    JSON.stringify(orderValue ?? null)
+  );
+
+  /*
+   * And what the two surfaces make of all of it. The canvas draws the first
+   * card against the first listing — sorted by title, so `Over`, which has two
+   * viewings of the three.
+   */
+  const narrowedCanvas = await page.evaluate(() => {
+    const card = document.querySelector('.cre8-frame.cre8-editing .c-crdval0002');
+    const read = (cls) => (card?.querySelector(cls)?.textContent ?? '').trim();
+    return { all: read('.c-allval0007'), mine: read('.c-minval0008'), who: read('.c-ordval0009') };
+  });
+  report.check(
+    'the canvas counts the whole collection and this record’s share of it, differently',
+    narrowedCanvas.all === '3' && narrowedCanvas.mine === '2' && narrowedCanvas.who === 'Grace',
+    `all ${narrowedCanvas.all} · this listing ${narrowedCanvas.mine} · latest ${narrowedCanvas.who}`
+  );
+
+  await publish(page);
+  const whereSite = await ctx.newPage();
+  await whereSite.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await whereSite.waitForTimeout(600);
+  const cards = await whereSite.evaluate(() =>
+    // By the heading each card has, not by class: `shortenIds` rewrites every
+    // published class, so `c-minval0008` exists on the canvas and nowhere in
+    // the file. The paragraphs are in the order they were added to the card.
+    [...document.querySelectorAll('h3')].map((heading) => {
+      const said = [...(heading.parentElement?.querySelectorAll('p') ?? [])].map((one) =>
+        (one.textContent ?? '').trim()
+      );
+      return { all: said[3], mine: said[4], who: said[5], said: said.length };
+    })
+  );
+  const whereMarkup = await whereSite.content();
+  await whereSite.close();
+  /*
+   * The falsification itself. Two cards, one binding each: the unfiltered
+   * count is the same number on both because it is a fact about the
+   * collection, and the narrowed one is not because it is a fact about the
+   * row. A `where` that passed everything through would print 3 twice.
+   */
+  report.check(
+    'the published file: one count is the same on both rows and the other is not',
+    cards.length === 2 &&
+      cards.every((one) => one.said === 6) &&
+      cards[0].all === '3' &&
+      cards[1].all === '3' &&
+      cards[0].mine === '2' &&
+      cards[1].mine === '1',
+    cards.map((one, at) => `card ${at + 1}: ${one.said} lines, all ${one.all}, this ${one.mine}`).join(' · ')
+  );
+  /*
+   * The sorted chain is not narrowed, so it says the same thing on both rows —
+   * and what it says is a name no other arrangement produces. The rows were
+   * written Ada, Grace, Alan in that order, so unsorted `first` is Ada and
+   * `sortedBy who` ascending is Ada as well. Only the direction chip makes it
+   * Grace, which is what stops this passing against a sort that never ran.
+   */
+  report.check(
+    'and the sorted chain names the last viewer alphabetically, which no other order does',
+    cards.length === 2 && cards.every((one) => one.who === 'Grace'),
+    cards.map((one) => one.who).join(' · ')
+  );
+  report.check(
+    'with nothing shipped to the browser to work any of it out',
+    !whereMarkup.includes('data-cre8-test') && !whereMarkup.includes('data-cre8-vals'),
+    `test attributes ${(whereMarkup.match(/data-cre8-test/g) ?? []).length}`
   );
 } catch (error) {
   report.check('values suite completed', false, String(error?.message ?? error));

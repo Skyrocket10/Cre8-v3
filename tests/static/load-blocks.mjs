@@ -174,6 +174,10 @@ export function loadBlocks() {
     // The Test evaluator, for the same reason as the formatter: three answers
     // and an arbitration order are claims about a function.
     tests: require(path.join(OUT, 'renderer/test.js')),
+    // And the resolver under it, which is where a chain's steps are applied.
+    // `foldableValue` — the single function that decides whether a chain
+    // travels to the browser — is reachable from nowhere else.
+    schedule: require(path.join(OUT, 'document/schedule.js')),
     values: require(path.join(OUT, 'renderer/values.js')),
     TEMPLATES: require(path.join(OUT, 'templates/index.js')).TEMPLATES,
     // And the runtime itself, so the second implementation of the comparison
