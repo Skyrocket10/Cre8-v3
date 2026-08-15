@@ -997,7 +997,34 @@ export type Step =
    * and for the same reason: `⟨First⟩ joined with ⟨Lastt⟩` typed one letter
    * wrong would otherwise publish the first name and look deliberate.
    */
-  | { op: 'join'; with: Value };
+  | { op: 'join'; with: Value }
+  /**
+   * The value before this, written the way a page would show it.
+   *
+   * "Round, then use it" was §1.5's row and E5 closed it for numbers with
+   * `round`. This is the general case, and E7 found the gap by hitting it:
+   * `⟨Price⟩ as currency, joined with " per month"` had no spelling, because
+   * `Format` is applied on the way to the DOM and a join makes the value text
+   * before it ever gets there.
+   *
+   * **This is the rule `Format`'s docblock said could not be broken, and it is
+   * worth being exact about what changed.** That rule was "a comparison sees
+   * raw values", enforced by a formatted value being *unspellable*. It is
+   * spellable now — and it takes a chip that says `written as ⟨currency⟩` in
+   * the sentence, which is the same trade `round` made: the danger was
+   * comparing `$1,234.50` to `1000` *by accident*, and this cannot be done by
+   * accident. Comparisons still see raw values unless somebody writes down
+   * that they should not.
+   *
+   * It does not travel, and it is the only step whose reason is a budget
+   * rather than a shape: formatting in the browser would mean shipping the
+   * whole of `document/format.ts` to every page carrying an unfoldable test,
+   * to answer a question nobody asks — "is what you typed, as currency,
+   * $5.00". The panel does not offer it on anything a control can hold, so
+   * the case cannot be authored; a hand-written one is refused on both
+   * surfaces, which is where every other unauthorable chain already lands.
+   */
+  | { op: 'formatted'; as: Format };
 
 /**
  * Something an expression can read.

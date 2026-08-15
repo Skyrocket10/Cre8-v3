@@ -54,6 +54,7 @@ export function loadBlocks() {
       // What an element's state is, and what it can be — declared rather than
       // scraped, which is a claim about data and therefore checkable.
       'src/lib/document/state.ts',
+      'src/lib/document/format.ts',
       // The step vocabulary: what each step may be offered on and what it
       // leaves behind. Panel-only — nothing in the renderer imports it, which
       // is exactly why it needs naming here and why the coverage check reads
@@ -171,7 +172,7 @@ export function loadBlocks() {
     // Formatting, on its own rather than only through a rendered page: it is
     // the one part of the renderer whose whole claim is that two different
     // JavaScript engines agree, and that is a claim about a function.
-    format: require(path.join(OUT, 'renderer/format.js')),
+    format: require(path.join(OUT, 'document/format.js')),
     boundProps: require(path.join(OUT, 'renderer/repeat.js')).boundProps,
     // And the whole module, for `recordIndex` — following a reference is a
     // lookup, and the index both renderers build is the thing to drive.

@@ -595,6 +595,7 @@ function stepName(step: Step): string {
   if (step.op === 'where') return `where:${JSON.stringify(step.test)}`;
   if (step.op === 'sortedBy') return `sortedBy:${step.field}${step.desc ? ':desc' : ''}`;
   if (step.op === 'truncate') return `truncate:${step.chars}`;
+  if (step.op === 'formatted') return `formatted:${JSON.stringify(step.as)}`;
   // A join is named by what it joins on, for the reason `where` is named by
   // its test: `⟨First⟩ + ⟨" "⟩` and `⟨First⟩ + ⟨", "⟩` are not one operand.
   if (step.op === 'join') return `join:${operandName(step.with)}`;

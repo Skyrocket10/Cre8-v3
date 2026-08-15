@@ -106,6 +106,14 @@ export const STEPS: Record<Step['op'], StepKind> = {
     from: ['text', 'select', 'number', 'date'],
     to: 'text',
   },
+  /*
+   * Offered on the two types whose formats are not already steps, which is
+   * also what keeps it off anything a control can hold: a control's value
+   * reads as text, text's formats are `case` and `truncate`, and both of
+   * those are steps of their own. So the one step that cannot travel is the
+   * one step nothing can put over something typed.
+   */
+  formatted: { label: 'written as', takes: 'value', gives: 'value', from: ['number', 'date'], to: 'text' },
   upper: { label: 'UPPERCASE', takes: 'value', gives: 'value', from: PROSE, to: 'text' },
   lower: { label: 'lowercase', takes: 'value', gives: 'value', from: PROSE, to: 'text' },
   capitalize: { label: 'Capitalised', takes: 'value', gives: 'value', from: PROSE, to: 'text' },

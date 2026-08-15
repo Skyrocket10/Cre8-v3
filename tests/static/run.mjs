@@ -3136,10 +3136,21 @@ report.group('a bound value can be formatted, and only where it is shown');
   );
 
   /*
-   * The structural claim. `formatValue` has exactly one caller — the function
-   * that writes a record into props — which is what makes "comparisons see raw
-   * values" a fact about the code rather than a promise in a document. The day
-   * a Test formats an operand, this is what notices.
+   * The structural claim, and E9 is the day it changed.
+   *
+   * `formatValue` had exactly one caller — the function that writes a record
+   * into props — and that is what made "comparisons see raw values" a fact
+   * about the code rather than a promise in a document. This check is what
+   * noticed when a second one arrived, which is precisely what it was written
+   * for: its own comment said "the day a Test formats an operand, this is
+   * what notices."
+   *
+   * It has, and the new caller is deliberate: `advance` applies the `written
+   * as` step. So the claim narrows to the one that is still true and still
+   * worth guarding. Two callers, both named, and the *second evaluator* is not
+   * one of them — `runtime/behaviour.ts` must never format, because a second
+   * implementation of `£1,234.50` is how the canvas and the browser come to
+   * disagree about a price. A third caller anywhere fails this.
    */
   const callers = [];
   const sweep = (dir) => {
@@ -3158,10 +3169,12 @@ report.group('a bound value can be formatted, and only where it is shown');
   sweep(path.join(ROOT, 'src'));
   sweep(path.join(ROOT, 'workers'));
   report.check(
-    'formatting happens in one place — where a record becomes a prop',
-    callers.length === 2 &&
-      callers.includes('src/lib/renderer/format.ts') &&
-      callers.includes('src/lib/renderer/repeat.ts'),
+    'formatting happens where a record becomes a prop, and where a chain asks for it',
+    callers.length === 3 &&
+      callers.includes('src/lib/document/format.ts') &&
+      callers.includes('src/lib/renderer/repeat.ts') &&
+      callers.includes('src/lib/document/schedule.ts') &&
+      !callers.includes('src/lib/runtime/behaviour.ts'),
     callers.join(', ')
   );
 
@@ -4231,6 +4244,124 @@ report.group('a bound value can be formatted, and only where it is shown');
 
     }
 
+
+    /* ------------------------------------------------------------------
+     * E9 — format, then use it
+     *
+     * Not in the plan's stage table, which stops at E8. Chosen because E7
+     * found the limit by hitting it and §5.7 already named this as what would
+     * close it: `Format` is applied on the way to the DOM, so `⟨Price⟩ as
+     * currency, joined with " per month"` had no spelling at all.
+     * --------------------------------------------------------------- */
+
+    {
+      const priced = {
+        id: 'pr1', collectionId: 'plans', position: 0, published: true,
+        data: { price: 1234.5, when: '2026-08-11' }, createdAt: 0, updatedAt: 0,
+      };
+      const says = (steps, key = 'price') => ({
+        id: 'f1', type: 'text', name: 'Price', parentId: null, children: [],
+        props: { text: 'a price' }, styles: {}, meta: {},
+        bind: { text: { value: { kind: 'field', key, steps } } },
+      });
+      const money = { kind: 'currency', symbol: '£', decimals: 2, group: true };
+
+      report.check(
+        'a formatted number can have words put after it, which no terminal format could',
+        boundProps(
+          says([
+            { op: 'formatted', as: money },
+            { op: 'join', with: { kind: 'literal', type: 'text', value: ' per month' } },
+          ]),
+          priced
+        ).text === '£1,234.50 per month',
+        String(
+          boundProps(
+            says([
+              { op: 'formatted', as: money },
+              { op: 'join', with: { kind: 'literal', type: 'text', value: ' per month' } },
+            ]),
+            priced
+          ).text
+        )
+      );
+      /*
+       * And it is the *same* formatter as the binding's tail, which is the
+       * whole reason this is a step rather than a second implementation:
+       * a price written one way mid-chain and another way at the end is
+       * exactly the drift the single-renderer rule exists to prevent.
+       */
+      report.check(
+        'and it writes the number the same way the binding’s own format would',
+        boundProps(says([{ op: 'formatted', as: money }]), priced).text ===
+          formatLib.formatValue(1234.5, money),
+        `${boundProps(says([{ op: 'formatted', as: money }]), priced).text} vs ${formatLib.formatValue(1234.5, money)}`
+      );
+      report.check(
+        'a date reads as a date and then takes a label',
+        boundProps(
+          says(
+            [
+              { op: 'formatted', as: { kind: 'date', pattern: 'long' } },
+              { op: 'join', with: { kind: 'literal', type: 'text', value: ' — sold' } },
+            ],
+            'when'
+          ),
+          priced
+        ).text === '11 August 2026 — sold',
+        String(
+          boundProps(
+            says([{ op: 'formatted', as: { kind: 'date', pattern: 'long' } }], 'when'),
+            priced
+          ).text
+        )
+      );
+
+      /*
+       * The rule this changes, and the exact shape of the change.
+       *
+       * `Format`'s docblock said a comparison sees raw values, enforced by a
+       * formatted one being unspellable. It is spellable now — so the claim
+       * that survives is the narrower and truer one: a comparison sees raw
+       * values *unless somebody writes down that it should not*, and the
+       * writing-down is a chip in the sentence.
+       */
+      const asMoney = { kind: 'field', key: 'price', steps: [{ op: 'formatted', as: money }] };
+      report.check(
+        'a comparison still sees the raw number unless the sentence says otherwise',
+        tests.evaluate(
+          { kind: 'compare', left: { kind: 'field', key: 'price' }, op: 'gt', right: { kind: 'literal', type: 'number', value: 1000 } },
+          priced
+        ) === true &&
+          tests.evaluate(
+            { kind: 'compare', left: asMoney, op: 'eq', right: { kind: 'literal', type: 'text', value: '£1,234.50' } },
+            priced
+          ) === true,
+        'raw compares as a number, formatted compares as the text it now is'
+      );
+
+      /*
+       * The budget, which is why this step is publisher-only and why that is
+       * not a §6 violation. Formatting in the browser means shipping the whole
+       * of `document/format.ts` to answer a question nobody asks, so the
+       * vocabulary keeps it off anything a control can hold — a control reads
+       * as text, and text's formats are already steps of their own.
+       */
+      const offered = stepLib.stepsFor('text').join(' ');
+      report.check(
+        'the one step that cannot travel is the one step nothing can put over something typed',
+        !offered.includes('formatted') &&
+          stepLib.stepsFor('number').includes('formatted') &&
+          stepLib.stepsFor('date').includes('formatted'),
+        `text: ${offered} · number has it ${stepLib.stepsFor('number').includes('formatted')}`
+      );
+      report.check(
+        'and a hand-written one over a control is refused rather than half-answered',
+        schedule.foldableValue({ kind: 'input', name: 'q', steps: [{ op: 'formatted', as: money }] }) ===
+          false,
+        'undecidable on both surfaces, like every other unauthorable chain'
+      );
+    }
   }
 
   /*
@@ -4245,7 +4376,7 @@ report.group('a bound value can be formatted, and only where it is shown');
     ['local-time getters', /\bget(FullYear|Month|Date|Hours|Day)\s*\(/],
     ['the clock', /\bDate\s*\.\s*now\s*\(|\bMath\s*\.\s*random\s*\(/],
   ];
-  const formatSource = readFileSync(path.join(ROOT, 'src/lib/renderer/format.ts'), 'utf8')
+  const formatSource = readFileSync(path.join(ROOT, 'src/lib/document/format.ts'), 'utf8')
     // Comments discuss every one of these by name — the file is largely an
     // argument about why they are absent — so the scan reads the code only.
     .replace(/\/\*[\s\S]*?\*\//g, '')

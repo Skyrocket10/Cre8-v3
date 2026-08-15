@@ -14,6 +14,7 @@
 
 import type { CollectionRecord, CompareOp, Step, Test, TestLiteral, Value } from './types';
 import { compareWith, text } from './records';
+import { formatValue } from './format';
 
 /** True, false, or "not from here". */
 export type Verdict = boolean | null;
@@ -273,6 +274,16 @@ function advance(
           ? was.toLowerCase()
           : was.charAt(0).toUpperCase() + was.slice(1).toLowerCase();
     return { at: 'value', raw: cased, has: true };
+  }
+  /*
+   * Formatting, mid-chain — `⟨Price⟩ ⟨written as currency⟩ ⟨joined with
+   * " per month"⟩`. The same function the binding's terminal format uses, so
+   * a price written one way here and another way there is not a thing that
+   * can happen.
+   */
+  if (step.op === 'formatted') {
+    if (at.at !== 'value' || !at.has) return null;
+    return { at: 'value', raw: formatValue(at.raw, step.as), has: true };
   }
   if (step.op === 'truncate') {
     if (at.at !== 'value' || !at.has) return null;

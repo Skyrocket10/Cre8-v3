@@ -51,7 +51,7 @@ import {
  * repeater draws — see `document/records.ts` for why it could not stay here.
  */
 import { compareWith, fieldOf, text } from '../document/records';
-import { formatValue } from './format';
+import { formatValue } from '../document/format';
 import { isSettable } from './variants';
 
 /** Every record a page might need, keyed by collection id. */

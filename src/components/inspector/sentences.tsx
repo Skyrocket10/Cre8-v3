@@ -52,11 +52,12 @@ import {
 } from '@/lib/document/conditions';
 import {
   DATE_PATTERNS,
+  FORMATS_FOR,
   FORMAT_LABELS,
   defaultFormat,
   formatsFor,
   type FormatKind,
-} from '@/lib/renderer/format';
+} from '@/lib/document/format';
 import {
   OPS_FOR,
   OP_LABELS,
@@ -1140,19 +1141,53 @@ export function bindingSentence(options: {
   const kinds = formatsFor(prop, ended ? { ...effective, type: ended } : effective);
   if (!kinds.length) return parts;
 
-  const format = binding.format;
   parts.push({ kind: 'word', text: 'as', key: 'as' });
+  parts.push(
+    ...formatChips({
+      format: binding.format,
+      kinds,
+      none: 'it is written',
+      onChange: onFormat,
+    })
+  );
+  return parts;
+}
+
+/**
+ * `as ⟨currency⟩, in ⟨$⟩ ⟨before it⟩, with ⟨2⟩ decimals, as ⟨1,234⟩`.
+ *
+ * The format's own chips, on their own, because two places render them now: a
+ * binding's terminal format, and the `written as` step that E9 added. Those
+ * two are the same question — *how should this number read* — asked at
+ * different points in the sentence, and a second copy of these twenty chips
+ * would be two panels disagreeing about what "with 2 decimals" means within a
+ * release or two.
+ *
+ * @param none What the "leave it alone" option says, when there is one. A
+ *   binding may have no format; a `written as` step may not, because a step
+ *   that formats as nothing is a step that should have been deleted.
+ */
+function formatChips(options: {
+  format: Format | undefined;
+  kinds: readonly FormatKind[];
+  none?: string;
+  keyPrefix?: string;
+  onChange?: (format: Format | undefined) => void;
+}): Part[] {
+  const { format, kinds, none, keyPrefix = '', onChange } = options;
+  const k = (name: string) => `${keyPrefix}${name}`;
+  const parts: Part[] = [];
   parts.push({
     kind: 'pick',
-    key: 'format',
+    key: k('format'),
     value: format?.kind ?? '',
     menuWidth: 190,
     options: [
-      { value: '', label: 'it is written' },
+      ...(none ? [{ value: '', label: none }] : []),
       ...kinds.map((kind) => ({ value: kind, label: FORMAT_LABELS[kind].toLowerCase() })),
     ],
     onChange:
-      onFormat && ((kind) => onFormat(kind ? defaultFormat(kind as FormatKind) : undefined)),
+      onChange && ((kind) => onChange(kind ? defaultFormat(kind as FormatKind) : undefined)),
   });
   if (!format) return parts;
 
@@ -1161,21 +1196,21 @@ export function bindingSentence(options: {
       parts.push({ kind: 'word', text: 'in', key: 'in' });
       parts.push({
         kind: 'type',
-        key: 'symbol',
+        key: k('symbol'),
         value: format.symbol ?? '$',
         placeholder: '$',
-        onChange: onFormat && ((symbol) => onFormat({ ...format, symbol: symbol.slice(0, 4) })),
+        onChange: onChange && ((symbol) => onChange({ ...format, symbol: symbol.slice(0, 4) })),
       });
       parts.push({
         kind: 'pick',
-        key: 'side',
+        key: k('side'),
         value: format.after ? 'after' : 'before',
         menuWidth: 150,
         options: [
           { value: 'before', label: 'before it' },
           { value: 'after', label: 'after it' },
         ],
-        onChange: onFormat && ((where) => onFormat({ ...format, after: where === 'after' })),
+        onChange: onChange && ((where) => onChange({ ...format, after: where === 'after' })),
       });
     // falls through — a currency is a number with a symbol, and takes the
     // same decimals and grouping chips after it.
@@ -1184,39 +1219,39 @@ export function bindingSentence(options: {
       parts.push({ kind: 'word', text: ', with', key: 'with' });
       parts.push({
         kind: 'pick',
-        key: 'decimals',
+        key: k('decimals'),
         value: String(format.decimals ?? 0),
         menuWidth: 110,
         options: [0, 1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) })),
-        onChange: onFormat && ((n) => onFormat({ ...format, decimals: Number(n) })),
+        onChange: onChange && ((n) => onChange({ ...format, decimals: Number(n) })),
       });
       parts.push({ kind: 'word', text: 'decimals, as', key: 'dp' });
       parts.push({
         kind: 'pick',
-        key: 'group',
+        key: k('group'),
         value: format.group === false ? 'plain' : 'grouped',
         menuWidth: 130,
         options: [
           { value: 'grouped', label: '1,234' },
           { value: 'plain', label: '1234' },
         ],
-        onChange: onFormat && ((how) => onFormat({ ...format, group: how === 'grouped' })),
+        onChange: onChange && ((how) => onChange({ ...format, group: how === 'grouped' })),
       });
       break;
     case 'date':
       parts.push({
         kind: 'pick',
-        key: 'pattern',
+        key: k('pattern'),
         value: format.pattern,
         menuWidth: 180,
         options: DATE_PATTERNS.map((p) => ({ value: p.value, label: p.label })),
-        onChange: onFormat && ((pattern) => onFormat({ ...format, pattern: pattern as DatePattern })),
+        onChange: onChange && ((pattern) => onChange({ ...format, pattern: pattern as DatePattern })),
       });
       break;
     case 'case':
       parts.push({
         kind: 'pick',
-        key: 'to',
+        key: k('to'),
         value: format.to,
         menuWidth: 190,
         options: [
@@ -1225,21 +1260,21 @@ export function bindingSentence(options: {
           { value: 'capitalize', label: 'Capitalised' },
         ],
         onChange:
-          onFormat && ((to) => onFormat({ ...format, to: to as 'upper' | 'lower' | 'capitalize' })),
+          onChange && ((to) => onChange({ ...format, to: to as 'upper' | 'lower' | 'capitalize' })),
       });
       break;
     case 'truncate':
       parts.push({ kind: 'word', text: 'its first', key: 'first' });
       parts.push({
         kind: 'type',
-        key: 'chars',
+        key: k('chars'),
         value: String(format.chars),
         numeric: true,
         onChange:
-          onFormat &&
+          onChange &&
           ((raw) => {
             const n = Number(raw);
-            if (Number.isFinite(n) && n > 0) onFormat({ ...format, chars: Math.floor(n) });
+            if (Number.isFinite(n) && n > 0) onChange({ ...format, chars: Math.floor(n) });
           }),
       });
       parts.push({ kind: 'word', text: 'characters', key: 'chars-w' });
@@ -1309,7 +1344,8 @@ function chainChips(options: {
         value: op,
         label: STEPS[op]?.label ?? op,
       })),
-      onChange: onBind && ((op) => at(index, seedStep(op, step))),
+      onChange:
+        onBind && ((op) => at(index, seedStep(op, step, FORMATS_FOR[typeAfter(type, chain.slice(0, index)) ?? 'text'][0]))),
     });
 
     /*
@@ -1318,7 +1354,23 @@ function chainChips(options: {
      * comparison uses — a constant, or a field of the same type through the
      * chevron — because it is the same question asked in a different sentence.
      */
-    if (step.op === 'round') {
+    if (step.op === 'formatted') {
+      /*
+       * The format's own chips, at this point in the sentence rather than at
+       * the end of it. Same builder as the binding's terminal format, so
+       * `written as ⟨currency⟩ in ⟨£⟩ ⟨before it⟩` reads and behaves exactly
+       * as the tail does — and no "leave it alone" option, because a step
+       * that formats as nothing is a step somebody meant to delete.
+       */
+      parts.push(
+        ...formatChips({
+          format: step.as,
+          kinds: FORMATS_FOR[typeAfter(type, chain.slice(0, index)) ?? 'text'],
+          keyPrefix: k(`fmt${index}-`),
+          onChange: onBind && ((as) => as && at(index, { op: 'formatted', as })),
+        })
+      );
+    } else if (step.op === 'round') {
       parts.push({
         kind: 'type',
         key: k(`by${index}`),
@@ -1381,7 +1433,8 @@ function chainChips(options: {
       // A step that changes nothing, so the sentence it lands in is
       // grammatical and finished-looking before anybody types: `× 1` and
       // `joined with ⟨⟩` both leave the value exactly as it was.
-      onClick: () => write([...chain, seedStep(next[0]!)]),
+      onClick: () =>
+        write([...chain, seedStep(next[0]!, undefined, FORMATS_FOR[typeAfter(type, chain) ?? 'text'][0])]),
     });
   }
   if (onBind && chain.length) {
@@ -1404,12 +1457,15 @@ function chainChips(options: {
  * has nothing to keep. Written once because the add button and the operator
  * chip both need it and they must agree about what a fresh step looks like.
  */
-function seedStep(op: string, from?: Step): Step {
+function seedStep(op: string, from?: Step, seed?: FormatKind): Step {
   if (op === 'round') return { op: 'round', places: 0 };
   if (op === 'truncate') return { op: 'truncate', chars: 20 };
   if (op === 'join') {
     return { op: 'join', with: from && 'with' in from ? from.with : textFor('') };
   }
+  // Seeded with the format the type's menu offers first, so the step says
+  // something the moment it appears rather than waiting to be filled in.
+  if (op === 'formatted') return { op: 'formatted', as: defaultFormat(seed ?? 'number') };
   if (op === 'upper' || op === 'lower' || op === 'capitalize') return { op } as Step;
   return { op: op as 'plus', by: from && 'by' in from ? from.by : numberFor('1') };
 }

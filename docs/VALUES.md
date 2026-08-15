@@ -89,6 +89,7 @@ panel could say was "in total".
 | **Sort a list inline** | `:sorted by` | ✔ **E6** |
 | **Join text** | `First & " " & Last` | ✔ **E7** |
 | **Change case, shorten** | `:uppercase`, `:truncated` | ✔ **E7** — mid-chain, not only as a format |
+| **Format, then use it** | `:formatted as` inside an expression | ✔ **E9** |
 | Current User | `Current User's Email` | ✘ **and stays ✘** — see §4 |
 
 Nine of eleven were missing when this was written, and eight of the nine were
@@ -307,6 +308,13 @@ unfixed code.
 | **E6** ✔ | `where` and `sortedBy` | A filtered count that differs from the unfiltered one, on the same page |
 | **E7** ✔ | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
 | **E8** ✔ | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
+| **E9** ✔ | `formatted`: format, then use it | `£900,000.00 per month` on the page — a suffix on a formatted number, which a terminal format cannot produce |
+
+**E9 was not in this table.** The plan stopped at E8, and the stage after it was
+chosen from what the work had surfaced rather than from a list: E7 hit the
+limit while building `join`, and §5.7 had already written down that reaching a
+*formatted* value "is E9". Naming it here after the fact is the honest record —
+the plan ran out one stage before the work did.
 
 **E2 was the one to be most careful about, and then it turned out not to
 exist.** The plan's `{ head, steps }` rewrites every `Value` in every stored
@@ -627,6 +635,44 @@ em dash in the *name*, so the harness compared a truncated name against the
 full one and reported a working mutation as a failure. The names lost their
 dashes. Worth writing down because it is the second harness defect this arc has
 surfaced, and both looked exactly like a check that did not earn its place.
+
+### 5.8 What E9 turned out to cost — nothing, and one rule restated
+
+`⟨Price⟩ ⟨written as ⟨currency⟩ in ⟨£⟩⟩ ⟨joined with ⟨" per month"⟩⟩` →
+`£900,000.00 per month`. A `Format` is applied on the way to the DOM, so
+anything after it had nowhere to go: the suffix has to land on the *formatted*
+number, and E7 found that out by building the join that could not reach one.
+
+**Zero runtime bytes, and it is the only step whose reason is a budget rather
+than a shape.** Formatting in the browser means shipping the whole of
+`document/format.ts` to every page carrying an unfoldable test, to answer "is
+what you typed, as currency, £5.00" — which nobody asks. So the vocabulary
+keeps `formatted` off anything a control can hold, and that falls out rather
+than being enforced: a control's value reads as text, and text's two formats
+are `case` and `truncate`, which are already steps of their own. **The one step
+that cannot travel is the one step nothing can put over something typed.**
+
+**The formatter moved down a layer.** `renderer/format.ts` is
+`document/format.ts` now, the same move `records.ts` made in E6 and for the
+same reason — two layers need it, the resolver is the lower one, and the module
+already imported nothing but types. Two importers, so the move was cheap.
+
+**And the rule it changes, stated precisely.** `Format`'s docblock said
+comparisons see raw values, and enforced it by making a formatted value
+*unspellable*: "a formatted operand is not refused; it cannot be spelled." It
+can be spelled now. What survives is the narrower claim, and it is the one that
+was doing the work all along — the danger was comparing `$1,234.50` to `1000`
+**by accident**, and that is still impossible. Doing it on purpose takes a chip
+in the sentence that says `written as ⟨currency⟩`. Same trade `round` made in
+E5, one type wider.
+
+**The check that noticed was the one written to notice.** `formatValue` had
+exactly one caller, and a static check asserted it — its own comment said "the
+day a Test formats an operand, this is what notices". It did, on the first run
+after the step landed. The claim narrowed rather than the check being widened
+to fit: two callers, both named, and `runtime/behaviour.ts` explicitly not one
+of them, because a second implementation of `£1,234.50` is how the canvas and
+the browser come to disagree about a price.
 
 ---
 

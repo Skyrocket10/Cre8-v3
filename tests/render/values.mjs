@@ -1455,6 +1455,132 @@ try {
     liveMarkup.includes('data-cre8-test') && liveMarkup.includes('"op":"lower"'),
     liveMarkup.includes('"op":"lower"') ? 'the step is in the page' : 'the step did not travel'
   );
+  /* ------------------------------- 10. E9: format, then put words after it */
+
+  /*
+   * `£900,000.00 per month`.
+   *
+   * Not a stage the plan named — it stops at E8 — but the one E7 found by
+   * hitting it and E8's §5.7 named as what would close it. A `Format` is
+   * applied on the way to the DOM, so anything after it is unsayable: the
+   * suffix has to land on the *formatted* number, and until `written as` was a
+   * step there was nowhere for it to go.
+   */
+  {
+    const d = await getDocument(page, projectId);
+    d.nodes.fmtval0014 = node('fmtval0014', 'paragraph', 'Per month', {
+      parentId: 'crdval0002',
+      props: { text: 'a rate' },
+      styles: { desktop: { fontSize: '12px' } },
+    });
+    d.nodes.crdval0002.children.push('fmtval0014');
+    await saveDocument(page, d);
+  }
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+
+  const moneyPanel = await openData('Per month');
+  const moneyRow = moneyPanel.locator('[data-sentence]:has-text("Text reads")').first();
+  await moneyRow.getByRole('button').first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'Price', exact: true }).last().click();
+  await page.waitForTimeout(600);
+
+  await moneyPanel.getByRole('button', { name: '+ maths' }).first().click();
+  await page.waitForTimeout(500);
+  await moneyPanel.getByRole('button', { name: '×', exact: true }).first().click();
+  await page.waitForTimeout(300);
+  const writtenAs = page.getByRole('button', { name: 'written as', exact: true });
+  report.check(
+    'a number can be asked to read the way a page would show it, mid-chain',
+    (await writtenAs.count()) >= 1,
+    `${await writtenAs.count()} entry in the step menu`
+  );
+  if (await writtenAs.count()) {
+    await writtenAs.last().click();
+    await page.waitForTimeout(600);
+    // The format's own chips, at this point in the sentence rather than at the
+    // end of it — the same builder the binding's tail uses.
+    await moneyPanel.getByRole('button', { name: 'number', exact: true }).first().click();
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'currency', exact: true }).last().click();
+    await page.waitForTimeout(600);
+    await moneyRow.locator('input').first().fill('£');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600);
+
+    // And then the words, which is the whole point: they land after the money.
+    await moneyPanel.getByRole('button', { name: '+ text' }).first().click();
+    await page.waitForTimeout(500);
+    await moneyRow.locator('input').last().fill(' per month');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600);
+  }
+
+  const formatted = await getDocument(page, projectId);
+  const moneyValue = formatted.nodes.fmtval0014.bind?.text?.value;
+  report.check(
+    'the binding formats the number and then joins onto the result',
+    moneyValue?.steps?.length === 2 &&
+      moneyValue.steps[0].op === 'formatted' &&
+      moneyValue.steps[0].as?.kind === 'currency' &&
+      moneyValue.steps[0].as?.symbol === '£' &&
+      moneyValue.steps[1].op === 'join' &&
+      moneyValue.steps[1].with?.value === ' per month',
+    JSON.stringify(moneyValue ?? null)
+  );
+
+  const moneyCanvas = await page.evaluate(() => {
+    const el = document.querySelector('.cre8-frame.cre8-editing .c-fmtval0014');
+    return el ? (el.textContent ?? '').trim() : 'no element';
+  });
+  report.check(
+    'the canvas puts the words after the money, which a terminal format cannot',
+    moneyCanvas === '£900,000.00 per month',
+    moneyCanvas
+  );
+
+  await publish(page);
+  const moneySite = await ctx.newPage();
+  await moneySite.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await moneySite.waitForTimeout(600);
+  const rates = await moneySite.evaluate(() =>
+    [...document.querySelectorAll('h3')].map((heading) => {
+      const said = [...(heading.parentElement?.querySelectorAll('p') ?? [])].map((one) =>
+        (one.textContent ?? '').trim()
+      );
+      return said[said.length - 1];
+    })
+  );
+  const moneyMarkup = await moneySite.content();
+  await moneySite.close();
+  report.check(
+    'and the published file says it on every row',
+    rates.length === 2 && rates.every((one) => one === '£900,000.00 per month'),
+    rates.join(' · ')
+  );
+  /*
+   * And the formatter stayed in the publisher.
+   *
+   * The precise claim, not "no runtime on the page" — this page carries E8's
+   * live guard and rightly ships a test table for it. What must not be here is
+   * the *formatted* step: it cannot travel, nothing offers it over a control,
+   * and a page that carried one would be a page that had shipped the whole
+   * formatter to answer a question nobody asks.
+   */
+  report.check(
+    'with the formatter left in the publisher, where it costs a page nothing',
+    !moneyMarkup.includes('"op":"formatted"') && !moneyMarkup.includes('£900,000.00 per month"'),
+    moneyMarkup.includes('"op":"formatted"')
+      ? 'a formatted step travelled'
+      : `${(moneyMarkup.match(/data-cre8-test/g) ?? []).length} test attributes, none of them this`
+  );
 } catch (error) {
   report.check('values suite completed', false, String(error?.message ?? error));
 } finally {

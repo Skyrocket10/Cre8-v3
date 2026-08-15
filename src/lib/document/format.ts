@@ -1,6 +1,12 @@
 /**
  * Turning a record's value into the text a page shows.
  *
+ * In `document/` rather than `renderer/`, which is where it was written and
+ * where it stopped belonging the day a chain could ask for a formatted value
+ * mid-way along it. Same move `records.ts` made and for the same reason: two
+ * layers need it, the resolver is the lower one, and this module already
+ * imported nothing but types. See `docs/VALUES.md` §5.8.
+ *
  * Every function here is pure, total, and written out longhand. There is no
  * `Intl`, no locale database, no `toLocaleString`, and no reading of the local
  * time zone — for the reason `repeat.ts` gives for refusing `localeCompare`:
@@ -24,7 +30,7 @@
  * `Binding`, not of a `Value`, so nothing that compares values can reach it.
  */
 
-import type { DatePattern, Field, FieldType, Format } from '../document/types';
+import type { DatePattern, Field, FieldType, Format } from './types';
 
 /** What a record's field holds, and what a formatted one becomes. */
 type Raw = string | number | boolean | null | undefined;
