@@ -39,6 +39,7 @@ import type {
   Value,
 } from '@/lib/document/types';
 import { slugList } from '@/lib/document/schema';
+import { STEPS, isTransform, stepsFor, typeAfter } from '@/lib/document/steps';
 import {
   CONTROL_HINTS,
   CONTROL_LABELS,
@@ -51,7 +52,6 @@ import {
 } from '@/lib/document/conditions';
 import {
   DATE_PATTERNS,
-  FORMATS_FOR,
   FORMAT_LABELS,
   defaultFormat,
   formatsFor,
@@ -381,7 +381,16 @@ export function testSentence(options: {
       : left.kind === 'row'
         ? rows.find((f) => f.key === left.key)
         : AS_TEXT;
-  const operators = field ? OPS_FOR[field.type] : [];
+  /*
+   * What the left side is worth by the time the operator sees it.
+   *
+   * `⟨First⟩ ⟨joined with ⟨Last⟩⟩` is text however it started, so the
+   * operators, the operand chip and the fields it can be compared against are
+   * all asked of the *ended* type. Asking the head would offer `is over` on a
+   * sentence — the same shape of wrong answer as offering `×` on a name.
+   */
+  const asks = typeAfter(field?.type, left.steps ?? []) ?? field?.type;
+  const operators = asks ? OPS_FOR[asks] : [];
   /*
    * A reference whose element the caller could not name.
    *
@@ -460,6 +469,31 @@ export function testSentence(options: {
       }),
   });
 
+  /*
+   * And what is done to it before the comparison is made.
+   *
+   * The affordance E5 and E7 built the runtime branches for and could not
+   * reach: the chain editor lived in the Data panel, which authors bindings,
+   * and a binding never travels. `⟨what is typed⟩ ⟨lowercased⟩ is ⟨yes⟩` is
+   * the guard this makes sayable — text `eq` is exact, so *is `yes`* fails on
+   * `Yes` and there is no case-insensitive equality anywhere in the operator
+   * set.
+   *
+   * Keyed apart from everything else in the sentence because a group nests
+   * these, and two clauses each holding an `op0` would collide.
+   */
+  if (field) {
+    parts.push(
+      ...chainChips({
+        held: left,
+        type: field.type,
+        fields,
+        keyPrefix: `d${depth}-l`,
+        onBind: onChange && ((value) => value && onChange({ ...test, left: value })),
+      })
+    );
+  }
+
   parts.push({
     kind: 'pick',
     key: 'op',
@@ -471,12 +505,12 @@ export function testSentence(options: {
       ((op) => {
         const next: Test = { ...test, op: op as CompareOp };
         if (!needsOperand(op as CompareOp)) delete next.right;
-        else if (!next.right && field) next.right = literalFor(field.type, '');
+        else if (!next.right && asks) next.right = literalFor(asks, '');
         onChange(next);
       }),
   });
 
-  if (needsOperand(test.op) && field) {
+  if (needsOperand(test.op) && field && asks) {
     /*
      * The other fields this one can be compared against.
      *
@@ -492,7 +526,7 @@ export function testSentence(options: {
      */
     const others =
       left.kind === 'field'
-        ? fields.filter((f) => f.type === field.type && f.key !== left.key)
+        ? fields.filter((f) => f.type === asks && f.key !== left.key)
         : left.kind === 'row'
           ? /*
              * The record in scope, from inside a `where` — which is the whole
@@ -502,7 +536,7 @@ export function testSentence(options: {
              * the interesting thing to offer here rather than the excluded
              * one.
              */
-            fields.filter((f) => f.type === field.type)
+            fields.filter((f) => f.type === asks)
           : [];
     const against = test.right?.kind === 'field' ? test.right.key : '';
     const pickRight = (key: string) =>
@@ -553,10 +587,10 @@ export function testSentence(options: {
           onChange &&
           ((key) =>
             key === AS_TYPED
-              ? onChange({ ...test, right: literalFor(field.type, '') })
+              ? onChange({ ...test, right: literalFor(asks, '') })
               : pickRight(key)),
       });
-    } else if (field.type === 'boolean') {
+    } else if (asks === 'boolean') {
       parts.push({
         kind: 'pick',
         key: 'value',
@@ -574,7 +608,7 @@ export function testSentence(options: {
               ? pickRight(raw.slice(A_FIELD.length))
               : onChange({ ...test, right: literalFor('boolean', raw) })),
       });
-    } else if (field.type === 'select' && field.options?.length) {
+    } else if (asks === 'select' && field.options?.length) {
       parts.push({
         kind: 'pick',
         key: 'value',
@@ -590,16 +624,16 @@ export function testSentence(options: {
           ((raw) =>
             raw.startsWith(A_FIELD)
               ? pickRight(raw.slice(A_FIELD.length))
-              : onChange({ ...test, right: literalFor(field.type, raw) })),
+              : onChange({ ...test, right: literalFor(asks, raw) })),
       });
     } else {
       parts.push({
         kind: 'type',
         key: 'value',
         value: literalText(test.right),
-        placeholder: field.type === 'number' ? '0' : 'value',
-        numeric: field.type === 'number',
-        onChange: onChange && ((raw) => onChange({ ...test, right: literalFor(field.type, raw) })),
+        placeholder: asks === 'number' ? '0' : 'value',
+        numeric: asks === 'number',
+        onChange: onChange && ((raw) => onChange({ ...test, right: literalFor(asks, raw) })),
         // The box keeps its width and gains a chevron. See `Part`'s `type`
         // member for why this is one chip rather than two.
         options: [...selfOption, ...others.map((f) => ({ value: f.key, label: f.label }))],
@@ -617,47 +651,12 @@ export function testSentence(options: {
   return parts;
 }
 
-/**
- * What each step that transforms a value reads as in a sentence.
- *
- * One map for both families, because they are one mechanism — a chain of
- * things done to the value the chain arrived at — and the panel offers
- * whichever half the *type* can do. Two maps would be two places to add the
- * next step to, and one of them would be missed.
- *
- * The three case words are the ones the `case` format already uses, and
- * "its first" is the truncate format's. One idea, one wording: a designer who
- * has shortened a value has shortened this one.
- */
-const TRANSFORM_LABELS: Record<string, string> = {
-  times: '×',
-  over: '÷',
-  plus: '+',
-  minus: '−',
-  round: 'rounded to',
-  join: 'joined with',
-  upper: 'UPPERCASE',
-  lower: 'lowercase',
-  capitalize: 'Capitalised',
-  truncate: 'its first',
-};
-
-/** What a number can be asked to do, in the order the menu offers them. */
-const MATHS_OPS = ['times', 'over', 'plus', 'minus', 'round'];
-/** And what text can. `join` first, because it is what anybody comes here for. */
-const TEXT_OPS = ['join', 'upper', 'lower', 'capitalize', 'truncate'];
-
-/** Whether this step is one the chain editor writes, rather than one that walks data. */
-function isTransform(step: Step): boolean {
-  return step.op in TRANSFORM_LABELS;
-}
-
 /** A typed number as an operand. Types are declared, so this one is declared. */
 const numberFor = (raw: string): Value => literalFor('number', raw);
 /** And a typed string, for the other family. */
 const textFor = (raw: string): Value => literalFor('text', raw);
 
-/** The fields a step's operand may read, which is the type it can do arithmetic in. */
+/** The fields a step's operand may read, which is the type it can work in. */
 const among = (fields: Field[], type: FieldType) => fields.filter((f) => f.type === type);
 
 /** An operand that names a field, as the chip should show it. */
@@ -1119,31 +1118,26 @@ export function bindingSentence(options: {
    * grow the chain, which is what keeps `⟨Price⟩ ⟨× ⟨Quantity⟩⟩ ⟨rounded to
    * ⟨0⟩⟩` a sentence rather than a formula.
    *
-   * Which half is offered comes from the type, for the reason §3.5 gives: a
-   * step the value cannot do is one that compiles and can never resolve.
-   * "Which types are prose" is asked of `FORMATS_FOR` rather than answered
-   * again here — `case` is offered on exactly the types whose value is words,
-   * which is the same question this is asking, and richtext is deliberately
-   * not one of them: uppercasing markup would uppercase the tags.
+   * What is offered comes from `document/steps.ts`, which is §3.5's rule as a
+   * table: a step the value cannot do is one that compiles and can never
+   * resolve. It was two hand-written lists and a branch on the field's type
+   * until E8, which is the arrangement every other vocabulary in this codebase
+   * has already outgrown.
    */
-  if (held) {
-    const offered = effective.type === 'number'
-      ? MATHS_OPS
-      : FORMATS_FOR[effective.type].includes('case')
-        ? TEXT_OPS
-        : [];
-    if (offered.length) {
-      parts.push(
-        ...chainChips({ held, offered, fields, onBind })
-      );
-    }
-  }
+  if (held) parts.push(...chainChips({ held, type: effective.type, fields, onBind }));
 
-  // The field the chain *ends* on, which after a follow is the other
-  // collection's. Formatting a date as a currency is nonsense either way; what
-  // this fixes is offering a date's formats for a reference, which is what
-  // asking `field` here would have done.
-  const kinds = formatsFor(prop, effective);
+  /*
+   * The formats for what the chain *produces*, which is not always what it
+   * started on.
+   *
+   * Two things this gets right that asking `field` would not. After a follow
+   * it is the other collection's field — offering a date's formats for a
+   * reference is what the old spelling did. And after a text step it is text:
+   * `⟨Price⟩ ⟨joined with " per month"⟩` is a sentence, and a currency format
+   * applied to a sentence is a decoration on the wrong thing.
+   */
+  const ended = typeAfter(effective.type, held?.steps ?? []);
+  const kinds = formatsFor(prop, ended ? { ...effective, type: ended } : effective);
   if (!kinds.length) return parts;
 
   const format = binding.format;
@@ -1277,25 +1271,35 @@ function isReducer(step: Step): step is Extract<Step, { op: 'count' | 'first' | 
  */
 function chainChips(options: {
   held: Value;
-  /** The ops this value's type can actually do. */
-  offered: string[];
+  /** The type the chain arrives at this editor holding. */
+  type: FieldType | undefined;
   fields: Field[];
+  keyPrefix?: string;
   onBind?: (value: Value | null) => void;
 }): Part[] {
-  const { held, offered, fields, onBind } = options;
+  const { held, type, fields, keyPrefix = '', onBind } = options;
   const steps = held.steps ?? [];
   const chain = steps.filter(isTransform);
   const before = steps.filter((step) => !isTransform(step));
   const write = (next: Step[]) => onBind?.({ ...held, steps: [...before, ...next] });
   /** The chain with one step replaced, which is every edit here. */
   const at = (index: number, step: Step) => write(chain.map((one, i) => (i === index ? step : one)));
-  const text = offered === TEXT_OPS;
+  const k = (name: string) => `${keyPrefix}${name}`;
 
   const parts: Part[] = [];
   chain.forEach((step, index) => {
+    /*
+     * The menu at *this* position, from the type in hand *here*.
+     *
+     * Folded through the steps before it rather than taken from the head,
+     * which is what makes this generated rather than filtered: after a join
+     * the value is text, so the step after it is offered text's vocabulary
+     * even though the chain started on a number.
+     */
+    const offered = stepsFor(typeAfter(type, chain.slice(0, index)));
     parts.push({
       kind: 'pick',
-      key: `op${index}`,
+      key: k(`op${index}`),
       value: step.op,
       menuWidth: 170,
       // The step's own label, always, even when the type would not offer it —
@@ -1303,7 +1307,7 @@ function chainChips(options: {
       // falling through to its placeholder would say nothing was chosen.
       options: (offered.includes(step.op) ? offered : [...offered, step.op]).map((op) => ({
         value: op,
-        label: TRANSFORM_LABELS[op] ?? op,
+        label: STEPS[op]?.label ?? op,
       })),
       onChange: onBind && ((op) => at(index, seedStep(op, step))),
     });
@@ -1317,7 +1321,7 @@ function chainChips(options: {
     if (step.op === 'round') {
       parts.push({
         kind: 'type',
-        key: `by${index}`,
+        key: k(`by${index}`),
         value: String(step.places ?? 0),
         placeholder: '0',
         numeric: true,
@@ -1326,17 +1330,17 @@ function chainChips(options: {
     } else if (step.op === 'truncate') {
       parts.push({
         kind: 'type',
-        key: `by${index}`,
+        key: k(`by${index}`),
         value: String(step.chars ?? 0),
         placeholder: '20',
         numeric: true,
         onChange: onBind && ((raw) => at(index, { op: 'truncate', chars: Number(raw.trim()) || 0 })),
       });
-      parts.push({ kind: 'word', text: 'characters', key: `chars${index}` });
+      parts.push({ kind: 'word', text: 'characters', key: k(`chars${index}`) });
     } else if (step.op === 'join') {
       parts.push({
         kind: 'type',
-        key: `by${index}`,
+        key: k(`by${index}`),
         value: literalText(step.with) || fieldLabel(step.with, fields),
         placeholder: 'text',
         menuWidth: 200,
@@ -1348,7 +1352,7 @@ function chainChips(options: {
     } else if ('by' in step) {
       parts.push({
         kind: 'type',
-        key: `by${index}`,
+        key: k(`by${index}`),
         value: literalText(step.by) || fieldLabel(step.by, fields),
         placeholder: '0',
         numeric: step.by.kind === 'literal',
@@ -1361,22 +1365,29 @@ function chainChips(options: {
     }
   });
 
-  if (onBind && chain.length < 3) {
+  /*
+   * And what can be done to whatever the chain ends on, which is the offer the
+   * `+` makes. Empty for a type with no steps — a boolean, an image — so the
+   * button is absent rather than present and useless.
+   */
+  const next = stepsFor(typeAfter(type, chain));
+  const arithmetic = next.includes('times');
+  if (onBind && next.length && chain.length < 3) {
     parts.push({
       kind: 'action',
-      key: 'add-step',
-      title: text ? 'Do something to this text' : 'Do something to this number',
-      label: <span className="text-[10px]">{text ? '+ text' : '+ maths'}</span>,
+      key: k('add-step'),
+      title: arithmetic ? 'Do something to this number' : 'Do something to this text',
+      label: <span className="text-[10px]">{arithmetic ? '+ maths' : '+ text'}</span>,
       // A step that changes nothing, so the sentence it lands in is
       // grammatical and finished-looking before anybody types: `× 1` and
       // `joined with ⟨⟩` both leave the value exactly as it was.
-      onClick: () => write([...chain, seedStep(offered[0]!)]),
+      onClick: () => write([...chain, seedStep(next[0]!)]),
     });
   }
   if (onBind && chain.length) {
     parts.push({
       kind: 'action',
-      key: 'drop-step',
+      key: k('drop-step'),
       title: 'Remove the last step',
       label: <Trash2 size={10} />,
       onClick: () => write(chain.slice(0, -1)),

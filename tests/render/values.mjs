@@ -1269,6 +1269,192 @@ try {
     !joinMarkup.includes('data-cre8-test') && !joinMarkup.includes('data-cre8-vals'),
     `test attributes ${(joinMarkup.match(/data-cre8-test/g) ?? []).length}`
   );
+  /* ------------------------------- 9. E8: the menu, and what it makes sayable */
+
+  /*
+   * §5's falsification for this stage is "offer a step the head cannot do and
+   * watch it never resolve", which is a negative — and the static checks take
+   * it as one. What a browser adds is the positive half, and it is the whole
+   * reason the stage exists:
+   *
+   *   > When ⟨code — what is typed⟩ ⟨lowercase⟩ is ⟨yes⟩
+   *
+   * Text `eq` is exact, so *is `yes`* fails on `YES`, and there is no
+   * case-insensitive equality anywhere in the operator set. E7 put `lower` in
+   * both evaluators and nothing could reach it: the chain editor lived in the
+   * Data panel, which authors bindings, and a binding never travels. This is
+   * that runtime branch being paid for.
+   *
+   * Seeded: the form, and a rule comparing the control against nothing, with a
+   * colour to make the answer visible. Driven: the step, its operator, and the
+   * value — which is exactly the claim.
+   */
+  {
+    const d = await getDocument(page, projectId);
+    const home = d.pages.find((one) => one.isHome) ?? d.pages[0];
+    const pageRoot = d.nodes[home.rootNodeId];
+    Object.assign(d.nodes, {
+      /*
+       * The rule lives on the frame, not on the paragraph, and that is the
+       * model rather than a convenience: a named control is looked up *inside*
+       * the node that owns the rule, so a rule on the paragraph would be
+       * hunting for a box that is its sibling. Colour inherits, so what the
+       * frame is told the paragraph shows.
+       */
+      frmval0011: node('frmval0011', 'frame', 'Code box', {
+        parentId: pageRoot.id,
+        children: ['inpval0012', 'msgval0013'],
+        rules: [
+          {
+            id: 'rulval0001',
+            when: {
+              kind: 'compare',
+              left: { kind: 'input', name: 'code' },
+              op: 'eq',
+              right: { kind: 'literal', type: 'text', value: '' },
+            },
+            apply: { color: 'rgb(0, 128, 0)' },
+          },
+        ],
+        styles: {
+          desktop: {
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            padding: '24px',
+            color: 'rgb(100, 100, 100)',
+          },
+        },
+      }),
+      inpval0012: node('inpval0012', 'input', 'Code', {
+        parentId: 'frmval0011',
+        props: { name: 'code', placeholder: 'yes or no' },
+        styles: { desktop: { padding: '8px' } },
+      }),
+      msgval0013: node('msgval0013', 'paragraph', 'Verdict', {
+        parentId: 'frmval0011',
+        props: { text: 'Say yes' },
+        styles: { desktop: {} },
+      }),
+    });
+    pageRoot.children.push('frmval0011');
+    await saveDocument(page, d);
+  }
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+  await page.locator('[data-layer-row]:has-text("Code box")').first().click();
+  await page.waitForTimeout(500);
+  await openInspectorSection(page, 'States & conditions');
+  await page.waitForTimeout(400);
+
+  const rulePanel = page.locator('aside').last();
+  // The row is the heading; the sentence with chips in it is what the row
+  // expands to. Opened by its own handle rather than by counting buttons.
+  await rulePanel.locator('[data-rule-row]').first().click();
+  await page.waitForTimeout(500);
+  const growText = rulePanel.getByRole('button', { name: '+ text' }).first();
+  report.check(
+    'a comparison offers to do something to the value before comparing it',
+    (await growText.count()) === 1,
+    `${await growText.count()} offer(s) — this is the affordance E5 and E7 shipped a runtime for`
+  );
+  if (await growText.count()) {
+    await growText.click();
+    await page.waitForTimeout(500);
+    await rulePanel.getByRole('button', { name: 'joined with', exact: true }).first().click();
+    await page.waitForTimeout(300);
+    /*
+     * What a control's value can be asked to do, which is words and not sums.
+     * A control reads as text, so the arithmetic half of the vocabulary is
+     * absent — and it is absent because the table says so rather than because
+     * this panel was written to leave it out.
+     */
+    const menu = (await page.locator('.anim-pop').last().innerText().catch(() => ''))
+      .split('\n')
+      .map((one) => one.trim())
+      .filter(Boolean);
+    report.check(
+      'and the menu on something typed is the words half, generated from its type',
+      menu.includes('lowercase') && menu.includes('UPPERCASE') && !menu.includes('×'),
+      menu.join(' · ') || 'nothing offered'
+    );
+    await page.getByRole('button', { name: 'lowercase', exact: true }).last().click();
+    await page.waitForTimeout(600);
+
+    const valueBox = rulePanel.locator('[data-sentence] input').last();
+    await valueBox.fill('yes');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600);
+  }
+
+  const lowered = await getDocument(page, projectId);
+  const loweredWhen = lowered.nodes.frmval0011.rules?.[0]?.when;
+  report.check(
+    'the rule reads the box, lowercases it, and compares that',
+    loweredWhen?.left?.kind === 'input' &&
+      loweredWhen?.left?.name === 'code' &&
+      loweredWhen?.left?.steps?.length === 1 &&
+      loweredWhen.left.steps[0].op === 'lower' &&
+      loweredWhen?.right?.value === 'yes',
+    JSON.stringify(loweredWhen ?? null)
+  );
+
+  await publish(page);
+  const typing = await ctx.newPage();
+  await typing.goto(`${APP}/s/${projectId}/`, { waitUntil: 'load' });
+  await typing.waitForTimeout(600);
+  const verdict = typing.locator('p:has-text("Say yes")').first();
+  const colourOf = () =>
+    verdict.evaluate((el) => getComputedStyle(el).color).catch(() => 'unreadable');
+  report.check(
+    'before anything is typed the page shows what it shipped',
+    (await colourOf()) === 'rgb(100, 100, 100)',
+    await colourOf()
+  );
+  /*
+   * `YES`, shouted. This is the case the whole stage is for: without the step
+   * the comparison is exact and this does nothing, and the file is the same
+   * file either way — the difference is one chip somebody could not reach
+   * until now.
+   */
+  await typing.locator('input[name="code"]').fill('YES');
+  await typing
+    .waitForFunction(
+      () => {
+        const p = [...document.querySelectorAll('p')].find((one) =>
+          (one.textContent ?? '').includes('Say yes')
+        );
+        return p ? getComputedStyle(p).color === 'rgb(0, 128, 0)' : false;
+      },
+      null,
+      { timeout: 5000 }
+    )
+    .catch(() => {});
+  report.check(
+    'typing YES answers yes, which an exact comparison could not',
+    (await colourOf()) === 'rgb(0, 128, 0)',
+    await colourOf()
+  );
+  await typing.locator('input[name="code"]').fill('no');
+  await typing.waitForTimeout(600);
+  report.check(
+    'and it is still a comparison rather than anything that is typed',
+    (await colourOf()) === 'rgb(100, 100, 100)',
+    await colourOf()
+  );
+  const liveMarkup = await typing.content();
+  await typing.close();
+  report.check(
+    'the step travelled with the rule, because a control is not known at publish',
+    liveMarkup.includes('data-cre8-test') && liveMarkup.includes('"op":"lower"'),
+    liveMarkup.includes('"op":"lower"') ? 'the step is in the page' : 'the step did not travel'
+  );
 } catch (error) {
   report.check('values suite completed', false, String(error?.message ?? error));
 } finally {

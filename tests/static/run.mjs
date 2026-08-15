@@ -99,6 +99,7 @@ const {
   repeatLib,
   tests,
   schedule,
+  steps: stepLib,
   values,
   behaviour,
   TEMPLATES,
@@ -3881,6 +3882,166 @@ report.group('a bound value can be formatted, and only where it is shown');
         'a collection named inside a step is fetched too, not only one at the head',
         wantedNested.join() === 'notes',
         wantedNested.join(' · ') || 'none'
+      );
+    }
+
+    /* ------------------------------------------------------------------
+     * E8 — the step menu, generated
+     *
+     * §3.5: "Offer only what the head can do. A `follow` on a text field is a
+     * step that compiles and can never resolve." The menu was two hand-written
+     * lists until this stage; it is a table now, and what makes the table
+     * worth having is that it can be checked against the resolver rather than
+     * read alongside it.
+     * --------------------------------------------------------------- */
+
+    {
+      const { STEPS, stepsFor, typeAfter, isTransform } = stepLib;
+      /*
+       * Every step the table offers is one the resolver can actually apply.
+       *
+       * Not "total both ways", which is what this was first written as and
+       * which turned out to be a check that cannot fail: `STEPS` is
+       * `Record<Step['op'], …>`, so a step in the model and not the table is a
+       * compile error, a step in the table and not the model is a compile
+       * error, and one in both but unhandled by `advance` fails to narrow at
+       * the fall-through. Two mutations proved that by refusing to build.
+       *
+       * What the compiler cannot see is whether a row's *shape* is true. A
+       * table entry claiming `count` takes a value would offer it on a number,
+       * and it would resolve to nothing on every page — §3.5's failure exactly.
+       * So each value-step is driven over a specimen of a type it says it
+       * accepts, and has to produce something.
+       */
+      const SPECIMEN = {
+        text: 'Ada',
+        select: 'news',
+        number: 4,
+        date: '2026-08-11',
+        boolean: true,
+        image: '/a.png',
+        reference: 'rec-1',
+        richtext: '<p>x</p>',
+      };
+      const seedFor = (op) => {
+        if (op === 'round') return { op, places: 1 };
+        if (op === 'truncate') return { op, chars: 2 };
+        if (op === 'join') return { op, with: { kind: 'literal', type: 'text', value: '!' } };
+        if (['plus', 'minus', 'times', 'over'].includes(op)) {
+          return { op, by: { kind: 'literal', type: 'number', value: 2 } };
+        }
+        return { op };
+      };
+      const unresolved = [];
+      let driven = 0;
+      for (const [op, kind] of Object.entries(STEPS)) {
+        if (kind.takes !== 'value' || kind.gives !== 'value') continue;
+        for (const type of kind.from ?? Object.keys(SPECIMEN)) {
+          driven++;
+          const held = schedule.resolveValue(
+            { kind: 'field', key: 'v', steps: [seedFor(op)] },
+            {
+              id: 'sp', collectionId: 'c', position: 0, published: true,
+              data: { v: SPECIMEN[type] }, createdAt: 0, updatedAt: 0,
+            }
+          );
+          if (!held || !held.has) unresolved.push(`${op} on ${type}`);
+        }
+      }
+      report.check(
+        'every step the menu offers resolves on the types it claims to accept',
+        unresolved.length === 0 && driven >= 14,
+        unresolved.length ? unresolved.join(' · ') : `${driven} offers driven, all answered`
+      );
+
+      /*
+       * The offer itself. A number is not offered the text vocabulary, text is
+       * not offered arithmetic, and a boolean is offered nothing — which is
+       * the case that says the answer is derived rather than "text or number".
+       */
+      const offers = {
+        number: stepsFor('number').join(' '),
+        text: stepsFor('text').join(' '),
+        select: stepsFor('select').join(' '),
+        boolean: stepsFor('boolean').join(' ') || 'nothing',
+        image: stepsFor('image').join(' ') || 'nothing',
+        reference: stepsFor('reference').join(' ') || 'nothing',
+      };
+      report.check(
+        'the menu is what the type can do, and nothing a different type can',
+        offers.number.includes('times') &&
+          !offers.number.includes('upper') &&
+          offers.text.includes('upper') &&
+          !offers.text.includes('times') &&
+          offers.boolean === 'nothing' &&
+          offers.reference === 'nothing',
+        Object.entries(offers).map(([type, ops]) => `${type}: ${ops}`).join(' · ')
+      );
+      /*
+       * And a join is offered on a number, which is the one crossing the table
+       * allows: `⟨Rooms⟩ ⟨joined with " bedrooms"⟩` is an ordinary sentence
+       * and the step does not care what it was handed.
+       */
+      report.check(
+        'a number can be joined onto words, which is the one crossing the table allows',
+        stepsFor('number').includes('join') && !stepsFor('number').includes('truncate'),
+        stepsFor('number').join(' ')
+      );
+
+      /*
+       * The fold, which is what makes the menu *generated* rather than
+       * filtered: after a join the value is text, so the offer at the next
+       * position is text's — even though the chain started on a number.
+       */
+      const afterJoin = typeAfter('number', [
+        { op: 'times', by: { kind: 'literal', type: 'number', value: 2 } },
+        { op: 'join', with: { kind: 'literal', type: 'text', value: ' each' } },
+      ]);
+      report.check(
+        'the type follows the chain, so what a join produces is offered words and not sums',
+        afterJoin === 'text' &&
+          stepsFor(afterJoin).includes('upper') &&
+          !stepsFor(afterJoin).includes('times'),
+        `number × 2 joined → ${afterJoin} → ${stepsFor(afterJoin).join(' ')}`
+      );
+      report.check(
+        'and a step that walks data does not move it, because it is a chip of its own',
+        typeAfter('number', [{ op: 'round', places: 2 }]) === 'number' &&
+          typeAfter('text', [{ op: 'follow' }]) === 'text' &&
+          !isTransform({ op: 'follow' }) &&
+          isTransform({ op: 'upper' }),
+        `round → ${typeAfter('number', [{ op: 'round', places: 2 }])} · ` +
+          `follow → ${typeAfter('text', [{ op: 'follow' }])}`
+      );
+
+      /*
+       * The falsification §5 asks for, made positive: offer a step the head
+       * cannot do and watch it never resolve. `⟨Title⟩ × ⟨2⟩` is what the old
+       * menu would have allowed if it had listed the ops in one place — and it
+       * resolves to nothing on every row, for ever, with the page showing the
+       * design-time text and nothing anywhere saying why.
+       */
+      const wrong = {
+        id: 'z1', type: 'text', name: 'Nope', parentId: null, children: [],
+        props: { text: 'a title' }, styles: {}, meta: {},
+        bind: {
+          text: {
+            value: {
+              kind: 'field',
+              key: 'title',
+              steps: [{ op: 'times', by: { kind: 'literal', type: 'number', value: 2 } }],
+            },
+          },
+        },
+      };
+      const titled = {
+        id: 'r9', collectionId: 'posts', position: 0, published: true,
+        data: { title: 'On engines' }, createdAt: 0, updatedAt: 0,
+      };
+      report.check(
+        'a step the value cannot do resolves to nothing, which is why it is not offered',
+        boundProps(wrong, titled).text === 'a title' && !stepsFor('text').includes('times'),
+        `${boundProps(wrong, titled).text} · text offers ${stepsFor('text').join(' ')}`
       );
     }
 

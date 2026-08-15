@@ -54,6 +54,11 @@ export function loadBlocks() {
       // What an element's state is, and what it can be — declared rather than
       // scraped, which is a claim about data and therefore checkable.
       'src/lib/document/state.ts',
+      // The step vocabulary: what each step may be offered on and what it
+      // leaves behind. Panel-only — nothing in the renderer imports it, which
+      // is exactly why it needs naming here and why the coverage check reads
+      // the resolver's own source rather than a second list.
+      'src/lib/document/steps.ts',
       // The upgrade every stored document goes through on load. It runs on
       // every project every time and would otherwise be exercised only by
       // accident, which is a poor arrangement for the one piece of code that
@@ -174,6 +179,10 @@ export function loadBlocks() {
     // The Test evaluator, for the same reason as the formatter: three answers
     // and an arbitration order are claims about a function.
     tests: require(path.join(OUT, 'renderer/test.js')),
+    // The step vocabulary, which is the panel's rule about what may be
+    // offered where. Data, and therefore checkable against the resolver that
+    // has to answer whatever it lets somebody write.
+    steps: require(path.join(OUT, 'document/steps.js')),
     // And the resolver under it, which is where a chain's steps are applied.
     // `foldableValue` — the single function that decides whether a chain
     // travels to the browser — is reachable from nowhere else.

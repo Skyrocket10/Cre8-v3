@@ -306,7 +306,7 @@ unfixed code.
 | **E5** ✔ | Arithmetic and `round`, in both evaluators | The same sum on the canvas and in the file, and a comparison against a typed number answered in the browser |
 | **E6** ✔ | `where` and `sortedBy` | A filtered count that differs from the unfiltered one, on the same page |
 | **E7** ✔ | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
-| **E8** | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
+| **E8** ✔ | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
 
 **E2 was the one to be most careful about, and then it turned out not to
 exist.** The plan's `{ head, steps }` rewrites every `Value` in every stored
@@ -578,6 +578,55 @@ differential's `capitalize` case used `Grace`, which cannot tell a correct
 implementation from one that only touches the first letter — it shouts first
 now. The harness itself gained the ability to tell a crashed run from a passing
 one, which is the misread that cost both rounds.
+
+### 5.7 What E8 turned out to cost — a table, and the stage that pays for E5 and E7
+
+`document/steps.ts` is §3.5 written as data: one row per step, saying what has
+to be in hand for it, what it leaves behind, and which value types it may be
+offered on. The menu was two hand-written lists and a branch on the field's
+type, which is the arrangement every other vocabulary here has already
+outgrown.
+
+**Generated, not filtered.** The offer at each position comes from the type in
+hand *at that position*, folded through the steps before it. `⟨Price⟩ ⟨× 2⟩
+⟨joined with " each"⟩` is text from the join onwards, so nothing after it
+offers `×` — and the format chips at the end of the sentence follow the same
+fold, which fixed a real thing: a currency format was being offered for a value
+that had become a sentence. So do the operators and the operand chip, so
+`⟨First⟩ ⟨joined with ⟨Last⟩⟩` is compared with text's operators rather than
+with the ones its head started with.
+
+**The one crossing the table allows is `join` on a number.** `⟨Rooms⟩ ⟨joined
+with " bedrooms"⟩` is an ordinary sentence and a join is the step that does not
+care what it was handed. A date joins as the raw value it holds, which is
+honest rather than pretty — reaching the *formatted* one is E9.
+
+**And this is the stage §5.6 said would pay for the other two.** The chain
+editor now appears on a comparison's operand, not only on a binding, so
+`⟨what is typed⟩ ⟨lowercase⟩ is ⟨yes⟩` is sayable — and text `eq` is exact, so
+that guard was unwritable and the runtime branch for it was dead weight.
+`tests/render/values.mjs` authors it through the panel, publishes, types `YES`
+into the box and watches the answer change. E5's and E7's bytes are earning
+their place from this commit and not before it.
+
+**A check that could not fail, found by trying to break it.** The first version
+of the coverage check asserted the table was total against the model both ways.
+Two mutations refused to *compile*: `STEPS` is `Record<Step['op'], StepKind>`,
+so a step in one and not the other is a type error, and one in both but
+unhandled by `advance` fails to narrow at the fall-through. The compiler holds
+both directions and the check was decoration. What it cannot see is whether a
+row's *shape* is true — a row claiming `count` takes a value would offer it on
+a number and resolve to nothing on every page — so each value-step is now
+driven over a specimen of every type it claims to accept, and both mutations
+that break a row's shape turn it red.
+
+**And a check that could not be falsified for a sillier reason.** The
+falsification harness recovers a check's name by splitting its output line at
+`" — "`, which is the separator between name and detail. Two E8 checks had an
+em dash in the *name*, so the harness compared a truncated name against the
+full one and reported a working mutation as a failure. The names lost their
+dashes. Worth writing down because it is the second harness defect this arc has
+surfaced, and both looked exactly like a check that did not earn its place.
 
 ---
 
