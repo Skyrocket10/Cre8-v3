@@ -297,12 +297,18 @@ export type TestOperand = {
   /**
    * What happens to the head, in order.
    *
-   * Only the arithmetic and rounding steps mean anything here — everything
-   * else reads a record or a list, which is publish-time data and therefore
-   * folded before this runs. `operand` refuses the rest rather than ignoring
-   * them.
+   * Only the steps over a *scalar* mean anything here — arithmetic, rounding,
+   * and the text steps. Everything else reads a record or a list, which is
+   * publish-time data and therefore folded before this runs. `operand` refuses
+   * the rest rather than ignoring them.
    */
-  steps?: { op: string; by?: TestOperand; places?: number }[];
+  steps?: {
+    op: string;
+    by?: TestOperand;
+    with?: TestOperand;
+    places?: number;
+    chars?: number;
+  }[];
 };
 /**
  * A constant, on the wire.
@@ -679,19 +685,33 @@ export function behaviourRuntime(root: Host, live: boolean): () => void {
  * Two notes that belong to `operand` and are written here because a comment
  * inside this function is bytes on somebody's page.
  *
- * **`source` is the head, `operand` is the whole chain.** Only the arithmetic
- * and rounding steps mean anything down here: everything else reads a record
- * or a list, which is publish-time data, so `foldable` keeps those chains out
- * of this table entirely. A step with no `by` and no `round` is therefore a
- * document written by hand, and it is refused rather than ignored — ignoring
- * it would print the *head's* value, which is a wrong answer wearing the shape
- * of a right one.
+ * **`source` is the head, `operand` is the whole chain.** Only the steps over
+ * a scalar mean anything down here — arithmetic, rounding and the text steps.
+ * Everything else reads a record or a list, which is publish-time data, so
+ * `foldable` keeps those chains out of this table entirely. A step this does
+ * not recognise is therefore a document written by hand, and it is refused
+ * rather than ignored — ignoring it would print the *head's* value, which is a
+ * wrong answer wearing the shape of a right one.
  *
  * **Arithmetic is the first thing here that is not free.** `VALUES.md` §3.3
  * divides the vocabulary into the half that folds and the half that travels,
  * and this is the travelling half arriving: somebody types a quantity and the
  * page multiplies by it. §5.4 records what it cost, measured rather than
  * estimated.
+ *
+ * **The text steps are the second, and `lower` is the one that earns them.**
+ * Text `eq` is exact, so *only when what is typed is `yes`* fails on `Yes` and
+ * there is no case-insensitive equality anywhere in the operator set —
+ * `contains` is case-insensitive and means something else. `⟨what is typed⟩
+ * lowercased is ⟨yes⟩` is the fix, and it is the one guard here that people
+ * hit rather than one they might. The other three ride along inside branches
+ * that mostly already exist: see §5.6, which states the budget for each before
+ * the number.
+ *
+ * **`null` reads as nothing, not as "null".** A D1 column can be NULL, and
+ * `String(null)` is a four-letter word that would end up in a comparison and,
+ * through a binding, on a page. `records.ts` makes the same decision in the
+ * same words for the same reason.
  */
 export function testRuntime(root: Host, live: boolean, tests: TestTable): () => void {
   function operand(left: TestOperand, holder: Tagged, values: TestValues): TestRaw {
@@ -706,7 +726,27 @@ export function testRuntime(root: Host, live: boolean, tests: TestTable): () => 
         raw = Number(r.toFixed(Math.min(10, Math.max(0, Math.trunc(step.places!) || 0))));
         continue;
       }
-      if (!step.by) return undefined; // not arithmetic: see above the function
+      if (step.op === 'upper' || step.op === 'lower') {
+        var cased = asText(raw);
+        raw = step.op === 'upper' ? cased.toUpperCase() : cased.toLowerCase();
+        continue;
+      }
+      if (step.op === 'capitalize') {
+        var word = asText(raw);
+        raw = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        continue;
+      }
+      if (step.op === 'truncate') {
+        raw = asText(raw).slice(0, Math.max(0, Math.trunc(step.chars!) || 0));
+        continue;
+      }
+      if (step.with) {
+        var joined = operand(step.with, holder, values);
+        if (joined === undefined) return undefined;
+        raw = asText(raw) + asText(joined);
+        continue;
+      }
+      if (!step.by) return undefined; // not a scalar step: see above the function
 
       var a = Number(raw);
       var b = Number(operand(step.by, holder, values));
@@ -718,6 +758,10 @@ export function testRuntime(root: Host, live: boolean, tests: TestTable): () => 
       else raw = a / b;
     }
     return raw;
+  }
+
+  function asText(value: TestRaw): string {
+    return value === null || value === undefined ? '' : String(value);
   }
 
   function source(left: TestOperand, holder: Tagged, values: TestValues): TestRaw {

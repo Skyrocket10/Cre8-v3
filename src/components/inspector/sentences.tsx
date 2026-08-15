@@ -30,6 +30,7 @@ import type {
   Condition,
   DatePattern,
   Field,
+  FieldType,
   Format,
   RecordFilter,
   Step,
@@ -50,6 +51,7 @@ import {
 } from '@/lib/document/conditions';
 import {
   DATE_PATTERNS,
+  FORMATS_FOR,
   FORMAT_LABELS,
   defaultFormat,
   formatsFor,
@@ -615,25 +617,48 @@ export function testSentence(options: {
   return parts;
 }
 
-/** The steps that do arithmetic, told from the ones that walk data. */
-function isMaths(step: Step): boolean {
-  return 'by' in step || step.op === 'round';
-}
+/**
+ * What each step that transforms a value reads as in a sentence.
+ *
+ * One map for both families, because they are one mechanism — a chain of
+ * things done to the value the chain arrived at — and the panel offers
+ * whichever half the *type* can do. Two maps would be two places to add the
+ * next step to, and one of them would be missed.
+ *
+ * The three case words are the ones the `case` format already uses, and
+ * "its first" is the truncate format's. One idea, one wording: a designer who
+ * has shortened a value has shortened this one.
+ */
+const TRANSFORM_LABELS: Record<string, string> = {
+  times: '×',
+  over: '÷',
+  plus: '+',
+  minus: '−',
+  round: 'rounded to',
+  join: 'joined with',
+  upper: 'UPPERCASE',
+  lower: 'lowercase',
+  capitalize: 'Capitalised',
+  truncate: 'its first',
+};
 
-/** What each arithmetic step reads as in a sentence about a number. */
-const MATHS_LABELS = [
-  { value: 'times', label: '×' },
-  { value: 'over', label: '÷' },
-  { value: 'plus', label: '+' },
-  { value: 'minus', label: '−' },
-  { value: 'round', label: 'rounded to' },
-];
+/** What a number can be asked to do, in the order the menu offers them. */
+const MATHS_OPS = ['times', 'over', 'plus', 'minus', 'round'];
+/** And what text can. `join` first, because it is what anybody comes here for. */
+const TEXT_OPS = ['join', 'upper', 'lower', 'capitalize', 'truncate'];
+
+/** Whether this step is one the chain editor writes, rather than one that walks data. */
+function isTransform(step: Step): boolean {
+  return step.op in TRANSFORM_LABELS;
+}
 
 /** A typed number as an operand. Types are declared, so this one is declared. */
 const numberFor = (raw: string): Value => literalFor('number', raw);
+/** And a typed string, for the other family. */
+const textFor = (raw: string): Value => literalFor('text', raw);
 
-/** The number fields a maths step may read, which is the only type it can. */
-const numbersAmong = (fields: Field[]) => fields.filter((f) => f.type === 'number');
+/** The fields a step's operand may read, which is the type it can do arithmetic in. */
+const among = (fields: Field[], type: FieldType) => fields.filter((f) => f.type === type);
 
 /** An operand that names a field, as the chip should show it. */
 function fieldLabel(value: Value, fields: Field[]): string {
@@ -1088,104 +1113,29 @@ export function bindingSentence(options: {
   if (!effective) return parts;
 
   /*
-   * The maths, if the value the chain ends on is a number.
+   * What is done to the value the chain arrived at, if anything can be.
    *
-   * One chip pair per step — an operator and what to do it with — and a `+`
-   * to grow the chain, which is what keeps `⟨Price⟩ ⟨× ⟨Quantity⟩⟩ ⟨rounded to
-   * ⟨0⟩⟩` a sentence rather than a formula. Offered only on a number, for the
-   * reason §3.5 gives: a step the head cannot do is one that compiles and can
-   * never resolve.
+   * One chip pair per step — an operator and what to do it with — and a `+` to
+   * grow the chain, which is what keeps `⟨Price⟩ ⟨× ⟨Quantity⟩⟩ ⟨rounded to
+   * ⟨0⟩⟩` a sentence rather than a formula.
+   *
+   * Which half is offered comes from the type, for the reason §3.5 gives: a
+   * step the value cannot do is one that compiles and can never resolve.
+   * "Which types are prose" is asked of `FORMATS_FOR` rather than answered
+   * again here — `case` is offered on exactly the types whose value is words,
+   * which is the same question this is asking, and richtext is deliberately
+   * not one of them: uppercasing markup would uppercase the tags.
    */
-  if (effective.type === 'number' && held) {
-    const maths = (held.steps ?? []).filter(isMaths);
-    const before = (held.steps ?? []).filter((step) => !isMaths(step));
-    const write = (next: Step[]) => onBind?.({ ...held, steps: [...before, ...next] });
-
-    maths.forEach((step, index) => {
-      parts.push({
-        kind: 'pick',
-        key: `op${index}`,
-        value: step.op,
-        menuWidth: 170,
-        options: MATHS_LABELS,
-        onChange:
-          onBind &&
-          ((op) =>
-            write(
-              maths.map((one, at) =>
-                at !== index
-                  ? one
-                  : op === 'round'
-                    ? { op: 'round', places: 0 }
-                    : { op: op as 'plus', by: 'by' in one ? one.by : numberFor('') }
-              )
-            )),
-      });
+  if (held) {
+    const offered = effective.type === 'number'
+      ? MATHS_OPS
+      : FORMATS_FOR[effective.type].includes('case')
+        ? TEXT_OPS
+        : [];
+    if (offered.length) {
       parts.push(
-        step.op === 'round'
-          ? {
-              kind: 'type',
-              key: `by${index}`,
-              value: String(step.places ?? 0),
-              placeholder: '0',
-              numeric: true,
-              onChange:
-                onBind &&
-                ((raw) =>
-                  write(
-                    maths.map((one, at) =>
-                      at === index ? { op: 'round', places: Number(raw.trim()) || 0 } : one
-                    )
-                  )),
-            }
-          : {
-              // A constant or another number field, the same two-mode chip the
-              // right of a comparison uses — because it is the same question.
-              kind: 'type',
-              key: `by${index}`,
-              value: 'by' in step ? literalText(step.by) || fieldLabel(step.by, fields) : '',
-              placeholder: '0',
-              numeric: 'by' in step && step.by.kind === 'literal',
-              menuWidth: 200,
-              pickLabel: 'Use a number from the record',
-              options: numbersAmong(fields).map((f) => ({ value: f.key, label: f.label })),
-              onChange:
-                onBind &&
-                ((raw) =>
-                  write(
-                    maths.map((one, at) =>
-                      at === index ? { op: one.op as 'plus', by: numberFor(raw) } : one
-                    )
-                  )),
-              onPick:
-                onBind &&
-                ((key) =>
-                  write(
-                    maths.map((one, at) =>
-                      at === index ? { op: one.op as 'plus', by: { kind: 'field', key } } : one
-                    )
-                  )),
-            }
+        ...chainChips({ held, offered, fields, onBind })
       );
-    });
-
-    if (onBind && maths.length < 3) {
-      parts.push({
-        kind: 'action',
-        key: 'add-maths',
-        title: 'Do something to this number',
-        label: <span className="text-[10px]">+ maths</span>,
-        onClick: () => write([...maths, { op: 'times', by: numberFor('1') }]),
-      });
-    }
-    if (onBind && maths.length) {
-      parts.push({
-        kind: 'action',
-        key: 'drop-maths',
-        title: 'Remove the last step',
-        label: <Trash2 size={10} />,
-        onClick: () => write(maths.slice(0, -1)),
-      });
     }
   }
 
@@ -1307,6 +1257,150 @@ export function bindingSentence(options: {
 /** The step that turns a list into one thing: a number, or one row of it. */
 function isReducer(step: Step): step is Extract<Step, { op: 'count' | 'first' | 'last' }> {
   return step.op === 'count' || step.op === 'first' || step.op === 'last';
+}
+
+/**
+ * `⟨× ⟨Quantity⟩⟩ ⟨rounded to ⟨0⟩⟩`, and `⟨joined with ⟨" "⟩⟩ ⟨UPPERCASE⟩`.
+ *
+ * One editor for both, because they are one thing: a list of transforms
+ * applied left to right to whatever the chain arrived at. What differs is the
+ * menu — a number cannot be capitalised and text cannot be divided — and that
+ * is a parameter rather than a second copy of this function. E5 wrote the
+ * arithmetic half; E7 found that the text half needed the same forty lines
+ * and generalising them was cheaper than having two of them drift.
+ *
+ * The steps this does not edit are kept, in front. That is what stops editing
+ * a sum from disturbing the `follow` that reached the record, and it is also
+ * why a chain carrying *both* families — which this panel cannot author, but a
+ * document can hold — renders the half that matches the type and preserves the
+ * other rather than deleting it.
+ */
+function chainChips(options: {
+  held: Value;
+  /** The ops this value's type can actually do. */
+  offered: string[];
+  fields: Field[];
+  onBind?: (value: Value | null) => void;
+}): Part[] {
+  const { held, offered, fields, onBind } = options;
+  const steps = held.steps ?? [];
+  const chain = steps.filter(isTransform);
+  const before = steps.filter((step) => !isTransform(step));
+  const write = (next: Step[]) => onBind?.({ ...held, steps: [...before, ...next] });
+  /** The chain with one step replaced, which is every edit here. */
+  const at = (index: number, step: Step) => write(chain.map((one, i) => (i === index ? step : one)));
+  const text = offered === TEXT_OPS;
+
+  const parts: Part[] = [];
+  chain.forEach((step, index) => {
+    parts.push({
+      kind: 'pick',
+      key: `op${index}`,
+      value: step.op,
+      menuWidth: 170,
+      // The step's own label, always, even when the type would not offer it —
+      // a document can carry a chain this panel would not write, and a chip
+      // falling through to its placeholder would say nothing was chosen.
+      options: (offered.includes(step.op) ? offered : [...offered, step.op]).map((op) => ({
+        value: op,
+        label: TRANSFORM_LABELS[op] ?? op,
+      })),
+      onChange: onBind && ((op) => at(index, seedStep(op, step))),
+    });
+
+    /*
+     * And what the step is done *with*, for the three that take something.
+     * The two operand chips are the same two-mode box the right of a
+     * comparison uses — a constant, or a field of the same type through the
+     * chevron — because it is the same question asked in a different sentence.
+     */
+    if (step.op === 'round') {
+      parts.push({
+        kind: 'type',
+        key: `by${index}`,
+        value: String(step.places ?? 0),
+        placeholder: '0',
+        numeric: true,
+        onChange: onBind && ((raw) => at(index, { op: 'round', places: Number(raw.trim()) || 0 })),
+      });
+    } else if (step.op === 'truncate') {
+      parts.push({
+        kind: 'type',
+        key: `by${index}`,
+        value: String(step.chars ?? 0),
+        placeholder: '20',
+        numeric: true,
+        onChange: onBind && ((raw) => at(index, { op: 'truncate', chars: Number(raw.trim()) || 0 })),
+      });
+      parts.push({ kind: 'word', text: 'characters', key: `chars${index}` });
+    } else if (step.op === 'join') {
+      parts.push({
+        kind: 'type',
+        key: `by${index}`,
+        value: literalText(step.with) || fieldLabel(step.with, fields),
+        placeholder: 'text',
+        menuWidth: 200,
+        pickLabel: 'Use text from the record',
+        options: among(fields, 'text').map((f) => ({ value: f.key, label: f.label })),
+        onChange: onBind && ((raw) => at(index, { op: 'join', with: textFor(raw) })),
+        onPick: onBind && ((key) => at(index, { op: 'join', with: { kind: 'field', key } })),
+      });
+    } else if ('by' in step) {
+      parts.push({
+        kind: 'type',
+        key: `by${index}`,
+        value: literalText(step.by) || fieldLabel(step.by, fields),
+        placeholder: '0',
+        numeric: step.by.kind === 'literal',
+        menuWidth: 200,
+        pickLabel: 'Use a number from the record',
+        options: among(fields, 'number').map((f) => ({ value: f.key, label: f.label })),
+        onChange: onBind && ((raw) => at(index, { ...step, by: numberFor(raw) })),
+        onPick: onBind && ((key) => at(index, { ...step, by: { kind: 'field', key } })),
+      });
+    }
+  });
+
+  if (onBind && chain.length < 3) {
+    parts.push({
+      kind: 'action',
+      key: 'add-step',
+      title: text ? 'Do something to this text' : 'Do something to this number',
+      label: <span className="text-[10px]">{text ? '+ text' : '+ maths'}</span>,
+      // A step that changes nothing, so the sentence it lands in is
+      // grammatical and finished-looking before anybody types: `× 1` and
+      // `joined with ⟨⟩` both leave the value exactly as it was.
+      onClick: () => write([...chain, seedStep(offered[0]!)]),
+    });
+  }
+  if (onBind && chain.length) {
+    parts.push({
+      kind: 'action',
+      key: 'drop-step',
+      title: 'Remove the last step',
+      label: <Trash2 size={10} />,
+      onClick: () => write(chain.slice(0, -1)),
+    });
+  }
+  return parts;
+}
+
+/**
+ * A step of the chosen kind, keeping what the old one can lend it.
+ *
+ * Switching `×` to `+` should not clear the operand somebody chose — it is the
+ * same operand, asked a different question — and switching `×` to `UPPERCASE`
+ * has nothing to keep. Written once because the add button and the operator
+ * chip both need it and they must agree about what a fresh step looks like.
+ */
+function seedStep(op: string, from?: Step): Step {
+  if (op === 'round') return { op: 'round', places: 0 };
+  if (op === 'truncate') return { op: 'truncate', chars: 20 };
+  if (op === 'join') {
+    return { op: 'join', with: from && 'with' in from ? from.with : textFor('') };
+  }
+  if (op === 'upper' || op === 'lower' || op === 'capitalize') return { op } as Step;
+  return { op: op as 'plus', by: from && 'by' in from ? from.by : numberFor('1') };
 }
 
 /**

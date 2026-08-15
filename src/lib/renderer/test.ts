@@ -368,7 +368,14 @@ export function lowerTest(test: Test): TestNode {
  */
 function bare(value: Value): TestConst | TestOperand {
   const steps = value.steps?.map((step) =>
-    'by' in step ? { ...step, by: bare(step.by) } : step
+    'by' in step
+      ? { ...step, by: bare(step.by) }
+      : // A join's operand is nearly always the constant — `⟨First⟩ joined
+        // with ⟨" "⟩` — so this is the case that costs bytes if it is missed,
+        // rather than an exhaustiveness exercise.
+        'with' in step
+        ? { ...step, with: bare(step.with) }
+        : step
   );
   if (value.kind === 'literal') {
     return steps?.length
@@ -587,6 +594,10 @@ function operandName(value: Value): string {
 function stepName(step: Step): string {
   if (step.op === 'where') return `where:${JSON.stringify(step.test)}`;
   if (step.op === 'sortedBy') return `sortedBy:${step.field}${step.desc ? ':desc' : ''}`;
+  if (step.op === 'truncate') return `truncate:${step.chars}`;
+  // A join is named by what it joins on, for the reason `where` is named by
+  // its test: `⟨First⟩ + ⟨" "⟩` and `⟨First⟩ + ⟨", "⟩` are not one operand.
+  if (step.op === 'join') return `join:${operandName(step.with)}`;
   return 'key' in step ? `${step.op}:${step.key}` : step.op;
 }
 

@@ -951,7 +951,53 @@ export type Step =
    * in ECMA-262, so the number reaching the markup is not a matter of which
    * engine rounded it — the same argument `format.ts` makes at more length.
    */
-  | { op: 'round'; places: number };
+  | { op: 'round'; places: number }
+  /**
+   * The text before this, in a different case.
+   *
+   * `Format` has done this since the beginning and this is not that, for the
+   * reason `round` is not `Format`'s decimals: a format is terminal, so
+   * `⟨First⟩ capitalised, joined with ⟨Last⟩ capitalised` had no spelling.
+   * These produce text the next step can read.
+   *
+   * `toUpperCase` and `toLowerCase` without a locale argument, deliberately.
+   * The locale-aware versions consult ICU, which differs between a browser and
+   * a Worker — the same reason `records.ts` refuses `localeCompare`, and the
+   * same reason this cannot promise anything about Turkish dotless i.
+   *
+   * Three members rather than one with a three-way `op`, which is how `first`
+   * and `last` are written and for a reason that shows up immediately:
+   * TypeScript will not narrow a member away on the else branch while its own
+   * `op` is a union, however many of the literals are listed. The arithmetic
+   * member has to carry that — `by` is what makes those four one idea — and
+   * these do not.
+   */
+  | { op: 'upper' }
+  | { op: 'lower' }
+  | { op: 'capitalize' }
+  /**
+   * The first `chars` characters of the text before this.
+   *
+   * The step that makes an excerpt sayable: `⟨Body⟩ ⟨first 100 characters⟩
+   * ⟨joined with "…"⟩`. The ellipsis has to land *after* the cut, which is
+   * exactly what a terminal format cannot do — the truncate format has been
+   * there since D5 and could never put anything on the end.
+   */
+  | { op: 'truncate'; chars: number }
+  /**
+   * The text before this, with another value written after it.
+   *
+   * `First & " " & Last` — the row `docs/VALUES.md` §1.5 lists as the last
+   * thing Bubble says that this could not. Two joins make a full name, which
+   * is why the operand is a `Value` rather than a string: one of them is a
+   * constant somebody typed and the other is a field.
+   *
+   * Both sides have to be there. An absent operand leaves the chain undecided
+   * rather than joining nothing, which is the same refusal arithmetic makes
+   * and for the same reason: `⟨First⟩ joined with ⟨Lastt⟩` typed one letter
+   * wrong would otherwise publish the first name and look deliberate.
+   */
+  | { op: 'join'; with: Value };
 
 /**
  * Something an expression can read.

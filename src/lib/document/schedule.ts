@@ -13,7 +13,7 @@
  */
 
 import type { CollectionRecord, CompareOp, Step, Test, TestLiteral, Value } from './types';
-import { compareWith } from './records';
+import { compareWith, text } from './records';
 
 /** True, false, or "not from here". */
 export type Verdict = boolean | null;
@@ -252,17 +252,56 @@ function advance(
     return { at: 'value', raw: Number(n.toFixed(places)), has: true };
   }
 
+  /*
+   * The text steps, which are the second family that reads a scalar.
+   *
+   * `toUpperCase` with no locale argument — see the docblock on `Step`. And
+   * `truncate` clamps for the reason `round` does: a hand-written document
+   * must not be able to take a publish down, and a negative length would take
+   * characters off the *end* rather than refusing.
+   */
+  if (step.op === 'upper' || step.op === 'lower' || step.op === 'capitalize') {
+    if (at.at !== 'value' || !at.has) return null;
+    // `text` rather than `String`, and it is not a nicety: a D1 column can be
+    // NULL, and `String(null)` is a four-letter word that would be uppercased
+    // and printed. Shared with the comparator so both spell it once.
+    const was = text(at.raw);
+    const cased =
+      step.op === 'upper'
+        ? was.toUpperCase()
+        : step.op === 'lower'
+          ? was.toLowerCase()
+          : was.charAt(0).toUpperCase() + was.slice(1).toLowerCase();
+    return { at: 'value', raw: cased, has: true };
+  }
+  if (step.op === 'truncate') {
+    if (at.at !== 'value' || !at.has) return null;
+    const chars = Math.max(0, Math.trunc(step.chars) || 0);
+    return { at: 'value', raw: text(at.raw).slice(0, chars), has: true };
+  }
+
   // `'by' in step` rather than four `op` comparisons: one member of `Step`
   // carries a four-way `op`, and TypeScript will not narrow it away on the
   // else branch however many of the four are listed. The operand is what makes
   // these steps what they are anyway.
-  if ('by' in step) {
+  if ('by' in step || step.op === 'join') {
     if (at.at !== 'value' || !at.has) return null;
+    // Asked rather than asserted. `operandOf` is the one place that knows
+    // which steps carry a value, and a `!` here would turn any future
+    // disagreement between the two into a thrown TypeError on a publish rather
+    // than into a chain that cannot be decided. Found by a mutation that took
+    // the whole suite down instead of turning two checks red.
+    const carries = operandOf(step);
+    if (!carries) return null;
     // The row travels into the operand too: `⟨row's Price⟩ × ⟨2⟩ is over ⟨100⟩`
     // is a `where` test whose left side has a step of its own, and an operand
     // resolved without the row in hand would answer nothing on every row.
-    const other = resolveValue(step.by, record, find, row);
+    const other = resolveValue(carries, record, find, row);
     if (!other || !other.has) return null;
+    // Text, so it is a concatenation rather than a sum — and `String` on both
+    // sides, because a number joined onto a label is a perfectly ordinary
+    // thing to write and this is the one step that does not care what it was.
+    if (step.op === 'join') return { at: 'value', raw: text(at.raw) + text(other.raw), has: true };
     const a = Number(at.raw);
     const b = Number(other.raw);
     // Arithmetic on something that is not a number has no answer, and
@@ -316,6 +355,22 @@ export function operandsIn(test: Test): Value[] {
 }
 
 /**
+ * The value a step takes, for the steps that take one.
+ *
+ * Two of them do and they spell it differently — `by` for arithmetic, `with`
+ * for a join — because `⟨Price⟩ × ⟨Quantity⟩` and `⟨First⟩ joined with ⟨Last⟩`
+ * read as different sentences and the model says what the panel says. Five
+ * places need "does this step reach another value, and which one", and five
+ * copies of `'by' in step || 'with' in step` is five chances for the next such
+ * step to be added to four of them.
+ */
+export function operandOf(step: Step): Value | undefined {
+  if ('by' in step) return step.by;
+  if ('with' in step) return step.with;
+  return undefined;
+}
+
+/**
  * One operand, and every operand nested inside its steps.
  *
  * `⟨Price⟩ × ⟨Quantity⟩` reads two fields and only one of them is the head, so
@@ -327,7 +382,8 @@ export function operandsIn(test: Test): Value[] {
 export function valuesIn(value: Value): Value[] {
   const out: Value[] = [value];
   for (const step of value.steps ?? []) {
-    if ('by' in step) out.push(...valuesIn(step.by));
+    const inner = operandOf(step);
+    if (inner) out.push(...valuesIn(inner));
     /*
      * And everything a `where` compares, which is where the second half of a
      * relational chain lives: `⟨Comments⟩ where ⟨row's Post⟩ is ⟨this Post⟩`
@@ -544,17 +600,20 @@ export function foldableValue(value: Value): boolean {
     value.kind === 'self';
   if (!head) return false;
   /*
-   * And every operand of every step, because two of them can reach a control.
+   * And every operand of every step, because a step can reach a control.
    * Arithmetic is the obvious one: `⟨Price⟩ × ⟨Quantity typed here⟩` starts at
-   * publish-time data and is not publish-time data. A `where` is the same
-   * thing wearing a Test — "the products under ⟨what is typed⟩" is a list
-   * nobody can narrow in a file — and it is worth being exact about what
-   * happens then rather than leaving it to the runtime: the chain does not
-   * fold, so the binding keeps its design-time text, and the runtime refuses
-   * the step rather than answering the unfiltered list. Undecidable on both
-   * surfaces, which is the only answer they can agree on.
+   * publish-time data and is not publish-time data, and a join is the same
+   * shape with text in it. A `where` is that again wearing a Test — "the
+   * products under ⟨what is typed⟩" is a list nobody can narrow in a file —
+   * and it is worth being exact about what happens then rather than leaving it
+   * to the runtime: the chain does not fold, so the binding keeps its
+   * design-time text, and the runtime refuses the step rather than answering
+   * the unfiltered list. Undecidable on both surfaces, which is the only
+   * answer they can agree on.
    */
-  return (value.steps ?? []).every((step) =>
-    'by' in step ? foldableValue(step.by) : step.op !== 'where' || foldable(step.test)
-  );
+  return (value.steps ?? []).every((step) => {
+    const inner = operandOf(step);
+    if (inner) return foldableValue(inner);
+    return step.op !== 'where' || foldable(step.test);
+  });
 }

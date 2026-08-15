@@ -1096,6 +1096,179 @@ try {
     !whereMarkup.includes('data-cre8-test') && !whereMarkup.includes('data-cre8-vals'),
     `test attributes ${(whereMarkup.match(/data-cre8-test/g) ?? []).length}`
   );
+
+  /* ------------------------------------------------- 8. E7: the text steps */
+
+  /*
+   * `First & " " & Last` — the row `VALUES.md` §1.5 lists as the last thing
+   * Bubble said that this could not.
+   *
+   * Three steps, because three is what makes it a *chain* rather than one more
+   * operator: a typed separator, a second field, and a case applied to the
+   * whole thing. Each is authored the way a designer would author it, and the
+   * assertion is on two rows of a published file, which is the only place the
+   * claim is really settled.
+   */
+  {
+    const d = await getDocument(page, projectId);
+    const listings = d.collections.find((one) => one.id === 'listings');
+    listings.fields = [...listings.fields, { key: 'area', label: 'Area', type: 'text' }];
+    d.nodes.jonval0010 = node('jonval0010', 'paragraph', 'Where', {
+      parentId: 'crdval0002',
+      props: { text: 'somewhere' },
+      styles: { desktop: { fontSize: '12px' } },
+    });
+    d.nodes.crdval0002.children.push('jonval0010');
+    await saveDocument(page, d);
+  }
+  for (const [slug, area] of [['over', 'Hove'], ['under', 'Lewes']]) {
+    const list = await call(`/api/projects/${projectId}/records?collection=listings`);
+    const row = (list.body?.records ?? []).find((one) => one.slug === slug);
+    if (row) {
+      await call(`/api/projects/${projectId}/records/${row.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ data: { ...row.data, area } }),
+      });
+    }
+  }
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+
+  const textPanel = await openData('Where');
+  const joinRow = textPanel.locator('[data-sentence]:has-text("Text reads")').first();
+  await joinRow.getByRole('button').first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'Title', exact: true }).last().click();
+  await page.waitForTimeout(600);
+
+  const addText = textPanel.getByRole('button', { name: '+ text' }).first();
+  report.check(
+    'text is offered somewhere to be joined and cased, as a number is offered arithmetic',
+    (await addText.count()) === 1,
+    `${await addText.count()} offer(s)`
+  );
+  /*
+   * And the two families do not bleed into each other: a number's menu has no
+   * `joined with` in it, and this one has no `×`. That is §3.5's rule — offer
+   * only what the value can do — and it is the reason the menu is a parameter
+   * rather than one list for everything.
+   */
+  if (await addText.count()) {
+    await addText.click();
+    await page.waitForTimeout(500);
+    await textPanel.getByRole('button', { name: 'joined with', exact: true }).first().click();
+    await page.waitForTimeout(300);
+    const offeredOps = (await page.locator('.anim-pop').last().innerText().catch(() => ''))
+      .split('\n')
+      .map((one) => one.trim())
+      .filter(Boolean);
+    report.check(
+      'the step menu offers what text can do and nothing a number can',
+      offeredOps.includes('joined with') &&
+        offeredOps.includes('UPPERCASE') &&
+        !offeredOps.includes('×') &&
+        !offeredOps.includes('rounded to'),
+      offeredOps.join(' · ') || 'nothing offered'
+    );
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+
+    /*
+     * The separator, typed into the operand box the step arrived with — and
+     * committed with Enter rather than left to the next click to blur.
+     *
+     * `TextInput` writes on blur or Enter, not per keystroke, so filling and
+     * then clicking `+ text` is two edits racing: the blur commits the
+     * separator while the click adds a step computed from the value it saw
+     * before. Written the first way, the separator vanished and the chain came
+     * out one step short — which is a check catching a check, not a bug.
+     */
+    await joinRow.locator('input').first().fill(', ');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600);
+    report.check(
+      'a typed separator lands in the step it was typed into',
+      (await getDocument(page, projectId)).nodes.jonval0010.bind?.text?.value?.steps?.[0]?.with
+        ?.value === ', ',
+      JSON.stringify(
+        (await getDocument(page, projectId)).nodes.jonval0010.bind?.text?.value?.steps ?? null
+      )
+    );
+
+    // A second join, pointed at the other field through the chevron.
+    await textPanel.getByRole('button', { name: '+ text' }).first().click();
+    await page.waitForTimeout(500);
+    await textPanel.getByRole('button', { name: 'Use text from the record' }).last().click();
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Area', exact: true }).last().click();
+    await page.waitForTimeout(600);
+
+    // And a case, applied to everything before it.
+    await textPanel.getByRole('button', { name: '+ text' }).first().click();
+    await page.waitForTimeout(500);
+    await textPanel.getByRole('button', { name: 'joined with', exact: true }).last().click();
+    await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'UPPERCASE', exact: true }).last().click();
+    await page.waitForTimeout(600);
+  }
+
+  const joined = await getDocument(page, projectId);
+  const joinValue = joined.nodes.jonval0010.bind?.text?.value;
+  report.check(
+    'the binding is a chain of three text steps',
+    joinValue?.kind === 'field' &&
+      joinValue?.key === 'title' &&
+      joinValue?.steps?.length === 3 &&
+      joinValue.steps[0].op === 'join' &&
+      joinValue.steps[0].with?.kind === 'literal' &&
+      joinValue.steps[0].with?.value === ', ' &&
+      joinValue.steps[1].op === 'join' &&
+      joinValue.steps[1].with?.kind === 'field' &&
+      joinValue.steps[1].with?.key === 'area' &&
+      joinValue.steps[2].op === 'upper',
+    JSON.stringify(joinValue ?? null)
+  );
+
+  const joinedCanvas = await page.evaluate(() => {
+    const el = document.querySelector('.cre8-frame.cre8-editing .c-jonval0010');
+    return el ? (el.textContent ?? '').trim() : 'no element';
+  });
+  report.check(
+    'the canvas reads the two fields as one shouted line',
+    joinedCanvas === 'OVER, HOVE',
+    joinedCanvas
+  );
+
+  await publish(page);
+  const joinSite = await ctx.newPage();
+  await joinSite.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await joinSite.waitForTimeout(600);
+  const lines = await joinSite.evaluate(() =>
+    [...document.querySelectorAll('h3')].map((heading) => {
+      const said = [...(heading.parentElement?.querySelectorAll('p') ?? [])].map((one) =>
+        (one.textContent ?? '').trim()
+      );
+      return said[said.length - 1];
+    })
+  );
+  const joinMarkup = await joinSite.content();
+  await joinSite.close();
+  report.check(
+    'and the published file has it on both rows, saying something different on each',
+    lines.length === 2 && lines[0] === 'OVER, HOVE' && lines[1] === 'UNDER, LEWES',
+    lines.join(' · ')
+  );
+  report.check(
+    'with no runtime shipped for any of it',
+    !joinMarkup.includes('data-cre8-test') && !joinMarkup.includes('data-cre8-vals'),
+    `test attributes ${(joinMarkup.match(/data-cre8-test/g) ?? []).length}`
+  );
 } catch (error) {
   report.check('values suite completed', false, String(error?.message ?? error));
 } finally {

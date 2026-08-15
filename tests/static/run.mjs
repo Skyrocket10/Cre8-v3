@@ -3884,6 +3884,192 @@ report.group('a bound value can be formatted, and only where it is shown');
       );
     }
 
+    /* ------------------------------------------------------------------
+     * E7 — the text steps
+     *
+     * `First & " " & Last` is the last row of §1.5 that Bubble had and this
+     * did not. The other three are what make it compose: an excerpt is
+     * `⟨Body⟩ ⟨first 100⟩ ⟨joined with "…"⟩`, and the ellipsis landing *after*
+     * the cut is precisely what a terminal format cannot do.
+     * --------------------------------------------------------------- */
+
+    {
+      const person = {
+        id: 'p1', collectionId: 'people', position: 0, published: true,
+        data: { first: 'ada', last: 'LOVELACE', body: 'A note about engines', blank: null, rooms: 4 },
+        createdAt: 0, updatedAt: 0,
+      };
+      const says = (steps, key = 'first') => ({
+        id: 'x1', type: 'text', name: 'Name', parentId: null, children: [],
+        props: { text: 'a name' }, styles: {}, meta: {},
+        bind: { text: { value: { kind: 'field', key, steps } } },
+      });
+
+      report.check(
+        'two fields and a space become one name',
+        boundProps(
+          says([
+            { op: 'capitalize' },
+            { op: 'join', with: { kind: 'literal', type: 'text', value: ' ' } },
+            { op: 'join', with: { kind: 'field', key: 'last' } },
+          ]),
+          person
+        ).text === 'Ada LOVELACE',
+        String(
+          boundProps(
+            says([
+              { op: 'capitalize' },
+              { op: 'join', with: { kind: 'literal', type: 'text', value: ' ' } },
+              { op: 'join', with: { kind: 'field', key: 'last' } },
+            ]),
+            person
+          ).text
+        )
+      );
+      /*
+       * The excerpt, which is the case that says why these are steps and not
+       * formats: the ellipsis has to come after the cut, and a format is
+       * applied on the way to the DOM with nothing able to follow it.
+       */
+      report.check(
+        'an excerpt cuts and then puts something on the end, which no format can',
+        boundProps(
+          says(
+            [
+              { op: 'truncate', chars: 6 },
+              { op: 'join', with: { kind: 'literal', type: 'text', value: '…' } },
+            ],
+            'body'
+          ),
+          person
+        ).text === 'A note…',
+        String(
+          boundProps(
+            says([{ op: 'truncate', chars: 6 }, { op: 'join', with: { kind: 'literal', type: 'text', value: '…' } }], 'body'),
+            person
+          ).text
+        )
+      );
+      const cased = {
+        upper: boundProps(says([{ op: 'upper' }]), person).text,
+        lower: boundProps(says([{ op: 'lower' }], 'last'), person).text,
+        capitalize: boundProps(says([{ op: 'capitalize' }], 'last'), person).text,
+      };
+      report.check(
+        'the three cases each do their own thing, including to a word already shouting',
+        cased.upper === 'ADA' && cased.lower === 'lovelace' && cased.capitalize === 'Lovelace',
+        Object.entries(cased).map(([why, text]) => `${why} → ${text}`).join(' · ')
+      );
+
+      /*
+       * `null` is nothing, not the word "null".
+       *
+       * A D1 column can be NULL and `String(null)` is four letters that would
+       * be uppercased and printed. The check is on a *present* field holding
+       * null rather than an absent one, because absent is already refused by
+       * `has` and would pass this without the rule being there at all.
+       */
+      const nulls = {
+        upper: boundProps(says([{ op: 'upper' }], 'blank'), person).text,
+        joined: boundProps(
+          says([{ op: 'join', with: { kind: 'field', key: 'blank' } }]),
+          person
+        ).text,
+      };
+      report.check(
+        'a field holding null reads as nothing rather than as the word',
+        nulls.upper === '' && nulls.joined === 'ada',
+        `upper → "${nulls.upper}" · joined → "${nulls.joined}"`
+      );
+      /*
+       * And a join with nothing to join is refused, which is the same rule
+       * arithmetic follows. `⟨First⟩ joined with ⟨Lastt⟩` typed one letter
+       * wrong would otherwise publish the first name and look deliberate.
+       */
+      report.check(
+        'joining onto a field that is not there says nothing rather than half a name',
+        boundProps(says([{ op: 'join', with: { kind: 'field', key: 'middle' } }]), person).text ===
+          'a name',
+        String(boundProps(says([{ op: 'join', with: { kind: 'field', key: 'middle' } }]), person).text)
+      );
+      /*
+       * A number joined onto a label is text, and that is the one step that
+       * does not care what it was handed.
+       */
+      report.check(
+        'a number can be joined onto a word',
+        boundProps(
+          says([{ op: 'join', with: { kind: 'literal', type: 'text', value: ' rooms' } }], 'rooms'),
+          person
+        ).text === '4 rooms',
+        String(
+          boundProps(
+            says([{ op: 'join', with: { kind: 'literal', type: 'text', value: ' rooms' } }], 'rooms'),
+            person
+          ).text
+        )
+      );
+
+      /*
+       * Foldability, and the operand walk that goes with it. A join over the
+       * record folds; a join with something typed does not, and the field it
+       * reads has to be published or the runtime answers `null` for ever.
+       */
+      const joinedField = { kind: 'field', key: 'first', steps: [{ op: 'join', with: { kind: 'field', key: 'last' } }] };
+      const joinedTyped = { kind: 'field', key: 'first', steps: [{ op: 'join', with: { kind: 'input', name: 'surname' } }] };
+      report.check(
+        'a join over the record folds; a join with something typed does not',
+        schedule.foldableValue(joinedField) === true &&
+          schedule.foldableValue(joinedTyped) === false &&
+          schedule.foldableValue({ kind: 'field', key: 'first', steps: [{ op: 'upper' }] }) === true,
+        `record ${schedule.foldableValue(joinedField)} · typed ${schedule.foldableValue(joinedTyped)}`
+      );
+      {
+        const travels = {
+          kind: 'compare',
+          left: { kind: 'input', name: 'guess' },
+          op: 'eq',
+          right: joinedField,
+        };
+        const node = {
+          id: 'n7', type: 'frame', name: 'Row', parentId: null, children: [],
+          props: {}, styles: {}, meta: {},
+          state: { key: 'band', values: ['else'], initial: 'else' },
+          assign: [{ id: 'a', when: travels, value: 'match' }],
+        };
+        const shipped = tests.publishedValues(node, person);
+        report.check(
+          'the field a join reads is published, the same as an arithmetic operand',
+          shipped?.first === 'ada' && shipped?.last === 'LOVELACE',
+          `shipped ${JSON.stringify(shipped)}`
+        );
+      }
+      /*
+       * And a constant inside a join loses its tag on the wire, which is where
+       * the bytes are: a join's operand is nearly always the constant.
+       */
+      {
+        const wire = JSON.stringify(
+          tests.lowerTest({
+            kind: 'compare',
+            left: {
+              kind: 'input',
+              name: 'guess',
+              steps: [{ op: 'join', with: { kind: 'literal', type: 'text', value: '!' } }],
+            },
+            op: 'eq',
+            right: { kind: 'literal', type: 'text', value: 'a!' },
+          })
+        );
+        report.check(
+          'a constant inside a join goes out as a constant, not as a tagged one',
+          !wire.includes('literal') && wire.includes('"with":{"type":"text","value":"!"}'),
+          wire
+        );
+      }
+
+    }
+
   }
 
   /*
@@ -4508,14 +4694,23 @@ report.group('a Test the browser has to answer agrees with the one the publisher
    * real page would ship none of them. The differential exists to ask the
    * runtime the question anyway, and compare the two answers.
    */
-  const runtimeAnswer = (assign, data) => {
-    const holder = el({
-      'data-cre8-switch': 'band',
-      'data-cre8-value': 'else',
-      'data-cre8-else': 'else',
-      'data-cre8-test': 'n1',
-      'data-cre8-vals': JSON.stringify(data),
-    });
+  /**
+   * @param controls Form controls to plant inside the node, for the operand
+   *   that reads one. Empty for every caller that predates E7 — the runtime
+   *   looks a control up inside the element that owns the rule, so a holder
+   *   with no children is a page where nothing has been typed.
+   */
+  const runtimeAnswer = (assign, data, controls = []) => {
+    const holder = el(
+      {
+        'data-cre8-switch': 'band',
+        'data-cre8-value': 'else',
+        'data-cre8-else': 'else',
+        'data-cre8-test': 'n1',
+        'data-cre8-vals': JSON.stringify(data),
+      },
+      controls.map((one) => el(one))
+    );
     const root = el({}, [holder]);
     testRuntime(hostFor(root), false, {
       n1: assign.map((r) => ({ when: lowerTest(r.when), value: r.value })),
@@ -4652,6 +4847,104 @@ report.group('a Test the browser has to answer agrees with the one the publisher
       'the two evaluators reach the same sum, case for case',
       split.length === 0,
       split.length ? split.slice(0, 2).join(' | ') : `${cases.length} sums agree`
+    );
+  }
+
+  /* ----------------------------------------------------------------------
+   * E7 — the same text on both surfaces
+   * ------------------------------------------------------------------- */
+
+  /*
+   * The differential again, one family along, and the risk it covers is
+   * sharper than E5's: arithmetic is IEEE and both engines are obliged to
+   * agree, whereas `toUpperCase` and `slice` are two hand-written branches in
+   * two separately serialised functions. Nothing but this says they match.
+   *
+   * A join with a *control* is in the list because it is the only case here
+   * that the publisher genuinely cannot answer — the chain does not fold, so
+   * the publisher says "nothing decided" and the browser says "Grace hopper".
+   * Asserted as that split rather than as agreement, because agreement there
+   * would mean the scheduling rule had leaked.
+   */
+  {
+    const nameRow = { name: 'Grace', surname: 'HOPPER', blank: null };
+    const cases = [
+      [[{ op: 'upper' }], 'GRACE'],
+      [[{ op: 'lower' }], 'grace'],
+      // Shouted first, so `capitalize` has a tail to lower. `Grace` alone
+      // cannot tell a correct implementation from one that only touches the
+      // first letter, which a mutation demonstrated by passing.
+      [[{ op: 'upper' }, { op: 'capitalize' }], 'Grace'],
+      [[{ op: 'truncate', chars: 2 }], 'Gr'],
+      [[{ op: 'truncate', chars: 0 }], ''],
+      [[{ op: 'join', with: { kind: 'literal', type: 'text', value: '!' } }], 'Grace!'],
+      [[{ op: 'join', with: { kind: 'field', key: 'surname' } }], 'GraceHOPPER'],
+      [[{ op: 'join', with: { kind: 'field', key: 'blank' } }], 'Grace'],
+      [
+        [
+          { op: 'truncate', chars: 2 },
+          { op: 'upper' },
+          { op: 'join', with: { kind: 'literal', type: 'text', value: '…' } },
+        ],
+        'GR…',
+      ],
+    ];
+    const split = [];
+    for (const [steps, want] of cases) {
+      const rules = [
+        {
+          id: 't',
+          when: {
+            kind: 'compare',
+            left: { kind: 'field', key: 'name', steps },
+            op: 'eq',
+            right: { kind: 'literal', type: 'text', value: want },
+          },
+          value: 'yes',
+        },
+      ];
+      const a = publishAnswer(rules, nameRow);
+      const b = runtimeAnswer(rules, nameRow);
+      // Both have to say `yes`, not merely the same thing: two evaluators that
+      // agreed on `else` would agree about nothing at all.
+      if (a !== 'yes' || b !== 'yes') split.push(`${JSON.stringify(steps)} → ${a} vs ${b}`);
+    }
+    report.check(
+      'the two evaluators reach the same text, case for case',
+      split.length === 0 && cases.length >= 9,
+      split.length ? split.slice(0, 2).join(' | ') : `${cases.length} chains agree`
+    );
+
+    /*
+     * And the one that has to *disagree*: a join with something typed. The
+     * publisher cannot know it, so the page falls back; the browser reads the
+     * box. Both answers are correct and they are different, which is the whole
+     * of the execution model in one row.
+     */
+    const live = [
+      {
+        id: 'l',
+        when: {
+          kind: 'compare',
+          left: {
+            kind: 'field',
+            key: 'name',
+            steps: [{ op: 'join', with: { kind: 'input', name: 'typed' } }],
+          },
+          op: 'eq',
+          right: { kind: 'literal', type: 'text', value: 'Grace Hopper' },
+        },
+        value: 'yes',
+      },
+    ];
+    report.check(
+      'a join with something typed is answered in the browser and nowhere else',
+      publishAnswer(live, nameRow) === 'else' &&
+        runtimeAnswer(live, nameRow, [{ name: 'typed', value: ' Hopper' }]) === 'yes' &&
+        runtimeAnswer(live, nameRow, [{ name: 'typed', value: ' Murray' }]) === 'else',
+      `published ${publishAnswer(live, nameRow)} · ` +
+        `typed " Hopper" ${runtimeAnswer(live, nameRow, [{ name: 'typed', value: ' Hopper' }])} · ` +
+        `typed " Murray" ${runtimeAnswer(live, nameRow, [{ name: 'typed', value: ' Murray' }])}`
     );
   }
 

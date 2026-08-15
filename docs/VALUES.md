@@ -87,12 +87,20 @@ panel could say was "in total".
 | First / last of a list | `:first item` | ✔ **E4** |
 | **Filter a list inline** | `:filtered` | ✔ **E6** |
 | **Sort a list inline** | `:sorted by` | ✔ **E6** |
-| **Join text** | `First & " " & Last` | ✘ |
+| **Join text** | `First & " " & Last` | ✔ **E7** |
+| **Change case, shorten** | `:uppercase`, `:truncated` | ✔ **E7** — mid-chain, not only as a format |
 | Current User | `Current User's Email` | ✘ **and stays ✘** — see §4 |
 
-Nine of eleven when this was written, and eight of the nine were the same
-missing idea. E1 closed the first — and closed it by making both operands one
-type, which is the same idea, arriving one member at a time.
+Nine of eleven were missing when this was written, and eight of the nine were
+the same missing idea: a value could not be made out of another value. E1 to E7
+closed all eight, one member of one type at a time, and the row that is still
+✘ is the one that is a fact about the hosting model rather than a gap in the
+expression model — see §4.
+
+The two rows added since are the two that were being counted as one. "Filter a
+list" and "sort a list" are separate steps and separate sentences, and so are
+"join" and "change case": listing them together was how E6 and E7 each looked
+like one row's worth of work and turned out to be two.
 
 ---
 
@@ -297,7 +305,7 @@ unfixed code.
 | **E4** ✔ | The list head and `count`, `first`, `last` | "3 comments" from a real collection, and 0 when there are none — the empty case is the one that reads as broken |
 | **E5** ✔ | Arithmetic and `round`, in both evaluators | The same sum on the canvas and in the file, and a comparison against a typed number answered in the browser |
 | **E6** ✔ | `where` and `sortedBy` | A filtered count that differs from the unfiltered one, on the same page |
-| **E7** | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
+| **E7** ✔ | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
 | **E8** | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
 
 **E2 was the one to be most careful about, and then it turned out not to
@@ -411,19 +419,32 @@ head, and silently wrong for every count the day one was not. It asks
 collection: a count names one that nothing repeats, which is the same hole the
 reference closure filled one head along, found the same way.
 
-### 5.4 What E5 turned out to cost — 706 bytes, then 800
+### 5.4 What E5 turned out to cost — 800 source bytes, 483 on a page
 
 The first stage that makes the runtime grow, so the number comes first.
-`testRuntime` ships at **7333 bytes** before E5 and **8133 after**: +800, or
-+10.9%, on pages that carry an unfoldable test at all. That buys the whole
-travelling half of the arithmetic vocabulary — four operators, rounding, and
-operands that are themselves chains.
+`testRuntime` is **7333 bytes** of source before E5 and **8133 after**: +800,
+or +10.9%. That buys the whole travelling half of the arithmetic vocabulary —
+four operators, rounding, and operands that are themselves chains.
 
-It was +1068 before the reasoning moved. A comment inside a function that is
-serialised with `toString()` is bytes on somebody's page, so the two
-paragraphs explaining *why* the runtime refuses a step it cannot walk now sit
-above `testRuntime` rather than inside it. Same argument, 362 bytes cheaper,
-and the file already said to do this.
+**Those are source bytes, and E7 found that this section called them shipped
+ones.** A page inlines the function out of a *minified* bundle, where the same
+change is **2098 → 2581, +483**. Both numbers are real and only one of them is
+paid by a visitor. The unit is corrected here rather than the history: the
+measurements were right, the word "ships" was not. `wrangler.jsonc` already
+made the distinction — "unminified that is about 3.9 KB … minified it is
+2.3 KB" — which is exactly the kind of thing two places say differently until
+somebody measures.
+
+It was +1068 before the reasoning moved. The two paragraphs explaining *why*
+the runtime refuses a step it cannot walk now sit above `testRuntime` rather
+than inside it, on the argument that a comment inside a function serialised
+with `toString()` is bytes on somebody's page. **That argument is false, and
+the corrected unit is what shows it**: both publishers minify — the browser
+through Next, the Worker through `"minify": true` — so comments are stripped
+before either reads the source, and the 362 bytes were saved from a number
+nobody pays. Above the function is still the better place for long prose; it
+is a readability decision, not a budget one, and this file should stop
+claiming otherwise.
 
 **One spelling of a constant on the wire.** `bare` recurses into a step's
 operand, so `⟨Price⟩ × ⟨3⟩` sends `{type,value}` rather than a tagged literal.
@@ -494,6 +515,69 @@ the placeholder. The panel cannot write one today, which is exactly why no
 check caught it: the fix is the walk being right about the *model* rather than
 about the one surface that happens to write values, and it now has a check
 pointed at that claim rather than at a page nobody can build.
+
+### 5.6 What E7 turned out to cost — 398 bytes, argued before it was measured
+
+This stage's gate is the budget, so the argument comes first and the number
+after it. **Predicted: under 400 bytes. Measured: 2581 → 2979, +398, +15.4%**,
+on the minified figure §5.4 has just been corrected to use.
+
+The thing to keep in view while reading the four arguments below is that
+**the runtime is paid per page, not per use**. `testRuntime` is serialised
+whole and inlined into every page carrying an unfoldable test, so a branch is
+bought by pages that will never reach it.
+
+- **`lower` and `upper` — worth it, and the one that earns the stage.** Text
+  `eq` is exact and there is no case-insensitive equality anywhere in the
+  operator set: *only when what is typed is `yes`* fails on `Yes`, and
+  `contains` is case-insensitive but means something else. `⟨what is typed⟩
+  lowercased is ⟨yes⟩` is the fix. This is a guard people hit, not one they
+  might.
+- **`capitalize` — worth it at the margin.** Its own travelling use is thin,
+  and it sits inside branches the other two already paid for. Excluding it
+  would mean offering two of three case options over a control and having to
+  explain the gap.
+- **`truncate` — worth it, thinly.** Comparing the first N characters of
+  something typed is a real if uncommon thing (a postcode prefix, a card BIN).
+  The honest reason is the other one: the model allows the step over a
+  control, and a step that compiles and can never resolve is the failure §3.5
+  names.
+- **`join` — the weakest travelling case of the four, and included anyway.**
+  "When ⟨area code⟩ joined with ⟨number⟩ is …" is contrived. It is here
+  because the branch is a concatenation over recursion that already exists,
+  and because `join` is the step somebody is most likely to reach for over a
+  control precisely because every other tool has it.
+
+**And the honest part.** *Nothing in the panel can author a text step over a
+control today.* The chain editor lives in the Data panel, which authors
+bindings, and a binding never travels. So these branches are, right now, dead
+weight on pages that carry an unfoldable test — and so is E5's arithmetic,
+which bought its 483 bytes on the same terms. **E8 is the stage that makes
+them earn it**, because a step menu generated from the head's type is what
+puts the chain on a comparison's operand. That is a real cost sitting on real
+pages for one stage, stated rather than dressed up.
+
+**One editor for two families.** E5's arithmetic chips and E7's text chips are
+the same forty lines with a different menu, so there is one `chainChips` and
+the offered ops are a parameter. Which ops a value can do is asked of
+`FORMATS_FOR` rather than answered again — `case` is offered on exactly the
+types whose value is words, which is the same question — and richtext is
+deliberately not one of them: uppercasing markup would uppercase the tags.
+
+**`null` is nothing, not the word.** A D1 column can be NULL and `String(null)`
+is four letters that would be uppercased and printed. Both evaluators spell it
+the same way, and the check is on a *present* field holding null rather than an
+absent one — absent is already refused by `has` and would pass without the rule
+being there at all.
+
+**Two mutations found real things.** A `!` on `operandOf(step)` turned a
+disagreement between two lists into a thrown TypeError, taking the whole suite
+down instead of turning two checks red; it is now asked rather than asserted,
+so a hand-written document cannot take a publish down that way. And the
+differential's `capitalize` case used `Grace`, which cannot tell a correct
+implementation from one that only touches the first letter — it shouts first
+now. The harness itself gained the ability to tell a crashed run from a passing
+one, which is the misread that cost both rounds.
 
 ---
 
