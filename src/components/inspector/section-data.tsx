@@ -45,7 +45,15 @@ import { stateKeyOf, stateOf } from '@/lib/document/state';
 import { useEditor } from '@/lib/editor/store';
 import { Section, Select, TextInput } from '../ui/primitives';
 import { Sentence, type Part } from '../ui/sentence';
-import { bindingSentence, blankTest, filterSentence, singular, testSentence } from './sentences';
+import {
+  bindingSentence,
+  blankTest,
+  blankValue,
+  filterSentence,
+  singular,
+  testSentence,
+  valueSentence,
+} from './sentences';
 import { InspectorGroup, StyleRow } from './controls';
 import { useReadableValues } from './use-readable';
 
@@ -83,7 +91,9 @@ export function DataSection() {
           <BindControls node={node} collection={scope} collections={collections} />
         )}
         {scope && !node.repeat && <AssignControls node={node} collection={scope} />}
-        {scope && !node.repeat && <VarControls node={node} collection={scope} />}
+        {scope && !node.repeat && (
+          <VarControls node={node} collection={scope} collections={collections} />
+        )}
       </InspectorGroup>
     </Section>
   );
@@ -699,7 +709,15 @@ const EFFECT_PROPS = effectProps();
  * ordinary CSS: `opacity: var(--cre8-heat)`, written once, drawn a hundred
  * times with a hundred different numbers.
  */
-function VarControls({ node, collection }: { node: SceneNode; collection: Collection }) {
+function VarControls({
+  node,
+  collection,
+  collections,
+}: {
+  node: SceneNode;
+  collection: Collection;
+  collections: Collection[];
+}) {
   const vars = Object.entries(node.vars ?? {});
   const numbers = collection.fields.filter((f) => f.type === 'number');
   if (!numbers.length && !vars.length) return null;
@@ -717,7 +735,7 @@ function VarControls({ node, collection }: { node: SceneNode; collection: Collec
       const key = uniqueVarKey(scene, field.key);
       scene.vars = {
         ...(scene.vars ?? {}),
-        [key]: { value: { kind: 'field', key: field.key }, from: [0, 100], to: [0, 1] },
+        [key]: { value: blankValue(field), from: [0, 100], to: [0, 1] },
       };
     });
   };
@@ -755,14 +773,31 @@ function VarControls({ node, collection }: { node: SceneNode; collection: Collec
 
       {vars.map(([key, spec]) => (
         <div key={key} className="rounded border border-[var(--border-subtle)] p-1.5">
-          <StyleRow label="Value">
-            <Select
-              className="flex-1"
-              value={spec.value.kind === 'field' ? spec.value.key : ''}
-              options={numbers.map((f) => ({ value: f.key, label: f.label }))}
-              onChange={(next) => edit(key, (target) => (target.value = { kind: 'field', key: next }))}
-            />
-          </StyleRow>
+          {/*
+            The same sentence a binding writes, over the same builder.
+            §3.4 said every consumer of `Value` gets the whole vocabulary by
+            doing nothing, and this was the consumer for which that was not
+            true: a `Select` over number fields, which could only ever write
+            `{ kind: 'field' }`. `⟨Price⟩ ⟨÷ ⟨Rooms⟩⟩` mapped onto an opacity
+            was in the model and unreachable from the panel.
+
+            `needs` is what keeps it honest at the other end: a scale needs a
+            number, so the menu offers the steps that leave it one.
+          */}
+          <Sentence
+            parts={
+              valueSentence({
+                value: spec.value,
+                fields: collection.fields,
+                collections,
+                scope: collection,
+                needs: 'number',
+                keyPrefix: `${key}-`,
+                onChange: (next) =>
+                  next && edit(key, (draft) => (draft.value = next)),
+              }).parts
+            }
+          />
           <StyleRow label="From" hint="The span of the data. Anything outside it is pinned to the nearest end.">
             <NumberPair
               value={spec.from}

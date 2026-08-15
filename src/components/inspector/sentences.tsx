@@ -39,7 +39,7 @@ import type {
   Value,
 } from '@/lib/document/types';
 import { slugList } from '@/lib/document/schema';
-import { STEPS, isTransform, stepsFor, typeAfter } from '@/lib/document/steps';
+import { STEPS, isTransform, stepsKeeping, typeAfter } from '@/lib/document/steps';
 import {
   CONTROL_HINTS,
   CONTROL_LABELS,
@@ -765,6 +765,19 @@ export function blankRowTest(field: Field, scope?: Collection): Test {
 }
 
 /**
+ * The value somebody starts with: this field, read plainly.
+ *
+ * `blankTest`'s counterpart for the other half of the model, and here for the
+ * same reason it is: a `Value` is written in one place, so no panel can grow a
+ * second and narrower way of writing one. The scale panel had exactly that —
+ * a picker that could only ever mint `{ kind: 'field' }` — and a static check
+ * now says so if another appears.
+ */
+export function blankValue(field: Field): Value {
+  return { kind: 'field', key: field.key };
+}
+
+/**
  * A leaf this test does not already hold.
  *
  * Growing a condition used to seed a constant — `{ pointer: 'hover' }` from the
@@ -926,9 +939,9 @@ export function filterSentence(options: {
  * that is invisible until somebody looks at the published page, and a
  * disclosure triangle is a good place for a mistake to live.
  */
-export function bindingSentence(options: {
-  prop: string;
-  binding: Binding | undefined;
+export function valueSentence(options: {
+  /** The value being written, or nothing if none has been chosen. */
+  value: Value | undefined;
   fields: Field[];
   /**
    * Every collection, so a reference can be followed into the one it names.
@@ -941,11 +954,30 @@ export function bindingSentence(options: {
   collections?: Collection[];
   /** The collection the record in scope belongs to, for "this ⟨Post⟩". */
   scope?: Collection;
-  onBind?: (value: Value | null) => void;
-  onFormat?: (format: Format | undefined) => void;
-}): Part[] {
-  const { prop, binding, fields, collections = [], scope, onBind, onFormat } = options;
-  const held = binding?.value;
+  /**
+   * What the value has to end on, when the place holding it can only use one
+   * kind of thing.
+   *
+   * A `ValueVar` maps a *number* onto a scale, so a chain that ends on text is
+   * one that can never resolve there — §3.5's rule, applied to the place
+   * rather than to the step. Absent means anything goes, which is what a
+   * binding wants: it prints whatever it gets.
+   */
+  needs?: FieldType;
+  /** Prefix for every part key, so two sentences can share a panel. */
+  keyPrefix?: string;
+  onChange?: (value: Value | null) => void;
+}): { parts: Part[]; type: FieldType | undefined } {
+  const {
+    value: held,
+    fields,
+    collections = [],
+    scope,
+    needs,
+    keyPrefix = '',
+    onChange: onBind,
+  } = options;
+  const kp = (name: string) => `${keyPrefix}${name}`;
   const steps = held?.steps ?? [];
   /*
    * Which step turns the list into one thing, and where it is.
@@ -1003,18 +1035,16 @@ export function bindingSentence(options: {
   };
 
   const parts: Part[] = [
-    { kind: 'word', text: prop === 'text' ? 'Text' : prop, key: 'prop' },
-    { kind: 'word', text: 'reads', key: 'reads' },
     {
       kind: 'pick',
-      key: 'field',
+      key: kp('field'),
       value: source,
-      placeholder: 'what is typed here',
+      placeholder: needs ? 'a number' : 'what is typed here',
       menuWidth: 220,
       options: [
-        { value: '', label: 'what is typed here' },
-        ...fields.map((f) => ({ value: f.key, label: f.label })),
-        ...lists,
+        ...(needs ? [] : [{ value: '', label: 'what is typed here' }]),
+        ...fields.filter((f) => !needs || f.type === needs).map((f) => ({ value: f.key, label: f.label })),
+        ...(needs && needs !== 'number' ? [] : lists),
       ],
       // A new source is a new chain: the steps belonged to the old one, and a
       // `follow` left behind on a text field is a binding that resolves to
@@ -1022,7 +1052,7 @@ export function bindingSentence(options: {
       onChange: onBind && ((choice) => onBind(pickSource(choice))),
     },
   ];
-  if (!binding) return parts;
+  if (!held) return { parts, type: undefined };
 
   /*
    * What the list is narrowed to and how it is ordered, when the head is one.
@@ -1066,7 +1096,7 @@ export function bindingSentence(options: {
       : field?.type === 'reference' && field.of
         ? (collections.find((one) => one.id === field.of) ?? null)
         : null;
-  if (!field && !target) return parts;
+  if (!field && !target) return { parts, type: undefined };
   let effective = field;
   if (target?.fields.length) {
     const inner = target.fields.find((f) => f.key === followed);
@@ -1099,7 +1129,7 @@ export function bindingSentence(options: {
     });
     // A chain that stops at the record has not produced anything to print, so
     // there is nothing to format either. Said by not offering it.
-    if (!inner) return parts;
+    if (!inner) return { parts, type: undefined };
   }
 
   /*
@@ -1110,7 +1140,7 @@ export function bindingSentence(options: {
   if (!effective && held?.kind === 'records' && reducer?.op === 'count') {
     effective = { key: '', label: 'How many', type: 'number' };
   }
-  if (!effective) return parts;
+  if (!effective) return { parts, type: undefined };
 
   /*
    * What is done to the value the chain arrived at, if anything can be.
@@ -1125,22 +1155,65 @@ export function bindingSentence(options: {
    * until E8, which is the arrangement every other vocabulary in this codebase
    * has already outgrown.
    */
-  if (held) parts.push(...chainChips({ held, type: effective.type, fields, onBind }));
+  if (held) {
+    parts.push(
+      ...chainChips({ held, type: effective.type, fields, needs, keyPrefix, onBind })
+    );
+  }
+
+  /*
+   * And what the chain arrived at, which the caller needs and should not have
+   * to work out a second time. Two things ask: a binding, to know which
+   * formats to offer, and this function, to know which steps to.
+   */
+  return { parts, type: typeAfter(effective.type, held?.steps ?? []) };
+}
+
+/**
+ * `Text reads ⟨Price⟩ as ⟨currency⟩, ⟨$⟩ ⟨before it⟩, ⟨2⟩ decimals`.
+ *
+ * The prop is a word rather than a chip: it is what the row *is about*, and a
+ * binding cannot be moved from `text` to `alt` any more than a paragraph can
+ * be moved to another element by editing a dropdown. Everything the author
+ * actually chooses is a chip.
+ *
+ * A thin wrapper since E10. What a *value* looks like is `valueSentence`, and
+ * a binding is that plus two words in front and the format behind — which is
+ * the whole of the difference between a binding and any other place a `Value`
+ * lives.
+ */
+export function bindingSentence(options: {
+  prop: string;
+  binding: Binding | undefined;
+  fields: Field[];
+  collections?: Collection[];
+  scope?: Collection;
+  onBind?: (value: Value | null) => void;
+  onFormat?: (format: Format | undefined) => void;
+}): Part[] {
+  const { prop, binding, fields, collections, scope, onBind, onFormat } = options;
+  const { parts: said, type } = valueSentence({
+    value: binding?.value,
+    fields,
+    collections,
+    scope,
+    onChange: onBind,
+  });
+  const parts: Part[] = [
+    { kind: 'word', text: prop === 'text' ? 'Text' : prop, key: 'prop' },
+    { kind: 'word', text: 'reads', key: 'reads' },
+    ...said,
+  ];
+  if (!binding || !type) return parts;
 
   /*
    * The formats for what the chain *produces*, which is not always what it
-   * started on.
-   *
-   * Two things this gets right that asking `field` would not. After a follow
-   * it is the other collection's field — offering a date's formats for a
-   * reference is what the old spelling did. And after a text step it is text:
-   * `⟨Price⟩ ⟨joined with " per month"⟩` is a sentence, and a currency format
-   * applied to a sentence is a decoration on the wrong thing.
+   * started on. After a follow it is the other collection's field; after a
+   * text step it is text, and a currency format applied to a sentence is a
+   * decoration on the wrong thing.
    */
-  const ended = typeAfter(effective.type, held?.steps ?? []);
-  const kinds = formatsFor(prop, ended ? { ...effective, type: ended } : effective);
+  const kinds = formatsFor(prop, { key: '', label: '', type });
   if (!kinds.length) return parts;
-
   parts.push({ kind: 'word', text: 'as', key: 'as' });
   parts.push(
     ...formatChips({
@@ -1151,6 +1224,7 @@ export function bindingSentence(options: {
     })
   );
   return parts;
+
 }
 
 /**
@@ -1309,10 +1383,21 @@ function chainChips(options: {
   /** The type the chain arrives at this editor holding. */
   type: FieldType | undefined;
   fields: Field[];
+  /**
+   * What the place holding this value can use, when it can only use one kind.
+   *
+   * Narrows the menu to the steps that leave the type usable — arithmetic and
+   * rounding for a scale, which needs a number at the end. §3.5 again: a
+   * `joined with` on a value that has to be a number is a step that compiles
+   * and can never resolve, and it is the *place* that makes it so rather than
+   * the type in hand.
+   */
+  needs?: FieldType;
   keyPrefix?: string;
   onBind?: (value: Value | null) => void;
 }): Part[] {
-  const { held, type, fields, keyPrefix = '', onBind } = options;
+  const { held, type, fields, needs, keyPrefix = '', onBind } = options;
+
   const steps = held.steps ?? [];
   const chain = steps.filter(isTransform);
   const before = steps.filter((step) => !isTransform(step));
@@ -1331,7 +1416,7 @@ function chainChips(options: {
      * the value is text, so the step after it is offered text's vocabulary
      * even though the chain started on a number.
      */
-    const offered = stepsFor(typeAfter(type, chain.slice(0, index)));
+    const offered = stepsKeeping(typeAfter(type, chain.slice(0, index)), needs);
     parts.push({
       kind: 'pick',
       key: k(`op${index}`),
@@ -1422,7 +1507,7 @@ function chainChips(options: {
    * `+` makes. Empty for a type with no steps — a boolean, an image — so the
    * button is absent rather than present and useless.
    */
-  const next = stepsFor(typeAfter(type, chain));
+  const next = stepsKeeping(typeAfter(type, chain), needs);
   const arithmetic = next.includes('times');
   if (onBind && next.length && chain.length < 3) {
     parts.push({

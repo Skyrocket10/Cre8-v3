@@ -1581,6 +1581,122 @@ try {
       ? 'a formatted step travelled'
       : `${(moneyMarkup.match(/data-cre8-test/g) ?? []).length} test attributes, none of them this`
   );
+  /* ----------------------- 11. E10: every place a Value lives can say one */
+
+  /*
+   * §3.4 said every consumer of `Value` gets the whole vocabulary by doing
+   * nothing. For a `ValueVar` that was false twice over: the panel was a
+   * `Select` over number fields, and `varsFor` read `record.data[key]`
+   * directly. Nine stages of vocabulary reached neither.
+   *
+   * So: `⟨Price⟩ ⟨÷ ⟨Rooms⟩⟩` mapped onto an opacity, authored in the panel,
+   * with two rows coming out at different numbers — 900000÷4 and 900000÷5
+   * against the same scale. A bare field could not separate them, because both
+   * rows have the same price.
+   */
+  {
+    const d = await getDocument(page, projectId);
+    await saveDocument(page, d);
+  }
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('.cre8-frame.cre8-editing', { timeout: READY_TIMEOUT });
+  await page.waitForTimeout(1500);
+  if (!(await page.locator('[data-layer-row]').first().isVisible().catch(() => false))) {
+    await page.locator('button[aria-label="Layers"]').first().click();
+    await page.waitForTimeout(400);
+  }
+  await page.locator('[data-layer-row]:has-text("Listing card")').first().click();
+  await page.waitForTimeout(500);
+  await openInspectorSection(page, 'Data');
+  await page.waitForTimeout(400);
+
+  const scalePanel = page.locator('aside').last();
+  await scalePanel.getByRole('button', { name: '+ Value' }).first().click();
+  await page.waitForTimeout(600);
+
+  /*
+   * The scale's own sentence, which is the same builder a binding uses — and
+   * the menu it offers is narrowed by what a scale can *use*: a number, so no
+   * `joined with` and no `written as`, both of which would compile here and
+   * never resolve.
+   */
+  const scaleRow = scalePanel.locator('[data-sentence]').last();
+  await scaleRow.getByRole('button', { name: '+ maths' }).first().click();
+  await page.waitForTimeout(500);
+  await scaleRow.getByRole('button', { name: '×', exact: true }).first().click();
+  await page.waitForTimeout(300);
+  const scaleMenu = (await page.locator('.anim-pop').last().innerText().catch(() => ''))
+    .split('\n')
+    .map((one) => one.trim())
+    .filter(Boolean);
+  report.check(
+    'a scale offers the steps that leave it a number, and not the ones that do not',
+    scaleMenu.includes('×') &&
+      scaleMenu.includes('rounded to') &&
+      !scaleMenu.includes('joined with') &&
+      !scaleMenu.includes('written as'),
+    scaleMenu.join(' · ') || 'nothing offered'
+  );
+  await page.getByRole('button', { name: '÷', exact: true }).last().click();
+  await page.waitForTimeout(500);
+  await scaleRow.getByRole('button', { name: 'Use a number from the record' }).first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'Rooms', exact: true }).last().click();
+  await page.waitForTimeout(600);
+
+  const withScale = await getDocument(page, projectId);
+  const spec = Object.values(withScale.nodes.crdval0002.vars ?? {})[0];
+  report.check(
+    'the scale reads a chain, which its picker could never write before',
+    spec?.value?.kind === 'field' &&
+      spec.value.key === 'price' &&
+      spec.value.steps?.[0]?.op === 'over' &&
+      spec.value.steps[0].by?.key === 'rooms',
+    JSON.stringify(spec?.value ?? null)
+  );
+
+  /*
+   * `from` defaults to [0, 100], which every row overshoots — so the scale is
+   * pointed at the span the data actually covers before anything is measured.
+   * Written straight to the document: the two number pairs are ordinary
+   * inputs that predate this stage and are not what is under test.
+   */
+  let scaleKey = '';
+  {
+    const d = await getDocument(page, projectId);
+    scaleKey = Object.keys(d.nodes.crdval0002.vars ?? {})[0] ?? '';
+    if (scaleKey) d.nodes.crdval0002.vars[scaleKey].from = [0, 300000];
+    // The card styles itself with whatever the panel named the property —
+    // read out rather than assumed, because `+ Value` names it after the
+    // field and a check that guessed would be checking its own guess.
+    d.nodes.crdval0002.styles.desktop = {
+      ...d.nodes.crdval0002.styles.desktop,
+      opacity: `var(--cre8-${scaleKey})`,
+    };
+    await saveDocument(page, d);
+  }
+
+  await publish(page);
+  const fadeSite = await ctx.newPage();
+  await fadeSite.goto(`${APP}/s/${projectId}/`, { waitUntil: 'domcontentloaded' });
+  await fadeSite.waitForTimeout(600);
+  const fades = await fadeSite.evaluate(
+    (key) =>
+      [...document.querySelectorAll('h3')].map(
+        (heading) =>
+          (heading.parentElement?.getAttribute('style') ?? '').match(
+            new RegExp(`--cre8-${key}:\\s*([\\d.]+)`)
+          )?.[1]
+      ),
+    scaleKey
+  );
+  await fadeSite.close();
+  report.check(
+    'and the two rows come out at different numbers, which the same price could not do',
+    fades.length === 2 && fades[0] === '0.75' && fades[1] === '0.6',
+    fades.join(' · ') || 'no custom property on either row'
+  );
 } catch (error) {
   report.check('values suite completed', false, String(error?.message ?? error));
 } finally {

@@ -606,7 +606,8 @@ export function describeElement(
       node
     ),
     node,
-    options.record ?? null
+    options.record ?? null,
+    options.find
   );
 }
 
@@ -662,10 +663,11 @@ function applyRange(model: ElementModel, node: SceneNode): ElementModel {
 function applyVars(
   model: ElementModel,
   node: SceneNode,
-  record: CollectionRecord | null
+  record: CollectionRecord | null,
+  find: FindRecord | undefined
 ): ElementModel {
   if (!node.vars) return model;
-  for (const [property, value] of Object.entries(varsFor(node, record))) {
+  for (const [property, value] of Object.entries(varsFor(node, record, find))) {
     model.attrs.style = mergeStyle(model.attrs.style, `${property}:${value}`);
   }
   return model;

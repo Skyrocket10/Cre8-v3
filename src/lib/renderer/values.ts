@@ -32,6 +32,7 @@
 import type { CollectionRecord, SceneNode, ValueVar } from '../document/types';
 import { slug } from '../document/schema';
 import { RANGE_VAR_PREFIX } from '../runtime/behaviour';
+import { resolveValue, type FindRecord } from '../document/schedule';
 
 /**
  * `raw` mapped from the declared input span onto the output span.
@@ -86,12 +87,36 @@ export function varText(value: number, decimals = 3): string {
  * value time on exactly the rows with missing data, and a card that loses its
  * opacity rule is a stranger bug than one that fades to the declared floor.
  */
-export function varsFor(node: SceneNode, record: CollectionRecord | null): Record<string, string> {
+export function varsFor(
+  node: SceneNode,
+  record: CollectionRecord | null,
+  find?: FindRecord
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, spec] of Object.entries(node.vars ?? {})) {
     const name = slug(key);
-    if (!name || spec.value.kind !== 'field') continue;
-    const raw = record ? record.data[spec.value.key] : undefined;
+    if (!name) continue;
+    /*
+     * Through `resolveValue`, which walks the chain.
+     *
+     * This read `record.data[spec.value.key]` and skipped anything that was
+     * not a bare field — which was the whole of a `Value` when a `Value` was
+     * one leaf, and is the same line `boundProps` had until E3. It survived
+     * nine stages of the value model because the panel could not write
+     * anything else either, so nothing ever arrived here to be dropped. E10
+     * gave the panel the sentence and this is the other half: `⟨Price⟩ ⟨÷
+     * ⟨Rooms⟩⟩` on a scale needs one resolver, not a special case.
+     */
+    const held = resolveValue(spec.value, record, find);
+    /*
+     * And it is emitted either way, which is the one thing that differs from a
+     * binding. A binding leaves the design-time text alone when it cannot
+     * resolve; a custom property that is *sometimes absent* makes the
+     * declaration invalid at computed-value time on exactly the rows with
+     * missing data — see the note above. So an unresolvable chain lands on the
+     * declared fallback, which is what `mapNumber` does with nothing.
+     */
+    const raw = held?.has ? held.raw : undefined;
     out[`${RANGE_VAR_PREFIX}${name}`] = varText(mapNumber(raw, spec), spec.decimals);
   }
   return out;

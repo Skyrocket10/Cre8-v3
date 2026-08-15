@@ -4362,6 +4362,117 @@ report.group('a bound value can be formatted, and only where it is shown');
         'undecidable on both surfaces, like every other unauthorable chain'
       );
     }
+
+    /* ------------------------------------------------------------------
+     * E10 — every place a Value lives can say one
+     *
+     * §3.4 claimed "every consumer of `Value` gets the whole vocabulary by
+     * doing nothing", and for one consumer that was false in two places at
+     * once: the panel for a `ValueVar` was a `Select` over number fields, and
+     * `varsFor` read `record.data[key]` directly and skipped anything that was
+     * not a bare field. Nine stages of vocabulary reached neither.
+     * --------------------------------------------------------------- */
+
+    {
+      const scaled = {
+        id: 'sc1', collectionId: 'homes', position: 0, published: true,
+        data: { price: 900000, rooms: 4 }, createdAt: 0, updatedAt: 0,
+      };
+      const card = (value) => ({
+        id: 'v1', type: 'frame', name: 'Card', parentId: null, children: [],
+        props: {}, styles: {}, meta: {},
+        vars: { fade: { value, from: [0, 300000], to: [0, 1], decimals: 3 } },
+      });
+
+      report.check(
+        'a number on a scale can be a chain, not only a field',
+        values.varsFor(
+          card({ kind: 'field', key: 'price', steps: [{ op: 'over', by: { kind: 'field', key: 'rooms' } }] }),
+          scaled
+        )['--cre8-fade'] === '0.75',
+        JSON.stringify(
+          values.varsFor(
+            card({ kind: 'field', key: 'price', steps: [{ op: 'over', by: { kind: 'field', key: 'rooms' } }] }),
+            scaled
+          )
+        )
+      );
+      /*
+       * The bare field still works, which is what says this is a widening
+       * rather than a replacement — every stored document holds one of these.
+       */
+      report.check(
+        'and a bare field still maps the way it always did',
+        values.varsFor(card({ kind: 'field', key: 'price' }), scaled)['--cre8-fade'] === '1',
+        values.varsFor(card({ kind: 'field', key: 'price' }), scaled)['--cre8-fade']
+      );
+      /*
+       * And it is emitted either way, which is the one thing a scale does
+       * differently from a binding. A binding that cannot resolve leaves the
+       * design-time text alone; a custom property that is *sometimes absent*
+       * makes the declaration invalid at computed-value time on exactly the
+       * rows with missing data — so an unresolvable chain lands on the
+       * declared fallback rather than vanishing.
+       */
+      const unresolvable = values.varsFor(
+        card({ kind: 'field', key: 'price', steps: [{ op: 'over', by: { kind: 'field', key: 'missing' } }] }),
+        scaled
+      );
+      report.check(
+        'a scale that cannot resolve still writes its fallback, because a missing property is worse',
+        unresolvable['--cre8-fade'] === '0',
+        JSON.stringify(unresolvable)
+      );
+
+      /*
+       * What the place needs, which is the other half of §3.5. A scale maps a
+       * number, so the steps offered are the ones that leave it one — asked of
+       * the vocabulary rather than answered in the panel, which is what makes
+       * it checkable at all.
+       */
+      const forScale = stepLib.stepsKeeping('number', 'number');
+      report.check(
+        'a scale is offered the steps that leave it a number, and not the ones that do not',
+        forScale.includes('times') &&
+          forScale.includes('round') &&
+          !forScale.includes('join') &&
+          !forScale.includes('formatted') &&
+          stepLib.stepsKeeping('number', undefined).includes('join'),
+        `needs a number: ${forScale.join(' ')}`
+      );
+
+      /*
+       * The structural claim, and the one that would have caught this in the
+       * first place. A `Value` is minted in exactly one file — the sentence
+       * builders — so a panel cannot grow a second, narrower way of writing
+       * one. That is precisely what the scale panel had done: a `Select` that
+       * could only ever write `{ kind: 'field' }`.
+       *
+       * Matched on the shape a Value has, not on the two words: the context
+       * menu in the Collections panel says `kind: 'field'` about something
+       * else entirely, and a check that could not tell them apart would be one
+       * nobody could keep passing.
+       */
+      const minted = [];
+      const sweepPanels = (dir) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            sweepPanels(full);
+            continue;
+          }
+          if (!/\.tsx?$/.test(entry.name)) continue;
+          const text = readFileSync(full, 'utf8');
+          if (/kind: 'field',\s*key:/.test(text)) minted.push(path.relative(ROOT, full));
+        }
+      };
+      sweepPanels(path.join(ROOT, 'src/components'));
+      report.check(
+        'a Value is written in one place in the panel, so no surface can grow a narrower one',
+        minted.length === 1 && minted[0] === 'src/components/inspector/sentences.tsx',
+        minted.join(', ') || 'none'
+      );
+    }
   }
 
   /*

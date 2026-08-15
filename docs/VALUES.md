@@ -259,6 +259,14 @@ Nothing changes shape:
 Every consumer of `Value` gets the whole vocabulary by doing nothing, which is
 what makes this a change to one type rather than a change to a product.
 
+**That was false for one of them until E10, in two places at once.** A
+`ValueVar`'s panel was a `Select` over number fields, and `varsFor` read
+`record.data[key]` and skipped anything that was not a bare field. Nine stages
+of vocabulary reached neither, and nothing noticed because the two halves
+agreed: the panel could not write a chain, so the renderer never met one. See
+§5.9 — "gets it by doing nothing" is a claim about a *type*, and it is worth
+being clear that a type cannot make a panel offer anything.
+
 ### 3.5 The sentence
 
 `testSentence` already renders a source chip, an operator chip and an operand.
@@ -309,6 +317,7 @@ unfixed code.
 | **E7** ✔ | Text steps and `join` | And the runtime budget argument for each, stated before the number moves |
 | **E8** ✔ | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
 | **E9** ✔ | `formatted`: format, then use it | `£900,000.00 per month` on the page — a suffix on a formatted number, which a terminal format cannot produce |
+| **E10** ✔ | Every place a `Value` lives can say one | Two rows at different opacities from one scale, when both rows have the same price |
 
 **E9 was not in this table.** The plan stopped at E8, and the stage after it was
 chosen from what the work had surfaced rather than from a list: E7 hit the
@@ -673,6 +682,46 @@ after the step landed. The claim narrowed rather than the check being widened
 to fit: two callers, both named, and `runtime/behaviour.ts` explicitly not one
 of them, because a second implementation of `£1,234.50` is how the canvas and
 the browser come to disagree about a price.
+
+### 5.9 What E10 turned out to cost — one builder, and a claim made true
+
+Not a capability stage. §3.4 claimed every consumer of `Value` gets the whole
+vocabulary by doing nothing, and E10 is that claim being made true rather than
+repeated.
+
+**Two halves, both wrong, agreeing with each other.** The scale panel was a
+`Select` over number fields that could only ever write `{ kind: 'field' }`, and
+`varsFor` read `record.data[spec.value.key]` directly and `continue`d past
+anything else — the same line `boundProps` had until E3. Neither was noticed
+for nine stages *because they matched*: nothing could author a chain, so
+nothing ever arrived to be dropped. Two bugs cancelling out is the shape that
+survives longest, and the only thing that finds it is asking the model what it
+allows rather than asking the product what it does.
+
+**One builder renders a `Value` now.** `valueSentence` is the source chip, the
+list clauses, the `→` chip and the chain; `bindingSentence` is that plus two
+words in front and the format behind. So the scale gets the whole sentence by
+calling one function, and the next place that holds a `Value` will too.
+
+**And a check that would have caught it.** A `Value` is minted in exactly one
+file — the sentence builders — and a source scan says so. It failed on the
+first run against a second minting site nobody had thought about: the `+ Value`
+button's seed. `blankValue` is that seed now, next to `blankTest`, for the
+reason `blankTest` is there.
+
+**`needs` is §3.5 pointed at the place rather than the value.** A scale maps a
+*number*, so `joined with` and `written as` are steps that would compile there
+and never resolve — offered nowhere near it. Asked of the vocabulary
+(`stepsKeeping`) rather than answered in the panel, which is what makes it
+checkable at all.
+
+**One thing a scale does differently from a binding, and it is not a
+compromise.** A binding that cannot resolve leaves the design-time text alone.
+A custom property that is *sometimes absent* makes the whole declaration
+invalid at computed-value time on exactly the rows with missing data — a card
+that loses its opacity rule is a stranger bug than one that fades to the
+declared floor. So a scale always writes something, and an unresolvable chain
+lands on the fallback.
 
 ---
 

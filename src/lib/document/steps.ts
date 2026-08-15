@@ -136,6 +136,24 @@ export function stepsFor(type: FieldType | undefined): Step['op'][] {
 }
 
 /**
+ * The steps that leave the value usable where it is going.
+ *
+ * `stepsFor` answers "what can this type do"; this answers the other half of
+ * §3.5, which is about the *place* rather than the value: a `ValueVar` maps a
+ * number onto a scale, so `joined with` is a step that would compile there and
+ * never resolve. A binding needs nothing in particular and asks `stepsFor`.
+ *
+ * A step with no `to` leaves the type alone, so it keeps whatever was needed.
+ */
+export function stepsKeeping(
+  type: FieldType | undefined,
+  needs: FieldType | undefined
+): Step['op'][] {
+  const offered = stepsFor(type);
+  return needs ? offered.filter((op) => (STEPS[op].to ?? needs) === needs) : offered;
+}
+
+/**
  * What the value is once these steps have run.
  *
  * Only the scalar steps move the type; a `follow` or a `count` has already
