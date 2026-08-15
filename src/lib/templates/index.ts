@@ -1769,7 +1769,7 @@ const ESSAYS: SeedRow[] = [
     slug: 'the-city-as-an-interface',
     data: {
       title: 'The city as an interface',
-      readingTime: '12 min',
+      minutes: 12,
       excerpt:
         'What wayfinding in Tokyo stations can teach anyone designing a navigation system.',
       body:
@@ -1782,7 +1782,7 @@ const ESSAYS: SeedRow[] = [
     slug: 'everything-is-a-queue',
     data: {
       title: 'Everything is a queue',
-      readingTime: '9 min',
+      minutes: 9,
       excerpt:
         'Queues explain more about software behaviour than almost any other abstraction.',
       body:
@@ -1795,7 +1795,7 @@ const ESSAYS: SeedRow[] = [
     slug: 'in-praise-of-the-boring-stack',
     data: {
       title: 'In praise of the boring stack',
-      readingTime: '7 min',
+      minutes: 7,
       excerpt:
         'The most interesting products are usually built on the least interesting technology.',
       body:
@@ -1807,7 +1807,7 @@ const ESSAYS: SeedRow[] = [
     slug: 'attention-is-not-a-resource',
     data: {
       title: 'Attention is not a resource',
-      readingTime: '14 min',
+      minutes: 14,
       excerpt: 'The metaphor we use for focus is wrong, and it is making our tools worse.',
       body:
         '<p>Treating attention as a budget suggests it can be spent carefully and topped up overnight. It behaves far more like a fire: hard to start, easy to smother, and it does not resume where it stopped.</p>' +
@@ -1819,7 +1819,7 @@ const ESSAYS: SeedRow[] = [
     slug: 'notes-on-writing-in-public',
     data: {
       title: 'Notes on writing in public',
-      readingTime: '6 min',
+      minutes: 6,
       excerpt: 'Five years of publishing unfinished thinking, and what it actually cost.',
       body:
         '<p>The benefit is real and the cost is specific: you stop being able to change your mind quietly. Everything you thought is still there, in order, with dates on it.</p>',
@@ -1830,7 +1830,7 @@ const ESSAYS: SeedRow[] = [
     slug: 'the-second-system-revisited',
     data: {
       title: 'The second system, revisited',
-      readingTime: '11 min',
+      minutes: 11,
       excerpt: 'Brooks was right, but not for the reason everyone quotes.',
       body:
         '<p>The second system is not bloated because its architect is arrogant. It is bloated because, for the first time, they know every requirement the first system failed to meet — and none of the constraints that made those failures reasonable.</p>',
@@ -1874,7 +1874,7 @@ const blog: TemplateDefinition = {
           fields: [
             { key: 'title', label: 'Title', type: 'text', required: true },
             { key: 'excerpt', label: 'Excerpt', type: 'text' },
-            { key: 'readingTime', label: 'Reading time', type: 'text' },
+            { key: 'minutes', label: 'Minutes', type: 'number' },
             { key: 'body', label: 'Body', type: 'richtext' },
           ],
         },
@@ -1906,8 +1906,49 @@ const blog: TemplateDefinition = {
               feedBlock({
                 name: 'Latest',
                 title: 'Latest essays',
+                /*
+                 * The count, which cannot go stale. Six today and twenty next
+                 * year, and nobody has to remember to edit the line — the
+                 * sentence reads it off the collection the grid below repeats.
+                 * The typed copy is what the canvas draws before there is
+                 * anything to count.
+                 */
+                intro: {
+                  text: 'Six essays so far. Something long every other Thursday.',
+                  reads: {
+                    kind: 'records',
+                    collection: ids.Essays ?? '',
+                    steps: [
+                      { op: 'count' },
+                      {
+                        op: 'join',
+                        with: {
+                          kind: 'literal',
+                          type: 'text',
+                          value: ' essays so far. Something long every other Thursday.',
+                        },
+                      },
+                    ],
+                  },
+                },
                 collection: ids.Essays ?? '',
                 detail: pageRef('essays'),
+                /*
+                 * `⟨Minutes⟩ ⟨joined with " min read"⟩`, which is the label
+                 * living in the design rather than in six records. It used to
+                 * be a text field holding "12 min", so the words were content:
+                 * changing them meant editing every essay, and the number
+                 * could not be sorted or compared because it was not one.
+                 */
+                fields: {
+                  meta: {
+                    kind: 'field',
+                    key: 'minutes',
+                    steps: [
+                      { op: 'join', with: { kind: 'literal', type: 'text', value: ' min read' } },
+                    ],
+                  },
+                },
                 columns: 2,
                 // Four to a page, so six essays publish two files rather than
                 // one long one — and so the template exercises the paging a
@@ -1978,7 +2019,19 @@ const blog: TemplateDefinition = {
               cta: { label: 'Subscribe', jumpTo: 'Call to action' },
               sticky: false,
             }),
-            articleBlock(`${pageRef('')}#essays`),
+            // The same sentence the card says, so the two pages cannot drift
+            // about what "12 min read" is made of.
+            articleBlock(`${pageRef('')}#essays`, {
+              fields: {
+                meta: {
+                  kind: 'field',
+                  key: 'minutes',
+                  steps: [
+                    { op: 'join', with: { kind: 'literal', type: 'text', value: ' min read' } },
+                  ],
+                },
+              },
+            }),
             footerBlock('The Long Field', 'Essays on software, cities and attention.', [
               {
                 title: 'Read',

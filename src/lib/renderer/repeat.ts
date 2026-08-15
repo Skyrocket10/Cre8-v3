@@ -196,7 +196,23 @@ export function boundProps(
   find?: FindRecord
 ): NodeProps {
   const bind = node.bind;
-  if (!record || !bind) return base;
+  /*
+   * No `record` check, and that is the fix E4 needed and did not get.
+   *
+   * This read `if (!record || !bind) return base`, which was right for as long
+   * as every binding read the record in scope. A `records` head does not:
+   * "how many essays" is a fact about a *collection*, the panel offers it on a
+   * page with no record at all, and the section header that says it sits
+   * outside the repeater by construction. So the early return silently dropped
+   * exactly the binding E4 exists for, and nothing noticed for six stages
+   * because no template said one.
+   *
+   * Nothing else changes. `resolveValue` answers `null` for a `field` head
+   * with no record, so a binding that does need one is skipped exactly as it
+   * was — including the design-time template row, which is the case that made
+   * the old guard look correct.
+   */
+  if (!bind) return base;
 
   let out: NodeProps | null = null;
   for (const [prop, entry] of Object.entries(bind)) {

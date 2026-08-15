@@ -434,10 +434,59 @@ try {
     essay.ok && /<h1[^>]*>The city as an interface</.test(essayHtml),
     `HTTP ${essay.status}`
   );
+  /*
+   * And the value model, on the first page anybody sees.
+   *
+   * Nine stages of vocabulary and the templates used none of it, which meant
+   * the whole of it was demonstrated only in a test. Two sentences in the
+   * essay template say it now, and both are things the page could not have
+   * said before:
+   *
+   *   `⟨How many Essays⟩ ⟨joined with " essays so far…"⟩`
+   *   `⟨Minutes⟩ ⟨joined with " min read"⟩`
+   *
+   * The first is checked against the *typed* copy as much as against the
+   * computed one: the design-time line says "Six essays so far" in words, so a
+   * count that failed to resolve would leave a sentence that reads perfectly
+   * and is a constant. Finding the digit and not the word is what says the
+   * chain ran.
+   */
+  report.check(
+    'the index counts its own essays rather than saying a number somebody typed',
+    index.includes('6 essays so far') && !index.includes('Six essays so far'),
+    index.includes('6 essays so far')
+      ? 'the count resolved'
+      : 'the typed copy published — the chain did not resolve'
+  );
+  /*
+   * And the label that used to be content. `readingTime` was a *text* field
+   * holding "12 min", so the words lived in six records: changing them meant
+   * editing every essay, and the number could not be sorted or compared
+   * because it was not one. It is `minutes: 12` now, with " min read" in the
+   * design.
+   */
+  report.check(
+    'a card reads the number and puts the words on in the design',
+    index.includes('12 min read') && index.includes('9 min read'),
+    // Two numbers, not one: the design-time copy on the card is also
+    // "12 min read", so finding that alone proves nothing. A chain that did
+    // not resolve prints the same placeholder on all six cards and never
+    // reaches 9 — which is exactly what the mutation that breaks it does.
+    [12, 9, 7, 14].filter((n) => index.includes(`${n} min read`)).join(', ') || 'none of them'
+  );
+
   report.check(
     'with the essay itself on it, not the design-time placeholder',
     essayHtml.includes('Shinjuku') && !essayHtml.includes('The essay title'),
     essayHtml.includes('Shinjuku') ? 'the record’s body' : 'placeholder copy published'
+  );
+
+  // The same sentence on the essay's own page, because the two pages read one
+  // chain rather than two spellings of it.
+  report.check(
+    'and the same reading time, from the same chain, on the essay’s own page',
+    essayHtml.includes('12 min read'),
+    essayHtml.includes('12 min read') ? 'joined here too' : 'the detail page says something else'
   );
 } catch (error) {
   report.check('the suite ran to the end', false, String(error?.stack ?? error));

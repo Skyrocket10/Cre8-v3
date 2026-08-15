@@ -318,6 +318,7 @@ unfixed code.
 | **E8** ✔ | The step menu, generated from the head's type | Offer a step the head cannot do and watch it never resolve |
 | **E9** ✔ | `formatted`: format, then use it | `£900,000.00 per month` on the page — a suffix on a formatted number, which a terminal format cannot produce |
 | **E10** ✔ | Every place a `Value` lives can say one | Two rows at different opacities from one scale, when both rows have the same price |
+| **E11** ✔ | The first page anybody sees says one | The essay index counts its own essays — the digit, not the word somebody typed |
 
 **E9 was not in this table.** The plan stopped at E8, and the stage after it was
 chosen from what the work had surfaced rather than from a list: E7 hit the
@@ -722,6 +723,48 @@ invalid at computed-value time on exactly the rows with missing data — a card
 that loses its opacity rule is a stranger bug than one that fades to the
 declared floor. So a scale always writes something, and an unresolvable chain
 lands on the fallback.
+
+### 5.10 What E11 turned out to cost — one node, and the bug ten stages hid
+
+Ten stages of vocabulary and the ten shipped templates used none of it, which
+meant the whole of it was demonstrated only in a test. The essay template says
+two things now, and both are things the page could not have said before:
+
+> `⟨How many Essays⟩ ⟨joined with " essays so far…"⟩`
+> `⟨Minutes⟩ ⟨joined with " min read"⟩`
+
+**Neither is decoration.** The count cannot go stale — six today and twenty
+next year, and nobody has to remember to edit the line. And `readingTime` was a
+*text* field holding `"12 min"`, so the words were content: changing them meant
+editing six records, and the number could not be sorted or compared because it
+was not one. It is `minutes: 12` with the label in the design.
+
+**The byte gate moved for the first time in the arc, and by one node.** With
+the ids normalised the whole diff is the added paragraph and one grouped-selector
+line — the intro node's declarations now share a rule with another node's, which
+is the publish-time grouping doing its job. 951,141 → 951,234 bytes, re-baselined
+deliberately rather than quietly.
+
+**And then the real finding.** The count published as the *typed* copy, because
+`boundProps` began `if (!record || !bind) return base`. That was right for as
+long as every binding read the record in scope — and a `records` head does not.
+"How many essays" is a fact about a collection, the panel offers it on a page
+with no record at all, and a section header sits outside the repeater by
+construction. So the early return silently dropped exactly the binding E4
+exists for, and **nothing noticed for six stages because no template said one.**
+
+That is the argument for this stage in one sentence. Every check E4 through E10
+wrote put a record in scope, because a test that is building a repeater has one
+to hand. The first page that asked the question the feature was built for asked
+it from the one place the code could not answer. A capability nothing uses is
+not a capability that works — it is one nobody has tried.
+
+**Two slots in the kit learned the model, and no more than two.** `Copy` lets a
+section header read itself; `Reads` lets a card's meta line be a chain instead
+of a field name. Both are `string | …` unions, so every other caller is
+untouched. The other text slots stay typed strings, and widening four blocks'
+`sectionHeader` for one line would have been the wrong trade — recorded here as
+the next thing if templates are to speak the model more widely.
 
 ---
 

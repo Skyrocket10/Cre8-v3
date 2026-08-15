@@ -3469,6 +3469,45 @@ report.group('a bound value can be formatted, and only where it is shown');
       boundProps(counter, post, undefined, three).text === 3,
       `3 published + 1 draft → ${boundProps(counter, post, undefined, three).text}`
     );
+    /*
+     * And a count with *no record in scope at all*, which is where a real page
+     * puts one.
+     *
+     * A section header saying "6 essays so far" sits outside the repeater by
+     * construction — that is what a section header is — so the record is
+     * `null` and there never was one to wait for. `boundProps` returned early
+     * on exactly that case until the essay template tried to say it, which is
+     * six stages of a capability being unreachable in the one place anybody
+     * would reach for it.
+     */
+    report.check(
+      'a count resolves with no record in scope, which is where a section header sits',
+      boundProps(counter, null, undefined, three).text === 3,
+      String(boundProps(counter, null, undefined, three).text)
+    );
+    /*
+     * And the design-time row still shows its placeholder, which is the case
+     * that made the old guard look right: a binding that needs a record is
+     * skipped by the resolver rather than by an early return.
+     */
+    report.check(
+      'and a field with no record in scope still leaves the design-time text alone',
+      boundProps(
+        { ...counter, bind: { text: { value: { kind: 'field', key: 'title' } } } },
+        null,
+        undefined,
+        three
+      ).text === 'some comments',
+      String(
+        boundProps(
+          { ...counter, bind: { text: { value: { kind: 'field', key: 'title' } } } },
+          null,
+          undefined,
+          three
+        ).text
+      )
+    );
+
     report.check(
       'and a surface with no records to count says nothing rather than nought',
       boundProps(counter, post).text === 'some comments',

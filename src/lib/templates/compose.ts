@@ -10,7 +10,7 @@
 import type { NodeSpec } from '../document/factory';
 // Peer module, no cycle: `kit` imports only from `document/` and `runtime/`.
 import { asLink, goesTo, type BlockLink } from './blocks/kit';
-import type { ResponsiveStyles, StyleDecl } from '../document/types';
+import type { Binding, ResponsiveStyles, StyleDecl, Value } from '../document/types';
 
 /* --------------------------------------------------------------------------
  * Primitives
@@ -460,10 +460,45 @@ export function heroBlock({
  * Section header
  * ----------------------------------------------------------------------- */
 
+/**
+ * A line of copy, or a line of copy that reads itself off the data.
+ *
+ * Every text slot in this kit is a typed string, which was right for as long
+ * as a value was a field of a record in scope — a section header sits *outside*
+ * the repeater, so there was no record for it to read. A `records` head has no
+ * such problem, and "six essays so far" is exactly the kind of line that is
+ * true on the day it is written and wrong a fortnight later.
+ *
+ * The typed half is not a fallback in the apologetic sense: it is what the
+ * canvas draws while a collection is empty and what a published page says if
+ * the chain cannot resolve, which is the same bargain every binding makes.
+ */
+export type Copy = string | { text: string; reads: Value };
+
+/** The copy as a node, bound when it was given something to read. */
+function copyNode(copy: Copy, styles: Record<string, string>): NodeSpec {
+  const spec = body(typeof copy === 'string' ? copy : copy.text, styles);
+  return typeof copy === 'string' ? spec : { ...spec, bind: { text: { value: copy.reads } } };
+}
+
+/**
+ * A field name, or a whole chain over one.
+ *
+ * `bind` has taken either spelling since the model was migrated — a bare
+ * string is a field, an object is a `Binding` — so a block that only ever
+ * wrote the string was narrowing what the document allows for no reason. The
+ * essay template reads `⟨Minutes⟩ ⟨joined with " min read"⟩`, which is a label
+ * living in the design rather than in six records.
+ */
+export type Reads = string | Value;
+
+const reads = (field: Reads): string | Binding =>
+  typeof field === 'string' ? field : { value: field };
+
 export function sectionHeader(
   eyebrow: string | undefined,
   title: string,
-  copy?: string,
+  copy?: Copy,
   align: 'center' | 'left' = 'center'
 ): NodeSpec {
   return stack(
@@ -493,7 +528,7 @@ export function sectionHeader(
         },
         TITLE_RESPONSIVE
       ),
-      ...(copy ? [body(copy, { maxWidth: '58ch' })] : []),
+      ...(copy ? [copyNode(copy, { maxWidth: '58ch' })] : []),
     ],
     {
       flexDirection: 'column',
@@ -1069,7 +1104,7 @@ export function listBlock(
 export interface FeedOptions {
   name: string;
   title: string;
-  intro?: string;
+  intro?: Copy;
   /** The collection's id, which only exists once the document is built. */
   collection: string;
   /** Where a card goes — the deferred reference to the detail page. */
@@ -1079,7 +1114,7 @@ export interface FeedOptions {
    * calls the same three things by different names, and renaming the *fields*
    * to suit the block would be the design dictating the content model.
    */
-  fields?: { title?: string; meta?: string; summary?: string };
+  fields?: { title?: string; meta?: Reads; summary?: string };
   columns?: number;
   /** Rows per published file. Splits the page, not the list. */
   paginate?: number;
@@ -1144,13 +1179,13 @@ export function feedBlock({
             bind: { text: titleField },
           },
           {
-            ...text('12 min', {
+            ...text('12 min read', {
               fontSize: '15px',
               fontWeight: '580',
               color: 'var(--c-primary)',
               whiteSpace: 'nowrap',
             }),
-            bind: { text: metaField },
+            bind: { text: reads(metaField) },
           },
         ],
         { gap: '16px', alignItems: 'baseline', width: '100%' }
@@ -1710,7 +1745,7 @@ export interface ArticleOptions {
    * records carry `date` publishes the literal words "12 min" to a real page,
    * and nothing anywhere would call that an error.
    */
-  fields?: { title?: string; meta?: string; body?: string };
+  fields?: { title?: string; meta?: Reads; body?: string };
 }
 
 export function articleBlock(back: string, options: ArticleOptions = {}): NodeSpec {
@@ -1740,14 +1775,14 @@ export function articleBlock(back: string, options: ArticleOptions = {}): NodeSp
             bind: { text: titleField },
           },
           {
-            ...text('12 min', {
+            ...text('12 min read', {
               fontSize: '14px',
               fontWeight: '580',
               color: 'var(--c-primary)',
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
             }),
-            bind: { text: metaField },
+            bind: { text: reads(metaField) },
           },
           {
             type: 'richtext',
