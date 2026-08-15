@@ -7908,6 +7908,60 @@ report.group('the panel is not narrower than the model');
     'utf8'
   ).replace(/\/\*[\s\S]*?\*\//g, '');
 
+  /* ----------------------------------------------------------------------
+   * A1 — Appearance, Conditions, Events
+   *
+   * `docs/INSPECTOR.md` §1: an element has three things, and every element has
+   * all three. The panel's groups were Arrangement / Appearance / Motion /
+   * Behaviour / Advanced, which is a filing system rather than a model —
+   * "Behaviour" held conditions, events, the data source and the component
+   * contract, four unrelated ideas sharing a word.
+   * ------------------------------------------------------------------- */
+
+  {
+    const filed = [...registrySource.matchAll(/^    group: '([A-Za-z]+)',$/gm)].map((m) => m[1]);
+    const MODEL = ['Appearance', 'Conditions', 'Events', 'Declares'];
+    const stray = [...new Set(filed)].filter((g) => !MODEL.includes(g));
+    report.check(
+      'every section is filed under the model, not under a word',
+      filed.length >= 18 && stray.length === 0 && new Set(filed).size === MODEL.length,
+      `${filed.length} sections across ${[...new Set(filed)].sort().join(', ')}` +
+        (stray.length ? ` — stray: ${stray.join(', ')}` : '')
+    );
+    /*
+     * And the claim that makes it a model rather than a renaming: Rule 1 says
+     * *every* element has Conditions and Events, so neither section may be
+     * gated by element type. "An element should not need a special behaviour
+     * architecture simply because it is a button" — the two sections that
+     * would carry one are these, and an `applies` on either is what breaking
+     * it looks like.
+     */
+    const blockOf = (id) => {
+      const at = registrySource.indexOf(`id: '${id}',`);
+      return at < 0 ? '' : registrySource.slice(at, registrySource.indexOf('\n  },', at));
+    };
+    const gated = ['rules', 'actions'].filter((id) => /applies:/.test(blockOf(id)));
+    report.check(
+      'Conditions and Events are on every element, which is what makes it a model',
+      gated.length === 0 && blockOf('rules').includes("group: 'Conditions'") &&
+        blockOf('actions').includes("group: 'Events'"),
+      gated.length ? `gated by element type: ${gated.join(', ')}` : 'neither is gated'
+    );
+    /*
+     * The residue, named rather than hidden. Three groups is a claim about
+     * what an element *is, looks like and does*; a repeat, a component
+     * contract and a published number are none of those, and filing them under
+     * Appearance to keep the count at three would be tidier and untrue.
+     */
+    const DECLARES = ['data', 'component', 'value'];
+    report.check(
+      'and what an element declares for others has a name of its own',
+      DECLARES.every((id) => blockOf(id).includes("group: 'Declares'")),
+      DECLARES.filter((id) => !blockOf(id).includes("group: 'Declares'")).join(', ') ||
+        'repeat, component contract and published value'
+    );
+  }
+
   const chunks = registrySource.split(/^    id: '/m).slice(1);
   const perElement = [];
   const bulk = [];

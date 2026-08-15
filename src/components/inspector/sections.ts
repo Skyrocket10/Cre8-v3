@@ -56,15 +56,39 @@ export interface SectionContext {
   pageCollection?: string;
 }
 
-/** The headings Add groups its offers under. Plain words, no CSS in any of them. */
-export type SectionGroup = 'Arrangement' | 'Appearance' | 'Motion' | 'Behaviour' | 'Advanced';
+/**
+ * The headings Add groups its offers under, and the model they teach.
+ *
+ * `docs/INSPECTOR.md` in four words: **an element has Appearance, Conditions
+ * and Events.** Appearance is what it is and how it looks, a Condition changes
+ * that when something is true, and an Event is when something happens. Every
+ * element has all three — there is no `applies` gate on Conditions or Events —
+ * so a designer learns the model from the panel rather than in spite of it.
+ *
+ * These were five — Arrangement, Appearance, Motion, Behaviour, Advanced —
+ * which is a reasonable filing system and teaches nothing. "Behaviour" held
+ * conditions, events, the data source and the component contract, which are
+ * four unrelated ideas sharing a word.
+ *
+ * ## Declares is the residue, and it is named rather than hidden
+ *
+ * Three groups is a claim about what an element *is, looks like and does*. It
+ * was never a claim that nothing else exists. Three things are genuinely none
+ * of the three: how many of the element there are (a repeat), what an instance
+ * of a component may change, and what number a control publishes for its
+ * descendants to be styled by. Filing "Repeat over Essays" under Appearance to
+ * keep the count at three would be tidier and untrue.
+ *
+ * Ordered as the panel reads: what it is, then when it differs, then what it
+ * does, then what it hands to everything else.
+ */
+export type SectionGroup = 'Appearance' | 'Conditions' | 'Events' | 'Declares';
 
 export const SECTION_GROUPS: SectionGroup[] = [
-  'Arrangement',
   'Appearance',
-  'Motion',
-  'Behaviour',
-  'Advanced',
+  'Conditions',
+  'Events',
+  'Declares',
 ];
 
 export interface SectionSpec {
@@ -156,7 +180,7 @@ export const SECTIONS: SectionSpec[] = [
     id: 'linkable',
     perElement: true,
     title: 'Link',
-    group: 'Behaviour',
+    group: 'Events',
     hint: 'Make the whole box clickable — go somewhere, or open a panel',
     props: [],
     applies: (_node, ctx) => LAYOUT_BOXES.includes(ctx.def.type),
@@ -170,7 +194,7 @@ export const SECTIONS: SectionSpec[] = [
     id: 'semantics',
     perElement: true,
     title: 'Semantics',
-    group: 'Advanced',
+    group: 'Appearance',
     hint: 'What this is to a screen reader, and a name links can point at',
     props: [],
     applies: (_node, ctx) => LAYOUT_BOXES.includes(ctx.def.type),
@@ -180,7 +204,7 @@ export const SECTIONS: SectionSpec[] = [
     id: 'switch',
     perElement: true,
     title: 'Switch',
-    group: 'Behaviour',
+    group: 'Conditions',
     hint: 'Give what is inside a state — tabs, a filter, a pricing toggle',
     props: [],
     applies: (_node, ctx) => holdsChildren(ctx.def),
@@ -190,7 +214,7 @@ export const SECTIONS: SectionSpec[] = [
     id: 'value',
     perElement: true,
     title: 'Continuous value',
-    group: 'Behaviour',
+    group: 'Declares',
     hint: 'A number the things inside can be styled by',
     props: [],
     applies: (_node, ctx) => holdsChildren(ctx.def),
@@ -200,7 +224,7 @@ export const SECTIONS: SectionSpec[] = [
     id: 'component',
     perElement: true,
     title: 'Component',
-    group: 'Behaviour',
+    group: 'Declares',
     hint: 'Which parts of this component an instance may change',
     props: [],
     applies: (node) => Boolean(node.meta.componentId),
@@ -210,7 +234,7 @@ export const SECTIONS: SectionSpec[] = [
   {
     id: 'layout',
     title: 'Layout',
-    group: 'Arrangement',
+    group: 'Appearance',
     hint: 'How the things inside are arranged',
     props: propsOf('layout'),
     applies: (_node, ctx) => holdsChildren(ctx.def),
@@ -219,7 +243,7 @@ export const SECTIONS: SectionSpec[] = [
   {
     id: 'size',
     title: 'Size',
-    group: 'Arrangement',
+    group: 'Appearance',
     hint: 'How wide and how tall',
     props: propsOf('size'),
     essential: (_node, ctx) => !ctx.def.textual || ctx.def.container,
@@ -227,7 +251,7 @@ export const SECTIONS: SectionSpec[] = [
   {
     id: 'spacing',
     title: 'Spacing',
-    group: 'Arrangement',
+    group: 'Appearance',
     hint: 'Room inside it, and room around it',
     props: propsOf('spacing'),
     essential: (_node, ctx) => holdsChildren(ctx.def),
@@ -235,7 +259,7 @@ export const SECTIONS: SectionSpec[] = [
   {
     id: 'placement',
     title: 'Placement',
-    group: 'Arrangement',
+    group: 'Appearance',
     hint: 'Where it sits, how it is layered, and how it is turned',
     props: propsOf('position', 'parent'),
   },
@@ -271,14 +295,14 @@ export const SECTIONS: SectionSpec[] = [
   {
     id: 'animation',
     title: 'Animation',
-    group: 'Motion',
+    group: 'Appearance',
     hint: 'How it arrives as somebody scrolls to it',
     props: ['appear'],
   },
   {
     id: 'transition',
     title: 'Transition',
-    group: 'Motion',
+    group: 'Appearance',
     hint: 'What eases when something about it changes',
     props: ['transition'],
   },
@@ -297,7 +321,7 @@ export const SECTIONS: SectionSpec[] = [
      * because it is the one somebody has already learned.
      */
     title: 'States & conditions',
-    group: 'Behaviour',
+    group: 'Conditions',
     hint: 'Look different when hovered, ticked, unavailable, or while a switch is on',
     props: [],
     used: (node) => Boolean(node.rules?.length),
@@ -307,7 +331,7 @@ export const SECTIONS: SectionSpec[] = [
     id: 'data',
     perElement: true,
     title: 'Data',
-    group: 'Behaviour',
+    group: 'Declares',
     hint: 'Repeat over a list, or fill this in from a record',
     props: [],
     applies: (node, ctx) => {
@@ -339,7 +363,7 @@ export const SECTIONS: SectionSpec[] = [
     id: 'actions',
     perElement: true,
     title: 'When pressed',
-    group: 'Behaviour',
+    group: 'Events',
     hint: 'Set a switch, copy something, open a panel, go somewhere',
     props: [],
     used: (node) => Boolean(node.events?.length),
@@ -347,7 +371,7 @@ export const SECTIONS: SectionSpec[] = [
   {
     id: 'advanced',
     title: 'Custom CSS',
-    group: 'Advanced',
+    group: 'Appearance',
     hint: 'A property this panel has no control for',
     props: propsOf('advanced'),
   },
